@@ -25,3 +25,4 @@ langchain-huggingface
 streamlit
 python-dotenv
 tqdm
+google-api-python-client

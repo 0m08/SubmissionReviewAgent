@@ -33,10 +33,7 @@ def main():
             "name": "Retriever Manual Input",
             "func": run_retriever_manual_input,
             "depends_on": ["Retriever"],
-            "args": {
-                "sheet": "sheet",
-                "worksheet_name": "Course Outline with LOs",
-            }
+            "args": {}
         },
         {
             "name": "Researcher",
