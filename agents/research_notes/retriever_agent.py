@@ -5,7 +5,7 @@ from services.sheets_service import get_sheet_data_and_df
 from tqdm import tqdm
 from services.helper_functions import create_and_populate_columns
 from services.helper_functions import get_outline_with_los
-import streamlit as st
+
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
@@ -267,13 +267,21 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
     return
 
 
-def run_retriever_manual_input(sheet, worksheet_name):
+def manual_input_review_context(sheet, worksheet_name):
+    """
+    This function checks if the user has properly reviewed the context and marked the review as Done or not.
+
+    :param sheet: The sheet object.
+    :param worksheet_name: The worksheet name.
+    """
 
     course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
 
-    if course_outline_with_lo_df.iloc[-1]['context_0'] != "":
-        st.write("Last row of context not populated")
+    if "Context Review" not in course_outline_with_lo_df.columns:
+        raise Exception(f"Manually add the following column `Context Review` inside this sheet - {course_outline_with_lo_sheet.url}.\nReview the context_n columns and enter `Done` in the first row of `Context Review` column.")
+    
+    elif course_outline_with_lo_df["Context Review"].values[0] != "Done":
+        raise ValueError("Review the context_n columns and enter `Done` in the first row of `Context Review` column.")
     else:
-        st.write("Last row of context is populated")
-    return
-        
+        print("Context is reviewed")
+        return True

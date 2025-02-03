@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
 from agents.research_notes.research_notes_agent import run_research_notes_agent_for_all_rows
-from agents.research_notes.retriever_agent import run_retriever_manual_input
+from agents.research_notes.retriever_agent import manual_input_review_context
 
 from services.sheets_service import get_sheet_data_and_df
 from services.drive_service import drive
@@ -31,9 +31,12 @@ def main():
         },
         {
             "name": "Retriever Manual Input",
-            "func": run_retriever_manual_input,
+            "func": manual_input_review_context,
             "depends_on": ["Retriever"],
-            "args": {}
+            "args": {
+                "sheet": "sheet",
+                "worksheet_name": "Course Outline with LOs",
+            }
         },
         {
             "name": "Researcher",
