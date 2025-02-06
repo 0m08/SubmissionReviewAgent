@@ -1,0 +1,92 @@
+import streamlit as st
+
+# 1) Initialize Session State for user role
+if "role" not in st.session_state:
+    st.session_state.role = None
+
+authenticated_roles = ["Editor"]  # example roles
+
+#######################
+# 2) Define "pages"
+#######################
+
+def login():
+    """A simple 'Login' page as a function. 
+       Called if user is not logged in."""
+    st.header("Login Page")
+    role_choice = st.text_input("Enter your login name: ")
+    if st.button("Log in"):
+        if role_choice in authenticated_roles:
+            st.success("Logging in")
+            st.session_state.role = role_choice
+        else:
+            st.error("Failed to authenticate. Try again.")
+        st.rerun()
+
+
+def logout():
+    """Immediately logs the user out by clearing role."""
+    st.session_state.role = None
+    st.rerun()
+
+
+def list_of_agents():
+    st.header("Welcome")
+    st.write("Here's the list of agents:")
+
+
+# We can either define Page objects inline (pointing to .py files or callables)
+# or just define them here. For simplicity, let's define some stubs as Page objects.
+
+# --- Account pages ---
+list_of_agents_page = st.Page(list_of_agents, title = "List of agents", icon = ":material/list:")
+logout_page = st.Page(logout, title="Log out", icon=":material/logout:")
+
+# --- Outline pages ---
+course_outline_page = st.Page(
+    "research_notes.py",
+    title="Research Notes",
+    icon=":material/book:",
+    # Optional: default=(role == "Requester") or any logic
+)
+
+
+
+#######################
+# 3) Common app layout
+#######################
+
+# Title and logo are always visible on every page, since they're in the main script.
+# st.title("Course Generation Agent")
+# st.logo("images/horizontal_blue.png", icon_image="images/icon_blue.png")
+
+#######################
+# 4) Dynamic Navigation
+#######################
+
+# We'll build a dictionary of pages for the "logged in" scenario,
+# plus one for the "logged out" scenario.
+
+
+if st.session_state.role in authenticated_roles:
+    # The user is logged in (role != None)
+    page_dict = {}
+
+    account_pages = [list_of_agents_page, logout_page]
+    user_pages = [course_outline_page]
+
+    page_dict["Account"] = account_pages
+    page_dict["User Pages"] = user_pages
+
+    # Create the navigation
+    # This returns the page that should be run
+    current_page = st.navigation(page_dict)
+
+else:
+    # User not logged in, or role is None
+    # Show only the login page
+    current_page = st.navigation([st.Page(login, title="Login", icon=":material/login:")])
+
+
+# Finally, call run() on whichever page the user selected in the nav.
+current_page.run()

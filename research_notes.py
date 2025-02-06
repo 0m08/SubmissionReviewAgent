@@ -11,7 +11,7 @@ from services.drive_service import drive
 
 
 def main():
-    st.title("Course Pipeline Runner")
+    st.title("Research Notes Agent")
 
     # --- 1) Define pipeline steps as a list of dicts ---
     pipeline_steps = [
@@ -133,5 +133,5 @@ def main():
                 st.write(f"{step['name']}: **Done**")
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+main()

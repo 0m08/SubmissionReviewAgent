@@ -177,6 +177,19 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
     :param llm: The language model to use.
     :return: None
     """
+
+    # Read the sheet and df
+    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
+
+    # Create columns in df if not already present
+    if 'context_0' not in course_outline_with_lo_df.columns:
+        course_outline_with_lo_df['context_0'] = ''
+    
+    # Check if this step is already done by checking last row of Context column
+    if course_outline_with_lo_df.iloc[-1]['context_0'] != '':
+        print('Context already populated')
+        return
+
     # Load the retriever
     compression_retriever = get_compression_retriever(
         course_name = course_name,
@@ -184,22 +197,9 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
         drive = drive
     )
 
-    # Read the sheet and df
-    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
     # Get the course outline
     course_outline = get_outline_with_los(df = course_outline_with_lo_df, include_learning_objectives = False)
 
-    # Create columns in df if not already present
-    if 'context_0' not in course_outline_with_lo_df.columns:
-        course_outline_with_lo_df['context_0'] = ''
-    if 'Research Notes' not in course_outline_with_lo_df.columns:
-        course_outline_with_lo_df['Research Notes'] = ''
-    
-    # Check if this step is already done by checking last row of Context column
-    if course_outline_with_lo_df.iloc[-1]['context_0'] != '':
-        print('Context already populated')
-        return
-    
     # Otherwise run the for loop
     for index, row in tqdm(course_outline_with_lo_df.iterrows(), total=course_outline_with_lo_df.shape[0]):
         
