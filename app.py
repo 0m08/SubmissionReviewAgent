@@ -9,7 +9,7 @@ from services.sheets_service import get_sheet_data_and_df
 # from services.helper_functions import get_outline_with_los
 
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
-from agents.research_notes.research_notes_agent import run_research_notes_agent_for_all_rows
+from agents.research_notes.generate_notes import run_research_notes_agent_for_all_rows
 
 from dotenv import load_dotenv
 

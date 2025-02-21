@@ -8,7 +8,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.document_loaders import AsyncHtmlLoader, AsyncChromiumLoader
 from langchain_community.document_transformers import Html2TextTransformer
 from langchain_core.documents import Document
-from chunking_service import general_chunker
+from services.chunking_service import general_chunker
 
 
 def extract_markdown_and_videos_from_webpage(url, timeout=10):
@@ -20,12 +20,14 @@ def extract_markdown_and_videos_from_webpage(url, timeout=10):
         # Fetch the webpage content with a timeout
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()  # Ensure the request was successful
-    except requests.exceptions.Timeout:
-        return "The request timed out after {} seconds.".format(timeout)
-    except requests.exceptions.HTTPError as err:
-        return "HTTP error occurred: {}".format(err)
-    except requests.exceptions.RequestException as err:
-        return "Error during requests to {}: {}".format(url, err)
+    # except requests.exceptions.Timeout:
+    #     return "The request timed out after {} seconds.".format(timeout)
+    # except requests.exceptions.HTTPError as err:
+    #     return "HTTP error occurred: {}".format(err)
+    # except requests.exceptions.RequestException as err:
+    #     return "Error during requests to {}: {}".format(url, err)
+    except Exception as e:
+        raise e
 
     # Parse the HTML to remove unwanted content
     soup = BeautifulSoup(response.text, 'html.parser')

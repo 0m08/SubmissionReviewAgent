@@ -1,10 +1,12 @@
 from modules.chain import Chain
 from services.llm_service import csv_list_parser
-from agents.research_notes.retriever import get_compression_retriever
+from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
 from services.sheets_service import get_sheet_data_and_df
 from tqdm import tqdm
 from services.helper_functions import create_and_populate_columns
 from services.helper_functions import get_outline_with_los
+import streamlit as st
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
@@ -36,7 +38,7 @@ Best practices for formulating search query:
 - Modify search query to include additional context incase the learning objective if looked in isolation is vague / too generic.
 - Evolve and adapt your search queries incase they don't yeild relevant results or incase you need some more surrounding information to cover the LO properly.
 
-Output format:
+Present yout output in the following format:
 <observations>
 [Place your observations of the step taken within these tags. It is ok for this section to be quite long and comprehensive.
 Start by analysing each and every doc and then formulate overall observations.]
@@ -53,8 +55,11 @@ Start by analysing each and every doc and then formulate overall observations.]
 <query>
 [If continue, then place the query within these tags, else leave this as blank.]
 </query>
+<search_on>
+["VECTOR STORE" or "WEB SEARCH". Only choose web search if multiple queries against vector store did not retrieve relevant docs. Leave blank if no query.]
+</search_on>
 
-Remember, your goal is to retrieve the best information possible for the given learning objective. Be mindful of the docs you select.
+Remember, your goal is to retrieve the best information possible for the given learning objective. Be mindful of the docs you select. Make sure you follow the output format.
 """
 
 
@@ -63,8 +68,8 @@ def get_docs_as_string(docs, all_docs):
     """
     This function wraps the docs in a readable manner while removing any duplicate docs.
 
-    :param: docs: The docs to be wrapped.
-    :param: all_docs: The list of all docs.
+    :param docs: The docs to be wrapped.
+    :param all_docs: The list of all docs.
     :return: The docs as a string and the updated list of all docs.
     """
     docs_as_string = ''
@@ -82,28 +87,29 @@ def get_docs_as_string(docs, all_docs):
     # Replace {} with {{}}
     docs_as_string = docs_as_string.replace('{', '{{')
     docs_as_string = docs_as_string.replace('}', '}}')
-    
+
     return docs_as_string, all_docs
 
 
-def retrieve_relevant_docs(compression_retriever, course_name, target_audience, course_outline, topic_name, subtopic_name, learning_objective, max_turns = 5, llm = 'groq'):
+def retrieve_relevant_docs(compression_retriever, web_search_retriever, course_name, target_audience, course_outline, topic_name, subtopic_name, learning_objective, max_turns = 5, llm = 'groq'):
     """
     This function retrieves the relevant documents for the given learning objective.
 
-    :param: compression_retriever: The compression retriever.
-    :param: course_name: The name of the course.
-    :param: target_audience: The target audience of the course.
-    :param: course_outline: The outline of the course.
-    :param: topic_name: The name of the topic.
-    :param: subtopic_name: The name of the subtopic.
-    :param: learning_objective: The learning objective.
-    :param: max_turns: The maximum number of turns to retrieve the relevant documents.
-    :param: llm: The language model to use.
+    :param compression_retriever: The compression retriever.
+    :param web_search_retriever: The web search retriever.
+    :param course_name: The name of the course.
+    :param target_audience: The target audience of the course.
+    :param course_outline: The outline of the course.
+    :param topic_name: The name of the topic.
+    :param subtopic_name: The name of the subtopic.
+    :param learning_objective: The learning objective.
+    :param max_turns: The maximum number of turns to retrieve the relevant documents.
+    :param llm: The language model to use.
     :return: The selected doc ids and all docs.
     """
 
     # Construct the chain
-    retriver_agent = Chain(llm = llm, tags = ['verdict', 'selected_doc_ids', 'action', 'query'])
+    retriver_agent = Chain(llm = llm, tags = ['verdict', 'selected_doc_ids', 'action', 'query', 'search_on'])
 
     # Add system message
     retriver_agent.add_message(
@@ -160,109 +166,172 @@ def retrieve_relevant_docs(compression_retriever, course_name, target_audience, 
         else:
             # Extract the next query and get the docs
             query = response['query']
+            # Check search type
+            search_on = response['search_on']
+            if "web search" in search_on.lower():
+                print('Using web search retriever')
+                docs = web_search_retriever.invoke(query)
+            else:
+                print('Using compression retriever')
+                docs = compression_retriever.invoke(query)
 
     return selected_doc_ids, all_docs
 
 
-def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name, course_name, target_audience, llm):
+def process_single_row(index, row, compression_retriever, web_search_retriever,
+                       course_name, target_audience, course_outline, llm):
     """
-    This function runs the retriever agent for all df rows.
+    Processes a single row: runs the retriever agent for each Learning Objective
+    and accumulates the context string. Returns (index, context_string).
+    """
+    # # If row is already populated, just return existing context
+    # if row['context_0'] != '':
+    #     return index, row['context_0']
 
-    :param root_folder_id: The ID of the root folder containing 'Pickle files' and 'Vectorstore files'.
-    :param drive: Authenticated GoogleDrive instance (PyDrive2).
-    :param sheet: The sheet object.
-    :param worksheet_name: The worksheet name.
-    :param course_name: The course name.
-    :param target_audience: The target audience.
-    :param llm: The language model to use.
-    :return: None
+    # Get the LOs for this row / subtopic
+    learning_objectives = row['Learning Objectives'].split('\n')
+
+    context = ""
+    context_docs = []
+
+    for lo in learning_objectives:
+        # Run the retriever agent
+        selected_doc_ids, all_docs = retrieve_relevant_docs(
+            compression_retriever=compression_retriever,
+            web_search_retriever=web_search_retriever,
+            course_name=course_name,
+            target_audience=target_audience,
+            course_outline=course_outline,
+            topic_name=row['Topic'],
+            subtopic_name=row['Subtopic'],
+            learning_objective=lo,
+            llm=llm
+        )
+
+        for doc_id in selected_doc_ids:
+            # Check if doc_id is an integer
+            if doc_id.isdigit():
+                doc_index = int(doc_id)
+                context_doc = all_docs[doc_index]
+                # Skip if doc already added
+                if context_doc in context_docs:
+                    print(f'Skipping doc id {doc_id} as it is already added')
+                    continue
+                # Otherwise add the doc
+                context += f'============= Doc id: {len(context_docs)} =============\n'
+                context += context_doc.page_content + '\n\n'
+                context_docs.append(context_doc)
+            else:
+                print(f'Skipping doc id {doc_id} as it is not an integer')
+                continue
+
+    return index, context
+
+
+def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
+                                     course_name, target_audience, llm):
+    """
+    This function runs the retriever agent for all df rows, in parallel using ThreadPoolExecutor.
     """
 
     # Read the sheet and df
-    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
+    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(
+        sheet=sheet,
+        sheet_name=worksheet_name
+    )
 
     # Create columns in df if not already present
     if 'context_0' not in course_outline_with_lo_df.columns:
         course_outline_with_lo_df['context_0'] = ''
-    
-    # Check if this step is already done by checking last row of Context column
+
+    # Check if this step is already done by checking the last row of 'context_0'
     if course_outline_with_lo_df.iloc[-1]['context_0'] != '':
         print('Context already populated')
         return
 
-    # Load the retriever
+    # Load the vector retriever
     compression_retriever = get_compression_retriever(
-        course_name = course_name,
-        root_folder_id = root_folder_id,
-        drive = drive
+        course_name=course_name,
+        root_folder_id=root_folder_id,
+        drive=drive,
+        sheet=sheet,
+        retriever_1_weight=0.5,
+        retriever_2_weight=0.5
     )
 
+    # Load the web retriever
+    web_search_retriever = get_web_search_retriever()
+
     # Get the course outline
-    course_outline = get_outline_with_los(df = course_outline_with_lo_df, include_learning_objectives = False)
+    course_outline = get_outline_with_los(
+        df=course_outline_with_lo_df,
+        include_learning_objectives=False
+    )
 
-    # Otherwise run the for loop
-    for index, row in tqdm(course_outline_with_lo_df.iterrows(), total=course_outline_with_lo_df.shape[0]):
-        
-        # Check if row already populated
-        if row['context_0'] != '':
-            print(f'Skipping row {index}. Already populated')
-            continue
-        
-        # Get the LOs for this row / subtopic
-        learning_objectives = row['Learning Objectives'].split('\n')
-
-        context = ""
-        context_docs = []
-        for lo in learning_objectives:
-            # Run the retriever agent
-            selected_doc_ids, all_docs = retrieve_relevant_docs(
-                compression_retriever = compression_retriever,
-                course_name = course_name,
-                target_audience = target_audience,
-                course_outline = course_outline,
-                topic_name = row['Topic'],
-                subtopic_name = row['Subtopic'],
-                learning_objective = lo,
-                llm = llm
+    # Prepare for parallel processing
+    futures = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit tasks for each row
+        for index, row in course_outline_with_lo_df.iterrows():
+            # Skip if already populated
+            if row['context_0'] != '':
+                continue
+            futures.append(
+                executor.submit(
+                    process_single_row,
+                    index,
+                    row,
+                    compression_retriever,
+                    web_search_retriever,
+                    course_name,
+                    target_audience,
+                    course_outline,
+                    llm
+                )
             )
 
-            for id in selected_doc_ids:
-                # Check if id can be converted to int
-                if id.isdigit():
-                    context_doc = all_docs[int(id)]
-                    # Check if doc already added
-                    if context_doc in context_docs:
-                        print(f'Skipping doc id {id} as it is already added')
-                        continue
-                    # Else add the doc to the context
-                    else:
-                        context += f'============= Doc id: {len(context_docs)} =============\n'
-                        context += context_doc.page_content + '\n\n'
-                        context_docs.append(context_doc)
-                else:
-                    print(f'Skipping doc id {id} as it is not an integer')
-                    continue
-        
-        # Update the df row with context
-        course_outline_with_lo_df = create_and_populate_columns(
-            df = course_outline_with_lo_df,
-            text = context,
-            specific_index = index,
-            col_base_name = 'context',
-            chunk_size = 49000
-        )
+        # Collect the results as they complete
+        completed_count = 0
+        N = 5  # how often to save
 
-        # Save to sheet every N rows
-        N = 5
-        if index % N == 0:
-            print(f'Saving to sheet at row {index}')
-            course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-            course_outline_with_lo_sheet.update([course_outline_with_lo_df.columns.values.tolist()] + course_outline_with_lo_df.values.tolist())
-        
-    # Save to sheet at the end of the loop
-    print('Saving to sheet at the end of the loop')
+        progress_bar = st.progress(0, text="Percent complete: 0%")
+        total = len(futures)
+
+        for future in tqdm(as_completed(futures), total=total):
+            index, context = future.result()
+
+            # Update the row in the DataFrame
+            course_outline_with_lo_df = create_and_populate_columns(
+                df=course_outline_with_lo_df,
+                text=context,
+                specific_index=index,
+                col_base_name='context',
+                chunk_size=49000
+            )
+
+            completed_count += 1
+            # Save to sheet every N completed tasks
+            if completed_count % N == 0:
+                print(f'Saving partial progress to sheet after {completed_count} tasks completed.')
+                # Convert all columns to string to avoid data-type issues
+                course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
+                course_outline_with_lo_sheet.update(
+                    [course_outline_with_lo_df.columns.values.tolist()] +
+                    course_outline_with_lo_df.values.tolist()
+                )
+            
+            # Update the progress bar
+            percent_complete = int(completed_count + 1 / total * 100)
+            progress_bar.progress(percent_complete, text = f"Percent complete: {percent_complete}")
+
+
+    # Final save to sheet after all tasks
+    print('All rows processed. Saving final DataFrame to sheet.')
     course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-    course_outline_with_lo_sheet.update([course_outline_with_lo_df.columns.values.tolist()] + course_outline_with_lo_df.values.tolist())
+    course_outline_with_lo_sheet.update(
+        [course_outline_with_lo_df.columns.values.tolist()] +
+        course_outline_with_lo_df.values.tolist()
+    )
 
     return
 
@@ -279,9 +348,12 @@ def manual_input_review_context(sheet, worksheet_name):
 
     if "Context Review" not in course_outline_with_lo_df.columns:
         raise Exception(f"Manually add the following column `Context Review` inside this sheet - {course_outline_with_lo_sheet.url}.\nReview the context_n columns and enter `Done` in the first row of `Context Review` column.")
-    
+        # st.write(f"Manually add the following column `Context Review` inside this sheet - {course_outline_with_lo_sheet.url}.\nReview the context_n columns and enter `Done` in the first row of `Context Review` column.")
+        # return False
     elif course_outline_with_lo_df["Context Review"].values[0] != "Done":
         raise ValueError("Review the context_n columns and enter `Done` in the first row of `Context Review` column.")
+        # return False
     else:
         print("Context is reviewed")
         return True
+

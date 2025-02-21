@@ -2,6 +2,9 @@ from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
 from services.sheets_service import get_sheet_data_and_df
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import streamlit as st
+
 
 generate_research_notes_prompt = """You are an expert educational content developer tasked with creating comprehensive research notes for a specific subtopic within a larger course. Your goal is to produce well-structured, engaging, and educational notes that align precisely with the given learning objectives while considering the overall course structure and target audience.
 
@@ -32,7 +35,7 @@ Subtopic and Learning Objectives to Focus On:
 {subtopic_and_los}
 </subtopic_and_los>
 
-Now, follow these steps to generate the research notes. For each step, wrap your work inside the specified XML tags to show your work:
+Now, follow these steps to generate the research notes. For each step, wrap your work inside the specified XML tags (i.e - objective_analysis, examine_documents, determine_information, propose_framework, create_notes, and review_and_refine) to show your work:
 
 1. <objective_analysis>
    - Carefully review the learning objectives for the specific subtopic.
@@ -42,10 +45,9 @@ Now, follow these steps to generate the research notes. For each step, wrap your
 
 2. <examine_documents>
    - Thoroughly read and analyze the provided relevant documents.
-   - Quote key passages that directly support the learning objectives.
+   - Quote key passages that directly support the learning objectives (in case of too many docs, very large quotes, too many quotes, it is okay to present summarized versions.)
    - Explain the significance of each quoted passage in relation to the learning objectives.
    - Note any examples, definitions, or explanations that could enhance understanding.
-   - Incase of a huge list of documents, skip the irrelevant documents.
 </examine_documents>
 
 3. <determine_information>
@@ -120,18 +122,23 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
     return response['create_notes']
 
 
-def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm = 'groq'):
+def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm='groq'):
     """
     This function runs the research notes agent for all rows in the sheet.
 
     :param sheet: The sheet object.
     :param worksheet_name: The worksheet name.
+    :param course_name: The name of the course.
+    :param target_audience: The target audience of the course.
     :param llm: The language model to use.
     :return: None
     """
-    
+
     # Read the sheet and df
-    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
+    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(
+        sheet=sheet, 
+        sheet_name=worksheet_name
+    )
 
     # Create column for research notes if not already present
     if 'research_notes' not in course_outline_with_lo_df.columns:
@@ -141,53 +148,86 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
     if course_outline_with_lo_df.iloc[-1]['research_notes'] != '':
         print('Research notes already populated')
         return
-    
+
     # Get context column count
     context_col_count = len([col for col in course_outline_with_lo_df.columns if 'context_' in col])
 
     # Get the course outline with lo
     course_outline_with_lo = get_outline_with_los(
-        df = course_outline_with_lo_df,
-        include_learning_objectives = True
+        df=course_outline_with_lo_df,
+        include_learning_objectives=True
     )
 
-    # Otherwise run the for loop
-    for index, row in tqdm(course_outline_with_lo_df.iterrows(), total=course_outline_with_lo_df.shape[0]):
+    # Prepare for parallel processing
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit tasks for each row
+        for index, row in course_outline_with_lo_df.iterrows():
+            # Check if row already populated
+            if row['research_notes'] != '':
+                print(f'Skipping row {index}. Already populated')
+                continue
 
-        # Check if row already populated
-        if row['research_notes'] != '':
-            print(f'Skipping row {index}. Already populated')
-            continue
-        
-        # Construct the context by joining all the context_n values
-        context = ""
-        for i in range(context_col_count):
-            context += row[f'context_{i}']
+            # Construct the context by joining all the context_n values
+            context = ''.join(
+                [row[f'context_{i}'] for i in range(context_col_count)]
+            )
 
-        # Get the research notes
-        research_notes = generate_research_notes(
-            course_name = course_name,
-            target_audience = target_audience,
-            course_outline = course_outline_with_lo,
-            subtopic_and_los = row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-            relevant_documents = context,
-            llm = llm
-        )
+            # Submit the task
+            future = executor.submit(
+                generate_research_notes,
+                course_name=course_name,
+                target_audience=target_audience,
+                course_outline=course_outline_with_lo,
+                subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
+                relevant_documents=context,
+                llm=llm,
+            )
 
-        # Update the df row with research notes
-        course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
+            # Map the Future to the index
+            futures_map[future] = index
 
-        # Save to sheet every N rows
-        N = 5
-        if index % N == 0:
-            print(f'Saving to sheet at row {index}')
-            course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-            course_outline_with_lo_sheet.update([course_outline_with_lo_df.columns.values.tolist()] + course_outline_with_lo_df.values.tolist())
+        # Collect the results as they complete
+        completed_count = 0
+        total_tasks = len(futures_map)
+        save_interval = 5  # how often to save (in number of completed tasks)
 
-    # Save to sheet at the end of the loop
-    print('Saving to sheet at the end of the loop')
+        # Initialize Streamlit progress bar
+        progress_bar = st.progress(0, text = "Percent complete: 0%")
+
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            index = futures_map[future]
+            research_notes = future.result()
+
+            # Update the df row with research notes
+            course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
+
+            completed_count += 1
+
+            # Save to sheet every 'save_interval' completed tasks
+            if completed_count % save_interval == 0:
+                print(f'Saving partial progress to sheet after {completed_count} tasks completed.')
+                # Convert all columns to string to avoid data-type issues
+                course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
+                course_outline_with_lo_sheet.update(
+                    [course_outline_with_lo_df.columns.values.tolist()] +
+                    course_outline_with_lo_df.values.tolist()
+                )
+
+            # Update the Streamlit progress bar
+            fraction_complete = completed_count / total_tasks
+            progress_bar.progress(fraction_complete, text = f"Percent complete: {str(int(fraction_complete * 100))}%")
+
+
+    # Final save to sheet after all tasks
+    print('All rows processed. Saving final DataFrame to sheet.')
     course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-    course_outline_with_lo_sheet.update([course_outline_with_lo_df.columns.values.tolist()] + course_outline_with_lo_df.values.tolist())
+    course_outline_with_lo_sheet.update(
+        [course_outline_with_lo_df.columns.values.tolist()] +
+        course_outline_with_lo_df.values.tolist()
+    )
 
     return
+
+
 

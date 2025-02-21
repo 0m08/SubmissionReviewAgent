@@ -6,10 +6,24 @@ from langchain_core.runnables import ConfigurableField
 # Output Parsers
 from langchain_core.output_parsers import StrOutputParser, CommaSeparatedListOutputParser
 import time
+import csv
+from datetime import datetime
+import os
+
+
+def log_token_usage(llm, input_tokens, output_tokens, log_file="content/token_usage_log.csv"):
+    """Appends token usage data to a CSV file."""
+    # Check if the log file already exists to decide if we need a header row.
+    file_exists = os.path.isfile(log_file)
+    with open(log_file, mode="a", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        if not file_exists:
+            writer.writerow(["timestamp", "llm", "input_tokens", "output_tokens"])
+        writer.writerow([datetime.now().isoformat(), llm, input_tokens, output_tokens])
 
 
 # Function to make llm calls
-def llm_with_retry(arg, max_retries=15, structured_output=None):
+def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = None):
     """
     Call an LLM with optional structured output and retry logic.
     Args:
@@ -33,7 +47,7 @@ def llm_with_retry(arg, max_retries=15, structured_output=None):
             llama_3_1_70b = ChatGroq(model_name = 'llama-3.1-70b-versatile', temperature = 0.7, max_tokens = 4096),
             gemini_2_flash = ChatGoogleGenerativeAI(model = "gemini-2.0-flash-exp", temperature = 0.7, max_tokens = 8192),
             o1 = ChatOpenAI(model = 'o1'),
-            o1_mini = ChatOpenAI(model = 'o1-mini'),
+            o3_mini = ChatOpenAI(model = 'o3-mini'),
             )
 
     # Optionally add structured output
@@ -47,10 +61,19 @@ def llm_with_retry(arg, max_retries=15, structured_output=None):
                 result = llm.with_config(
                     configurable={"llm": 'gemini_flash'}
                     ).invoke(arg)
-                return result
+                llm_name = 'gemini_flash'
             else:
                 result = llm.invoke(arg)
-                return result  # Return the successful API response
+
+            # Log structured token usage.
+            log_token_usage(
+                llm = llm_name,
+                input_tokens = result.usage_metadata['input_tokens'],
+                output_tokens = result.usage_metadata['output_tokens'],
+                log_file = "token_usage_log.csv"
+            )
+
+            return result  # Return the successful API response
         except KeyboardInterrupt:
             print('Keyboard interrupt')
             raise Exception("Keyboard interrupt")

@@ -72,7 +72,8 @@ class Chain:
         self.messages_list = []
         self.tags = tags
         self.use_xml_checker = use_xml_checker
-        self.chain_steps = [llm_with_retry, output_parser]  # Default steps
+        self.chain_steps = [self.call_llm_with_retry, self.parse_output]  # Default steps
+        self.structured_output = None  # For optional structured output
 
     def add_message(self, role, content):
         """
@@ -130,24 +131,103 @@ class Chain:
 
     def extract_text_in_tags(self, text: str):
         """
-        Extract a list of texts within the specified XML tags.
-
-        Args:
-            text (str): The input text containing the XML tags.
-
-        Returns:
-            list: A list of texts extracted from the specified tags.
+        Attempt to extract the desired tags. If it fails, call a self-correction
+        step that does not appear in the user-visible message history.
         """
-        print(text)
-        texts = {'text': text}  # Store the text within each tag as a list
+        max_corrections = 2  # how many times we attempt auto-correction
+        attempt = 0
+        
+        while attempt < max_corrections:
+            try:
+                # Try extracting
+                return self._attempt_extract_text_in_tags(text)
+            except Exception as e:
+                print(f"[!] Extraction error: {e}")
+                # Attempt self-correction
+                text = self._self_correct_output(text, str(e))
+                attempt += 1
+        
+        # If we still fail after max_corrections, raise the original exception
+        raise Exception(f"Unable to extract text from tags after {max_corrections} attempts.")
+
+    def _attempt_extract_text_in_tags(self, text: str):
+        """
+        A helper that actually performs the extraction (no hidden LLM calls).
+        Raises Exception if it can't find a required tag.
+        """
+        print(text)  # or use a logger
+        texts = {'text': text}
         for tag in self.tags:
             pattern = f"<{tag}>\s*(.*?)\s*</{tag}>"
             match_1 = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match_1:
                 texts[tag] = match_1.group(1)
             else:
-                raise Exception(f"Unable to extract the text from the {tag} tags")
+                # Raise exception if a tag is missing
+                raise Exception(f"Unable to extract the text from <{tag}> ... </{tag}> tags.")
         return texts
+
+    def _self_correct_output(self, text, error_message):
+        """
+        Calls the LLM behind the scenes to correct the output format, using a local
+        copy of the current conversation plus a correction message. Does *not* store
+        these steps in self.messages_list, so they do not appear in user-facing history.
+        """
+
+        # 1. Make a local copy of the existing conversation
+        ephemeral_messages = list(self.messages_list)
+
+        # 2. Append a hidden correction message explaining the error and
+        #    reminding the LLM of the original format requirements
+        correction_message = (
+            "SYSTEM: Your previous output had an error while extracting tags.\n\n"
+            f"Error details: {error_message}\n\n"
+            "Please regenerate a corrected output that satisfies the previously specified format.\n"
+            "Reply with the full output. Don't make any changes to the message content, only fix the format by properly following the format specified."
+        )
+        ephemeral_messages.append(("user", correction_message))
+
+        # 3. Pass the ephemeral messages (including the new correction message) to the LLM.
+        #    This call does NOT modify self.messages_list, so the user never sees it.
+        corrected_output = output_parser.invoke(llm_with_retry(
+            ephemeral_messages,
+            structured_output=self.structured_output,
+            llm_name=self.llm
+        ))
+
+        return corrected_output
+
+
+
+    def call_llm_with_retry(self, inputs):
+        """
+        Call the LLM using llm_with_retry and optionally structured output.
+        Args:
+            inputs: Input data for the LLM.
+        Returns:
+            The result of the LLM call.
+        """
+        return llm_with_retry(
+            inputs,
+            structured_output = self.structured_output,
+            llm_name = self.llm
+        )
+
+
+    def parse_output(self, output):
+        """
+        Parses the output of the LLM. Adapts to structured or plain string output.
+        Args:
+            output: The raw output from the LLM.
+        Returns:
+            Parsed output, either as structured data or string output parser.
+        """
+        if self.structured_output:
+            # Assume the output is already validated and structured if structured_output is used
+            return output
+        else:
+            return output_parser
+
 
     # Decorator to retry a function up to n times if it raises an exception.
     @try_n_times(3)
