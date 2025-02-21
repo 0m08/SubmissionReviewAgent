@@ -170,10 +170,16 @@ def retrieve_relevant_docs(compression_retriever, web_search_retriever, course_n
             search_on = response['search_on']
             if "web search" in search_on.lower():
                 print('Using web search retriever')
-                docs = web_search_retriever.invoke(query)
+                try:
+                    docs = web_search_retriever.invoke(query)
+                except:
+                    docs = []
             else:
                 print('Using compression retriever')
-                docs = compression_retriever.invoke(query)
+                try:
+                    docs = compression_retriever.invoke(query)
+                except:
+                    docs = []
 
     return selected_doc_ids, all_docs
 
