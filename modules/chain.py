@@ -66,6 +66,29 @@ Make sure to only output the fixed xml. Don't output anything else.
                 xml_text = fix_xml(xml_text, error, llm)
 
 
+def escape_single_braces(text: str) -> str:
+    """
+    Replaces only truly single '{' or '}' with double braces.
+    Existing double/triple braces remain unchanged.
+    
+    Examples:
+      A single { brace } -> A single {{ brace }}
+      Double {{ braces }} -> (unchanged) -> {{ braces }}
+      Triple {{{ braces }}} -> (unchanged) -> {{{ braces }}}
+    """
+
+    # Regex to find a left brace '{' that is NOT preceded or followed by another '{'
+    SINGLE_LEFT_BRACE = re.compile(r'(?<!\{)\{(?!\{)')
+
+    # Regex to find a right brace '}' that is NOT preceded or followed by another '}'
+    SINGLE_RIGHT_BRACE = re.compile(r'(?<!\})\}(?!\})')
+    
+    # Replace single '{' with '{{'
+    text = SINGLE_LEFT_BRACE.sub('{{', text)
+    # Replace single '}' with '}}'
+    text = SINGLE_RIGHT_BRACE.sub('}}', text)
+    return text
+
 class Chain:
     def __init__(self, llm='groq', tags=None, use_xml_checker=False):
         self.llm = llm
@@ -117,17 +140,35 @@ class Chain:
     def _build_chain(self):
         if not self.messages_list:
             raise ValueError("Messages list must have at least one message before building the chain.")
-
-        chain = ChatPromptTemplate.from_messages(self.messages_list)
-
+        
+        # 1) Create a new list of sanitized messages
+        sanitized_messages = []
+        for message in self.messages_list:
+            if isinstance(message, tuple) and len(message) == 2:
+                role, content = message
+                # Escape only truly single braces
+                content = escape_single_braces(content)
+                sanitized_messages.append((role, content))
+            else:
+                # If your messages_list can contain strings or special objects,
+                # handle them accordingly. E.g. if it's a string, just escape it:
+                if isinstance(message, str):
+                    message = escape_single_braces(message)
+                sanitized_messages.append(message)
+        
+        # 2) Build the prompt template from the sanitized messages
+        chain = ChatPromptTemplate.from_messages(sanitized_messages)
+        
+        # 3) Attach any chain steps
         for step in self.chain_steps:
             chain |= step
 
-        # Conditionally add the extract_text_in_tags step if tags are provided
+        # 4) Optionally attach text extraction step
         if self.tags:
             chain |= self.extract_text_in_tags
 
         return chain
+
 
     def extract_text_in_tags(self, text: str):
         """

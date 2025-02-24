@@ -298,12 +298,13 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
 
         # Collect the results as they complete
         completed_count = 0
-        N = 5  # how often to save
+        N = 1  # how often to save
 
-        progress_bar = st.progress(0, text="Percent complete: 0%")
-        total = len(futures)
+        # Initialize Streamlit progress bar
+        progress_bar = st.progress(0, text = "Percent complete: 0%")
+        total_tasks = len(futures)
 
-        for future in tqdm(as_completed(futures), total=total):
+        for future in tqdm(as_completed(futures), total=total_tasks):
             index, context = future.result()
 
             # Update the row in the DataFrame
@@ -325,10 +326,10 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                     [course_outline_with_lo_df.columns.values.tolist()] +
                     course_outline_with_lo_df.values.tolist()
                 )
-            
-            # Update the progress bar
-            percent_complete = int(completed_count + 1 / total * 100)
-            progress_bar.progress(percent_complete, text = f"Percent complete: {percent_complete}")
+
+            # Update the Streamlit progress bar
+            fraction_complete = completed_count / total_tasks
+            progress_bar.progress(fraction_complete, text = f"Percent complete: {str(int(fraction_complete * 100))}%")
 
 
     # Final save to sheet after all tasks

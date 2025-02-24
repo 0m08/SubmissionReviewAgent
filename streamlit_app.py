@@ -33,6 +33,18 @@ def logout():
 def list_of_agents():
     st.header("Welcome")
     st.write("Here's the list of agents:")
+    st.markdown(
+"""Agent Name | Status
+-|-
+:material/toc: Course Outline Agent | :material/check_circle: Done
+:material/quick_reference_all: Research Notes Agent | :material/check_circle: Done
+:material/topic: Slide Chunks Agent | :material/cancel: Pending
+:material/quiz: Assessment Agent | :material/cancel: UI Pending
+:material/image: Graphics Definition Agent | :material/cancel: UI Pending
+"""
+    )
+
+    st.info(""":material/info: To run any of the above agents, navigate to the corresponding page from the left side panel""")
 
 
 # We can either define Page objects inline (pointing to .py files or callables)
@@ -46,7 +58,7 @@ logout_page = st.Page(logout, title="Log out", icon=":material/logout:")
 course_outline_page = st.Page(
     "research_notes.py",
     title="Research Notes",
-    icon=":material/book:",
+    icon=":material/quick_reference_all:",
     # Optional: default=(role == "Requester") or any logic
 )
 

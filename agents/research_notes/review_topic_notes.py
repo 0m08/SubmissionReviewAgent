@@ -177,21 +177,21 @@ def manual_input_review_topic_notes(sheet, worksheet_name):
     :return: None
     """
 
-    # Read the sheet and df
-    research_notes_sheet, research_notes_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
+    # # Read the sheet and df
+    # research_notes_sheet, research_notes_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
 
-    # Create a progress bar in the UI
-    total = research_notes_df.shape[0]
-    progress_bar = st.progress(0, text = "Percent complete: 0%")
+    # # Create a progress bar in the UI
+    # total = research_notes_df.shape[0]
+    # progress_bar = st.progress(0, text = "Percent complete: 0%")
     
-    for ind, row in tqdm(research_notes_df.iterrows(), total = total):
-        time.sleep(5)
+    # for ind, row in tqdm(research_notes_df.iterrows(), total = total):
+    #     time.sleep(5)
 
-        # Update progress bar
-        progress_percent = int((ind / total) * 100)
-        progress_bar.progress(progress_percent, text = f"Percent complete: {progress_percent}%")
+    #     # Update progress bar
+    #     frac_complete = (ind + 1) / total
+    #     progress_bar.progress(frac_complete, text = f"Percent complete: {int(frac_complete * 100)}%")
 
-    progress_bar.empty()
+    # progress_bar.empty()
 
     # st.write(f"Review the research notes, and the ai generated review.")
     # st.write(f"Sheet Link - {research_notes_sheet.url}")
