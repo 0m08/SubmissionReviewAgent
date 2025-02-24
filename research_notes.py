@@ -38,8 +38,8 @@ def main():
                         "target_audience": "target_audience",
                         "llm": "gemini_2_flash",
                     },
-                    "estimated_time": "~1 minute",
-                    "description": "Gathers relevant drive files, topics, or references needed for the research.",
+                    "estimated_time": "~ 10 - 20 minutes",
+                    "description": "Gathers relevant contexy needed for the research.",
                 },
                 {
                     "name": "Retriever Manual Input",
@@ -54,7 +54,7 @@ def main():
 in the tab and mark it as Done."""
                     ],
                     "estimated_time": "Manual step",
-                    "description": "Review the retriever’s output and add manual notes if needed.",
+                    "description": "Review the retriever’s output and confirm.",
                 },
                 {
                     "name": "Researcher",
@@ -67,8 +67,8 @@ in the tab and mark it as Done."""
                         "target_audience": "target_audience",
                         "llm": "gemini_2_flash",
                     },
-                    "estimated_time": "~2-3 minutes",
-                    "description": "Uses the retriever data to produce initial research notes for each subtopic."
+                    "estimated_time": "~ 5 minutes",
+                    "description": "Uses the context retrived earlier to produce initial research notes for each subtopic."
                 },
             ],
         },
@@ -86,7 +86,7 @@ in the tab and mark it as Done."""
                         "target_audience": "target_audience",
                         "llm": "gemini_2_flash",
                     },
-                    "estimated_time": "~1 minute",
+                    "estimated_time": "~ 2 minutes",
                     "description": "Reviews the subtopic research notes and suggests changes or improvements.",
                 },
                 {
@@ -121,7 +121,7 @@ in the tab and mark it as Done."""
                         "target_audience": "target_audience",
                         "llm": "gemini_2_flash",
                     },
-                    "estimated_time": "~1 minute",
+                    "estimated_time": "~ 10 minutes",
                     "description": "AI-driven revision of the subtopic research notes based on your manual inputs."
                 },
             ],
@@ -152,7 +152,7 @@ in the tab and mark it as Done."""
                         "target_audience": "target_audience",
                         "llm": "gemini_2_flash",
                     },
-                    "estimated_time": "~1 minute",
+                    "estimated_time": "~ 2 minutes",
                     "description": "AI-driven review of the newly created topic-level research notes.",
                 },
                 {
@@ -184,7 +184,7 @@ in the tab and mark it as Done."""
                         "target_audience": "target_audience",
                         "llm": "gemini_2_flash",
                     },
-                    "estimated_time": "~1 minute",
+                    "estimated_time": "~ 4 minutes",
                     "description": "AI-driven revision of the topic-level notes, completing the pipeline."
                 },
             ]
