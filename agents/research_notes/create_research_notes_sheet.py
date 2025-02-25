@@ -1,5 +1,6 @@
 from services.sheets_service import get_sheet_data_and_df
 import pandas as pd
+from services.sheets_service import format_worksheet
 
 
 def create_research_notes_sheet(sheet, source_worksheet_name, target_worksheet_name):
@@ -50,6 +51,9 @@ def create_research_notes_sheet(sheet, source_worksheet_name, target_worksheet_n
     # Create sheet
     research_notes_sheet = sheet.add_worksheet(title = target_worksheet_name, rows = max(100, research_notes_df.shape[0]), cols = max(10, research_notes_df.shape[1]))
     research_notes_sheet.update([research_notes_df.columns.values.tolist()] + research_notes_df.values.tolist())
+
+    # Format the sheet
+    format_worksheet(research_notes_sheet)
 
     print(f'Created sheet {target_worksheet_name}')
 

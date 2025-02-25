@@ -234,7 +234,7 @@ in the tab and mark it as Done."""
         step_global_count = 1  # So we can label steps 1,2,3 across sections
         for section_idx, section in enumerate(pipeline_sections, start=1):
             with st.container(border=True):
-                st.header(section["section_name"])
+                st.header(section["section_name"], divider = True)
                 for step in section["steps"]:
                     step_key = f"{step['name']}_done"
                     

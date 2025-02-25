@@ -295,7 +295,7 @@ def run_reviser_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
 
         # Collect the results as they complete
         total_tasks = len(futures_map)
-        save_interval = 5  # how often to save (in number of completed tasks)
+        save_interval = 1  # how often to save (in number of completed tasks)
 
         # Initialize the progress tracker
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
