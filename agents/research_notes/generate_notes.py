@@ -4,6 +4,7 @@ from tqdm import tqdm
 from services.sheets_service import get_sheet_data_and_df
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
+from services.smart_progress_bar import SmartProgressBar
 
 
 generate_research_notes_prompt = """You are an expert educational content developer tasked with creating comprehensive research notes for a specific subtopic within a larger course. Your goal is to produce well-structured, engaging, and educational notes that align precisely with the given learning objectives while considering the overall course structure and target audience.
@@ -188,12 +189,11 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
             futures_map[future] = index
 
         # Collect the results as they complete
-        completed_count = 0
         total_tasks = len(futures_map)
         save_interval = 5  # how often to save (in number of completed tasks)
 
-        # Initialize Streamlit progress bar
-        progress_bar = st.progress(0, text = "Percent complete: 0%")
+        # Initialize the progress tracker
+        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
         for future in tqdm(as_completed(futures_map), total=total_tasks):
             index = futures_map[future]
@@ -202,21 +202,18 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
             # Update the df row with research notes
             course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
 
-            completed_count += 1
+            # Update progress
+            progress.update()
 
-            # Save to sheet every 'save_interval' completed tasks
-            if completed_count % save_interval == 0:
-                print(f'Saving partial progress to sheet after {completed_count} tasks completed.')
+            # Check if we should save
+            if progress.should_save():
+                print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 # Convert all columns to string to avoid data-type issues
                 course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
                 course_outline_with_lo_sheet.update(
                     [course_outline_with_lo_df.columns.values.tolist()] +
                     course_outline_with_lo_df.values.tolist()
                 )
-
-            # Update the Streamlit progress bar
-            fraction_complete = completed_count / total_tasks
-            progress_bar.progress(fraction_complete, text = f"Percent complete: {str(int(fraction_complete * 100))}%")
 
 
     # Final save to sheet after all tasks

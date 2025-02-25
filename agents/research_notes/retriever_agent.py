@@ -7,6 +7,7 @@ from services.helper_functions import create_and_populate_columns
 from services.helper_functions import get_outline_with_los
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from services.smart_progress_bar import SmartProgressBar
 
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
@@ -297,12 +298,11 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
             )
 
         # Collect the results as they complete
-        completed_count = 0
-        N = 1  # how often to save
-
-        # Initialize Streamlit progress bar
-        progress_bar = st.progress(0, text = "Percent complete: 0%")
+        save_interval = 1  # how often to save
         total_tasks = len(futures)
+        
+        # Initialize the progress tracker
+        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
         for future in tqdm(as_completed(futures), total=total_tasks):
             index, context = future.result()
@@ -316,20 +316,18 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                 chunk_size=49000
             )
 
-            completed_count += 1
-            # Save to sheet every N completed tasks
-            if completed_count % N == 0:
-                print(f'Saving partial progress to sheet after {completed_count} tasks completed.')
+            # Update progress
+            progress.update()
+
+            # Check if we should save
+            if progress.should_save():
+                print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 # Convert all columns to string to avoid data-type issues
                 course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
                 course_outline_with_lo_sheet.update(
                     [course_outline_with_lo_df.columns.values.tolist()] +
                     course_outline_with_lo_df.values.tolist()
                 )
-
-            # Update the Streamlit progress bar
-            fraction_complete = completed_count / total_tasks
-            progress_bar.progress(fraction_complete, text = f"Percent complete: {str(int(fraction_complete * 100))}%")
 
 
     # Final save to sheet after all tasks

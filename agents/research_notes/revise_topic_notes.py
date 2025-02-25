@@ -5,6 +5,8 @@ from services.sheets_service import get_sheet_data_and_df
 from agents.research_notes.review_topic_notes import review_topic_notes_prompt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
+from services.smart_progress_bar import SmartProgressBar
+
 
 propose_revised_notes_framework_prompt = """Your next task is to define a framework for the research notes.
 
@@ -191,12 +193,11 @@ def run_revise_topic_notes_for_all_rows(sheet, worksheet_name, course_name, targ
             futures_map[future] = index
         
         # Collect the results as they complete
-        completed_count = 0
         total_tasks = len(futures_map)
         save_interval = 5  # how often to save (in number of completed tasks)
 
-        # Initialize Streamlit progress bar
-        progress_bar = st.progress(0, text = "Percent complete: 0%")
+        # Initialize the progress tracker
+        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
         # Now, pass only the futures (the keys) to as_completed:
         for future in tqdm(as_completed(futures_map), total=total_tasks):
@@ -207,17 +208,15 @@ def run_revise_topic_notes_for_all_rows(sheet, worksheet_name, course_name, targ
             research_notes_df.loc[index, 'framework'] = framework
             research_notes_df.loc[index, 'section_notes'] = section_notes
 
-            completed_count += 1
+            # Update progress
+            progress.update()
 
-            # Save to sheet every 'save_interval' completed tasks
-            if completed_count % save_interval == 0:
-                print(f'Saving partial progress to sheet after {completed_count} tasks completed.')
+            # Check if we should save
+            if progress.should_save():
+                print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 research_notes_df = research_notes_df.astype(str)
                 research_notes_sheet.update([research_notes_df.columns.values.tolist()] + research_notes_df.values.tolist())
 
-            # Update the Streamlit progress bar
-            fraction_complete = completed_count / total_tasks
-            progress_bar.progress(fraction_complete, text = f"Percent complete: {str(int(fraction_complete * 100))}%")
 
     # Final save to sheet after all tasks
     print('All rows processed. Saving final DataFrame to sheet.')
