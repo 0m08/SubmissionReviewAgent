@@ -56,6 +56,13 @@ logout_page = st.Page(logout, title="Log out", icon=":material/logout:")
 
 # --- Outline pages ---
 course_outline_page = st.Page(
+    "course_outline.py",
+    title="Course Outline",
+    icon=":material/toc:",
+    # Optional: default=(role == "Requester") or any logic
+)
+
+research_notes_page = st.Page(
     "research_notes.py",
     title="Research Notes",
     icon=":material/quick_reference_all:",
@@ -85,7 +92,7 @@ if st.session_state.role in authenticated_roles:
     page_dict = {}
 
     account_pages = [list_of_agents_page, logout_page]
-    user_pages = [course_outline_page]
+    user_pages = [course_outline_page, research_notes_page]
 
     page_dict["Account"] = account_pages
     page_dict["User Pages"] = user_pages

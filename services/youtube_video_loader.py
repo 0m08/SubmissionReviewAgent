@@ -7,7 +7,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from services.llm_service import llm_with_retry, output_parser
 from langchain_community.document_loaders import YoutubeLoader
 from langchain_core.documents import Document
-
+import os
+import requests
 
 ### YT video link loader
 
@@ -167,6 +168,79 @@ def get_transcript(video_id: str, return_text_only = False):
 
     except Exception as e:
         raise Exception(f"Error fetching transcript: {e}")
+
+
+@try_n_times(3)
+def get_transcript_backup(video_id: str, return_text_only=False):
+    """
+    Fallback method using the RapidAPI endpoint.
+    """
+    # --- Replace these with your own values ---
+    API_KEY = os.environ.get("RAPID_API_KEY")  # <--- Replace
+    API_HOST = "youtube-transcript3.p.rapidapi.com"
+    # ------------------------------------------
+
+    url = "https://youtube-transcript3.p.rapidapi.com/api/transcript"
+    querystring = {"videoId": video_id}
+    headers = {
+        "x-rapidapi-key": API_KEY,
+        "x-rapidapi-host": API_HOST
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        data = response.json()
+        if not data.get('success'):
+            raise Exception("Fallback API returned 'success' = False")
+
+        transcript_data = data.get('transcript', [])
+        if not transcript_data:
+            raise Exception("No transcript found in fallback API response")
+
+        # Since 'offset' and 'duration' might come as strings, we parse them:
+        # Convert them to floats so we can do arithmetic for video duration, etc.
+        for item in transcript_data:
+            item['offset'] = float(item['offset'])
+            item['duration'] = float(item['duration'])
+
+        # Calculate total video duration from the last item’s offset + duration
+        video_duration = transcript_data[-1]['offset'] + transcript_data[-1]['duration']
+
+        if video_duration >= 3600:
+            time_format = 'HH:MM:SS'
+        else:
+            time_format = 'MM:SS'
+
+        if return_text_only:
+            return ' '.join(item['text'] for item in transcript_data)
+
+        # Map the fallback transcript structure to the same signature
+        # as the primary get_transcript function
+        results = []
+        for item in transcript_data:
+            results.append({
+                'timestamp': convert_time(item['offset'], format=time_format),
+                'text': item['text']
+            })
+        return results
+
+    except Exception as e:
+        raise Exception(f"Error fetching transcript via fallback method: {e}")
+
+
+def get_transcript_with_fallback(video_id: str, return_text_only=False):
+    """
+    Wrapper function that first tries the YouTubeTranscriptApi.
+    If that fails, it calls the fallback via RapidAPI.
+    """
+    try:
+        # First attempt: official YT Transcript API
+        return get_transcript(video_id, return_text_only=return_text_only)
+    except Exception as e:
+        # If we got here, it failed even after retries in @try_n_times
+        print(f"Primary transcript fetch failed: {e}. Attempting fallback...")
+        # Fallback:
+        return get_transcript_backup(video_id, return_text_only=return_text_only)
 
 
 ##### Agents to get YT Chapters
@@ -574,12 +648,13 @@ def get_additional_metadata(video_id):
 
 ##### Function to get yt chapters as doc chunks
 
-def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, llm = 'gemini_2_flash'):
+def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestamped_transcript = None, llm = 'gemini_2_flash'):
     """
     Get chapters for a YouTube video based on its title and transcript.
     Args:
         video_id (str): The video id of the YouTube video.
         video_title (str): The title of the YouTube video.
+        timestamped_transcript (dict): The timestamped transcript of the video
         llm (str): The language model to use for generating the chapters.
     Returns:
         list: A list of chunked documents.
@@ -598,14 +673,17 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, llm = 'gem
             }
 
     if video_title is None:
-            video_title = additional_metadata['title']
+        video_title = additional_metadata['title']
     else:
-            additional_metadata['title'] = video_title
+        additional_metadata['title'] = video_title
 
     # Initialize variables
     max_turns = 5
 
-    timestamped_transcript = get_transcript(video_id)
+    if timestamped_transcript == None:
+        timestamped_transcript = get_transcript_with_fallback(video_id = video_id, return_text_only = False) #get_transcript(video_id)
+    else:
+        print("Using transcripts passed in to the function")
     # Check if transcript retrieved without error
     if type(timestamped_transcript) == str and timestamped_transcript.startswith('Error'):
             raise Exception(f'Error retrieving transcript for video id: {video_id}')

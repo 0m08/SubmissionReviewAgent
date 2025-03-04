@@ -93,3 +93,20 @@ output_parser = StrOutputParser()
 
 # Intialize csv list parser that comes out of the box from langchain as an output parser
 csv_list_parser = CommaSeparatedListOutputParser()
+
+
+# Define a custom output parser
+def extract_csv_lines(text: str):
+    """
+    Function to extract csv lines from text
+    :param text: text to parse
+    :return: list of lines
+    """
+    # Try with simple line split, since csv splitter doesn't handle commas in between search query
+    try:
+        lines = text.strip().split('\n')
+        return [line.strip(',').strip() for line in lines]
+    except KeyboardInterrupt:
+        print('User stopped action')
+    except:
+        return csv_list_parser.parse(text)

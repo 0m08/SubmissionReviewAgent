@@ -114,6 +114,24 @@ def is_pdf_url(url):
     return False
 
 
+def fetch_with_jina_ai(url, query):
+    print(f"--- Fetching content from URL using Jina AI: {url} ---")
+    response = requests.get(f"https://r.jina.ai/{url}", timeout=15)
+    if response.status_code != 200:
+        print(f"Jina AI API request failed for {url}. Status Code: {response.status_code}")
+        return None
+
+    extracted_text = response.text.strip()
+    if not extracted_text:
+        print(f"Jina AI extraction returned empty content for {url}. Skipping.")
+        return None
+
+    return Document(
+        page_content=extracted_text,
+        metadata={'source': url, 'query': query, 'method': 'JinaAI'}
+    )
+
+
 #@try_n_times(2)
 def get_docs_from_url(url: str, query: str):
     """
@@ -152,14 +170,17 @@ def get_docs_from_url(url: str, query: str):
         except KeyboardInterrupt:
             raise
         except Exception as e: # Try with AsyncChromimuLoader
-            print(f"Error extracting markdown from {url}. Trying with AsyncChromimuLoader. Error: {e}")
+            try:
+                print(f"Error extracting markdown from {url}. Trying with AsyncChromimuLoader. Error: {e}")
 
-            loader = AsyncChromiumLoader([url]) # Only pass a single url
-            docs = loader.load()
-            html2text = Html2TextTransformer(ignore_links = False, ignore_images = False)
-            doc = html2text.transform_documents(docs)[0]  # Return only the first (only) element
-            # Add query to the metadata
-            doc.metadata['query'] = query
+                loader = AsyncChromiumLoader([url]) # Only pass a single url
+                docs = loader.load()
+                html2text = Html2TextTransformer(ignore_links = False, ignore_images = False)
+                doc = html2text.transform_documents(docs)[0]  # Return only the first (only) element
+                # Add query to the metadata
+                doc.metadata['query'] = query
+            except Exception as e: # Try with Jina AI
+                doc = fetch_with_jina_ai(url = url, query = query)
 
     # Chunk the doc
     chunked_list = general_chunker(doc.page_content)
@@ -180,3 +201,4 @@ def get_docs_from_url(url: str, query: str):
         )
 
     return chunked_docs
+

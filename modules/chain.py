@@ -4,6 +4,7 @@ from services.llm_service import llm_with_retry, output_parser
 import xml.etree.ElementTree as ET
 import regex as re
 from utils.decorator_helpers import try_n_times
+from services.helper_functions import escape_single_braces
 
 # Checks the xml string and fixes it incase it is not well formatted
 def xml_check_and_fix(xml_text: str, llm = 'groq'):
@@ -66,28 +67,6 @@ Make sure to only output the fixed xml. Don't output anything else.
                 xml_text = fix_xml(xml_text, error, llm)
 
 
-def escape_single_braces(text: str) -> str:
-    """
-    Replaces only truly single '{' or '}' with double braces.
-    Existing double/triple braces remain unchanged.
-    
-    Examples:
-      A single { brace } -> A single {{ brace }}
-      Double {{ braces }} -> (unchanged) -> {{ braces }}
-      Triple {{{ braces }}} -> (unchanged) -> {{{ braces }}}
-    """
-
-    # Regex to find a left brace '{' that is NOT preceded or followed by another '{'
-    SINGLE_LEFT_BRACE = re.compile(r'(?<!\{)\{(?!\{)')
-
-    # Regex to find a right brace '}' that is NOT preceded or followed by another '}'
-    SINGLE_RIGHT_BRACE = re.compile(r'(?<!\})\}(?!\})')
-    
-    # Replace single '{' with '{{'
-    text = SINGLE_LEFT_BRACE.sub('{{', text)
-    # Replace single '}' with '}}'
-    text = SINGLE_RIGHT_BRACE.sub('}}', text)
-    return text
 
 class Chain:
     def __init__(self, llm='groq', tags=None, use_xml_checker=False):

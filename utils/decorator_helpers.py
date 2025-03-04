@@ -1,7 +1,7 @@
 import functools
 import multiprocessing
 import time
-
+from googleapiclient.errors import HttpError
 
 def try_n_times(n, wait=1, backoff='linear'):
     """
@@ -78,5 +78,42 @@ def time_limit_process(seconds):
                 return result
             else:
                 return None  # If no output was put in the queue
+        return wrapper
+    return decorator
+
+
+def cycle_api_keys_decorator(api_keys):
+    """
+    Returns a decorator that cycles through `api_keys` if a 'quotaExceeded' error is encountered,
+    remembering the last used key index across multiple calls to the wrapped function.
+    """
+    # This index will persist between calls to the wrapped function
+    current_key_index = 0
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            nonlocal current_key_index
+
+            # We will try up to len(api_keys) times before concluding all are exhausted
+            attempts = 0
+
+            while attempts < len(api_keys):
+                key = api_keys[current_key_index]
+                try:
+                    return func(*args, **kwargs, developer_key=key)
+                except HttpError as e:
+                    # Check if quota was exceeded
+                    if "quotaExceeded" in str(e):
+                        print(f"Quota exceeded for key {key}. Cycling to next key...")
+                        # Move to next key index (round-robin style)
+                        current_key_index = (current_key_index + 1) % len(api_keys)
+                        attempts += 1
+                    else:
+                        # If it's some other error, re-raise
+                        raise
+
+            # If we exhaust all keys and never succeed, raise an exception
+            raise RuntimeError("All API keys have been exhausted.")
         return wrapper
     return decorator

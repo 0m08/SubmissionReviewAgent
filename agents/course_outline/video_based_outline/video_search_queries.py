@@ -1,8 +1,8 @@
-from services.llm_service import csv_list_parser
+from services.llm_service import extract_csv_lines
 from modules.chain import Chain
 import pandas as pd
 from services.sheets_service import get_sheet_data_and_df
-from services.helper_functions import get_outline_with_los
+from services.helper_functions import get_outline_with_los, add_list_as_new_column, find_blank_followed_by_filled_indices
 
 ### Construct Video Search Queries
 
@@ -45,23 +45,6 @@ Present your list of search queries (unnumbered) in the following format:
 
 Remember to tailor the language and complexity of your search queries to match the target audience's level of understanding.
 """
-
-
-# Define a custom output parser
-def extract_csv_lines(text: str):
-    """
-    Function to extract csv lines from text
-    :param: text (str): Input text
-    :returns: csv_lines (list): List of csv lines
-    """
-    # Try with simple line split, since csv splitter doesn't handle commas in between search query
-    try:
-        lines = text.strip().split('\n')
-        return [line.strip(',').strip() for line in lines]
-    except KeyboardInterrupt:
-        print('User stopped action')
-    except:
-        return csv_list_parser.parse(text)
 
 
 def generate_video_search_queries(course_name, target_audience, course_outline, llm):
@@ -107,63 +90,16 @@ def create_additional_video_search_queries(rough_outline_df):
     return additional_video_search_queries
 
 
-def add_list_as_new_column(df: pd.DataFrame, new_values: list, new_col_name: str) -> pd.DataFrame:
-    """
-    Adds a new column to an existing DataFrame using the values from `new_values`.
-    If `new_values` has more items than `df` has rows, it appends new rows
-    (with blank values in the existing columns) to accommodate all `new_values`.
-
-    :param: df (pd.DataFrame): The original DataFrame.
-    :param: new_values (list): The list of values to be added as a new column.
-    :param: new_col_name (str): The name of the new column to be added.
-    :returns: df (pd.DataFrame): The updated DataFrame with the new column.
-    """
-    
-    # Number of rows in the original df
-    n_original = len(df)
-
-    # Number of new values
-    n_new_values = len(new_values)
-
-    # Case 1: If the original DataFrame has as many (or more) rows than the list
-    if n_original >= n_new_values:
-        # Directly set the new column (missing rows, if any, become NaN automatically)
-        df[new_col_name] = new_values
-        return df
-
-    # Case 2: The new list is longer than the DataFrame’s row count
-    # 2.1 Assign the first 'n_original' items to the existing DataFrame
-    df[new_col_name] = new_values[:n_original]
-
-    # 2.2 Create a separate DataFrame for the extra rows
-    n_extra = n_new_values - n_original
-
-    # Build a dict where each existing column has blank ('') values
-    extra_data = {
-        col: [''] * n_extra for col in df.columns if col != new_col_name
-    }
-    # The new column in these extra rows has the remaining new values
-    extra_data[new_col_name] = new_values[n_original:]
-
-    # Create the extra DataFrame
-    df_extra = pd.DataFrame(extra_data)
-
-    # 2.3 Concatenate original and extra DataFrame
-    final_df = pd.concat([df, df_extra], ignore_index=True)
-
-    return final_df
-
-
 def run_construct_video_search_queries(sheet, course_name, target_audience, worksheet_name = 'Rough Outline', llm = 'groq'):
     """
-    This function creates a new worksheet if not already present. If present, it reads the sheet
+    This function creates a list of search queries to be used to search for HVAC school youtube videos.
 
     :param sheet: The sheet object.
     :param course_name: The course name.
     :param target_audience: The target audience.
     :param worksheet_name: The worksheet name.
     :param llm: The language model to use.
-    :return: worksheet, df
+    :return: None
     """
 
     rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, worksheet_name)
@@ -193,4 +129,19 @@ def run_construct_video_search_queries(sheet, course_name, target_audience, work
         # Already present, skip
         print('Column - video_search_queries already present. Skipping generate video search queries')
 
+
+def manual_input_review_video_search_queries(sheet, worksheet_name = 'Rough Outline'):
+    """
+    Manual input to review video search queries.
+    :param sheet: The sheet object.
+    :param worksheet_name: The worksheet name.
+    """
+
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+    return find_blank_followed_by_filled_indices(
+        df = rough_outline_df,
+        column_name = "video_search_queries",
+        blank_value = ""
+    )
 

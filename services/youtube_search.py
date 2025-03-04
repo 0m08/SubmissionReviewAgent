@@ -1,9 +1,16 @@
 from googleapiclient.discovery import build
 import os
+from utils.decorator_helpers import cycle_api_keys_decorator
 
-gcloud_yt_search_api_key = os.environ.get("GCLOUD_YT_SEARCH_API_KEY")
 
-def search_youtube_videos(query, max_results=5, channel_id=None):
+gcloud_yt_search_api_keys = [
+    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_1"),
+    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_2")
+]
+
+
+@cycle_api_keys_decorator(gcloud_yt_search_api_keys)
+def search_youtube_videos(query, max_results = 5, channel_id = None, developer_key = None):
     """
     Searches YouTube for video links based on a query.
 
@@ -15,7 +22,7 @@ def search_youtube_videos(query, max_results=5, channel_id=None):
     Returns:
         list: A list of dictionaries containing video details.
     """
-    youtube = build('youtube', 'v3', developerKey = gcloud_yt_search_api_key)
+    youtube = build('youtube', 'v3', developerKey = developer_key)
 
     # Prepare search parameters
     search_params = {
