@@ -1,20 +1,21 @@
 from langchain_core.documents import Document
 import json
 from tqdm import tqdm
-from services.web_page_loaders import get_docs_from_url
+from services.web_page_loaders import get_docs_from_url, extract_image_links_from_markdown
 from services.youtube_video_loader import get_video_id_from_url
 from services.youtube_video_loader import get_yt_chapters_chunks_as_docs
 from services.chunking_service import general_chunker
-import concurrent.futures
+# import concurrent.futures
 from services.sheets_service import get_sheet_data_and_df
+import streamlit as st
+from services.smart_progress_bar import SmartProgressBar
 
 
 ## Video Based Outline References
-def get_video_chunk_doc_list(sheet, videos_research_df, video_chunks_df):
+def get_video_chunk_doc_list(videos_research_df, video_chunks_df):
     """
     This function gets the video chunk docs list.
 
-    :param sheet: The Google Sheets object.
     :param video_research_sheet_name: The name of the sheet containing the video research data.
     :param video_chunk_sheet_name: The name of the sheet containing the video chunk data.
     :return: A list of `Document` objects representing the video chunk data.
@@ -30,9 +31,14 @@ def get_video_chunk_doc_list(sheet, videos_research_df, video_chunks_df):
         # Filter to get rows from video chunks df
         temp_df = video_chunks_df[video_chunks_df['video_id'] == row['video_id']]
 
+        # Get text col count
+        text_col_count = len([col for col in temp_df.columns if 'text_' in col])
+
         # Loop through each row and get page content and metadata and construct Document object
         for i, r in temp_df.iterrows():
-            page_content = r['text']
+            page_content = ''.join(
+                    [r[f'text_{i}'] for i in range(text_col_count)]
+                )
             metadata = json.loads(r['metadata'])
             video_chunk_doc_list.append(Document(page_content=page_content, metadata=metadata))
 
@@ -40,11 +46,10 @@ def get_video_chunk_doc_list(sheet, videos_research_df, video_chunks_df):
 
 
 ## Client References
-def get_client_reference_doc_list(sheet, videos_research_df, video_chunks_df, client_reference_df):
+def get_client_reference_doc_list(videos_research_df, video_chunks_df, client_reference_df):
     """
     This function gets the client reference docs list.
 
-    :param sheet: The Google Sheets object.
     :param videos_research_df: The DataFrame containing video research data.
     :param video_chunks_df: The DataFrame containing video chunk data.
     :param client_reference_df: The DataFrame containing client reference data.
@@ -82,9 +87,13 @@ def get_client_reference_doc_list(sheet, videos_research_df, video_chunks_df, cl
                     print(f"Video {video_id} not added to video docs")
                     # Add the chunks
                     temp_df = video_chunks_df[video_chunks_df['video_id'] == video_id]
+
+                    # Get text col count
+                    text_col_count = len([col for col in temp_df.columns if 'text_' in col])
+
                     docs = [
                         Document(
-                            page_content = r['text'],
+                            page_content = ''.join([r[f'text_{i}'] for i in range(text_col_count)]),
                             metadata = json.loads(r['metadata'])
                         )
                         for i, r in temp_df.iterrows()
@@ -121,11 +130,10 @@ def get_client_reference_doc_list(sheet, videos_research_df, video_chunks_df, cl
 
 
 ## Web Research References
-def get_web_research_doc_list(sheet, videos_research_df, client_reference_df, preliminary_research_df):
+def get_web_research_doc_list(videos_research_df, client_reference_df, preliminary_research_df):
     """
     This function gets the web research docs list.
 
-    :param sheet: The Google Sheets object.
     :param videos_research_df: The DataFrame containing video research data.
     :param client_reference_df: The DataFrame containing client reference data.
     :param preliminary_research_df: The DataFrame containing preliminary research data.
@@ -136,46 +144,90 @@ def get_web_research_doc_list(sheet, videos_research_df, client_reference_df, pr
     preliminary_research_df = preliminary_research_df.astype(str)
 
     # Filter to get rows that contain the string <objective> to get web urls
-    web_urls = preliminary_research_df[preliminary_research_df['learning_objectives'].str.contains('<objective>')]['article'].to_list()
+    # web_urls = preliminary_research_df[preliminary_research_df['learning_objectives'].str.contains('<objective>')]['article'].to_list()
+    filtered_df = preliminary_research_df[preliminary_research_df['learning_objectives'].str.contains('<objective>')]
 
-    # Initialize the list to store the doc chunks
     web_research_doc_chunk_list = []
 
-    def process_web_urls(url):
-        # Check if url not already present in other two lists
-        # Video Research list
+    # Get video_transcript column count
+    article_content_col_count = len([col for col in filtered_df.columns if 'article_content_' in col])
 
-        # Client Reference list
-        if url in client_reference_df['Source Link'].values:
-            print(f"{url} already present in client references")
-            return []
+    total_tasks = filtered_df.shape[0]
 
-        # Video Chunks list
-        if url in videos_research_df[videos_research_df['Manual Review'] == 'Yes']['video_url'].to_list():
-            print(f"{url} already present in video chunks")
-            return []
+    # Initialize the progress tracker
+    progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete")
 
-        # Load and chunk this
-        try:
-            docs = get_docs_from_url(url = url, query = 'Web research')
-        except:
-            return []
+    for index, row in tqdm(filtered_df.iterrows(), total = total_tasks):
 
-        return docs
+        article_content = ''.join(
+            [row[f'article_content_{i}'] for i in range(article_content_col_count)]
+        )
 
-    # Run in parallel
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {
-            executor.submit(process_web_urls, url): ind
-            for ind, url in enumerate(web_urls)
-        }
+        # Chunk the doc
+        chunked_list = general_chunker(article_content)
+        chunked_docs = []
+        for chunk in chunked_list:
+            chunked_docs.append(
+                Document(
+                    page_content = chunk["text"],
+                    # Update metadata with chunk info
+                    metadata = {
+                        "source": row["article"],
+                        "query": row["query"],
+                        "level": chunk["level"] if "level" in chunk else "",
+                        "title": chunk["title"] if "title" in chunk else "",
+                        "images": '\n'.join(extract_image_links_from_markdown(chunk["text"]))
+                    }
+                )
+            )
+        
+        web_research_doc_chunk_list.extend(chunked_docs)
 
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
-            docs = future.result()
-            if docs:
-                web_research_doc_chunk_list.extend(docs)
-
+        # Update progress
+        progress.update()
+    
     return web_research_doc_chunk_list
+
+        # return chunked_docs
+
+    # # Initialize the list to store the doc chunks
+    # web_research_doc_chunk_list = []
+
+    # def process_web_urls(url):
+    #     # Check if url not already present in other two lists
+    #     # Video Research list
+
+    #     # Client Reference list
+    #     if url in client_reference_df['Source Link'].values:
+    #         print(f"{url} already present in client references")
+    #         return []
+
+    #     # Video Chunks list
+    #     if url in videos_research_df[videos_research_df['Manual Review'] == 'Yes']['video_url'].to_list():
+    #         print(f"{url} already present in video chunks")
+    #         return []
+
+    #     # Load and chunk this
+    #     try:
+    #         docs = get_docs_from_url(url = url, query = 'Web research')
+    #     except:
+    #         return []
+
+    #     return docs
+
+    # # Run in parallel
+    # with concurrent.futures.ThreadPoolExecutor() as executor:
+    #     futures = {
+    #         executor.submit(process_web_urls, url): ind
+    #         for ind, url in enumerate(web_urls)
+    #     }
+
+    #     for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
+    #         docs = future.result()
+    #         if docs:
+    #             web_research_doc_chunk_list.extend(docs)
+
+    # return web_research_doc_chunk_list
 
 
 ### Get All Chunks as Docs
@@ -195,28 +247,28 @@ def get_all_chunks_as_docs(sheet, video_research_sheet_name = 'Videos Research',
     client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet = sheet, sheet_name = client_reference_sheet_name)
     preliminary_research_sheet, preliminary_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = web_research_sheet_name)
     
-    print("Getting video chunks...")
-    video_chunk_doc_list = get_video_chunk_doc_list(
-        sheet = sheet,
-        videos_research_df = videos_research_df,
-        video_chunks_df = video_chunks_df
-    )
+    with st.spinner(text = "Getting video chunks...", show_time = True):
+        print("Getting video chunks...")
+        video_chunk_doc_list = get_video_chunk_doc_list(
+            videos_research_df = videos_research_df,
+            video_chunks_df = video_chunks_df
+        )
     
-    print("Getting client references chunks...")
-    client_reference_doc_chunk_list = get_client_reference_doc_list(
-        sheet = sheet,
-        videos_research_df = videos_research_df,
-        video_chunks_df = video_chunks_df,
-        client_reference_df = client_reference_df
-    )
+    with st.spinner(text = "Getting client references chunks...", show_time = True):
+        print("Getting client references chunks...")
+        client_reference_doc_chunk_list = get_client_reference_doc_list(
+            videos_research_df = videos_research_df,
+            video_chunks_df = video_chunks_df,
+            client_reference_df = client_reference_df
+        )
 
-    print("Getting web research chunks...")
-    web_research_doc_chunk_list = get_web_research_doc_list(
-        sheet = sheet,
-        videos_research_df = videos_research_df,
-        client_reference_df = client_reference_df,
-        preliminary_research_df = preliminary_research_df
-    )
+    with st.spinner(text = "Getting web research chunks...", show_time = True):
+        print("Getting web research chunks...")
+        web_research_doc_chunk_list = get_web_research_doc_list(
+            videos_research_df = videos_research_df,
+            client_reference_df = client_reference_df,
+            preliminary_research_df = preliminary_research_df
+        )
 
     print("Total chunks:", len(video_chunk_doc_list) + len(client_reference_doc_chunk_list) + len(web_research_doc_chunk_list))
 

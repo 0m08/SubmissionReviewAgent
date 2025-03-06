@@ -5,7 +5,8 @@ from utils.decorator_helpers import cycle_api_keys_decorator
 
 gcloud_yt_search_api_keys = [
     os.environ.get("GCLOUD_YT_SEARCH_API_KEY_1"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_2")
+    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_2"),
+    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_3")
 ]
 
 

@@ -31,6 +31,11 @@ class SmartProgressBar:
                 fraction_complete, 
                 text=f"{self.description}: {int(fraction_complete * 100)}% | Elapsed: {elapsed_time_str} | Remaining: {remaining_time_str}"
             )
+
+            # Close the bar once all tasks are done
+            if self.completed_count == self.total_tasks:
+                self.progress_bar.empty()
+
         else:
             self.progress_bar.progress(fraction_complete, text=f"{self.description}: {int(fraction_complete * 100)}% | Just started...")
     

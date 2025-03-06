@@ -102,8 +102,13 @@ in the tab and mark it as Done."""
                         "Column names:\n `research_notes`,\n `analysis`,\n `not_covered_at_all`,\n `not_covered_enough`,\n `perfectly_covered`,\n `covered_too_much`,\n `verdict`",
                         "---",
                         "Edit any of the category columns to incorporate your final review.",
-                        "You can put any additional comments in the `Manual Comments` column.",
-                        "---"
+                        "You can put any additional comments in the `Manual Comments` column. This is optional, but recommended for all the Failed rows.",
+                        "For example, you can add items such as 'Cover all types of manometer include A, B, C' within the not covered columns.",
+                        "Or say something like 'Measurement will be covered in more detail in a separate course, thus remove it from here' within the covered to much column.",
+                        "Similarly, you can add any addition comments such as 'restructure / change the phrasing of this part' in the Manual comments column",
+                        "---",
+                        "All of the above are just examples of what can be added / edited.",
+                        "You are expected to review all the rows. If you agree with the AI's review, leave it as is. If you disagree, add them in appropriate columns as illustrated with the above examples."
                     ],
                     "estimated_time": "Manual step",
                     "description": "Manually verify and refine the AI review for each subtopic note.",
@@ -218,9 +223,11 @@ in the tab and mark it as Done."""
                 st.session_state["sheet"] = sheet
                 st.session_state["course_name"] = course_info_df['Course Name'][0]
                 st.session_state["target_audience"] = course_info_df['Target Audience & Industry'][0]
+                st.session_state["course_background"] = course_info_df['Course Background'][0]
                 st.session_state["drive"] = drive
 
                 st.success("Data loaded successfully!")
+                st.rerun()
             except Exception as e:
                 st.error(f"Error loading data: {e}")
                 # Display the full stack trace
@@ -307,7 +314,8 @@ in the tab and mark it as Done."""
                                 st.error(f"Error running {step['name']}: {e}")
                                 st.text(traceback.format_exc())
                     else:
-                        st.write(f"{step['name']}: **Done**")
+                        # st.write(f"{step['name']}: **Done**")
+                        st.write("**Status:** Done")
 
                         # If this is the very last step in the entire pipeline, celebrate
                         if (
@@ -316,7 +324,7 @@ in the tab and mark it as Done."""
                         ):
                             st.balloons()
                             st.toast(
-                                "You have successfully generated the Research Notes",
+                                "You have successfully generated the Research Notes!",
                                 icon=":material/done_all:",
                             )
 

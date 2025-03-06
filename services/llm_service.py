@@ -48,6 +48,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             gemini_2_flash = ChatGoogleGenerativeAI(model = "gemini-2.0-flash-exp", temperature = 0.7, max_tokens = 8192),
             o1 = ChatOpenAI(model = 'o1'),
             o3_mini = ChatOpenAI(model = 'o3-mini'),
+            # gemini_2_flash_open_router = ChatOpenAI(model = 'google/gemini-2.0-flash-exp:free', temperature = 0.7, max_completion_tokens = 8192, base_url = 'https://openrouter.ai/api/v1', api_key = os.environ.get('OPENROUTER_API_KEY'))
             )
 
     # Optionally add structured output

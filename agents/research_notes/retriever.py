@@ -5,9 +5,10 @@ import pickle
 from langchain.retrievers import EnsembleRetriever
 from langchain_cohere import CohereRerank
 from langchain.retrievers import ContextualCompressionRetriever
-from services.helper_functions import get_short_name
+# from services.helper_functions import get_short_name
 from langchain_community.retrievers import BM25Retriever
 from langchain_exa import ExaSearchRetriever
+import streamlit as st
 
 
 def load_vector_db_retriever(course_name, course_drive_folder_id, drive, sheet):
@@ -135,9 +136,11 @@ def get_ensemble_retriever(course_name, root_folder_id, drive, sheet, retriever_
     :param retriever_2_weight: The weight of the vector database retriever.
     :return: Ensemble retriever object.
     """
-    vector_db_retriever, all_doc_chunk_list = load_vector_db_retriever(course_name, root_folder_id, drive, sheet)
+    with st.spinner(text = "Loading the embedding vectorstore...", show_time = True):
+        vector_db_retriever, all_doc_chunk_list = load_vector_db_retriever(course_name, root_folder_id, drive, sheet)
 
-    bm_25_retriever = load_bm25_retriever_with_pydrive(root_folder_id, drive, all_doc_chunk_list)
+    with st.spinner(text = "Loading the bm25 vectorstore...", show_time = True):
+        bm_25_retriever = load_bm25_retriever_with_pydrive(root_folder_id, drive, all_doc_chunk_list)
 
     ensemble_retriever = EnsembleRetriever(
         retrievers = [bm_25_retriever, vector_db_retriever],
