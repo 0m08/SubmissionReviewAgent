@@ -1,9 +1,15 @@
 import streamlit as st
 import pandas as pd
 from modules.chain import Chain
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet
 import difflib
 from services.helper_functions import get_outline_with_los
+from services.smart_progress_bar import SmartProgressBar
+import regex as re
+from typing import List
+from pydantic import BaseModel, Field
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 
 
@@ -114,6 +120,144 @@ NOTE: Instead continue to output without worrying about the output token limits.
 """
 
 
+extract_topic_subtopic_los_prompt = """Your task is to extract topic, subtopics, and learning objectives in a structured manner from the below text.
+
+<text>
+{text}
+</text>
+
+1. Extraction Rules:
+    - Extract the topic as the Roman numeral line (e.g., I., II.).
+    - Extract the subtopic as the capital letter line (e.g., A., B.).
+    - Extract the learning objectives as the Arabic numeral lines (e.g., 1., 2.).
+
+2. Extraction Requirements:
+    - Ensure all topics, subtopics, and learning objectives are fully extracted without skipping or paraphrasing.
+    - Preserve the original wording and maintain the hierarchy.
+
+3. Learning objectives Phrasing:
+    - Ensure the learning objectives are stated properly. In most cases, they will, thus don't paraphrase.
+    - But in cases where the learning objectives in the text are listed as words / list of words without proper context, then combine them into proper standalone statements.
+
+
+Make sure to output in the proper format.
+"""
+
+
+def parse_course_outline(text, llm = "gemini_2_flash"):
+    """
+    Parses the text with help of LLM
+    """
+
+    class Subtopic(BaseModel):
+        subtopic_name: str = Field(
+            description="Name of the subtopic."
+        )
+        learning_objectives: List[str] = Field(
+            description="List of learning objectives for this subtopic."
+        )
+
+    class Topic(BaseModel):
+        topic_name: str = Field(
+            description="The main topic name."
+        )
+        subtopics: List[Subtopic] = Field(
+            description="All subtopics under this main topic."
+        )
+
+    parse_course_outline_agent = Chain(llm=llm)
+
+    parse_course_outline_agent.add_message(
+        role = "user",
+        content = extract_topic_subtopic_los_prompt.format(
+            text = text
+        )
+    )
+
+    parse_course_outline_agent.structured_output = Topic
+
+    response = parse_course_outline_agent.run()
+
+    # Convert extracted data into a DataFrame
+    flattened_data = []
+    for subtopic in response.subtopics:
+        flattened_data.append({
+            "Topic": response.topic_name,
+            "Subtopic": subtopic.subtopic_name,
+            "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
+        })
+    
+    return flattened_data
+
+
+def parse_course_outline_for_all_topics(sheet, worksheet_name, outline_review_df, llm = "gemini_2_flash"):
+    """
+    This function parses the final outline, and pastes in a newly created sheet - Course Outline with LOs
+    """
+
+    course_outline_sheet,  course_outline_df = create_or_read_worksheet(sheet, worksheet_name)
+
+    # Skip logic if already present
+    if course_outline_df.shape[0] > 1:
+        print("Outline sheet with LOs - Already populated")
+        return
+
+    # Retrieve the last row in the 'outline' column
+    last_outline_entry = outline_review_df['Outline'].iloc[-1]
+
+    # Updated Regex to Extract Topics, Subtopics, and Learning Objectives
+    topics = re.split(r"\n(?=[IVXLCDM]+\.)", last_outline_entry.strip())
+
+    # Prepare for parallel processing
+    futures_map = {}
+    results = [None] * len(topics)  # Allocate a list for ordered results
+
+    with ThreadPoolExecutor(max_workers = 5) as executor:
+        # Submit tasks for each row
+        for index, topic_content in enumerate(tqdm(topics)):
+            # Submit the task
+            future = executor.submit(
+                parse_course_outline,
+                topic_content,
+                llm
+            )
+
+            # Map the Future to the index
+            futures_map[future] = index
+
+        # Collect the results as they complete
+        total_tasks = len(futures_map)
+        save_interval = 5  # how often to save (in number of completed tasks)
+
+        # Initialize the progress tracker
+        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
+
+        # Now, pass only the futures (the keys) to as_completed:
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            index = futures_map[future]
+            response = future.result()
+            # Collect and store results by index
+            results[index] = response
+
+            # Update progress
+            progress.update()
+
+    # Now, 'results' is a list of lists in the correct order
+    final_list = []
+    for item in results:
+        final_list.extend(item)
+
+    # Convert list to DataFrame
+    course_outline_df = pd.DataFrame(final_list)
+
+    save_to_sheet(worksheet = course_outline_sheet, df = course_outline_df)
+    print("Outline saved to sheet")
+
+    format_worksheet(worksheet = course_outline_sheet)
+
+    return
+
+
 def compare_text_versions(text1: str, text2: str):
     """
     Compare two versions of text and display them side by side in Streamlit
@@ -183,6 +327,8 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
     last_verdict = outline_review_df.iloc[-1]['Verdict'].strip()
     if 'approved' in last_verdict.lower():
         print("Course Outline Approved")
+        # Parse the outline and save it in new sheet
+        parse_course_outline_for_all_topics(sheet = sheet, worksheet_name = "Course Outline with LOs", outline_review_df = outline_review_df, llm = llm)
         return
 
     # Get the last row's manual feedback

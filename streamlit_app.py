@@ -6,6 +6,13 @@ if "role" not in st.session_state:
 
 authenticated_roles = ["Editor"]  # example roles
 
+st.logo(
+    image = "assets/Skillcat-Logo.png",
+    size = "medium",
+    link = "https://www.skillcatapp.com/",
+    icon_image = "assets/Skillcat-Helmet.png"
+)
+
 #######################
 # 2) Define "pages"
 #######################

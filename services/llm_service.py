@@ -66,13 +66,16 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             else:
                 result = llm.invoke(arg)
 
-            # Log structured token usage.
-            log_token_usage(
-                llm = llm_name,
-                input_tokens = result.usage_metadata['input_tokens'],
-                output_tokens = result.usage_metadata['output_tokens'],
-                log_file = "token_usage_log.csv"
-            )
+            try:
+                # Log structured token usage.
+                log_token_usage(
+                    llm = llm_name,
+                    input_tokens = result.usage_metadata['input_tokens'],
+                    output_tokens = result.usage_metadata['output_tokens'],
+                    log_file = "token_usage_log.csv"
+                )
+            except Exception as e:
+                print(f"LLM usage could not be logged. Error: {e}")
 
             return result  # Return the successful API response
         except KeyboardInterrupt:
