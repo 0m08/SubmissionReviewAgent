@@ -11,6 +11,8 @@ class SmartProgressBar:
         self.description = description
         self.save_interval = save_interval
         self.progress_bar = st.progress(0, text=f"{description}: 0%")
+        if total_tasks == 0:
+            self.progress_bar.empty()
     
     def update(self, increment=1):
         self.completed_count += increment

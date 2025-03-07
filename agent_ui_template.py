@@ -172,11 +172,13 @@ def run_all_automated_steps(pipeline_sections):
     while progress_made:
         progress_made = False
         
+        step_global_count = 0
         # Go through all steps in all sections
         for section in pipeline_sections:
             for step in section["steps"]:
                 step_key = f"{step['name']}_done"
-                
+                step_global_count += 1
+
                 # Skip if already done
                 if st.session_state[step_key]:
                     continue
@@ -193,23 +195,24 @@ def run_all_automated_steps(pipeline_sections):
 
                 if dependencies_satisfied:
                     try:
-                        # Gather actual arguments from session_state
-                        kwargs = {}
-                        for arg_name, session_key in step["args"].items():
-                            # If the session_key is a string that matches a valid session_state key, retrieve it
-                            if isinstance(session_key, str) and session_key in st.session_state:
-                                kwargs[arg_name] = st.session_state[session_key]
-                            else:
-                                # or if it's a literal / direct value, pass it through
-                                kwargs[arg_name] = session_key
-                                
-                        # Run the function
-                        step["func"](**kwargs)
-                        st.session_state[step_key] = True
-                        progress_made = True
-                        st.success(f"Auto-run: {step['name']} completed!")
+                        with st.spinner(text = f"Running: Step {step_global_count}. {step['name']} completed!", show_time = True):
+                            # Gather actual arguments from session_state
+                            kwargs = {}
+                            for arg_name, session_key in step["args"].items():
+                                # If the session_key is a string that matches a valid session_state key, retrieve it
+                                if isinstance(session_key, str) and session_key in st.session_state:
+                                    kwargs[arg_name] = st.session_state[session_key]
+                                else:
+                                    # or if it's a literal / direct value, pass it through
+                                    kwargs[arg_name] = session_key
+                                    
+                            # Run the function
+                            step["func"](**kwargs)
+                            st.session_state[step_key] = True
+                            progress_made = True
+                            st.success(f"Auto-run: Step {step_global_count}. {step['name']} completed!")
                     except Exception as e:
-                        st.error(f"Error auto-running {step['name']}: {e}")
+                        st.error(f"Error auto-running Step {step_global_count}. {step['name']}: {e}")
                         st.text(traceback.format_exc())
 
 # if __name__ == "__main__":

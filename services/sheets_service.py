@@ -9,7 +9,7 @@ from gspread_formatting import (
 from gspread.utils import rowcol_to_a1
 from utils.decorator_helpers import try_n_times
 
-
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def get_sheet_data_and_df(sheet, sheet_name):
     """
     Get sheet data and convert to dataframe.
@@ -25,6 +25,7 @@ def get_sheet_data_and_df(sheet, sheet_name):
     return worksheet, df
 
 
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def format_worksheet(worksheet):
     """
     Apply the following formatting to the given `worksheet`:
@@ -67,6 +68,7 @@ def format_worksheet(worksheet):
     print("Sheet formatting completed successfully!")
 
 
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def create_or_read_worksheet(sheet, worksheet_name, rows = 1000, cols = 20):
     """
     This function creates a new worksheet if not already present. If present, it reads the sheet
@@ -102,6 +104,7 @@ def save_to_sheet(worksheet, df):
     return
 
 
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def filter_non_blank_column(worksheet, column_name, df, header_row=1):
     """
     Apply a filter to show only rows where a specific column is not blank.
@@ -168,6 +171,7 @@ def filter_non_blank_column(worksheet, column_name, df, header_row=1):
     print(f"Filter applied successfully on column '{column_name}' for {len(df)} data rows")
 
 
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def hide_columns_by_name(worksheet, column_names, df):
     """
     Hide specific columns in a Google Sheet based on their names.

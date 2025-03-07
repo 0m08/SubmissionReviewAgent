@@ -9,6 +9,9 @@ from langchain_community.document_loaders import YoutubeLoader
 from langchain_core.documents import Document
 import os
 import requests
+import csv
+import streamlit as st
+import json
 
 ### YT video link loader
 
@@ -228,11 +231,49 @@ def get_transcript_backup(video_id: str, return_text_only=False):
         raise Exception(f"Error fetching transcript via fallback method: {e}")
 
 
+@st.cache_data
+def load_transcripts_from_csv():
+    """
+    Reads the entire transcripts CSV into a dictionary {video_id -> transcript_data}.
+    This is cached by Streamlit to avoid repeated I/O.
+    """
+    TRANSCRIPTS_CSV = "assets/video_transcripts.csv"
+
+    if not os.path.isfile(TRANSCRIPTS_CSV):
+        print("CSV File not found")
+        return {}
+ 
+    transcripts_dict = {}
+
+    with open(TRANSCRIPTS_CSV, mode="r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        transcript_col_count = len([col for col in reader.fieldnames if col.startswith('transcript_')])
+        for row in reader:
+            transcripts_dict[row["video_id"]] = json.loads(
+                "".join([row[f"transcript_{i}"] for i in range(transcript_col_count)])
+            )
+    
+    return transcripts_dict
+
+
 def get_transcript_with_fallback(video_id: str, return_text_only=False):
     """
-    Wrapper function that first tries the YouTubeTranscriptApi.
-    If that fails, it calls the fallback via RapidAPI.
+    1. Uses st.cache_data to load all transcripts from CSV into memory.
+    2. Checks if 'video_id' is in the cached dict. If so, returns it immediately.
+    3. Otherwise, fetches via the normal transcript or backup function,
+       saves to CSV, and updates the cache by calling st.cache_data.clear().
     """
+
+    transcripts_cache = load_transcripts_from_csv()
+    
+    # 1) Check in-memory cache
+    if video_id in transcripts_cache:
+        cached_transcript = transcripts_cache[video_id]
+        if return_text_only:
+            return " ".join(segment["text"] for segment in cached_transcript)
+        print("Loaded Cached Transcript from the CSV")
+        return cached_transcript
+
     try:
         # First attempt: official YT Transcript API
         return get_transcript(video_id, return_text_only=return_text_only)
