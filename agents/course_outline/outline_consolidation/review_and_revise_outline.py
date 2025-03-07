@@ -302,7 +302,7 @@ def compare_text_versions(text1: str, text2: str):
         st.markdown("<br>".join(version2_lines), unsafe_allow_html=True)
 
 
-def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemini_2_flash'):
+def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemini_2_flash', skip_manual_step = False):
     """
     Runs the review and revision process for course outlines using AI.
 
@@ -310,26 +310,19 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
     :param course_name: Name of the course.
     :param target_audience: Target audience for the course.
     :param llm: The language model to use (default: 'gemini_2_flash').
+    :param skip_manual_step: Bool. If True, it will assume the outline to be approved
     :return: None
     """
 
-    st.write(f"Note: Populate the Verdict and the Manual Feedback columns before running this cell.\n")
-    st.write("Note: The automation will only read the last (populated) row in the Outline Review sheet. Thus make sure to put your inputs in the last (populated) row.\n")
-    st.write("Note: You can run this cell many number of times until you are satifised with the results.\n")
-    st.write("Note: Scroll down the output of this cell till the very end to see the outline difference i.e the change between the last two outlines.")
-
     outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, 'Outline Review')
-
-    # Initiate the agent
-    review_revise_agent = Chain(llm=llm)
 
     # Check if already approved
     last_verdict = outline_review_df.iloc[-1]['Verdict'].strip()
-    if 'approved' in last_verdict.lower():
+    if 'approved' in last_verdict.lower() or skip_manual_step:
         print("Course Outline Approved")
         # Parse the outline and save it in new sheet
         parse_course_outline_for_all_topics(sheet = sheet, worksheet_name = "Course Outline with LOs", outline_review_df = outline_review_df, llm = llm)
-        return
+        return True
 
     # Get the last row's manual feedback
     last_manual_feedback = outline_review_df.iloc[-1]['Manual Feedback'].strip()
@@ -422,6 +415,9 @@ Comments made by user on videos research:
 
         messages.append(("ai", f"<course_outline_review>\n{ai_suggestions}\n</course_outline_review>"))
         messages.append(("user", revise_outline_prompt))
+
+    # Initiate the agent
+    review_revise_agent = Chain(llm=llm)
 
     # Add messages to the agent
     review_revise_agent.add_messages(messages)

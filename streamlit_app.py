@@ -1,16 +1,20 @@
 import streamlit as st
+from PIL import Image  # Pillow library
 
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
     st.session_state.role = None
 
-authenticated_roles = ["Editor"]  # example roles
+authenticated_roles = ["Editor", "Admin"]  # example roles
+
+skillcat_logo_image = Image.open("assets/SkillCat-Logo.png")
+skillcat_helmet_image = Image.open("assets/SkillCat-Helmet.png")
 
 st.logo(
-    image = "assets/Skillcat-Logo.png",
+    image = skillcat_logo_image,
     size = "medium",
-    link = "https://www.skillcatapp.com/",
-    icon_image = "assets/Skillcat-Helmet.png"
+    # link = "https://www.skillcatapp.com/",
+    icon_image = skillcat_helmet_image
 )
 
 #######################
@@ -33,7 +37,10 @@ def login():
 
 def logout():
     """Immediately logs the user out by clearing role."""
-    st.session_state.role = None
+    # st.session_state.role = None
+    # Delete all the items in Session state
+    for key in st.session_state.keys():
+        del st.session_state[key]
     st.rerun()
 
 

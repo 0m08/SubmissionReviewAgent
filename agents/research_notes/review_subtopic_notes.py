@@ -216,8 +216,9 @@ def manual_input_review_research_notes(sheet, worksheet_name):
     :param worksheet_name: The worksheet name.
     :return: None
     """
+    return True
     # Read the sheet and df
-    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
+    # course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
 
     # st.write(f"Review the research notes, and the ai generated review.")
     # st.write(f"Sheet Link - {course_outline_with_lo_sheet.url}")
@@ -235,7 +236,7 @@ def manual_input_review_research_notes(sheet, worksheet_name):
     #     # raise Exception("Please make the manual edits and press the button to continue")
     #     st.info("Please make the manual edits and press the button to continue")
     #     return False
-    return True
+    
 
 
 

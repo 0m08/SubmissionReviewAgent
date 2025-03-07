@@ -298,14 +298,18 @@ def run_generate_outline_from_client_reference(sheet, worksheet_name, course_nam
     return
 
 
-def manual_input_client_reference_consolidation_comments(sheet, worksheet_name):
+def manual_input_client_reference_consolidation_comments(sheet, worksheet_name, skip_manual_step = False):
     """
     Checks whether the user has properly added comments for in the outline_consolidation column for client reference based outlines.
 
     :param sheet: The Google Sheets object.
     :param worksheet_name: The name of the worksheet.
+    :param skip_manual_step: Bool. If True, the column can be left blank without any validation errors
     :return: True if column is properly populated, raises an error otherwise.     
     """
+
+    if skip_manual_step:
+        return True
 
     # Get the sheet and DataFrame
     client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet, worksheet_name)

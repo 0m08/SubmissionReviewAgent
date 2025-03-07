@@ -373,17 +373,29 @@ def run_get_relevant_chunks(sheet, worksheet_name, course_name, target_audience,
     return
 
 
-def manual_input_mark_relevant_videos(sheet, worksheet_name):
+def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = False):
     """
     Checks whether the user has properly added manual inputs for marking relevant videos
 
     :param sheet: The Google Sheets object.
     :param worksheet_name: The name of the worksheet.
+    :param skip_manual_step: Bool - Fill the relevant rows with "Skipped - Default - Yes" if True
     :return: True if both columns are properly populated, raises an error otherwise.    
     """
 
     # Get the sheet and DataFrame
     video_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+    if skip_manual_step:
+        print("Skipping Manual Review - Mark Relevant Videos")
+        mask = videos_research_df["proposed_chapters_to_include"] != ""
+        # Set col values
+        videos_research_df.loc[mask, "Manual Review"] = "Skipped - Default - Yes"
+        videos_research_df.loc[mask, "Used for"] = "Skipped - Default - Just Content"
+        # Save changes to sheet
+        save_to_sheet(worksheet = video_research_sheet, df = videos_research_df)
+        
+        return True
 
     # Check if user has properly added inputs - for both Manual Review and User for columns
     validate_column_values(

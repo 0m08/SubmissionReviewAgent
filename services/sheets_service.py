@@ -92,7 +92,7 @@ def create_or_read_worksheet(sheet, worksheet_name, rows = 1000, cols = 20):
     return worksheet, df
 
 
-@try_n_times(n = 3, wait = 5, backoff = 'linear')
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def save_to_sheet(worksheet, df):
     """
     Save the datesframe to a sheet

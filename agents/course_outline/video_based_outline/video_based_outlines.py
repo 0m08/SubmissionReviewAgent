@@ -237,7 +237,7 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
         videos_research_df['consolidation_comments'] = ''
 
     # Check if column b is populated (not empty string and not NaN) for all rows where column a is "Yes"
-    mask = videos_research_df['Manual Review'].str.lower() == "yes"
+    mask = videos_research_df['Manual Review'].str.contains("yes", case=False, na=False)
     all_rows_populated = ((videos_research_df.loc[mask, 'outline'].notna()) & (videos_research_df.loc[mask, 'outline'] != "")).all()
     if all_rows_populated == True:
         print("Video based outlines already generated for all marked rows. Skipping this step.")
@@ -259,7 +259,7 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
         for index, row in videos_research_df.iterrows():
             
             # Skip if video not marked as Yes in Manual Review
-            if row['Manual Review'].lower() != 'yes':
+            if 'yes' not in row['Manual Review'].lower():
                 continue
             
             # Skip is already populated
@@ -321,14 +321,18 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
     return
 
 
-def manual_input_video_outline_consolidation_comments(sheet, worksheet_name):
+def manual_input_video_outline_consolidation_comments(sheet, worksheet_name, skip_manual_step = False):
     """
     Checks whether the user has properly added comments for in the outline_consolidation column for video based outlines.
 
     :param sheet: The Google Sheets object.
     :param worksheet_name: The name of the worksheet.
+    :param skip_manual_step: Bool. If True, the column can be left blank without any validation errors
     :return: True if column is properly populated, raises an error otherwise.     
     """
+
+    if skip_manual_step:
+        return True
 
     # Get the sheet and DataFrame
     video_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
