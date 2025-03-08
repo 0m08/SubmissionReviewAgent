@@ -268,11 +268,15 @@ def get_transcript_with_fallback(video_id: str, return_text_only=False):
     
     # 1) Check in-memory cache
     if video_id in transcripts_cache:
+        print(f"Video id {video_id} found in cached CSV.")
         cached_transcript = transcripts_cache[video_id]
-        if return_text_only:
-            return " ".join(segment["text"] for segment in cached_transcript)
-        print("Loaded Cached Transcript from the CSV")
-        return cached_transcript
+        if len(str(cached_transcript)) > 100:
+            if return_text_only:
+                return " ".join(segment["text"] for segment in cached_transcript)
+            print("Loaded Cached Transcript from the CSV")
+            return cached_transcript
+        else:
+            pass
 
     try:
         # First attempt: official YT Transcript API
