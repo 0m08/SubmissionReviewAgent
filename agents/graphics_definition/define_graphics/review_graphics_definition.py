@@ -1,4 +1,5 @@
 from modules.chain import Chain
+from concurrent.futures import ThreadPoolExecutor
 
 generate_complexity_review_prompt = """You are a Graphics Definition Review Agent. Your task is to analyze the provided graphics definition for a slide and evaluate its complexity. The goal is to ensure that the visualization is effective, easy to create, and not overly complex while maintaining clarity and instructional value.
 
@@ -72,7 +73,9 @@ If the verdict is Fail, provide specific suggestions on how to simplify the scen
 """
 
 
-def generate_complexity_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm = "gemini_2_flash"):
+
+
+def generate_complexity_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm="gemini_2_flash"):
     """
     Generate complexity review for a given slide.
 
@@ -81,28 +84,29 @@ def generate_complexity_review(course_name, target_audience, slide_title, slide_
     :param slide_title: The title of the slide.
     :param slide_content: The content of the slide.
     :param graphics_definition: The generated graphics definition for the slide.
+    :param llm: The language model to be used.
     :return: The complexity review output.
     """
-
-    # Initialize the agent
-    generate_complexity_review_agent = Chain(llm = llm, tags = ['output'])
-
-    # Add the user message
-    generate_complexity_review_agent.add_message(
-        role = "user",
-        content = generate_complexity_review_prompt.format(
-            course_name = course_name,
-            target_audience = target_audience,
-            slide_title = slide_title,
-            slide_content = slide_content,
-            graphics_definition = graphics_definition
+    
+    def task():
+        generate_complexity_review_agent = Chain(llm=llm, tags=['output'])
+        generate_complexity_review_agent.add_message(
+            role="user",
+            content=generate_complexity_review_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                slide_title=slide_title,
+                slide_content=slide_content,
+                graphics_definition=graphics_definition
+            )
         )
-    )
+        response = generate_complexity_review_agent.run()
+        return response['output']
+    
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
 
-    # Run the agent
-    response = generate_complexity_review_agent.run()
-
-    return response['output']
 
 
 generate_missing_sentences_review_prompt = """You are a Graphics Definition Review Agent. Your task is to analyze the provided graphics definition for a slide and evaluate whether all sentences from the slide content are fully represented in the visuals. The goal is to ensure that every sentence from the slide content is visually represented in the graphics definition, without any omissions.
@@ -181,7 +185,8 @@ If Fail, provide specific recommendations on how to incorporate the missing sent
 """
 
 
-def generate_missing_sentences_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm = "gemini_2_flash"):
+
+def generate_missing_sentences_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm="gemini_2_flash"):
     """
     Generate missing sentences review for a given slide.
 
@@ -193,26 +198,26 @@ def generate_missing_sentences_review(course_name, target_audience, slide_title,
     :param llm: The language model to use.
     :return: The missing sentences review output.
     """
-
-    # Initialize the agent
-    missing_sentences_review_agent = Chain(llm = llm, tags = ['output'])
-
-    # Add the user message
-    missing_sentences_review_agent.add_message(
-        role = "user",
-        content = generate_missing_sentences_review_prompt.format(
-            course_name = course_name,
-            target_audience = target_audience,
-            slide_title = slide_title,
-            slide_content = slide_content,
-            graphics_definition = graphics_definition
+    
+    def task():
+        missing_sentences_review_agent = Chain(llm=llm, tags=['output'])
+        missing_sentences_review_agent.add_message(
+            role="user",
+            content=generate_missing_sentences_review_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                slide_title=slide_title,
+                slide_content=slide_content,
+                graphics_definition=graphics_definition
+            )
         )
-    )
+        response = missing_sentences_review_agent.run()
+        return response['output']
+    
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
 
-    # Run the agent
-    response = missing_sentences_review_agent.run()
-
-    return response['output']
 
 
 generate_accuracy_review_prompt = """You are a Graphics Definition Review Agent. Your task is to analyze the provided graphics definition for a slide and evaluate whether it accurately represents the slide content. The goal is to ensure that all technical details, equipment, tools, measurements, and concepts are visualized correctly and without any misrepresentation.
@@ -300,7 +305,8 @@ If Fail, provide specific recommendations on how to correct the inaccuracies whi
 """
 
 
-def generate_accuracy_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm = "gemini_2_flash"):
+
+def generate_accuracy_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm="gemini_2_flash"):
     """
     Generate accuracy review for a given slide.
 
@@ -312,26 +318,26 @@ def generate_accuracy_review(course_name, target_audience, slide_title, slide_co
     :param llm: The language model to use.
     :return: The accuracy review output.
     """
-
-    # Initialize the agent
-    generate_accuracy_review_agent = Chain(llm=llm, tags = ['output'])
-
-    # Add the user message
-    generate_accuracy_review_agent.add_message(
-        role = "user",
-        content = generate_accuracy_review_prompt.format(
-            course_name = course_name,
-            target_audience = target_audience,
-            slide_title = slide_title,
-            slide_content = slide_content,
-            graphics_definition = graphics_definition
+    
+    def task():
+        generate_accuracy_review_agent = Chain(llm=llm, tags=['output'])
+        generate_accuracy_review_agent.add_message(
+            role="user",
+            content=generate_accuracy_review_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                slide_title=slide_title,
+                slide_content=slide_content,
+                graphics_definition=graphics_definition
+            )
         )
-    )
+        response = generate_accuracy_review_agent.run()
+        return response['output']
+    
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
 
-    # Run the agent
-    response = generate_accuracy_review_agent.run()
-
-    return response['output']
 
 
 generate_reuse_previous_graphics_review_prompt = """You are a Graphics Definition Review Agent. Your task is to critically analyze the graphics definition generated for a slide and determine whether any opportunities to reuse previously defined visual elements from earlier slides' graphics definitions were overlooked. Your objective is to maximize the reuse of graphics wherever possible to enhance visual consistency and instructional alignment while maintaining clarity and effectiveness in conveying the slide content.
@@ -425,6 +431,7 @@ Here is the list of graphics definitions from previous slides:
 Refer to these previous graphics definitions for any visual elements that could potentially be reused. Do not assume any information beyond what is explicitly stated in these previous slides' graphics definition. Only flag reuse opportunities if any relevant scene from these previous definitions contains elements that align with the current slide’s content.
 """
 
+
 def generate_reuse_previous_graphics_review(course_name, target_audience, slide_title, slide_content, graphics_definition, previous_graphics_definition, llm="gemini_2_flash"):
     """
     Generate reuse graphics opportunity review for a given slide.
@@ -438,32 +445,30 @@ def generate_reuse_previous_graphics_review(course_name, target_audience, slide_
     :param llm: The language model to use.
     :return: The reuse graphics review output.
     """
-
-    # Initialize the agent
-    reuse_previous_graphics_review_agent = Chain(llm=llm, tags=['output'])
-
-    # Add the system message
-    reuse_previous_graphics_review_agent.add_message(
-        role="system",
-        content=generate_reuse_previous_graphics_review_system_prompt.format(
-            previous_graphics_definition=previous_graphics_definition
+    
+    def task():
+        reuse_previous_graphics_review_agent = Chain(llm=llm, tags=['output'])
+        reuse_previous_graphics_review_agent.add_message(
+            role="system",
+            content=generate_reuse_previous_graphics_review_system_prompt.format(
+                previous_graphics_definition=previous_graphics_definition
+            )
         )
-    )
-
-    # Add the user message
-    reuse_previous_graphics_review_agent.add_message(
-        role="user",
-        content=generate_reuse_previous_graphics_review_prompt.format(
-            course_name=course_name,
-            target_audience=target_audience,
-            slide_title=slide_title,
-            slide_content=slide_content,
-            graphics_definition=graphics_definition
+        reuse_previous_graphics_review_agent.add_message(
+            role="user",
+            content=generate_reuse_previous_graphics_review_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                slide_title=slide_title,
+                slide_content=slide_content,
+                graphics_definition=graphics_definition
+            )
         )
-    )
+        response = reuse_previous_graphics_review_agent.run()
+        return response['output']
+    
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
 
-    # Run the agent
-    response = reuse_previous_graphics_review_agent.run()
-
-    return response['output']
 
