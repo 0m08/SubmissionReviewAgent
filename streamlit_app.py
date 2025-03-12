@@ -7,15 +7,15 @@ if "role" not in st.session_state:
 
 authenticated_roles = ["Editor", "Admin"]  # example roles
 
-skillcat_logo_image = Image.open("assets/SkillCat-Logo.png")
-skillcat_helmet_image = Image.open("assets/SkillCat-Helmet.png")
+# skillcat_logo_image = Image.open("assets/SkillCat-Logo.png")
+# skillcat_helmet_image = Image.open("assets/SkillCat-Helmet.png")
 
-st.logo(
-    image = skillcat_logo_image,
-    size = "medium",
-    # link = "https://www.skillcatapp.com/",
-    icon_image = skillcat_helmet_image
-)
+# st.logo(
+#     image = skillcat_logo_image,
+#     size = "medium",
+#     # link = "https://www.skillcatapp.com/",
+#     icon_image = skillcat_helmet_image
+# )
 
 #######################
 # 2) Define "pages"

@@ -1,4 +1,4 @@
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from tqdm import tqdm
 import pandas as pd
 from services.youtube_search import search_youtube_videos
@@ -14,7 +14,7 @@ def run_get_hvac_school_videos(sheet, worksheet_name):
             continue
         video_search_queries.append(query)
     
-    videos_research_sheet, videos_research_df = create_or_read_worksheet(sheet, worksheet_name)
+    videos_research_sheet, videos_research_df = create_or_read_worksheet(sheet, worksheet_name, rows = 1000, cols = 30)
 
     hvac_school_channel_id = "UCdLlUhD9LUGm0-NTYDASPFA"
 
@@ -80,8 +80,7 @@ def run_get_hvac_school_videos(sheet, worksheet_name):
     # Group by video_id and aggregate
     videos_research_df = videos_research_df.groupby('video_id', as_index=False).agg(agg_dict)
 
-    videos_research_df = videos_research_df.astype(str)
-    videos_research_sheet.update([videos_research_df.columns.values.tolist()] + videos_research_df.values.tolist())
+    save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
 
     # Format the sheet
     format_worksheet(videos_research_sheet)

@@ -278,7 +278,7 @@ def validate_column_values(
         if not empty_rows.empty:
             error_messages = []
             for index, _ in empty_rows.iterrows():
-                error_messages.append(f"Row {index}: '{validation_column}' is empty or null")
+                error_messages.append(f"Row {index + 2}: '{validation_column}' is empty or null")
             
             raise ValueError(f"Empty values found in column '{validation_column}':\n" + 
                             "\n".join(error_messages))
@@ -308,7 +308,7 @@ def validate_column_values(
                 
                 for index, row in invalid_rows.iterrows():
                     value = row[validation_column]
-                    error_messages.append(f"Row {index}: Found '{value}' instead of one of {valid_values_str}")
+                    error_messages.append(f"Row {index + 2}: Found '{value}' instead of one of {valid_values_str}")
                 
                 raise ValueError(f"Invalid values found in column '{validation_column}':\n" + 
                                 "\n".join(error_messages))

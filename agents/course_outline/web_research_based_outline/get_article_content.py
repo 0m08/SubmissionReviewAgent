@@ -106,9 +106,10 @@ from langchain.schema import Document
 from langchain_community.document_loaders import AsyncHtmlLoader, PyPDFLoader, AsyncChromiumLoader
 from langchain_community.document_transformers import Html2TextTransformer
 from langchain_community.document_loaders import PyPDFLoader
-from services.helper_functions import create_and_populate_columns
+from services.helper_functions import create_and_populate_columns, escape_single_braces
 from services.sheets_service import get_sheet_data_and_df
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from services.web_page_loaders import clean_mark_article_stdout
 
 
 def extract_markdown_from_webpage(url, timeout=10):
@@ -223,13 +224,13 @@ def fetch_and_process_article(index, row):
         url = row.get('article')
         search_query = row.get('query')
         article_content = None
-        # try:
-        #     article_content = get_text_clean_mark(url)
-        # except TimeoutError as e:
-        #     print(f"Timeout error for row {index}: {e}")
-        #     article_content = None
-        # except Exception as e:
-        #     print(f"Error fetching content from get_text_clean_mark for {index}: {e}")
+        try:
+            article_content = clean_mark_article_stdout(url)
+        except TimeoutError as e:
+            print(f"Timeout error for row {index}: {e}")
+            article_content = None
+        except Exception as e:
+            print(f"Error fetching content from get_text_clean_mark for {index}: {e}")
 
         if not article_content or article_content.startswith('---\nlink: null'):
             try:
@@ -240,7 +241,7 @@ def fetch_and_process_article(index, row):
                 article_content = None
 
         if article_content:
-            article_content = article_content.replace('{', '{{').replace('}', '}}')
+            article_content = escape_single_braces(article_content)
 
         return index, article_content
     except Exception as e:

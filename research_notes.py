@@ -28,7 +28,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash",
                 },
                 "estimated_time": "~ 10 - 20 minutes",
-                "description": "Gathers relevant contexy needed for the research.",
+                "description": "Gathers relevant context needed for the research.",
             },
             {
                 "name": "Researcher",

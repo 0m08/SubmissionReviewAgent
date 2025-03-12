@@ -4,6 +4,7 @@ from services.llm_service import llm_with_retry, output_parser, csv_list_parser
 import re
 from duckduckgo_search import DDGS
 from exa_py import Exa
+import os
 
 
 @try_n_times(2, wait = 5, backoff = 'linear')
@@ -28,11 +29,12 @@ def ddgs_search(search_query, max_results=30, backend = 'api'):
     return search_results
 
 
+@try_n_times(2, wait = 5, backoff = 'linear')
 def exa_search(search_query):
     """
     Search the web with Exa.
     """
-    exa = Exa()
+    exa = Exa(api_key = os.environ.get("EXA_API_KEY"))
 
     # Using search_and_contents for improved results
     response = exa.search_and_contents(
@@ -171,7 +173,7 @@ Remember, the goal is to eliminate articles that are definitely not going to hav
         texts = [] # Store the text within each tags as a list
         for tag in ['marked_articles']:
             # regex pattern
-            pattern = f"<{tag}>\s*(.*?)\s*</{tag}>"
+            pattern = rf"<{tag}>\s*(.*?)\s*</{tag}>"
             match_1 = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match_1:
                 texts.append(match_1.group(1))

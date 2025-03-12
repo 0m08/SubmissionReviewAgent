@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
 from agents.research_notes.retriever_agent import retrieve_relevant_docs
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -169,7 +169,11 @@ def revise_research_notes(compression_retriever, web_search_retriever, course_na
         for id in selected_doc_ids:
             # Check if id can be converted to int
             if id.isdigit():
-                context_doc = all_docs[int(id)]
+                doc_index = int(id)
+                if len(all_docs) <= doc_index < 0:
+                    print("Index not present within list.")
+                    continue
+                context_doc = all_docs[doc_index]
                 # Check if doc already added
                 if context_doc in context_docs:
                     print(f'Skipping doc id {id} as it is already added')
@@ -314,14 +318,11 @@ def run_reviser_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
             # Check if we should save
             if progress.should_save():
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-                course_outline_with_lo_sheet.update([course_outline_with_lo_df.columns.values.tolist()] + course_outline_with_lo_df.values.tolist())
-
+                save_to_sheet(worksheet = course_outline_with_lo_sheet, df = course_outline_with_lo_df)
 
     # Final save to sheet after all tasks
     print('All rows processed. Saving final DataFrame to sheet.')
-    course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-    course_outline_with_lo_sheet.update([course_outline_with_lo_df.columns.values.tolist()] + course_outline_with_lo_df.values.tolist())
+    save_to_sheet(worksheet = course_outline_with_lo_sheet, df = course_outline_with_lo_df)
 
     return
 

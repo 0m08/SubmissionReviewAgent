@@ -216,7 +216,7 @@ def generate_outline_from_video_transcript(course_name, target_audience, course_
     return response
 
 
-def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_audience, llm='gemini_2_flash'):
+def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_audience, llm = 'gemini_2_flash'):
     """
     This function generated video based outlines for all the rows marked manually
     :param sheet: The sheet object.
@@ -321,7 +321,159 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
     return
 
 
-def manual_input_video_outline_consolidation_comments(sheet, worksheet_name, skip_manual_step = False):
+generate_video_outline_consolidation_comments_prompt = """You are tasked to add "consolidation comments" for a list of partial outlines generated from video transcripts. You are overtaking this task from a human thus, you need to ensure to achieve similar / better performance.
+
+The course outline was generated based on the following course info:
+<course_info>
+Course name: {course_name}
+Target audience: {target_audience}
+Initial (tentative) outline: {tentative_outline}
+</course_info>
+
+The following thought process was carried to generate the partial outline:
+<partial_outline>
+Video title: {video_title}
+Agent thoughts: 
+{video_scratchpad}
+
+Video relevance: {video_relevance}
+
+Proposed chapters to include:
+{proposed_chapters_to_include}
+
+Partial outline: 
+{partial_outline}
+</partial_outline>
+
+Task: Analyze the partial outline based on the all the information shared above. Your task is to provide consolidation comments for this outline. 
+
+Think of consolidation comments ranging from a simple "looks good" to a couple of sentences (eg. remove this that, avoid brand names, etc.) based on the current case.
+
+These consolidation comments will be given for a list of about 15-20 potentially overlapping outlines. Currently, you are providing comments for one such partial outline.
+
+Make sure to output in the following format:
+<inputs_analysis>
+[Your understanding of the inputs and the course requirements.]
+</inputs_analysis>
+<outline_analysis>
+[Your analysis of the partial outline based on the inputs. What looks good. What doesn't look good, etc.]
+</outline_analysis>
+<consolidation_comments>
+[Your consolidation comments for this outline]
+</consolidation_comments>
+
+Remember: Since your are reviewing a partial outline, focus on the information available at hand and don't worry about missing information. Thus, your comments should mostly be of the type "looks good" or "make deletetions" or "comments on structure", etc. Never suggest "add these".
+"""
+
+
+def generate_video_outline_consolidation_comments(course_name, target_audience, course_outline, video_title, video_scratchpad, video_relevance, proposed_chapters_to_include, partial_outline, llm = "gemini_2_flash"):
+    """
+    Generates consolidation comments for video based outlines
+    """
+    generate_consolidation_comments_agent = Chain(llm = llm, tags = ['consolidation_comments'])
+
+    generate_consolidation_comments_agent.add_message(
+        role = "user",
+        content = generate_video_outline_consolidation_comments_prompt.format(
+            course_name = course_name,
+            target_audience = target_audience,
+            tentative_outline = course_outline,
+            video_title = video_title,
+            video_scratchpad = video_scratchpad,
+            video_relevance = video_relevance,
+            proposed_chapters_to_include = proposed_chapters_to_include,
+            partial_outline = partial_outline,
+        )
+    )
+
+    response = generate_consolidation_comments_agent.run()
+
+    return response['consolidation_comments']
+
+
+def run_generate_video_outline_consolidation_comments(sheet, worksheet_name, course_name, target_audience, llm = "gemini_2_flash"):
+    """
+    Run the generate consolidation comments for all video based outlines.
+    :param sheet: The sheet object.
+    :param worksheet_name: The worksheet name.
+    :param course_name: The course name.
+    :param target_audience: The target audience.
+    :param llm: The language model to use.
+    :return: None
+    """
+
+    # Get the sheet and DataFrame
+    videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+
+    # Get the course outline
+    course_outline = get_outline_with_los(
+        df = rough_outline_df,
+        include_learning_objectives = False
+    )
+
+    # Prepare for parallel processing
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers = 5) as executor:
+        # Submit tasks for each row
+        for index, row in videos_research_df.iterrows():
+            
+            # Skip if already populated
+            if row['consolidation_comments'] != '':
+                continue
+
+            # Skip for blank outlines
+            if row['outline'] == '':
+                continue
+
+            # Submit the task
+            future = executor.submit(
+                generate_video_outline_consolidation_comments,
+                course_name,
+                target_audience,
+                course_outline,
+                row['title'],
+                row['video_scratchpad'],
+                row['video_relevance'],
+                row['proposed_chapters_to_include'],
+                row['outline'],
+                llm
+            )
+
+            # Map the Future to the index
+            futures_map[future] = index
+
+        # Collect the results as they complete
+        total_tasks = len(futures_map)
+        save_interval = 5  # how often to save (in number of completed tasks)
+
+        # Initialize the progress tracker
+        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
+
+        # Now, pass only the futures (the keys) to as_completed:
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            index = futures_map[future]  # retrieve the index
+            consolidation_comments = future.result()
+
+            # Update the df
+            videos_research_df.loc[index, 'consolidation_comments'] = consolidation_comments
+
+            # Update progress
+            progress.update()
+
+            # Check if we should save
+            if progress.should_save():
+                print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
+                save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
+
+    # Final save to sheet after all tasks
+    print('All rows processed. Saving final DataFrame to sheet.')
+    save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
+
+    return
+
+
+def manual_input_video_outline_consolidation_comments(sheet, worksheet_name, course_name, target_audience, skip_manual_step = False, llm = "gemini_2_flash"):
     """
     Checks whether the user has properly added comments for in the outline_consolidation column for video based outlines.
 
@@ -332,10 +484,17 @@ def manual_input_video_outline_consolidation_comments(sheet, worksheet_name, ski
     """
 
     if skip_manual_step:
+        run_generate_video_outline_consolidation_comments(
+            sheet = sheet,
+            worksheet_name = worksheet_name,
+            course_name = course_name,
+            target_audience = target_audience,
+            llm = llm
+        )
         return True
 
     # Get the sheet and DataFrame
-    video_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
+    videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
 
     # Check if user has properly added inputs - for consolidation_comments columns
     validate_column_values(

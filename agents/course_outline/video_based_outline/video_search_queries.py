@@ -1,7 +1,7 @@
 from services.llm_service import extract_csv_lines
 from modules.chain import Chain
 import pandas as pd
-from services.sheets_service import get_sheet_data_and_df
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from services.helper_functions import get_outline_with_los, add_list_as_new_column, find_blank_followed_by_filled_indices
 
 ### Construct Video Search Queries
@@ -122,8 +122,7 @@ def run_construct_video_search_queries(sheet, course_name, target_audience, work
         # Add to df
         rough_outline_df = add_list_as_new_column(rough_outline_df, video_search_queries, 'video_search_queries')
         # Save to sheet
-        rough_outline_df = rough_outline_df.astype(str)
-        rough_outline_sheet.update([rough_outline_df.columns.values.tolist()] + rough_outline_df.values.tolist())
+        save_to_sheet(worksheet = rough_outline_sheet, df = rough_outline_df)
 
     else:
         # Already present, skip

@@ -404,7 +404,7 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         validation_column = "Manual Review",
         valid_values = ["Yes", "No"],
         case_sensitive = False,
-        require_populated = True
+        require_populated = False
     )
 
     validate_column_values(

@@ -692,7 +692,7 @@ def get_additional_metadata(video_id):
 
 
 ##### Function to get yt chapters as doc chunks
-
+@try_n_times(n = 3, wait = 1, backoff = "linear")
 def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestamped_transcript = None, llm = 'gemini_2_flash'):
     """
     Get chapters for a YouTube video based on its title and transcript.
@@ -708,14 +708,14 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestampe
 
     # These metadata contain other info such as video title, views, desc, author, published date, etc.
     try:
-            additional_metadata = get_additional_metadata(video_id)
+        additional_metadata = get_additional_metadata(video_id)
     except Exception as e:
-            print(f"Error getting additional metadata for video id: {video_id}")
-            # Populate with dummy data
-            additional_metadata = {
-                'title': 'Error getting additional metadata',
-                'length': 86399
-            }
+        print(f"Error getting additional metadata for video id: {video_id}")
+        # Populate with dummy data
+        additional_metadata = {
+            'title': 'Error getting additional metadata',
+            'length': 86399
+        }
 
     if video_title is None:
         video_title = additional_metadata['title']

@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import streamlit as st
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -153,14 +153,11 @@ def run_review_topic_notes_agent_for_all_rows(sheet, worksheet_name, course_name
             # Check if we should save
             if progress.should_save():
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                research_notes_df = research_notes_df.astype(str)
-                research_notes_sheet.update([research_notes_df.columns.values.tolist()] + research_notes_df.values.tolist())
-
+                save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
 
     # Final save to sheet after all tasks
     print('All rows processed. Saving final DataFrame to sheet.')
-    research_notes_df = research_notes_df.astype(str)
-    research_notes_sheet.update([research_notes_df.columns.values.tolist()] + research_notes_df.values.tolist())
+    save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
 
     return
 

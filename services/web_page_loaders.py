@@ -9,6 +9,7 @@ from langchain_community.document_loaders import AsyncHtmlLoader, AsyncChromiumL
 from langchain_community.document_transformers import Html2TextTransformer
 from langchain_core.documents import Document
 from services.chunking_service import general_chunker
+import subprocess
 
 
 def extract_markdown_and_videos_from_webpage(url, timeout=10):
@@ -132,6 +133,36 @@ def fetch_with_jina_ai(url, query):
     )
 
 
+def clean_mark_article_stdout(url, output_type='md'):
+    """
+    Fetch article from URL, convert it with clean-mark, and return the result
+    from stdout (skipping any file I/O).
+    """
+    # Build the command
+    # Note: The order of arguments can matter if clean-mark is strict,
+    # so check `clean-mark --help` to confirm.
+    cmd_list = [
+        "clean-mark",
+        url,
+        f"--type={output_type}",  # or '-t', output_type
+        "--stdout"
+    ]
+
+    try:
+        # Capture the output
+        result = subprocess.run(
+            cmd_list,
+            check=True,          # Raise CalledProcessError on nonzero exit code
+            capture_output=True, # Capture both stdout & stderr
+            text=True,           # Decode into strings (UTF-8 by default)
+            timeout = 60,        # kill it if it hangs more than 60s
+        )
+        return result.stdout    # The cleaned article text
+    except subprocess.CalledProcessError as e:
+        print("clean-mark failed:", e.stderr)
+        return None
+
+
 #@try_n_times(2)
 def get_docs_from_url(url: str, query: str):
     """
@@ -157,8 +188,11 @@ def get_docs_from_url(url: str, query: str):
     else:
         # Extract markdown from the web page
         try:
-            #clean_markdown_text = get_text_clean_mark(url)  # This function gets the cleanest markdown
-            markdown, videos = extract_markdown_and_videos_from_webpage(url) # This is a fallback function for less cleaner markdown
+            clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+            if clean_markdown_text is None:
+                markdown, videos = extract_markdown_and_videos_from_webpage(url) # This is a fallback function for less cleaner markdown
+            else:
+                markdown, videos = clean_markdown_text, []
             doc = Document(
                 page_content = markdown, #clean_markdown_text if clean_markdown_text is not None else markdown,
                 metadata = {

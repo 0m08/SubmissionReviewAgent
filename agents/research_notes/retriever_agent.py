@@ -1,10 +1,9 @@
 from modules.chain import Chain
 from services.llm_service import csv_list_parser
 from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
-from services.sheets_service import get_sheet_data_and_df
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name
 from tqdm import tqdm
-from services.helper_functions import create_and_populate_columns
-from services.helper_functions import get_outline_with_los
+from services.helper_functions import create_and_populate_columns, get_outline_with_los
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -196,7 +195,11 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
     #     return index, row['context_0']
 
     # Get the LOs for this row / subtopic
-    learning_objectives = row['Learning Objectives'].split('\n')
+    # If row is blank, search by subtopic
+    if row['Learning Objectives'] == '':
+        learning_objectives = [row['Subtopic']]
+    else:
+        learning_objectives = row['Learning Objectives'].split('\n')
 
     context = ""
     context_docs = []
@@ -219,6 +222,9 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
             # Check if doc_id is an integer
             if doc_id.isdigit():
                 doc_index = int(doc_id)
+                if len(all_docs) <= doc_index < 0:
+                    print("Index not present within list.")
+                    continue
                 context_doc = all_docs[doc_index]
                 # Skip if doc already added
                 if context_doc in context_docs:
@@ -323,20 +329,17 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
             if progress.should_save():
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 # Convert all columns to string to avoid data-type issues
-                course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-                course_outline_with_lo_sheet.update(
-                    [course_outline_with_lo_df.columns.values.tolist()] +
-                    course_outline_with_lo_df.values.tolist()
-                )
+                save_to_sheet(worksheet = course_outline_with_lo_sheet, df = course_outline_with_lo_df)
 
 
     # Final save to sheet after all tasks
     print('All rows processed. Saving final DataFrame to sheet.')
-    course_outline_with_lo_df = course_outline_with_lo_df.astype(str)
-    course_outline_with_lo_sheet.update(
-        [course_outline_with_lo_df.columns.values.tolist()] +
-        course_outline_with_lo_df.values.tolist()
-    )
+    save_to_sheet(worksheet = course_outline_with_lo_sheet, df = course_outline_with_lo_df)
+
+    column_names = [column_name for column_name in course_outline_with_lo_df.columns if "context" in column_name]
+
+    # Hide the columns
+    hide_columns_by_name(worksheet = course_outline_with_lo_sheet, column_names = column_names, df = course_outline_with_lo_df)
 
     return
 
