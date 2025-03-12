@@ -58,7 +58,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
     else:
         # If data is already loaded, simply confirm it to the user
         st.success(f"Data already loaded for course: **{st.session_state['course_name']}**. Proceed below.")
-
+        
         # Admin exclusive features
         if 'role' in st.session_state and st.session_state['role'] == 'Admin':
             # Skip Manual Steps
