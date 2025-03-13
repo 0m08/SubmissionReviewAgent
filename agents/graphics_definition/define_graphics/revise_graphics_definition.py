@@ -3,7 +3,9 @@ from modules.chain import Chain
 from tqdm import tqdm
 import re
 import streamlit as st
-
+from services.smart_progress_bar import SmartProgressBar
+from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
 
 
 from agents.graphics_definition.define_graphics.generate_graphics_definition import generate_graphics_definition
@@ -13,7 +15,7 @@ from agents.graphics_definition.define_graphics.review_graphics_definition impor
 from agents.graphics_definition.define_graphics.review_graphics_definition import generate_accuracy_review
 from agents.graphics_definition.define_graphics.review_graphics_definition import generate_reuse_previous_graphics_review
 
-from services.smart_progress_bar import SmartProgressBar
+
 
 
 
@@ -212,9 +214,11 @@ def generate_reviser_output_for_slide(course_name, target_audience, slide_title,
 
     return response['revised_graphics_definition']
 
-def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_audience, llm = "gemini_2_flash"):
-    
-    # Read the sheet and df
+
+
+
+def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
+    # Read the sheet and dataframe
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
     # Ensure required columns exist
@@ -222,175 +226,79 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
 
-    # To store all the previous graphics definition
     previous_graphics_definition = ""
 
-    # Run the for loop
-    for index, row in tqdm(slide_chunks_df.iterrows(), total = slide_chunks_df.shape[0]):
-
+    for index, row in tqdm(slide_chunks_df.iterrows(), total=slide_chunks_df.shape[0]):
         if not row['graphics_definition'].strip():
             print(f"\n🚀 Processing Slide {index + 1} - {row['Slide Title']}")
             print("-" * 100)
-            row_no = index
 
-            # Fetch references for this slide from the "Reference Description" column
             references = row['Reference Description'].strip()
 
-            # Run the graphics definition agent
+            # Generate Graphics Definition
             print("⏳ Generating Graphics Definition\n")
-
             graphics_definition = generate_graphics_definition(
-                course_name = course_name,
-                target_audience = target_audience,
-                slide_title = row['Slide Title'],
-                slide_content = row['Slide Content'],
-                previous_graphics_definition = previous_graphics_definition,
-                references = references,
-                llm = llm
-            )
-
-            print("✅ Generated Graphics Definition\n")
-            print("-"*100)
-
-            # Add this to the df
-            slide_chunks_df.loc[index, 'graphics_definition'] = graphics_definition
-
-            # Convert all values to strings before updating
-            slide_chunks_df = slide_chunks_df.astype(str)
-
-            # Update Sheet with Graphics Definition
-            slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
-
-            # Run the complexity review agent
-            print("⏳ Generating Complexity Review\n")
-
-            complexity_review = generate_complexity_review(
-                course_name = course_name,
-                target_audience = target_audience,
-                slide_title = row['Slide Title'],
-                slide_content = row['Slide Content'],
-                graphics_definition = graphics_definition,
-                llm = llm
-            )
-
-            print("✅ Generated Complexity Review\n")
-            print("-"*100)
-
-            # Extract verdict from the review output
-            verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", complexity_review, re.DOTALL)
-            verdict = verdict_match.group(1).strip() if verdict_match else ""
-
-            # Update only if the verdict was "Fail"
-            if verdict.lower() == "fail":
-                slide_chunks_df.loc[index, 'complexity_review'] = complexity_review
-
-            # Convert all values to strings before updating
-            slide_chunks_df = slide_chunks_df.astype(str)
-
-            # Update Sheet with Complexity Review
-            slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
-
-            # Run the missing sentence review function
-            print("⏳ Generating Missing Sentences Review\n")
-
-            missing_sentences_review = generate_missing_sentences_review(
-                course_name = course_name,
-                target_audience = target_audience,
-                slide_title = row['Slide Title'],
-                slide_content = row['Slide Content'],
-                graphics_definition = graphics_definition,
-                llm = llm
-            )
-
-            print("✅ Generated Missing Sentences Review\n")
-            print("-"*100)
-
-            # Extract verdict from the review output
-            verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", missing_sentences_review, re.DOTALL)
-            verdict = verdict_match.group(1).strip().lower() if verdict_match else ""
-
-            # Update only if the verdict is "Fail"
-            if verdict == "fail":
-                slide_chunks_df.loc[index, 'missing_sentences_review'] = missing_sentences_review
-
-            # Convert all values to strings before updating
-            slide_chunks_df = slide_chunks_df.astype(str)
-
-            # Update Sheet with Missing Sentences Review
-            slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
-
-            # Run the accuracy review function
-            print("⏳ Generating Accuracy Review\n")
-
-            accuracy_review = generate_accuracy_review(
-                course_name = course_name,
-                target_audience = target_audience,
-                slide_title = row['Slide Title'],
-                slide_content = row['Slide Content'],
-                graphics_definition = graphics_definition,
-                llm = llm
-            )
-
-            print("✅ Generated Accuracy Review\n")
-            print("-"*100)
-
-            # Extract verdict from the review output
-            verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", accuracy_review, re.DOTALL)
-            verdict = verdict_match.group(1).strip() if verdict_match else ""
-
-            # Update only if the verdict was "Fail"
-            if verdict.lower() == "fail":
-                slide_chunks_df.loc[index, 'accuracy_review'] = accuracy_review
-
-            # Convert all values to strings before updating
-            slide_chunks_df = slide_chunks_df.astype(str)
-
-            # Update Sheet with Accuracy Review
-            slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
-
-            # Run the reuse previous graphics review agent
-            print("⏳ Generating Reuse Previous Graphics Review\n")
-
-            reuse_previous_graphics_review = generate_reuse_previous_graphics_review(
                 course_name=course_name,
                 target_audience=target_audience,
                 slide_title=row['Slide Title'],
                 slide_content=row['Slide Content'],
-                graphics_definition=graphics_definition,
                 previous_graphics_definition=previous_graphics_definition,
+                references=references,
                 llm=llm
             )
-
-            print("✅ Generated Reuse Previous Graphics Review\n")
+            print("✅ Generated Graphics Definition\n")
             print("-" * 100)
 
-            # Extract verdict from the review output
-            verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", reuse_previous_graphics_review, re.DOTALL)
-            verdict = verdict_match.group(1).strip().lower() if verdict_match else ""
+            # Store graphics definition in dataframe
+            slide_chunks_df.at[index, 'graphics_definition'] = graphics_definition
 
-            # Update only if the verdict is "Fail"
-            if verdict == "fail":
-                slide_chunks_df.loc[index, 'reuse_previous_graphics_review'] = reuse_previous_graphics_review
+            # Parallel execution for review functions
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_to_review = {
+                    executor.submit(generate_complexity_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, llm): 'complexity_review',
+                    executor.submit(generate_missing_sentences_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, llm): 'missing_sentences_review',
+                    executor.submit(generate_accuracy_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, llm): 'accuracy_review',
+                    executor.submit(generate_reuse_previous_graphics_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, previous_graphics_definition, llm): 'reuse_previous_graphics_review'
+                }
+
+                for future in concurrent.futures.as_completed(future_to_review):
+                    review_type = future_to_review[future]
+                    try:
+                        review_result = future.result()
+                        print(f"✅ Generated {review_type.replace('_', ' ').title()}\n")
+                        print("-" * 100)
+
+                        # Extract verdict from review output
+                        verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", review_result, re.DOTALL)
+                        verdict = verdict_match.group(1).strip().lower() if verdict_match else ""
+
+                        # Update only if the verdict is "Fail"
+                        if verdict == "fail":
+                            slide_chunks_df.at[index, review_type] = review_result
+
+                    except Exception as e:
+                        print(f"❌ Error in {review_type}: {e}")
 
             # Convert all values to strings before updating
             slide_chunks_df = slide_chunks_df.astype(str)
 
-            # Update Sheet with Reuse Previous Graphics Review
+            # Batch update sheet with all data for this row
             slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
 
-            # st.write(f"Enter manual feedback for this graphics definition : row_number - {row_no + 1}(Optional)")
+            # Stop after processing one slide for human review
             return
+
     return True
+
             
 
 def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
-    
+
     if 'revised_graphics_definition' not in slide_chunks_df.columns:
         slide_chunks_df['revised_graphics_definition'] = ""
-    
+
     for index, row in tqdm(slide_chunks_df.iterrows(), total=slide_chunks_df.shape[0]):
-        # Skip processing if revised_graphics_definition is already populated
         if row['revised_graphics_definition'].strip():
             print(f"✅ Slide {index + 1}: Revised Graphics Definition already populated. Skipping.")
             continue
@@ -399,20 +307,30 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
 
         print(f"\n🚀 Processing Slide {index + 1} - {row['Slide Title']}")
         print("-" * 100)
-        
-        # Fetch the latest values directly from the sheet before calling the reviser agent
-        latest_df = get_sheet_data_and_df(sheet, worksheet_name)[1]
-        graphics_definition = latest_df.loc[index, 'graphics_definition'].strip()
-        complexity_review = latest_df.loc[index, 'complexity_review'].strip()
-        missing_sentences_review = latest_df.loc[index, 'missing_sentences_review'].strip()
-        accuracy_review = latest_df.loc[index, 'accuracy_review'].strip()
-        reuse_previous_graphics_review = latest_df.loc[index, 'reuse_previous_graphics_review'].strip()
-        human_review = latest_df.loc[index, 'human_review'].strip()
 
-        # Skip the reviser agent if all review columns are empty
+        # Fetch the latest values in parallel
+        latest_df = get_sheet_data_and_df(sheet, worksheet_name)[1]
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_column = {
+                executor.submit(lambda col: latest_df.loc[index, col].strip(), col): col
+                for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review',
+                            'accuracy_review', 'reuse_previous_graphics_review', 'human_review']
+            }
+
+            column_values = {future_to_column[future]: future.result() for future in concurrent.futures.as_completed(future_to_column)}
+
+        graphics_definition = column_values['graphics_definition']
+        complexity_review = column_values['complexity_review']
+        missing_sentences_review = column_values['missing_sentences_review']
+        accuracy_review = column_values['accuracy_review']
+        reuse_previous_graphics_review = column_values['reuse_previous_graphics_review']
+        human_review = column_values['human_review']
+
+        # Skip reviser agent if there are no issues
         if not (complexity_review or missing_sentences_review or accuracy_review or reuse_previous_graphics_review or human_review):
             print("✅ No issues detected. Skipping Reviser Agent and using original Graphics Definition.\n")
-            revised_graphics_definition = graphics_definition  # Copy graphics definition directly
+            revised_graphics_definition = graphics_definition
         else:
             print("⏳ Generating Revised Graphics Definition\n")
             revised_graphics_definition = generate_reviser_output_for_slide(
@@ -437,66 +355,18 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
             print("✅ Generated Revised Graphics Definition\n")
             print("-" * 100)
 
-        # Add revised definition to DataFrame
-        slide_chunks_df.loc[index, 'revised_graphics_definition'] = revised_graphics_definition
-        slide_chunks_df.loc[index, 'human_review'] = human_review  # Preserve human review
-        slide_chunks_df = slide_chunks_df.astype(str)  # Convert all values to strings
+        # Update DataFrame
+        slide_chunks_df.at[index, 'revised_graphics_definition'] = revised_graphics_definition
+        slide_chunks_df.at[index, 'human_review'] = human_review  # Preserve human review
+        slide_chunks_df = slide_chunks_df.astype(str)
 
-        # Update Sheet with Reviser Output
+        # Update sheet once per slide
         slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
+
+        # Stop after processing one slide for human review
         return
 
     return True
-
-# def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
-#     """
-#     Combined function to:
-#     1. Generate graphics definitions if missing.
-#     2. Revise graphics definitions if needed.
-#     3. Ensure each slide is processed in order.
-    
-#     The function stops when a graphics definition needs manual review.
-#     :param sheet: The sheet object.
-#     :param worksheet_name: The worksheet name.
-#     :param course_name: The course name.
-#     :param target_audience: The target audience.
-#     :param llm: The language model to use.
-#     :return: True if all slides have been processed, False otherwise.
-#     """
-
-#     # Read the sheet and dataframe
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
-
-#     # Ensure required columns exist
-#     for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review', 
-#                 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
-#         if col not in slide_chunks_df.columns:
-#             slide_chunks_df[col] = ""
-
-#     for index, row in tqdm(slide_chunks_df.iterrows(), total=slide_chunks_df.shape[0]):
-#         graphics_definition = row['graphics_definition'].strip()
-#         revised_graphics_definition = row['revised_graphics_definition'].strip()
-
-#         # If graphics definition exists, check if revision is needed
-#         if graphics_definition:
-#             if revised_graphics_definition:
-#                 continue  # Both exist, move to the next row
-
-#             # Run reviser function since revised definition is missing
-#             print(f"⏳ Revising Graphics Definition for Slide {index + 1}\n")
-#             run_revise_generated_graphics_definition(sheet, worksheet_name, course_name, target_audience, llm)
-#             continue  # Move to the next row after revising
-
-#         # If graphics definition is missing, generate it and stop execution
-#         print(f"⏳ Generating Graphics Definition for Slide {index + 1}\n")
-#         run_generate_graphics_definition(sheet, worksheet_name, course_name, target_audience, llm)
-
-#         # Show message and stop execution
-#         st.write(f"✔ Graphics Definition generated for Slide {index + 1}. Please enter review comments before continuing.(Optional)")
-#         return  # Stop execution to allow user to review
-
-#     return True  # If all slides have been processed, return True
-
 
 
 def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
@@ -553,63 +423,3 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
 
     print('All slides processed.')
     return True  # If all slides have been processed, return True
-
-
-# from concurrent.futures import ThreadPoolExecutor
-
-# def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
-#     """
-#     Combined function to:
-#     1. Generate graphics definitions if missing.
-#     2. Revise graphics definitions if needed.
-#     3. Ensure each slide is processed in order.
-    
-#     The function stops when a graphics definition needs manual review.
-#     :param sheet: The sheet object.
-#     :param worksheet_name: The worksheet name.
-#     :param course_name: The course name.
-#     :param target_audience: The target audience.
-#     :param llm: The language model to use.
-#     :return: True if all slides have been processed, False otherwise.
-#     """
-
-#     # Read the sheet and dataframe
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
-
-#     # Ensure required columns exist
-#     for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review', 
-#                 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
-#         if col not in slide_chunks_df.columns:
-#             slide_chunks_df[col] = ""
-    
-#     total_tasks = slide_chunks_df.shape[0]
-#     progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=5)
-    
-#     for index, row in tqdm(slide_chunks_df.iterrows(), total=total_tasks):
-#         graphics_definition = row['graphics_definition'].strip()
-#         revised_graphics_definition = row['revised_graphics_definition'].strip()
-
-#         with ThreadPoolExecutor(max_workers=2) as executor:
-#             if graphics_definition:
-#                 if revised_graphics_definition:
-#                     progress.update()
-#                     continue  # Both exist, move to the next row
-
-#                 # Run reviser function since revised definition is missing
-#                 print(f"⏳ Revising Graphics Definition for Slide {index + 1}\n")
-#                 future = executor.submit(run_revise_generated_graphics_definition, sheet, worksheet_name, course_name, target_audience, llm)
-#                 future.result()  # Ensure it completes before moving forward
-#                 progress.update()
-#                 continue  # Move to the next row after revising
-
-#             # If graphics definition is missing, generate it and stop execution
-#             print(f"⏳ Generating Graphics Definition for Slide {index + 1}\n")
-#             future = executor.submit(run_generate_graphics_definition, sheet, worksheet_name, course_name, target_audience, llm)
-#             future.result()  # Ensure it completes before moving forward
-
-#             # Show message and stop execution
-#             st.write(f"✔ Graphics Definition generated for Slide {index + 1}. Please enter review comments before continuing.(Optional) and press the button above to run for the next row until all rows are completed.")
-#             return  # Stop execution to allow user to review
-
-#     print('All slides processed.')
-#     return True  # If all slides have been processed, return True

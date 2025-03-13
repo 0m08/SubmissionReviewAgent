@@ -1,8 +1,6 @@
 from agent_ui_template import agent_ui
 
 from agents.graphics_definition.define_graphics.revise_graphics_definition import run_generate_and_revise_graphics
-from agents.graphics_definition.define_graphics.revise_graphics_definition import run_revise_generated_graphics_definition
-
 from agents.graphics_definition.graphics_definition_checklist.checklist_reviser import run_checklist_evaluation_for_all_slides
 
 
