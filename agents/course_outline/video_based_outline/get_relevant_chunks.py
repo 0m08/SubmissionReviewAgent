@@ -407,6 +407,10 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         require_populated = False
     )
 
+    # Ensure atleast one row should be filled
+    if "Yes" not in videos_research_df[videos_research_df["proposed_chapters_to_include"] != ""]["Manual Review"].values:
+        raise ValueError(f"No videos marked as `Yes`. Ensure to mark atleast one or more videos as `Yes` within the `Manual Review` column in the `Videos Research` sheet - {video_research_sheet.url}")
+
     validate_column_values(
         df = videos_research_df,
         filter_column = "proposed_chapters_to_include",

@@ -13,6 +13,10 @@ import pandas as pd
 def agent_ui(step_name: str, pipeline_sections: list[dict]):
     st.title(f"{step_name} Agent")
 
+    st.session_state["agent_name"] = step_name
+    if "sheet" in st.session_state:
+        load_completed_steps(st.session_state["sheet"], step_name)
+
     # --- 1) Define pipeline as sections, each with its own steps ---
 
     # --- 2) Initialize session states for each step ---
@@ -44,7 +48,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                 st.session_state["target_audience"] = course_info_df['Target Audience & Industry'][0]
                 st.session_state["course_background"] = course_info_df['Course Background'][0]
                 st.session_state["drive"] = drive
-                st.session_state["agent_name"] = step_name
                 
                 # Load previously completed steps from Agent logs
                 load_completed_steps(sheet, step_name)
