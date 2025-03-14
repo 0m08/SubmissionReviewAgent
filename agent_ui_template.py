@@ -26,6 +26,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
             if step_key not in st.session_state:
                 st.session_state[step_key] = False
 
+            # Only initialize pre-execution state if the step has a pre_exec_func
+            if "pre_exec_func" in step:
+                pre_exec_key = f"{step['name']}_pre_executed"
+                if pre_exec_key not in st.session_state:
+                    st.session_state[pre_exec_key] = False
+
     # --- 3) Hide "Load Data" inputs once data is loaded ---
     if "sheet" not in st.session_state:
         root_folder_id = st.text_input("Enter course Drive folder ID")
@@ -134,6 +140,30 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                             else:
                                 button_name = f"Run {step['name']}"
                                 button_type = "secondary"
+
+                            # NEW CODE: Run pre-execution function if it exists and hasn't been run yet
+                            if "pre_exec_func" in step:
+                                pre_exec_key = f"{step['name']}_pre_executed"
+                                if not st.session_state.get(pre_exec_key, False):
+                                    try:
+                                        # Gather pre-execution arguments from session_state
+                                        pre_kwargs = {}
+                                        if "pre_exec_args" in step:
+                                            for arg_name, session_key in step["pre_exec_args"].items():
+                                                if isinstance(session_key, str) and session_key in st.session_state:
+                                                    pre_kwargs[arg_name] = st.session_state[session_key]
+                                                else:
+                                                    pre_kwargs[arg_name] = session_key
+                                        
+                                        # Run the pre-execution function
+                                        with st.spinner(f"Loading preview data for {step['name']}..."):
+                                            step["pre_exec_func"](**pre_kwargs)
+                                        
+                                        # Mark pre-execution as done
+                                        st.session_state[pre_exec_key] = True
+                                    except Exception as e:
+                                        st.error(f"Error in pre-execution for {step['name']}: {e}")
+                                        st.text(traceback.format_exc())
 
                             if st.button(button_name, type=button_type, key=f"btn_{step['name']}"):
                                 try:
@@ -245,7 +275,7 @@ def run_all_automated_steps(pipeline_sections):
 def log_completed_step(sheet, agent_name, step_name):
     """Log a completed step to the Agent logs worksheet."""
     try:
-        worksheet, df = create_or_read_worksheet(sheet, "Agent logs")
+        worksheet, df = get_sheet_data_and_df(sheet, "Agent logs")
         
         # Create a timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

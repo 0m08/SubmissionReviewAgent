@@ -18,7 +18,7 @@ from agents.course_outline.web_research_based_outline.get_research_summary impor
 from agents.course_outline.web_research_based_outline.web_research_based_outline import run_generate_web_research_outline
 
 from agents.course_outline.outline_consolidation.outline_consolidation import run_all_outlines_consolidated_and_review
-from agents.course_outline.outline_consolidation.review_and_revise_outline import run_review_and_revise_outline
+from agents.course_outline.outline_consolidation.review_and_revise_outline import run_review_and_revise_outline, print_course_outline_before_review
 
 
 # --- 1) Define pipeline as sections, each with its own steps ---
@@ -419,6 +419,11 @@ pipeline_sections = [
                 ],
                 "estimated_time": "~ Semi-Automated Step",
                 "description": "Review the AI outline in the `Outline Review` sheet. Add comments in the `Verdict` (valid options are Approved / Rejected) and in the `Manual Feedback` column.",
+                "pre_exec_func": print_course_outline_before_review,
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Outline Review",
+                },
             },
         ],
     },

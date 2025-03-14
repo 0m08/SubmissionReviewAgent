@@ -144,6 +144,23 @@ Make sure to output in the proper format.
 """
 
 
+def print_course_outline_before_review(sheet, worksheet_name = 'Outline Review'):
+    """
+    Prints the course outline.
+    """
+
+    outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+    # Retrieve the last row in the 'outline' column
+    last_outline_entry = outline_review_df['Outline'].iloc[-1]
+
+    st.write("---")
+    st.write("##### Course Outline:")
+    st.code(last_outline_entry)
+
+    return
+
+
 def parse_course_outline(text, llm = "gemini_2_flash"):
     """
     Parses the text with help of LLM
