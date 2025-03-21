@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from modules.chain import Chain
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet, delete_worksheet, clear_worksheet, get_worksheet_names
 import difflib
 from services.helper_functions import get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
@@ -146,7 +146,11 @@ Make sure to output in the proper format.
 
 def print_course_outline_before_review(sheet, worksheet_name = 'Outline Review'):
     """
-    Prints the course outline.
+    Prints the course outline. 
+
+    :param sheet: The sheet object from which the course outline is retrieved.
+    :param worksheet_name: The name of the worksheet from which the course outline is retrieved.
+    :return: None
     """
 
     outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, worksheet_name)
@@ -481,3 +485,33 @@ Comments made by user on videos research:
     raise Exception("You got this error since the outline is not Approved. If the outline looks good to you, enter Approved in the `Verdict` column last row. If the outline doesn't look good, you can enter Rejected in the `Verdict` column and enter your Feedback in the `Manual Feedback` column and run the agent again to generate a new outline.")
     # return outline_review_df
 
+
+def delete_review_and_revise_outline(sheet):
+    """
+    Resets the outline sheet to the initial state and deletes the Course Outline with LO sheet.
+    The reset state has the header row and one data row with only Turn and Outline columns populated.
+    :param sheet: The Google Sheets object.
+    :return: None
+    """
+    # Check if worksheet not already deleted possibly in previous step
+    sheet_names = get_worksheet_names(sheet)
+
+    if 'Outline Review' in sheet_names:
+        # Get the outline review worksheet and dataframe
+        outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, 'Outline Review')
+        
+        # Create a new dataframe with one row, keeping only Turn and Outline values from first row
+        first_row_data = {col: '' for col in outline_review_df.columns}  # Initialize all columns as empty
+        first_row_data['Turn'] = outline_review_df['Turn'].iloc[0]  # Keep Turn from first row
+        first_row_data['Outline'] = outline_review_df['Outline'].iloc[0]  # Keep Outline from first row
+        
+        new_df = pd.DataFrame([first_row_data])
+        
+        # Clear the worksheet
+        clear_worksheet(worksheet = outline_review_sheet)
+
+        # Save the reset dataframe back to the sheet
+        save_to_sheet(worksheet = outline_review_sheet, df = new_df)
+    
+    # Delete the Course Outline with LOs sheet if present
+    delete_worksheet(sheet = sheet, worksheet_name = 'Course Outline with LOs')

@@ -7,7 +7,7 @@ from services.smart_progress_bar import SmartProgressBar
 from tqdm import tqdm
 
 
-generate_outline_prompt = """You are tasked with creating a comprehensive course outline for an HVAC technician training program. This is a crucial task as the outline will serve as the foundation for the entire course, ensuring that all necessary topics are covered in a logical and learner-friendly sequence.
+generate_web_research_outline_prompt = """You are tasked with creating a comprehensive course outline for an HVAC technician training program. This is a crucial task as the outline will serve as the foundation for the entire course, ensuring that all necessary topics are covered in a logical and learner-friendly sequence.
 
 Here's the information you'll be working with:
 
@@ -113,7 +113,7 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
 
         generate_outline_agent.add_messages(
             [
-                ("user", generate_outline_prompt.format(
+                ("user", generate_web_research_outline_prompt.format(
                     course_name = course_name,
                     course_background = course_background,
                     user_guidelines = course_objective_guidelines,

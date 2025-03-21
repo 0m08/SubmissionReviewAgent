@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 import traceback
 
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
+from services.smart_progress_bar import SmartProgressBar
 from services.drive_service import login_with_service_account
 from datetime import datetime
-import pandas as pd
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict]):
@@ -203,6 +203,23 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                             # st.write(f"{step['name']}: **Done**")
                             st.write("**Status:** Done")
 
+                            # Add delete button for completed steps
+                            if st.button("Delete Step", type="secondary", key=f"delete_{step['name']}"):
+                                try:
+                                    # Get all dependent steps
+                                    affected_steps = get_dependent_steps(pipeline_sections, step["name"])
+                                    
+                                    affected_list = ", ".join(affected_steps)
+                                    st.warning(f"Deleting this step will also delete these dependent steps: {affected_list}")
+                                    # if st.button("Confirm Delete", type="secondary", key=f"confirm_delete_{step['name']}"):
+                                    delete_steps(st.session_state["sheet"], st.session_state["agent_name"], 
+                                                affected_steps, pipeline_sections)
+                                    st.success(f"Deleted step {step['name']} and its dependencies!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error deleting {step['name']}: {e}")
+                                    st.text(traceback.format_exc())
+
                             # If this is the very last step in the entire pipeline, celebrate
                             if (
                                 section_idx == len(pipeline_sections)
@@ -216,6 +233,96 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
 
     # Debug
     # st.write(st.session_state)
+
+
+def get_dependent_steps(pipeline_sections, step_name):
+    """
+    Find all steps that depend on the given step (directly or indirectly).
+    Returns a list of step names including the starting step.
+    Only includes steps that are marked as done in the session state.
+    """
+    all_steps = {}
+    # First, build a dictionary of all steps and their dependencies
+    for section in pipeline_sections:
+        for step in section["steps"]:
+            all_steps[step["name"]] = step["depends_on"]
+    
+    # Initialize with the starting step
+    dependent_steps = [step_name]
+    
+    # Function to recursively find dependent steps
+    def find_dependents(step_to_check):
+        for current_step, dependencies in all_steps.items():
+            # Only include steps that are marked as done
+            if step_to_check in dependencies and current_step not in dependent_steps and st.session_state.get(f"{current_step}_done", False):
+                dependent_steps.append(current_step)
+                find_dependents(current_step)
+    
+    # Start the recursive search
+    find_dependents(step_name)
+    
+    return dependent_steps
+
+
+def delete_steps(sheet, agent_name, step_names, pipeline_sections):
+    """
+    Delete the specified steps from the session state and the logs.
+    Also executes any delete functions associated with the steps.
+    
+    Note: Only steps that are marked as done will be included in the deletion process.
+    This is ensured by the get_dependent_steps function which filters out steps
+    that are not marked as done.
+    """
+    # Get the Agent logs worksheet
+    worksheet, df = get_sheet_data_and_df(sheet, "Agent logs")
+    
+    # Filter logs to remove the specified steps for this agent
+    new_df = df[~((df["Agent Name"] == agent_name) & (df["Step Name"].isin(step_names)))]
+    
+    # Clear the worksheet
+    worksheet.clear()
+    
+    # Add header row
+    # worksheet.append_row(["Agent Name", "Step Name", "Timestamp"])
+    
+    # Add remaining logs back
+    if not new_df.empty:
+        save_to_sheet(worksheet = worksheet, df = new_df)
+    
+    # Initialize the progress tracker
+    progress = SmartProgressBar(total_tasks = len(step_names), description = "Percent complete")
+
+    # Reset session state for the deleted steps
+    for step_name in step_names:
+        st.session_state[f"{step_name}_done"] = False
+        pre_exec_key = f"{step_name}_pre_executed"
+        if pre_exec_key in st.session_state:
+            st.session_state[pre_exec_key] = False
+        
+        # Execute the delete function if it exists
+        for section in pipeline_sections:
+            for step in section["steps"]:
+                if step["name"] == step_name and "delete_func" in step:
+                    # try:
+                    # Gather delete function arguments
+                    delete_kwargs = {}
+                    if "delete_args" in step:
+                        for arg_name, session_key in step["delete_args"].items():
+                            if isinstance(session_key, str) and session_key in st.session_state:
+                                delete_kwargs[arg_name] = st.session_state[session_key]
+                            else:
+                                delete_kwargs[arg_name] = session_key
+                    
+                    # Execute the delete function
+                    with st.spinner(text = f"Deleting {step_name}...", show_time = True):
+                        step["delete_func"](**delete_kwargs)
+                    # except Exception as e:
+                    #     st.error(f"Error in delete function for {step_name}: {e}")
+                    #     st.text(traceback.format_exc())
+        
+        # Update progress
+        progress.update()
+
 
 
 def run_all_automated_steps(pipeline_sections):
@@ -237,9 +344,9 @@ def run_all_automated_steps(pipeline_sections):
                 if st.session_state[step_key]:
                     continue
 
-                # # Skip manual steps (those with instructions)
-                # if "instructions" in step:
-                #     continue
+                # Skip manual steps unless "skip_manual_step" is checked
+                # if "instructions" in step and not st.session_state.get("skip_manual_step", False):
+                    # continue
 
                 # Check if dependencies are satisfied
                 dependencies_satisfied = all(

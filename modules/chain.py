@@ -69,12 +69,15 @@ Make sure to only output the fixed xml. Don't output anything else.
 
 
 class Chain:
-    def __init__(self, llm='groq', tags=None, use_xml_checker=False):
+    def __init__(self, llm='groq', tags=None, use_xml_checker=False, use_output_parser=True):
         self.llm = llm
         self.messages_list = []
         self.tags = tags
         self.use_xml_checker = use_xml_checker
-        self.chain_steps = [self.call_llm_with_retry, self.parse_output]  # Default steps
+        self.use_output_parser = use_output_parser
+        self.chain_steps = [self.call_llm_with_retry]
+        if self.use_output_parser:
+            self.chain_steps.append(self.parse_output)  # Only add parse_output if output parser is enabled
         self.structured_output = None  # For optional structured output
 
     def add_message(self, role, content):
@@ -274,6 +277,11 @@ class Chain:
             response = xml_check_and_fix(response, llm = self.llm)
 
         # Automatically update the message list with the AI response
-        self.add_message('ai', response['text'] if isinstance(response, dict) else response)
+        if isinstance(response, dict) and 'text' in response:
+            self.add_message('ai', response['text'])
+        elif hasattr(response, 'content'):  # Handle raw LLM response objects
+            self.add_message('ai', response.content)
+        else:
+            self.add_message('ai', str(response))
 
         return response

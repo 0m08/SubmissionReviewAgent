@@ -105,6 +105,41 @@ def save_to_sheet(worksheet, df):
 
 
 @try_n_times(n = 5, wait = 2, backoff = 'exponential')
+def clear_worksheet(worksheet):
+    """
+    Clears the given worksheet.
+    """
+    worksheet.clear()
+
+
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
+def delete_worksheet(sheet, worksheet_name):
+    """
+    Delete the worksheet.
+    """
+    # Check if sheet name is present
+    sheet_names = [worksheet.title for worksheet in sheet.worksheets()]
+
+    if worksheet_name not in sheet_names:
+        print(f"{worksheet_name} sheet does not exist")
+        return
+
+    sheet.del_worksheet(sheet.worksheet(worksheet_name))
+    print(f"{worksheet_name} sheet deleted")
+
+    return
+
+
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
+def get_worksheet_names(sheet):
+    """
+    Gets a list of names all the worksheets present in the sheet
+    """
+    sheet_names = [worksheet.title for worksheet in sheet.worksheets()]
+    return sheet_names
+
+
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def filter_non_blank_column(worksheet, column_name, df, header_row=1):
     """
     Apply a filter to show only rows where a specific column is not blank.

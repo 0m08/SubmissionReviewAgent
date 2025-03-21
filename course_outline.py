@@ -17,8 +17,11 @@ from agents.course_outline.web_research_based_outline.extract_relevant_info impo
 from agents.course_outline.web_research_based_outline.get_research_summary import run_get_research_summary, manual_input_review_research_summary
 from agents.course_outline.web_research_based_outline.web_research_based_outline import run_generate_web_research_outline
 
-from agents.course_outline.outline_consolidation.outline_consolidation import run_all_outlines_consolidated_and_review
-from agents.course_outline.outline_consolidation.review_and_revise_outline import run_review_and_revise_outline, print_course_outline_before_review
+from agents.course_outline.deep_research.deep_research import run_deep_research
+from agents.course_outline.deep_research.deep_research_based_outline import run_generate_deep_research_outline
+
+from agents.course_outline.outline_consolidation.outline_consolidation import run_all_outlines_consolidated_and_review, delete_all_outlines_consolidated_and_review
+from agents.course_outline.outline_consolidation.review_and_revise_outline import run_review_and_revise_outline, print_course_outline_before_review, delete_review_and_revise_outline
 
 
 # --- 1) Define pipeline as sections, each with its own steps ---
@@ -377,21 +380,59 @@ pipeline_sections = [
         ],
     },
     {
-        "section_name": "Section 4: Outline Consolidation",
+        "section_name": "Section 4: Deep Research",
+        "steps": [
+            {
+                "name": "Deep Research",
+                "func": run_deep_research,
+                "depends_on": ["Generate Web Research Based Outline"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Deep Research",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "pplx_deep_research",
+                },
+                "estimated_time": "~ 5 - 10 minutes",
+                "description": "Creates a new sheet `Deep Research`, performs agentic deep research on the rough outline subtopics and pastes the research into the sheet.",
+            },
+            {
+                "name": "Generate Deep Research Based Outline",
+                "func": run_generate_deep_research_outline,
+                "depends_on": ["Deep Research"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Outline Consolidation",
+                    "course_name": "course_name",
+                    "course_background": "course_background",
+                    "llm": "gemini_2_flash_thinking",
+                },
+                "estimated_time": "~ 5 - 10 minutes",
+                "description": "Generates a course outline based on the deep research findings and saves it to a new sheet.",
+            },
+        ],
+    },
+    {
+        "section_name": "Section 5: Outline Consolidation",
         "steps": [
             {
                 "name": "Generate Consolidated Outline",
                 "func": run_all_outlines_consolidated_and_review,
-                "depends_on": ["Generate Web Research Based Outline"],
+                "depends_on": ["Generate Deep Research Based Outline"],
                 "args": {
                     "sheet": "sheet",
                     "worksheet_name": "Outline Consolidation",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash",
+                    "llm": "gemini_2_flash_thinking",
                 },
                 "estimated_time": "~ 2 - 4 minutes",
                 "description": "Merges all previously created outlines from various sources into one comprehensive consolidated outline in the `Outline Review` sheet.",
+                "delete_func": delete_all_outlines_consolidated_and_review,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Outline Consolidation"
+                }
             },
             {
                 "name": "Review and Revise Outline",
@@ -401,7 +442,7 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash",
+                    "llm": "gemini_2_flash_thinking",
                     "skip_manual_step": "skip_manual_step"
                 },
                 "instructions": [
@@ -424,6 +465,10 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "worksheet_name": "Outline Review",
                 },
+                "delete_func": delete_review_and_revise_outline,
+                "delete_args": {
+                    "sheet": "sheet",
+                }
             },
         ],
     },

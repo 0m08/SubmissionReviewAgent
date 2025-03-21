@@ -1,6 +1,6 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, clear_worksheet, delete_worksheet, get_worksheet_names
 import pandas as pd
 from services.helper_functions import get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
@@ -235,5 +235,37 @@ def run_all_outlines_consolidated_and_review(sheet, worksheet_name, course_name,
 
         format_worksheet(worksheet = outline_review_sheet)
 
+    return
+
+
+def delete_all_outlines_consolidated_and_review(sheet, worksheet_name):
+    """
+    Deletes the consolidated outline row from the Outline Consolidation sheet and deletes the Outline Review sheet if it exists.
+    :param sheet: The Google Sheets object
+    :param worksheet_name: Name of the worksheet containing the consolidated outlines
+    :return: None    
+    """
+    # Check if worksheet not already deleted possibly in previous step
+    sheet_names = get_worksheet_names(sheet)
+
+    if worksheet_name in sheet_names:
+        # Get the Outline Consolidation Sheet
+        outline_consolidation_sheet, outline_consolidation_df = get_sheet_data_and_df(sheet, worksheet_name)
+        
+        # Check if consolidated outline exists
+        if 'Consolidated outline' in outline_consolidation_df['Source'].values:
+            # Remove the row with 'Consolidated outline'
+            outline_consolidation_df = outline_consolidation_df[outline_consolidation_df['Source'] != 'Consolidated outline']
+            
+            # Clear the worksheet
+            clear_worksheet(worksheet = outline_consolidation_sheet)
+            
+            # Save the updated dataframe back to the sheet
+            save_to_sheet(worksheet = outline_consolidation_sheet, df = outline_consolidation_df)
+            print(f"Removed 'Consolidated outline' row from {worksheet_name} sheet")
+    
+    # Check if the Outline Review sheet exists and delete it if it does
+    delete_worksheet(sheet = sheet, worksheet_name = 'Outline Review')
+    
     return
 

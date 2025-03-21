@@ -188,7 +188,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                        course_name, target_audience, course_outline, llm):
     """
     Processes a single row: runs the retriever agent for each Learning Objective
-    and accumulates the context string. Returns (index, context_string).
+    and accumulates the context string. Returns (index, context_string, source_links).
     """
     # # If row is already populated, just return existing context
     # if row['context_0'] != '':
@@ -203,6 +203,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
 
     context = ""
     context_docs = []
+    source_links = []  # List to store source links
 
     for lo in learning_objectives:
         # Run the retriever agent
@@ -234,11 +235,20 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                 context += f'============= Doc id: {len(context_docs)} =============\n'
                 context += context_doc.page_content + '\n\n'
                 context_docs.append(context_doc)
+                
+                # Extract source link from metadata if available
+                if hasattr(context_doc, 'metadata') and 'source' in context_doc.metadata:
+                    source_link = context_doc.metadata['source']
+                    if source_link:
+                        source_links.append(f"[{len(context_docs)}] {source_link}") # Format - [1] www.example.com
             else:
                 print(f'Skipping doc id {doc_id} as it is not an integer')
                 continue
 
-    return index, context
+    # Join all source links with newline character
+    source_links_text = '\n'.join(source_links)
+    
+    return index, context, source_links_text
 
 
 def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
@@ -256,6 +266,10 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
     # Create columns in df if not already present
     if 'context_0' not in course_outline_with_lo_df.columns:
         course_outline_with_lo_df['context_0'] = ''
+    
+    # Create source_links column if not already present
+    if 'source_links' not in course_outline_with_lo_df.columns:
+        course_outline_with_lo_df['source_links'] = ''
 
     # Check if this step is already done by checking the last row of 'context_0'
     if course_outline_with_lo_df.iloc[-1]['context_0'] != '':
@@ -311,7 +325,7 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
         for future in tqdm(as_completed(futures), total=total_tasks):
-            index, context = future.result()
+            index, context, source_links = future.result()
 
             # Update the row in the DataFrame
             course_outline_with_lo_df = create_and_populate_columns(
@@ -321,6 +335,9 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                 col_base_name='context',
                 chunk_size=49000
             )
+            
+            # Update the source_links column
+            course_outline_with_lo_df.at[index, 'source_links'] = source_links
 
             # Update progress
             progress.update()

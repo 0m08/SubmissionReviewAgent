@@ -816,6 +816,8 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestampe
     for chapter in chapters:
         chapter_text = chapter.pop('text')
         chapter.update(additional_metadata)
+        # Add source to chapter metadata
+        chapter['source'] = f"https://www.youtube.com/watch?v={video_id}"
         chapter_chunks.append(
             Document(
                 page_content = chapter_text,
