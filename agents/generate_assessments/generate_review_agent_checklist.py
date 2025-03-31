@@ -69,7 +69,7 @@ def generate_checklist_for_question(course_name, target_audience,  task_name, ev
     :param llm: str - The language model to use
     :return: str - The response from the LLM
     """
-    
+
 
     # Format the checklist criteria
     checklist_criteria = "\n".join([f"- {evidence}" for evidence in evidence_list])
@@ -92,6 +92,7 @@ def generate_checklist_for_question(course_name, target_audience,  task_name, ev
 
     return response
 
+
 def update_review_checklist(sheet, worksheet_name, course_name, target_audience, llm):
     """
     This function updates the review checklist for all questions in the assessment.
@@ -112,6 +113,8 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
     
     _, slide_chunks_df = get_sheet_data_and_df(sheet, 'Slide Chunks')
     
+    
+    # Extract unique topics from the Slide Chunks DataFrame
     unique_topics = pd.unique(slide_chunks_df['Topic'])
 
     # Prepare slides by combining all topics into one string
@@ -126,61 +129,53 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
     # Combine all topic slides into a single string
     slides = "\n\n".join(slides)
     
-    def evaluate_question(task_name, question_idx, question_row, evidence_list):
-        question_text = (
-            f"Question Type: {question_row['Question type']}\n"
-            f"Question: {question_row['Question']}\n"
-        )
-        if question_row['Question type'] == 'multichoice':
-            question_text += (
-                f"Option A: {question_row['Option A']}\n"
-                f"Option B: {question_row['Option B']}\n"
-                f"Option C: {question_row['Option C']}\n"
-                f"Option D: {question_row['Option D']}\n"
+    for task_name in unique_tasks:
+        # Extract review criteria for the current task
+        evidence_list = checklist_df[checklist_df['Task'] == task_name]['Review Criteria'].tolist()
+
+        task_evaluation = {}
+
+        for question_idx, question_row in assessment_df.iterrows():
+            question_text = (
+                f"Question Type: {question_row['Question type']}\n"
+                f"Question: {question_row['Question']}\n"
             )
-        elif question_row['Question type'] == 'truefalse':
+            if question_row['Question type'] == 'multichoice':
+                question_text += (
+                    f"Option A: {question_row['Option A']}\n"
+                    f"Option B: {question_row['Option B']}\n"
+                    f"Option C: {question_row['Option C']}\n"
+                    f"Option D: {question_row['Option D']}\n"
+                )
+            elif question_row['Question type'] == 'truefalse':
+                question_text += (
+                    f"Option A: {question_row['Option A']}\n"
+                    f"Option B: {question_row['Option B']}\n"
+                )
+            elif question_row['Question type'] == 'matching':
+                question_text += "Matching Pairs:\n"
+                pairs = question_row['Correct Answer'].splitlines()
+                for pair in pairs:
+                    question_text += f"  - {pair.strip()}\n"
             question_text += (
-                f"Option A: {question_row['Option A']}\n"
-                f"Option B: {question_row['Option B']}\n"
+                f"Correct Answer: {question_row['Correct Answer']}\n"
+                f"Correct Feedback: {question_row['Correct feedback']}\n"
+                f"Incorrect Feedback: {question_row['Incorrect feedback']}\n"
             )
-        elif question_row['Question type'] == 'matching':
-            question_text += "Matching Pairs:\n"
-            pairs = question_row['Correct Answer'].splitlines()
-            for pair in pairs:
-                question_text += f"  - {pair.strip()}\n"
-        question_text += (
-            f"Correct Answer: {question_row['Correct Answer']}\n"
-            f"Correct Feedback: {question_row['Correct feedback']}\n"
-            f"Incorrect Feedback: {question_row['Incorrect feedback']}\n"
-        )
 
-        # Evaluate the current question against the task
-        response = generate_checklist_for_question(
-            course_name=course_name,
-            target_audience=target_audience,
-            task_name=task_name,
-            evidence_list=evidence_list,
-            slides=slides,
-            question_text=question_text,
-            llm=llm
-        )
-        return f"Question {question_idx + 1}", response
+            # Evaluate the current question against the task
+            response = generate_checklist_for_question(
+                course_name=course_name,
+                target_audience=target_audience,
+                task_name=task_name,
+                evidence_list=evidence_list,
+                slides=slides,
+                question_text=question_text,
+                llm=llm
+            )
 
-    # Use ThreadPoolExecutor to parallelize the task
-    with ThreadPoolExecutor() as executor:
-        futures = []
-        for task_name in unique_tasks:
-            # Extract review criteria for the current task
-            evidence_list = checklist_df[checklist_df['Task'] == task_name]['Review Criteria'].tolist()
-            task_evaluation = {}
-
-            for question_idx, question_row in assessment_df.iterrows():
-                futures.append(executor.submit(evaluate_question, task_name, question_idx, question_row, evidence_list))
-
-        # Collect results as they complete
-        for future in as_completed(futures):
-            question_id, response = future.result()
-            task_evaluation[question_id] = response
+            # Store the result in the task-specific dictionary
+            task_evaluation[f"Question {question_idx + 1}"] = response
 
         # Add the task evaluation to the main dictionary
         review_checklist_by_task[task_name] = task_evaluation
@@ -205,44 +200,61 @@ def update_checklist_with_verdicts_preserve(checklist_df, review_checklist_by_ta
     # Extract tasks already in the checklist
     existing_tasks = checklist_df['Task'].tolist()
 
-    # Identify questions to add as columns
-    questions = list(next(iter(review_checklist_by_task.values())).keys())
+    # Get all questions and sort them to ensure proper order
+    all_questions = set()
+    for task_data in review_checklist_by_task.values():
+        all_questions.update(task_data.keys())
+    sorted_questions = sorted(list(all_questions), key=lambda x: int(''.join(filter(str.isdigit, x))))
 
-    # Add missing question columns
-    for question in questions:
+    # Initialize question columns in order
+    for question in sorted_questions:
         if question not in checklist_df.columns:
-            checklist_df[question] = ''  # Initialize empty columns for new questions
+            checklist_df[question] = ''
 
-    def update_task(task, questions_data):
-        if task in existing_tasks:
-            task_rows = checklist_df[checklist_df['Task'] == task]
-            task_row_indices = task_rows.index.tolist()
-            row_count = len(task_row_indices)
+    def process_task(task_data):
+        task, questions_data = task_data
+        if task not in existing_tasks:
+            return None
 
-            for question, review_text in questions_data.items():
-                if question in questions:
-                    # Extract individual verdicts
-                    verdicts = [line.split(":")[1].strip() for line in review_text.splitlines() if line.startswith("Verdict:")]
+        task_rows = checklist_df[checklist_df['Task'] == task]
+        task_row_indices = task_rows.index.tolist()
+        row_count = len(task_row_indices)
+        
+        updates = {}
+        for question, review_text in questions_data.items():
+            if question in sorted_questions:
+                # Extract individual verdicts
+                verdicts = [line.split(":")[1].strip() for line in review_text.splitlines() if line.startswith("Verdict:")]
+                
+                # Store updates for each row
+                for i, verdict in enumerate(verdicts):
+                    if i < row_count:
+                        updates[(task_row_indices[i], question)] = verdict
+                    else:
+                        break
+        
+        return updates
 
-                    # Ensure rows match the number of verdicts
-                    for i, verdict in enumerate(verdicts):
-                        if i < row_count:  # Only populate existing rows
-                            checklist_df.at[task_row_indices[i], question] = verdict
-                        else:
-                            break  # Stop if verdicts exceed available rows
+    # Process tasks in parallel
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for task, questions_data in review_checklist_by_task.items():
+            future = executor.submit(process_task, (task, questions_data))
+            futures_map[future] = task
 
-    # Use ThreadPoolExecutor to parallelize the task
-    with ThreadPoolExecutor() as executor:
-        futures = {executor.submit(update_task, task, questions_data): task for task, questions_data in review_checklist_by_task.items()}
-
-        # Ensure all tasks are completed
-        for future in as_completed(futures):
-            future.result()  # Ensure any exceptions are raised
+        # Update DataFrame with results as they complete
+        for future in as_completed(futures_map):
+            updates = future.result()
+            if updates:
+                for (row_idx, question), verdict in updates.items():
+                    checklist_df.at[row_idx, question] = verdict
 
     return checklist_df
     
-        
     
+    
+    
+
 def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_name, target_audience, llm):
     """
     This function updates the review checklist with the verdicts from the review checklist by task.
