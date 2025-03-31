@@ -90,6 +90,14 @@ graphics_definition_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
+assessments_generation_page = st.Page(
+    "assessment.py",
+    title="Assessment",
+    icon=":material/quiz:",
+    # Optional: default=(role == "Requester") or any logic
+)
+
+
 
 
 #######################
@@ -113,7 +121,7 @@ if st.session_state.role in authenticated_roles:
     page_dict = {}
 
     account_pages = [list_of_agents_page, logout_page]
-    user_pages = [course_outline_page, research_notes_page, graphics_definition_page]
+    user_pages = [course_outline_page, research_notes_page, graphics_definition_page,assessments_generation_page]
 
     page_dict["Account"] = account_pages
     page_dict["User Pages"] = user_pages
