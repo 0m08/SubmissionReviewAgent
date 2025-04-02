@@ -3,7 +3,6 @@ from modules.chain import Chain, extract_text_in_tags
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet
 from agents.generate_assessments.revise_assessment import revise_assessment, detect_question_type, get_question_format
 from agents.generate_assessments.review_assessment import review_assessment
-from agents.generate_assessments.generate_assessment_questions import run_generate_assessment_question
 from tqdm import tqdm
 from services.helper_functions import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
 from agents.generate_assessments.checklist_sheet import get_review_checklist
@@ -14,7 +13,9 @@ import gspread_formatting as gs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 
-def review_and_revise_assessment_questions_with_agents(sheet, worksheet_name, course_name, topic_slides, target_audience, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def review_and_revise_assessment_questions_with_agents(course_name, topic_slides, target_audience, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
     """
     This function reviews and revises an assessment question based on a checklist criterion.
     :param assessment_question: The assessment question to review.
@@ -24,20 +25,6 @@ def review_and_revise_assessment_questions_with_agents(sheet, worksheet_name, co
     :return: The review of the assessment question.
     """
     
-    _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
-    unique_topics = pd.unique(slide_chunks_df['Topic'])
-
-    _, assessment_questions_df = get_sheet_data_and_df(sheet, 'Assessment questions')
-
-    questions_by_topic = assessment_questions_df.set_index("topic")["questions"].to_dict()  # Convert to dict for easy lookup
-
-    topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == unique_topics[0]]
-
-
-    slides = "\n---\n".join(
-    "Topic Name: " + topic_slides_data['Slide Title'] + "\n" + "Slide Content: " + topic_slides_data['Slide Content']
-    )
-
     # Detect the question type dynamically
     question_type = detect_question_type(assessment_question)  # Function to determine question type
     question_format = get_question_format(question_type)  # Get the correct output format
@@ -56,19 +43,23 @@ def review_and_revise_assessment_questions_with_agents(sheet, worksheet_name, co
         # Collect feedback for the current iteration
         question_feedback_list = []
 
+        # Use ThreadPoolExecutor to process each evaluation
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(extract_text_in_tags, 
+                                tags=['item_name', 'analysis', 'verdict', 'feedback_summary', 'improvement_suggestions'], 
+                                text=evaluation): evaluation 
+                for evaluation in reviewer_response['evaluation']
+            }
 
-        # Loop through evaluations and extract feedback for failed criteria
-        for evaluation in reviewer_response['evaluation']:
-            evaluation_dict = extract_text_in_tags(
-                tags=['item_name', 'analysis', 'verdict', 'feedback_summary', 'improvement_suggestions'],
-                text=evaluation
-            )
-            # Check for failed criteria
-            if 'pass' not in evaluation_dict['verdict'].lower():
-                question_feedback_list.append(
-                    f"Feedback summary: {evaluation_dict['feedback_summary']}\n"
-                    f"Improvement suggestions: {evaluation_dict['improvement_suggestions']}"
-                )
+            for future in as_completed(futures):
+                evaluation_dict = future.result()
+                # Check for failed criteria
+                if 'pass' not in evaluation_dict['verdict'].lower():
+                    question_feedback_list.append(
+                        f"Feedback summary: {evaluation_dict['feedback_summary']}\n"
+                        f"Improvement suggestions: {evaluation_dict['improvement_suggestions']}"
+                    )
 
         # If length of question_feedback_list is more than 0 (which means feedback exists), then pass it to reviser agent
         if len(question_feedback_list) > 0:
@@ -99,14 +90,10 @@ def review_and_revise_assessment_questions_with_agents(sheet, worksheet_name, co
 
 def generate_structured_question(assessment_question, llm='gemini_2_flash'):
     """
-    Generate a structured question based on an assessment question.
-
-    Args:
-        assessment_question (str): The assessment question to be structured.
-        llm (str): The language model to use for generating the structured question.
-
-    Returns:
-        object: The structured question in the specified format.
+    This function generates a structured question based on the assessment question.
+    :param assessment_question: The assessment question to structure.
+    :param llm: The language model to use.
+    :return: The structured question.
     """
     get_structured_question_prompt = """Output the following assessment question in the proper format:
     <assessment_question>
@@ -138,76 +125,72 @@ def generate_structured_question(assessment_question, llm='gemini_2_flash'):
     print(response)
     return response
 
-def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
-    
+def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, target_audience, llm='gemini_2_flash'):
     """
-    This function reviews and revises all assessment questions for a given course.
+    This function reviews and revises all assessment questions based on the checklist criteria.
     :param sheet: The Google Sheet object.
     :param worksheet_name: The name of the worksheet.
     :param course_name: The name of the course.
     :param target_audience: The target audience for the course.
-    :param llm: The language model to use.
     :return: None
     """
-    
-    # Create or read the "Final Assessment" worksheet
-    final_assessement_sheet, assessment_df = create_or_read_worksheet(sheet, 'Final Assessment')
-
+    # Initialize a dictionary to store revised assessment questions
     revised_questions_by_topic = {}
+    
+    final_assessement_sheet, assessment_df = create_or_read_worksheet(sheet, 'Final Assessment')
+    
     _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
     unique_topics = pd.unique(slide_chunks_df['Topic'])
+    
     _, assessment_questions_df = get_sheet_data_and_df(sheet, 'Assessment questions')
-    questions_by_topic = assessment_questions_df.set_index("topic")["questions"].to_dict()
+    
+    questions_by_topic = assessment_questions_df.set_index("topic")["questions"].to_dict()  # Convert to dict for easy lookup
+    
     _, review_checklist_df = get_review_checklist(sheet, 'Review Agent Checklist')
     grouped_checklist = review_checklist_df.groupby('Task', sort=False)
     
-    
-    # skip the process if the final assessment sheet is already populated
-
     _, assessment_df = get_sheet_data_and_df(sheet, 'Final Assessment')
     if not assessment_df.empty:
         print("The 'Final Assessment' sheet is already populated. Skipping the process.")
         return
 
-    def process_topic(topic):
+
+    def process_question(topic, assessment_question):
         topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic]
         topic_slides = "\n---\n".join(
             "Topic Name: " + topic_slides_data['Slide Title'] + "\n" + "Slide Content: " + topic_slides_data['Slide Content']
         )
-        revised_questions = []
 
-        for assessment_question in eval(questions_by_topic[topic]):
-            for task, group in grouped_checklist:
-                checklist_criteria = group['Review Criteria'].tolist()
-                revised_question = review_and_revise_assessment_questions_with_agents(
-                    sheet = sheet,
-                    worksheet_name=worksheet_name,
-                    course_name=course_name,
-                    target_audience=target_audience,
-                    topic_slides=topic_slides,
-                    assessment_question=assessment_question,
-                    checklist_criteria=checklist_criteria,
-                    max_turns=2,
-                    llm=llm
-                )
-                assessment_question = revised_question
+        for task, group in grouped_checklist:
+            checklist_criteria = group['Review Criteria'].tolist()
+            revised_question = review_and_revise_assessment_questions_with_agents(
+                course_name=course_name,
+                target_audience=target_audience,
+                topic_slides=topic_slides,
+                assessment_question=assessment_question,
+                checklist_criteria=checklist_criteria,
+                max_turns=2,
+                llm=llm
+            )
+            assessment_question = revised_question
 
-            revised_questions.append(assessment_question)
-
-        return topic, revised_questions
+        return topic, assessment_question
 
     futures_map = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
         for topic in unique_topics:
-            future = executor.submit(process_topic, topic)
-            futures_map[future] = topic
+            for assessment_question in eval(questions_by_topic[topic]):
+                future = executor.submit(process_question, topic, assessment_question)
+                futures_map[future] = assessment_question
 
-        total_tasks = len(futures_map)
+        total_tasks = len(futures_map) + 2
         progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
 
         for future in tqdm(as_completed(futures_map), total=total_tasks):
-            topic, revised_questions = future.result()
-            revised_questions_by_topic[topic] = revised_questions
+            topic, revised_question = future.result()
+            if topic not in revised_questions_by_topic:
+                revised_questions_by_topic[topic] = []
+            revised_questions_by_topic[topic].append(revised_question)
             progress.update()
 
     for topic, revised_questions in revised_questions_by_topic.items():
@@ -315,6 +298,7 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
 
     # Write DataFrame to Google Sheets with headers
     set_with_dataframe(final_assessement_sheet, assessment_df[required_columns], include_index=False, include_column_header=True)
+    progress.update()
 
     # Re-read all data from the sheet after setting text format
     data = final_assessement_sheet.get_all_values()
@@ -379,6 +363,7 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     # Set column width for all other columns to 100
     for col in range(2, len(required_columns) + 1):
         set_column_width(final_assessement_sheet, chr(64 + col), 100)
+        
+        progress.update()
 
     print("Final Assessment Tab updated successfully!")
-
