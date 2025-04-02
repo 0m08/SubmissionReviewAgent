@@ -195,37 +195,3 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
     save_to_sheet(assessment_questions_sheet, assessment_questions_df)
 
     return questions_by_topic
-
-def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name):
-    """
-    This function updates the review checklist with the verdicts from the review checklist by task.
-    :param sheet: The Google Sheet object.
-    :param worksheet_name: The name of the worksheet.
-    :return: None
-    """
-    # Initialize progress bar with 4 major steps
-    progress = SmartProgressBar(total_tasks=4, description="Updating checklist", save_interval=5)
-    
-    # Load existing data into a DataFrame
-    checklist_sheet, checklist_df = get_review_checklist(sheet, worksheet_name)
-    print(checklist_df)
-    progress.update()
-    
-    review_checklist_by_task = update_review_checklist(sheet, worksheet_name)
-    print(review_checklist_by_task)
-    progress.update()
-
-    # Update the checklist with verdicts
-    updated_checklist_df = update_checklist_with_verdicts_preserve(checklist_df, review_checklist_by_task)
-    progress.update()
-
-    # Write the verdict data back to the Google Sheet
-    set_with_dataframe(checklist_sheet, updated_checklist_df, include_index=False, include_column_header=True)
-
-    # Apply bold formatting to column headers
-    bold_format = CellFormat(textFormat=TextFormat(bold=True))
-    format_cell_range(checklist_sheet, '1:1', bold_format)
-    progress.update()
-
-    print("Review Agent Checklist updated successfully!")
-    return updated_checklist_df
