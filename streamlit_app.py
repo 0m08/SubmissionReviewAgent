@@ -90,6 +90,12 @@ graphics_definition_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
+graphics_search_page = st.Page(
+    "graphics_search.py",
+    title="Graphics Search",
+    icon=":material/image:",
+    # Optional: default=(role == "Requester") or any logic
+)
 
 
 #######################
@@ -113,7 +119,7 @@ if st.session_state.role in authenticated_roles:
     page_dict = {}
 
     account_pages = [list_of_agents_page, logout_page]
-    user_pages = [course_outline_page, research_notes_page, graphics_definition_page]
+    user_pages = [course_outline_page, research_notes_page, graphics_definition_page, graphics_search_page]
 
     page_dict["Account"] = account_pages
     page_dict["User Pages"] = user_pages

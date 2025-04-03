@@ -144,7 +144,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                             # NEW CODE: Run pre-execution function if it exists and hasn't been run yet
                             if "pre_exec_func" in step:
                                 pre_exec_key = f"{step['name']}_pre_executed"
-                                if not st.session_state.get(pre_exec_key, False):
+                                # Check if we should always run the pre_exec function or only if it hasn't been run yet
+                                always_run = step.get("pre_exec_always_run", False)
+                                if always_run or not st.session_state.get(pre_exec_key, False):
                                     try:
                                         # Gather pre-execution arguments from session_state
                                         pre_kwargs = {}
@@ -444,4 +446,3 @@ def load_completed_steps(sheet, agent_name):
 
 #     except Exception as e:
 #         st.error(f"Error clearing agent logs: {e}")
-

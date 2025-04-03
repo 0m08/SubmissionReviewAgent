@@ -1,7 +1,8 @@
 import pandas as pd
 import math
 from typing import List, Optional
-import regex as re
+import difflib
+import streamlit as st
 
 # Get outline as text with topic, subtopic and los (if present)
 def get_outline_with_los(df, include_learning_objectives = False, include_prefix = True):
@@ -129,7 +130,7 @@ def add_list_as_new_column(df: pd.DataFrame, new_values: list, new_col_name: str
         df[new_col_name] = new_values
         return df
     
-    # Case 2: The new list is longer than the DataFrame’s row count
+    # Case 2: The new list is longer than the DataFrame's row count
     # 2.1 Assign the first 'n_original' items to the existing DataFrame
     df[new_col_name] = new_values[:n_original]
 
@@ -318,24 +319,191 @@ def validate_column_values(
 
 def escape_single_braces(text: str) -> str:
     """
-    Replaces only truly single '{' or '}' with double braces.
-    Existing double/triple braces remain unchanged.
+    Escapes single braces '{' and '}' to prevent LangChain template format errors.
+    
+    This function directly addresses the "Single '}' encountered in format string"
+    error that occurs with LangChain ChatPromptTemplate.
+    
+    The function will:
+    1. Replace single '{' with '{{'
+    2. Replace single '}' with '}}'
+    3. Preserve already-escaped braces '{{' and '}}'
     
     Examples:
       A single { brace } -> A single {{ brace }}
-      Double {{ braces }} -> (unchanged) -> {{ braces }}
-      Triple {{{ braces }}} -> (unchanged) -> {{{ braces }}}
+      Double {{ braces }} -> Double {{ braces }}
+      LaTeX: \frac{p}{q} -> LaTeX: \frac{{p}}{{q}}
+    """
+    if not text:
+        return text
+    
+    # First handle closing braces (to avoid issues with nested replacements)
+    # Start with a string where we'll accumulate our result
+    result = []
+    i = 0
+    while i < len(text):
+        # Check for an already-escaped right brace
+        if i < len(text) - 1 and text[i:i+2] == '}}':
+            result.append('}}')
+            i += 2
+        # Check for a single right brace that needs escaping
+        elif text[i] == '}':
+            result.append('}}')
+            i += 1
+        # Check for an already-escaped left brace
+        elif i < len(text) - 1 and text[i:i+2] == '{{':
+            result.append('{{')
+            i += 2
+        # Check for a single left brace that needs escaping
+        elif text[i] == '{':
+            result.append('{{')
+            i += 1
+        # Regular character, no change needed
+        else:
+            result.append(text[i])
+            i += 1
+    
+    return ''.join(result)
+
+
+def get_topic_outline(df, use_text_labels=False):
+    """
+    Create a textual outline from a DataFrame with 'topic' and 'learning objective' columns.
+    Returns a single string with the formatted outline.
+    
+    Args:
+        df: DataFrame containing 'Topic' and 'Learning Objective' columns
+        use_text_labels: If True, use "Topic:" and "LO:" labels instead of numbers
     """
 
-    # Regex to find a left brace '{' that is NOT preceded or followed by another '{'
-    SINGLE_LEFT_BRACE = re.compile(r'(?<!\{)\{(?!\{)')
-
-    # Regex to find a right brace '}' that is NOT preceded or followed by another '}'
-    SINGLE_RIGHT_BRACE = re.compile(r'(?<!\})\}(?!\})')
+    # We group by the 'topic' column to get all related learning objectives
+    outline_lines = []
+    grouped = df.groupby("Topic", sort=False)
     
-    # Replace single '{' with '{{'
-    text = SINGLE_LEFT_BRACE.sub('{{', text)
-    # Replace single '}' with '}}'
-    text = SINGLE_RIGHT_BRACE.sub('}}', text)
-    return text
+    for i, (topic, group) in enumerate(grouped, start=1):
+        # Add the topic header
+        if use_text_labels:
+            outline_lines.append(f"Topic: {topic}")
+        else:
+            outline_lines.append(f"{i}. {topic}")
+        
+        # List each learning objective
+        for j, lo in enumerate(group["Learning Objective"], start=1):
+            if use_text_labels:
+                outline_lines.append(f"   LO: {lo}")
+            else:
+                outline_lines.append(f"   {i}.{j} {lo}")
+
+    # Combine into one output string
+    return "\n".join(outline_lines)
+
+
+def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 1", version2_name: str = "Version 2"):
+    """
+    Compare two versions of text and display them side by side in Streamlit
+    with color-coded highlights for changes.
+
+    :param text1: The first text version.
+    :param text2: The second text version.
+    :param version1_name: The name of the first version.
+    :param version2_name: The name of the second version.
+    """
+    # Split text into lines
+    lines1 = text1.splitlines()
+    lines2 = text2.splitlines()
+
+    # Use difflib to get differences
+    diff = list(difflib.ndiff(lines1, lines2))
+
+    # Table rows to store the differences
+    table_rows = []
+    
+    # Helper function to preserve spaces and special characters
+    def format_content(text):
+        # Replace spaces with non-breaking spaces for leading spaces (indentation)
+        # This regex looks for spaces at the beginning of a line
+        indented_text = ""
+        i = 0
+        while i < len(text) and text[i] == ' ':
+            indented_text += "&nbsp;"
+            i += 1
+        
+        # For the rest of the line, handle special HTML characters
+        rest_of_text = text[i:]
+        rest_of_text = rest_of_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        
+        return indented_text + rest_of_text
+
+    # Process the diff and build table rows
+    i = 0
+    while i < len(diff):
+        line = diff[i]
+        
+        if line.startswith("- "):  # Line removed from version 1
+            content = format_content(line[2:])
+            left_cell = f'<td class="removed">{content}</td>'
+            right_cell = '<td>&nbsp;</td>'
+            table_rows.append(f'<tr>{left_cell}{right_cell}</tr>')
+            i += 1
+        elif line.startswith("+ "):  # Line added in version 2
+            content = format_content(line[2:])
+            left_cell = '<td>&nbsp;</td>'
+            right_cell = f'<td class="added">{content}</td>'
+            table_rows.append(f'<tr>{left_cell}{right_cell}</tr>')
+            i += 1
+        elif line.startswith("  "):  # Unchanged line
+            content = format_content(line[2:])
+            left_cell = f'<td>{content}</td>'
+            right_cell = f'<td>{content}</td>'
+            table_rows.append(f'<tr>{left_cell}{right_cell}</tr>')
+            i += 1
+        elif line.startswith("? "):  # Hint line (skip)
+            i += 1
+        else:
+            i += 1  # Skip any other lines
+    
+    # Define CSS styles for the table-based diff view
+    diff_styles = """
+    <style>
+        .diff-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .diff-table th, .diff-table td {
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            font-family: inherit;
+            border: 1px solid #ddd;
+        }
+        .diff-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .removed { background-color: #f7b6b6; }
+        .added { background-color: #b6f7b6; }
+    </style>
+    """
+
+    # Create HTML table structure
+    html_output = f"""
+    {diff_styles}
+    <table class="diff-table">
+        <thead>
+            <tr>
+                <th>{version1_name}</th>
+                <th>{version2_name}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {"".join(table_rows)}
+        </tbody>
+    </table>
+    """
+
+    # Display the HTML
+    st.markdown(html_output, unsafe_allow_html=True)
 

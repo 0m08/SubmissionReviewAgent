@@ -57,7 +57,7 @@ def format_worksheet(worksheet):
 
     all_cells_format = CellFormat(
         textFormat=TextFormat(fontSize=8),
-        verticalAlignment='MIDDLE',
+        verticalAlignment='TOP',
         wrapStrategy='CLIP'
     )
     format_cell_range(worksheet, full_range, all_cells_format)
@@ -253,4 +253,79 @@ def hide_columns_by_name(worksheet, column_names, df):
         print(f"Successfully hid {len(requests)} columns: {', '.join([column_names[column_indices.index(i)] for i in column_indices])}")
     else:
         print("No columns were hidden")
+
+
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
+def resize_column_by_name(worksheet, column_name, pixel_size, wrap=None):
+    """
+    Resize a specific column in a Google Sheet to a given pixel width and optionally set wrapping.
+    
+    :param worksheet: gspread worksheet object
+    :param column_name: Name of the column to resize
+    :param pixel_size: Width in pixels to set for the column
+    :param wrap: Text wrapping strategy ('OVERFLOW', 'CLIP', or 'WRAP')
+    :return: None    
+    """
+    # Get all headers to find the column index
+    headers = worksheet.row_values(1)
+    
+    if column_name not in headers:
+        print(f"Warning: Column '{column_name}' not found in worksheet headers")
+        return
+    
+    # Get the column index (0-based)
+    col_index = headers.index(column_name)
+    
+    # Create the request to resize the column
+    request = {
+        'updateDimensionProperties': {
+            'range': {
+                'sheetId': worksheet.id,
+                'dimension': 'COLUMNS',
+                'startIndex': col_index,
+                'endIndex': col_index + 1
+            },
+            'properties': {
+                'pixelSize': pixel_size
+            },
+            'fields': 'pixelSize'
+        }
+    }
+    
+    # Apply the resize changes
+    worksheet.spreadsheet.batch_update({'requests': [request]})
+    print(f"Successfully resized column '{column_name}' to {pixel_size} pixels")
+    
+    # If wrap is specified, set the wrapping strategy
+    if wrap is not None:
+        if wrap not in ['OVERFLOW', 'CLIP', 'WRAP']:
+            print(f"Warning: Invalid wrap value '{wrap}'. Must be 'OVERFLOW', 'CLIP', or 'WRAP'")
+            return
+            
+        # Get total number of rows in the sheet to apply wrapping to the entire column
+        total_rows = worksheet.row_count
+        
+        wrap_request = {
+            'repeatCell': {
+                'range': {
+                    'sheetId': worksheet.id,
+                    'startRowIndex': 0,
+                    'endRowIndex': total_rows,
+                    'startColumnIndex': col_index,
+                    'endColumnIndex': col_index + 1
+                },
+                'cell': {
+                    'userEnteredFormat': {
+                        'wrapStrategy': wrap
+                    }
+                },
+                'fields': 'userEnteredFormat.wrapStrategy'
+            }
+        }
+        
+        # Apply the wrap changes
+        worksheet.spreadsheet.batch_update({'requests': [wrap_request]})
+        print(f"Successfully set wrapping for column '{column_name}' to {wrap}")
+
+    return
 

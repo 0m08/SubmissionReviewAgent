@@ -139,7 +139,11 @@ class Chain:
                 sanitized_messages.append(message)
         
         # 2) Build the prompt template from the sanitized messages
-        chain = ChatPromptTemplate.from_messages(sanitized_messages)
+        try:
+            chain = ChatPromptTemplate.from_messages(sanitized_messages)
+        except Exception as e:
+            print(sanitized_messages)
+            raise e
         
         # 3) Attach any chain steps
         for step in self.chain_steps:

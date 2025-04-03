@@ -1,4 +1,5 @@
 from agent_ui_template import agent_ui
+import streamlit as st
 
 from agents.course_outline.video_based_outline.video_search_queries import run_construct_video_search_queries, manual_input_review_video_search_queries
 from agents.course_outline.video_based_outline.get_hvac_school_videos import run_get_hvac_school_videos
@@ -22,6 +23,13 @@ from agents.course_outline.deep_research.deep_research_based_outline import run_
 
 from agents.course_outline.outline_consolidation.outline_consolidation import run_all_outlines_consolidated_and_review, delete_all_outlines_consolidated_and_review
 from agents.course_outline.outline_consolidation.review_and_revise_outline import run_review_and_revise_outline, print_course_outline_before_review, delete_review_and_revise_outline
+
+from agents.course_outline.enhance_outline.create_input_sheets import pre_topic_deep_research, run_create_topic_outline_sheet
+from agents.course_outline.enhance_outline.topic_deep_research import run_topic_deep_research
+from agents.course_outline.enhance_outline.generate_learning_objectives import run_generate_learning_objectives
+from agents.course_outline.enhance_outline.categorize_learning_objectives import run_categorize_learning_objectives
+from agents.course_outline.enhance_outline.label_learning_objectives import run_label_learning_objectives
+from agents.course_outline.enhance_outline.review_revise_topic_outline import show_outline_diff, run_review_and_revise_outline
 
 
 # --- 1) Define pipeline as sections, each with its own steps ---
@@ -424,7 +432,7 @@ pipeline_sections = [
                     "worksheet_name": "Outline Consolidation",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash_thinking",
+                    "llm": "gemini_2_flash",
                 },
                 "estimated_time": "~ 2 - 4 minutes",
                 "description": "Merges all previously created outlines from various sources into one comprehensive consolidated outline in the `Outline Review` sheet.",
@@ -461,6 +469,7 @@ pipeline_sections = [
                 "estimated_time": "~ Semi-Automated Step",
                 "description": "Review the AI outline in the `Outline Review` sheet. Add comments in the `Verdict` (valid options are Approved / Rejected) and in the `Manual Feedback` column.",
                 "pre_exec_func": print_course_outline_before_review,
+                "pre_exec_always_run": False,
                 "pre_exec_args": {
                     "sheet": "sheet",
                     "worksheet_name": "Outline Review",
@@ -472,7 +481,120 @@ pipeline_sections = [
             },
         ],
     },
-
+    {
+        "section_name": "Section 6: Enhance Outline",
+        "steps": [
+            {
+                "name": "Manual Step - Create Topic Outline Sheet",
+                "func": run_create_topic_outline_sheet,
+                "depends_on": ["Generate Consolidated Outline"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Outline",
+                    "use_existing_outline": "use_existing_outline",
+                    "skip_manual_step": "skip_manual_step",
+                },
+                "instructions": [
+                ],
+                "estimated_time": "~ Manual Step",
+                "description": "Create the `Topic Outline` sheet with following two columns: `Topic` and `Learning Objective`.",
+                "pre_exec_func": pre_topic_deep_research,
+                "pre_exec_always_run": True,
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Outline",
+                },
+            },
+            {
+                "name": "Run Topic Deep Research",
+                "func": run_topic_deep_research,
+                "depends_on": ["Manual Step - Create Topic Outline Sheet"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Deep Research",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "pplx_deep_research",
+                },
+                "estimated_time": "~ 5 - 10 minutes",
+                "description": "Performs deep research on each topic in the Topic Deep Research sheet and populates the research and sources columns.",
+            },
+            {
+                "name": "Generate Learning Objectives",
+                "func": run_generate_learning_objectives,
+                "depends_on": ["Run Topic Deep Research"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Deep Research",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash",
+                },
+                "estimated_time": "~ 2 - 5 minutes",
+                "description": "Generates learning objectives for each topic based on the research data and populates the learning objectives column in the Topic Deep Research sheet.",
+            },
+            {
+                "name": "Categorize Learning Objectives",
+                "func": run_categorize_learning_objectives,
+                "depends_on": ["Generate Learning Objectives"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Deep Research",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash",
+                },
+                "estimated_time": "~ 2 - 5 minutes",
+                "description": "Categorizes learning objectives for each topic in the Topic Deep Research sheet based on their relevance to the course outline.",
+            },
+            {
+                "name": "Label Learning Objectives",
+                "func": run_label_learning_objectives,
+                "depends_on": ["Categorize Learning Objectives"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Missing Learning Objectives",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash",
+                },
+                "estimated_time": "~ 2 - 5 minutes",
+                "description": "Labels learning objectives for each topic in the `Topic Deep Research` sheet based on their relevance to the course outline.",
+            },
+            {
+                "name": "Review and Revise Topic Outline",
+                "func": run_review_and_revise_outline,
+                "depends_on": ["Label Learning Objectives"],
+                "args": {
+                    "sheet": "sheet",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash",
+                    "skip_manual_step": "skip_manual_step"
+                },
+                "instructions": [
+                    "In this step, you can collaborate with the AI to review and revise the course outline pasted in the `Enhanced Outline Review` sheet. Follow the below steps:",
+                    "- Please review the outline generated by AI in the `Outline` column",
+                    "- You need to populate these two columns before running this step - `Verdict` and `Manual Feedback`.",
+                    "- In the `Verdict` column, say `Approved` if to approve the outline. Else say `Rejected`.",
+                    "- If `Rejected`, populate the `Manual Feedback` column with specific comments on what should be changed in the outline.",
+                    "---",
+                    "**Example:**",
+                    "- For example, I can say 'Remove section 3 on blower motors as it is not relevant...' or something along these lines.",
+                    "- After entering the inputs, click the button to get revised outline.",
+                    "---",
+                    "NOTE: You need to populate the `Verdict` column and `Manual Feedback` (if rejected) column."
+                ],
+                "estimated_time": "~ Semi-Automated Step",
+                "description": "Review and revise the outline in the `Enhanced Outline Review` sheet.",
+                "pre_exec_func": show_outline_diff,
+                "pre_exec_always_run": st.session_state.get("pre_exec_show_topic_outline_diff", True),
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                },
+            },
+        ],
+    },
 ]
 
 

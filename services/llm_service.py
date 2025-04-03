@@ -63,9 +63,9 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
         try:
             if retries > 3:             # In such a case, try using gemini flash
                 result = llm.with_config(
-                    configurable={"llm": 'gemini_flash'}
+                    configurable={"llm": 'gemini_2_flash'}
                     ).invoke(arg)
-                llm_name = 'gemini_flash'
+                llm_name = 'gemini_2_flash'
             else:
                 result = llm.invoke(arg)
 

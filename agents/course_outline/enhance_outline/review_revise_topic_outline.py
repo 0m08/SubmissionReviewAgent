@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from modules.chain import Chain
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet, delete_worksheet, clear_worksheet, get_worksheet_names
-from services.helper_functions import get_outline_with_los
+from services.helper_functions import get_topic_outline
 from services.smart_progress_bar import SmartProgressBar
 import regex as re
 from typing import List
@@ -26,16 +26,6 @@ Target Audience:
 <target_audience>
 {target_audience}
 </target_audience>
-
-User Comments (made during the course outline generation phase):
-<user_comments>
-{user_comments}
-</user_comments>
-
-Tentative Outline (used to generate the course outline):
-<tentative_outline>
-{tentative_outline}
-</tentative_outline>
 
 Now, carefully study the full course outline:
 
@@ -68,7 +58,6 @@ As you review, consider these questions:
 - Does the outline align with the course name and target audience?
 - Are the sections and subsections well-organized and coherent?
 - Is there a good balance between theoretical concepts and practical applications?
-- Does the outline address all key points mentioned in the tentative outline?
 - Have the user comments been adequately addressed in the outline?
 
 Refrain from giving generic suggestions such as:
@@ -77,7 +66,7 @@ Refrain from giving generic suggestions such as:
 - Add hands-on activities or demonstrations where appropriate
 - Include knowledge check points throughout the course
 - Consider adding a glossary of basic terms
--Develop clear learning objectives for each main section
+- Develop clear learning objectives for each main section
 
 All of the above tasks are to be done while keeping the user feedback on the course outline in your mind.
 
@@ -120,6 +109,28 @@ NOTE: Instead continue to output without worrying about the output token limits.
 """
 
 
+revise_outline_prompt = """Output the revised course outline within <revised_outline> tags.
+
+Output the revised course outline in the below format:
+
+<revised_outline>
+[Topics numbered with roman numerals followed by learning objectives numbered with arabic numerals. See example below
+I. Topic Name
+1. Learning Objective 1
+2. Learning Objective 2
+...
+
+II. Topic Name
+1. Learning Objective 1
+2. Learning Objective 2
+
+...]
+</revised_outline>
+
+Don't include prefixes like Topic: or LO: or anything similar. Just output the topics and learning objectives with the corresponding roman and arabic numerals.
+"""
+
+
 extract_topic_subtopic_los_prompt = """Your task is to extract topic, subtopics, and learning objectives in a structured manner from the below text.
 
 <text>
@@ -128,7 +139,7 @@ extract_topic_subtopic_los_prompt = """Your task is to extract topic, subtopics,
 
 1. Extraction Rules:
     - Extract the topic as the Roman numeral line (e.g., I., II.).
-    - Extract the subtopic as the capital letter line (e.g., A., B.).
+    - The text doesn't have subtopics. Instead use the learning objectives to infer the subtopics. Each learning objective should be mapped to a subtopic.
     - Extract the learning objectives as the Arabic numeral lines (e.g., 1., 2.).
 
 2. Extraction Requirements:
@@ -144,23 +155,30 @@ Make sure to output in the proper format.
 """
 
 
-def print_course_outline_before_review(sheet, worksheet_name = 'Outline Review'):
+def show_outline_diff(sheet):
     """
-    Prints the course outline. 
-
-    :param sheet: The sheet object from which the course outline is retrieved.
-    :param worksheet_name: The name of the worksheet from which the course outline is retrieved.
-    :return: None
+    Shows the diff between Topic Outline and Revised Outline sheets.
+    
+    :param sheet: The Google Sheets object
     """
+    # Get data from both sheets
+    _, topic_outline_df = get_sheet_data_and_df(sheet, "Topic Outline")
+    _, revised_outline_df = get_sheet_data_and_df(sheet, "Revised Outline")
+    
+    # Convert outlines to text format
+    topic_outline_text = get_topic_outline(topic_outline_df, use_text_labels=True)
+    revised_outline_text = get_topic_outline(revised_outline_df, use_text_labels=True)
+    
+    # Compare the two outlines
+    st.write("### Comparing the Original Outline with the Revised Outline: ")
+    compare_text_versions(topic_outline_text, revised_outline_text, "Topic Outline", "Revised Outline")
 
-    outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, worksheet_name)
-
-    # Retrieve the last row in the 'outline' column
-    last_outline_entry = outline_review_df['Outline'].iloc[-1]
-
-    st.write("---")
-    st.write("##### Course Outline:")
-    st.code(last_outline_entry)
+    # Text to ask user to review the outline and either approve or reject it
+    st.info("""
+    **Review the outline and enter either "Approved" or "Rejected" within the `Verdict` column of the `Enhanced Outline Review` sheet.**
+    - If approved, click the button to save progress and proceed to the next step.
+    - If rejected, enter your feedback in the `Manual Feedback` column and click the button to get revised outline.
+    """)
 
     return
 
@@ -172,18 +190,18 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
 
     class Subtopic(BaseModel):
         subtopic_name: str = Field(
-            description="Name of the subtopic."
+            description="Name of the subtopic. This should be inferred from the learning objectives. This should be a phrase that summarizes the learning objectives."
         )
         learning_objectives: List[str] = Field(
-            description="List of learning objectives for this subtopic."
+            description="List of learning objectives for this subtopic. The list should have one learning objective only. Strip off any prefixes like '1.', '2.', 'LO', 'To', 'To be able to', etc."
         )
 
     class Topic(BaseModel):
         topic_name: str = Field(
-            description="The main topic name."
+            description="The main topic name. Strip off any prefixes like 'Topic', 'I.', 'II.', etc."
         )
         subtopics: List[Subtopic] = Field(
-            description="All subtopics under this main topic."
+            description="All subtopics under this main topic. This should be inferred from the learning objectives. One subtopic per learning objective for this topic."
         )
 
     parse_course_outline_agent = Chain(llm=llm)
@@ -290,15 +308,19 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
     :param skip_manual_step: Bool. If True, it will assume the outline to be approved
     :return: None
     """
+    # Create st.session_state if not present for pre_exec_show_topic_outline_diff
+    if 'pre_exec_show_topic_outline_diff' not in st.session_state:
+        st.session_state['pre_exec_show_topic_outline_diff'] = False
 
-    outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, 'Outline Review')
+    # Get the Enhanced Outline Review sheet and dataframe
+    outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, 'Enhanced Outline Review')
 
     # Check if already approved
     last_verdict = outline_review_df.iloc[-1]['Verdict'].strip()
     if 'approved' in last_verdict.lower() or skip_manual_step:
         print("Course Outline Approved")
         # Parse the outline and save it in new sheet
-        parse_course_outline_for_all_topics(sheet = sheet, worksheet_name = "Course Outline with LOs", outline_review_df = outline_review_df, llm = llm)
+        parse_course_outline_for_all_topics(sheet = sheet, worksheet_name = "Enhanced Outline with LOs", outline_review_df = outline_review_df, llm = llm)
         return True
 
     # Get the last row's manual feedback
@@ -308,52 +330,9 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
     if not last_manual_feedback:
         raise Exception("Error: 'Manual Feedback' column is empty in the last row. Please add your feedback before continuing.")
 
-    # # Pause execution until the user confirms
-    # if st.button("Press to continue"):
-    #     st.write("-" * 100)
-
     # Initialize the progress tracker
     progress = SmartProgressBar(total_tasks = 2, description = "Percent complete")
-    
-    revise_outline_prompt = """Output the revised course outline within <revised_outline> tags."""
-
-
-    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')
-    
-    course_outline = get_outline_with_los(df = rough_outline_df, include_learning_objectives = False, include_prefix = False)
-    # Collect User Comments
-    course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
-    
-    # print(course_objective_guidelines)
-    
-    _, client_reference_df = get_sheet_data_and_df(sheet, 'Client References')
-    client_reference_comments = '\n'.join(comment for comment in client_reference_df['consolidation_comments'].to_list() if comment)
-    client_comments = '\n'.join(comment for comment in client_reference_df['Client comments'].to_list() if comment)
-
-    _, videos_research_df = get_sheet_data_and_df(sheet, 'Videos Research')
-    videos_research_comments = '\n'.join(comment for comment in videos_research_df['consolidation_comments'].to_list() if comment)
-
-    all_user_comments = f"""Comments made by user on course objective guidelines:
-{course_objective_guidelines}
-
----
-
-Comments made by client while sharing references:
-{client_comments}
-
----
-
-Comments made by user on client references:
-{client_reference_comments}
-
----
-
-Comments made by user on videos research:
-{videos_research_comments}
-"""
-
-    print(all_user_comments)
-    
+        
     # Create the list of messages
     messages = []
     for ind, row in outline_review_df.iterrows():
@@ -370,8 +349,6 @@ Comments made by user on videos research:
                     review_course_outline_prompt.format(
                         course_name=course_name,
                         target_audience=target_audience,
-                        user_comments=all_user_comments,
-                        tentative_outline=course_outline,
                         course_outline=outline,
                         user_feedback=manual_feedback,
                     )
@@ -471,3 +448,4 @@ def delete_review_and_revise_outline(sheet):
     
     # Delete the Course Outline with LOs sheet if present
     delete_worksheet(sheet = sheet, worksheet_name = 'Course Outline with LOs')
+
