@@ -1,0 +1,83 @@
+from agent_ui_template import agent_ui
+
+from agents.generate_assessments.generate_assessment_questions import run_generate_assessment_question
+from agents.generate_assessments.run_review_and_reviser import run_review_and_revise_all_questions
+from agents.generate_assessments.generate_assessment_checklist import run_generate_assessment_checklist
+from agents.generate_assessments.generate_review_agent_checklist import run_update_checklist_with_verdicts_preserve
+
+
+pipeline_sections = [
+    {
+        "section_name": "Section 1: Assessement",
+        "steps": [
+            
+            {
+                "name": "Generate Assessment Questions",
+                "func": run_generate_assessment_question,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash"
+                },
+            
+                "estimated_time": " ~ 1 minute",
+                "description": "This function generates assessment questions for a given course."
+            },
+        
+            
+            {
+                "name": "Review and Revise all Assessment Questions",
+                "func": run_review_and_revise_all_questions,
+                "depends_on": ['Generate Assessment Questions'],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash"
+                },
+            
+                "estimated_time": "~ 30 - 50 minutes",
+                "description": "This function reviews and revises all assessment questions for a given course."
+            },
+        
+            
+            {
+                "name": "Update Assessment Checklist",
+                "func": run_generate_assessment_checklist,
+                "depends_on": ['Review and Revise all Assessment Questions'],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": 'Slide Chunks',
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash"
+                },
+            
+                "estimated_time": "~ 1 minute",
+                "description": "This function updates the assessment checklist for a given course."
+            },
+            
+            {
+                "name": "Update Review Agent Checklist",
+                "func": run_update_checklist_with_verdicts_preserve,
+                "depends_on": ['Update Assessment Checklist'],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": 'Review Agent Checklist',
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_flash"
+                },
+            
+                "estimated_time": "~ 20 - 40 minutes",
+                "description": "This function updates the review agent checklist for a given course."
+            },
+        ],
+    },
+]
+
+agent_ui(step_name = "Assessment", pipeline_sections = pipeline_sections)
