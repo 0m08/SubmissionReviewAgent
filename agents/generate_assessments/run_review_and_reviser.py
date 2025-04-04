@@ -13,7 +13,6 @@ import gspread_formatting as gs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def review_and_revise_assessment_questions_with_agents(course_name, topic_slides, target_audience, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
     """
