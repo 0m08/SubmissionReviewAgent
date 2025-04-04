@@ -23,7 +23,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
             
-                "estimated_time": " ~ 1 minute",
+                "estimated_time": "> 1 minute",
                 "description": "This function generates assessment questions for a given course."
             },
         
@@ -40,7 +40,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
             
-                "estimated_time": "~ 30 - 50 minutes",
+                "estimated_time": " 30 - 50 minutes",
                 "description": "This function reviews and revises all assessment questions for a given course."
             },
         
