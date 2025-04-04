@@ -32,13 +32,13 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
         max_retries (int): The maximum number of retries in case of failure.
         structured_output (Optional[BaseModel]): A Pydantic BaseModel for structured output.
     """
-    llm = ChatGroq(
-        model_name="llama3-70b-8192",
+    llm = ChatGoogleGenerativeAI(
+        model = "gemini-2.0-flash-exp",
         temperature = 0.7,
-        max_tokens = 4096
+        max_tokens = 8192
         ).configurable_alternatives(
             ConfigurableField(id="llm"),
-            default_key = "groq",
+            default_key = "gemini_2_flash_default",
             gpt4o_mini = ChatOpenAI(model_name = "gpt-4o-mini", temperature = 0.7, max_tokens = 4096),
             gpt4o = ChatOpenAI(model_name = "gpt-4o", temperature = 0.7, max_tokens = 4096),
             haiku = ChatAnthropic(model_name = "claude-3-haiku-20240307", temperature = 0.7, max_tokens = 4096),
@@ -46,6 +46,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             haiku_3_5 = ChatAnthropic(model_name = "claude-3-5-haiku-20241022", temperature = 0.7, max_tokens = 4096),
             gemini_flash = ChatGoogleGenerativeAI(model = "gemini-1.5-flash-latest", temperature = 0.7, max_tokens = 8192),
             llama_3_1_70b = ChatGroq(model_name = 'llama-3.1-70b-versatile', temperature = 0.7, max_tokens = 4096),
+            groq = ChatGroq(model_name = 'llama3-70b-8192', temperature = 0.7, max_tokens = 4096),
             gemini_2_flash = ChatGoogleGenerativeAI(model = "gemini-2.0-flash-exp", temperature = 0.7, max_tokens = 8192),
             o1 = ChatOpenAI(model = 'o1'),
             o3_mini = ChatOpenAI(model = 'o3-mini'),

@@ -398,6 +398,28 @@ def get_topic_outline(df, use_text_labels=False):
     return "\n".join(outline_lines)
 
 
+# Function to get outline in this format
+def get_outline_in_table_format(topic_outline_df):
+    """
+    Get the course outline in a table format.
+
+    :param topic_outline_df: The topic outline dataframe with the Topic and Learning Objective columns.
+    :return: The course outline in a table format.
+    """
+    # Add line number column
+    topic_outline_df['Line No.'] = topic_outline_df.index + 1
+
+    # Select the required columns
+    outline_table = topic_outline_df[['Line No.', 'Topic', 'Learning Objective']]
+
+    # Convert to markdown table
+    outline_table_md = "| Line No. | Topic | Learning Objective |\n| --- | --- | --- |\n"
+    for index, row in outline_table.iterrows():
+        outline_table_md += f"| {row['Line No.']} | {row['Topic']} | {row['Learning Objective']} |\n"
+
+    return outline_table_md
+
+
 def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 1", version2_name: str = "Version 2"):
     """
     Compare two versions of text and display them side by side in Streamlit

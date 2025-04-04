@@ -30,6 +30,7 @@ from agents.course_outline.enhance_outline.generate_learning_objectives import r
 from agents.course_outline.enhance_outline.categorize_learning_objectives import run_categorize_learning_objectives
 from agents.course_outline.enhance_outline.label_learning_objectives import run_label_learning_objectives
 from agents.course_outline.enhance_outline.review_revise_topic_outline import show_outline_diff, run_review_and_revise_outline
+from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import map_original_outline_to_revised_outline_for_all_topics
 
 
 # --- 1) Define pipeline as sections, each with its own steps ---
@@ -592,6 +593,18 @@ pipeline_sections = [
                 "pre_exec_args": {
                     "sheet": "sheet",
                 },
+            },
+            {
+                "name": "Map Topic Outline to Enhanced Outline",
+                "func": map_original_outline_to_revised_outline_for_all_topics,
+                "depends_on": ["Review and Revise Topic Outline"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Enhanced Outline with LOs",
+                    "llm": "gemini_2_flash",
+                },
+                "estimated_time": "~ 2 - 5 minutes",
+                "description": "Maps additional columns from the topic outline to the enhanced outline.",
             },
         ],
     },

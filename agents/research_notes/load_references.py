@@ -193,7 +193,7 @@ def get_web_research_doc_list(videos_research_df, client_reference_df, prelimina
     # # Initialize the list to store the doc chunks
     # web_research_doc_chunk_list = []
 
-    # def process_web_urls(url):
+    # # def process_web_urls(url):
     #     # Check if url not already present in other two lists
     #     # Video Research list
 
@@ -249,7 +249,7 @@ def get_deep_research_doc_list(deep_research_df, videos_research_df, client_refe
     total_tasks = deep_research_df.shape[0]
     progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete")
 
-    filtered_df = preliminary_research_df[preliminary_research_df['learning_objectives'].str.contains('<objective>')]
+    filtered_df = preliminary_research_df[preliminary_research_df['learning_objectives'].str.contains('<objective>')] if 'learning_objectives' in preliminary_research_df.columns else preliminary_research_df
     article_content_col_count = len([col for col in filtered_df.columns if 'article_content_' in col])
     
     # Track all processed sources across all rows to avoid duplicates
@@ -288,15 +288,16 @@ def get_deep_research_doc_list(deep_research_df, videos_research_df, client_refe
                 continue
             
             # Check in video research list
-            video_id = get_video_id_from_url(source) if ('youtube.com' in source or 'youtu.be' in source) else None
-            if video_id and video_id in videos_research_df[videos_research_df['Manual Review'] == 'Yes']['video_id'].to_list():
-                print(f"{source} already present in video research")
-                continue
+            if 'Manual Review' in videos_research_df.columns:
+                video_id = get_video_id_from_url(source) if ('youtube.com' in source or 'youtu.be' in source) else None
+                if video_id and video_id in videos_research_df[videos_research_df['Manual Review'] == 'Yes']['video_id'].to_list():
+                    print(f"{source} already present in video research")
+                    continue
             
             # Check in web research list (preliminary research)
             if 'article' in preliminary_research_df.columns and source in preliminary_research_df['article'].values:
                 # Check learning objective col to check if already covered
-                if source in filtered_df['article'].values:
+                if 'learning_objectives' in preliminary_research_df.columns and source in filtered_df['article'].values:
                     print(f"{source} already present in web research")
                     continue
                 else:
@@ -358,10 +359,306 @@ def get_deep_research_doc_list(deep_research_df, videos_research_df, client_refe
     return deep_research_doc_chunk_list
 
 
+## Topic Deep Research References
+def get_topic_deep_research_doc_list(topic_deep_research_df, videos_research_df, client_reference_df, preliminary_research_df):
+    """
+    This function gets the topic deep research docs list from the "Topic Deep Research" sheet.
+    Each cell in the "source" column may contain multiple links separated by new lines.
+
+    :param topic_deep_research_df: The DataFrame containing topic deep research data.
+    :param videos_research_df: The DataFrame containing video research data.
+    :param client_reference_df: The DataFrame containing client reference data.
+    :param preliminary_research_df: The DataFrame containing preliminary research data.
+    :return: A list of `Document` objects representing the topic deep research data.
+    """
+    # Initialize list to store doc chunks
+    topic_deep_research_doc_chunk_list = []
+
+    # Initialize the progress tracker
+    total_tasks = topic_deep_research_df.shape[0]
+    progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete")
+
+    filtered_df = preliminary_research_df[preliminary_research_df['learning_objectives'].str.contains('<objective>')] if 'learning_objectives' in preliminary_research_df.columns else preliminary_research_df
+    article_content_col_count = len([col for col in filtered_df.columns if 'article_content_' in col])
+    
+    # Track all processed sources across all rows to avoid duplicates
+    processed_sources = set()
+    
+    # Loop through the topic deep research df
+    for ind, row in tqdm(topic_deep_research_df.iterrows(), total = total_tasks):
+        # Get sources from the source column
+        sources = row['source'].split('\n') if isinstance(row['source'], str) else []
+
+        # Get sources unique list
+        sources = list(set(sources))
+
+        # Get the topic query
+        topic_query = row['topic_query'] if 'topic_query' in row and isinstance(row['topic_query'], str) else 'Topic Deep Research'
+
+        # Process each source link
+        for source in sources:
+            source = source.strip()
+            if not source:
+                continue
+            
+            # Skip if this source has already been processed in any row
+            if source in processed_sources:
+                print(f"{source} already processed in a previous row")
+                continue
+            
+            # Add to processed sources
+            processed_sources.add(source)
+            
+            # Check if source already exists in other sources
+            
+            # Check in client reference list
+            if source in client_reference_df['Source Link'].values:
+                print(f"{source} already present in client references")
+                continue
+            
+            # Check in video research list
+            if 'Manual Review' in videos_research_df.columns:
+                video_id = get_video_id_from_url(source) if ('youtube.com' in source or 'youtu.be' in source) else None
+                if video_id and video_id in videos_research_df[videos_research_df['Manual Review'] == 'Yes']['video_id'].to_list():
+                    print(f"{source} already present in video research")
+                    continue
+            
+            # Check in web research list (preliminary research)
+            if 'article' in preliminary_research_df.columns and source in preliminary_research_df['article'].values:
+                # Check learning objective col to check if already covered
+                if 'learning_objectives' in preliminary_research_df.columns and source in filtered_df['article'].values:
+                    print(f"{source} already present in web research")
+                    continue
+                else:
+                    # Get source row from preliminary_research_df, not from filtered_df
+                    source_row = preliminary_research_df[preliminary_research_df['article'] == source]
+                    if not source_row.empty:
+                        # Get article content
+                        article_content = ''.join(
+                            [source_row[f'article_content_{i}'].values[0] for i in range(article_content_col_count) 
+                             if f'article_content_{i}' in source_row.columns and i < len(source_row.columns)]
+                        )
+
+                        # Chunk the doc
+                        chunked_list = general_chunker(article_content)
+                        chunked_docs = []
+                        for chunk in chunked_list:
+                            chunked_docs.append(
+                                Document(
+                                    page_content = chunk["text"],
+                                    # Update metadata with chunk info
+                                    metadata = {
+                                        "source": source,
+                                        "query": topic_query,
+                                        "level": chunk["level"] if "level" in chunk else "",
+                                        "title": chunk["title"] if "title" in chunk else "",
+                                        "images": '\n'.join(extract_image_links_from_markdown(chunk["text"]))
+                                    }
+                                )
+                            )
+                        
+                        topic_deep_research_doc_chunk_list.extend(chunked_docs)
+                        continue
+            
+            # Check if it's a YouTube video
+            if video_id:
+                # Load and chunk this
+                try:
+                    docs = get_yt_chapters_chunks_as_docs(video_id = video_id, video_title = f"Topic Deep Research: {video_id}", llm = 'gemini_2_flash')
+                    # Update metadata with the topic query
+                    for doc in docs:
+                        doc.metadata["query"] = topic_query
+                    topic_deep_research_doc_chunk_list.extend(docs)
+                except Exception as e:
+                    print(f"Error processing YouTube video {source}: {e}")
+                    continue
+            # Check if it's a web article
+            else:
+                # Load and chunk this
+                try:
+                    docs = get_docs_from_url(url = source, query = topic_query)
+                    topic_deep_research_doc_chunk_list.extend(docs)
+                except Exception as e:
+                    print(f"Error processing URL {source}: {e}")
+                    continue
+            
+        # Update progress
+        progress.update()
+    
+    return topic_deep_research_doc_chunk_list
+
+
+## Topic Outline References
+def get_topic_outline_reference_doc_list(topic_outline_df, videos_research_df, video_chunks_df, client_reference_df, preliminary_research_df, deep_research_df):
+    """
+    This function gets references from the Topic Outline sheet.
+    It extracts references from the 'References to be used as is' and 'References for Content' columns.
+
+    :param topic_outline_df: The DataFrame containing topic outline data.
+    :param videos_research_df: The DataFrame containing video research data.
+    :param video_chunks_df: The DataFrame containing video chunk data.
+    :param client_reference_df: The DataFrame containing client reference data.
+    :param preliminary_research_df: The DataFrame containing preliminary research data.
+    :param deep_research_df: The DataFrame containing deep research data.
+    :return: A list of `Document` objects representing the topic outline reference data.
+    """
+    # Initialize list to store doc chunks
+    topic_outline_doc_chunk_list = []
+
+    # Columns to process
+    columns_to_process = ['References to be used as is', 'References for Content']
+    columns_to_process = [col for col in columns_to_process if col in topic_outline_df.columns]
+
+    # Initialize the progress tracker
+    total_tasks = topic_outline_df.shape[0]
+    progress = SmartProgressBar(total_tasks=total_tasks, description="Processing Topic Outline references")
+
+    # Get article content column count for web research processing
+    filtered_df = preliminary_research_df[preliminary_research_df['learning_objectives'].str.contains('<objective>')] if 'learning_objectives' in preliminary_research_df.columns else preliminary_research_df
+    article_content_col_count = len([col for col in filtered_df.columns if 'article_content_' in col])
+    
+    # Track all processed sources across all rows to avoid duplicates
+    processed_sources = set()
+    
+    # Loop through the topic outline df
+    for ind, row in tqdm(topic_outline_df.iterrows(), total=total_tasks):
+        # Get the topic and learning objective for metadata
+        topic = row['Topic'] if 'Topic' in row and isinstance(row['Topic'], str) else 'Topic Outline'
+        learning_objective = row['Learning Objective'] if 'Learning Objective' in row and isinstance(row['Learning Objective'], str) else ''
+        
+        # Query for metadata
+        query = f"{topic}: {learning_objective}"
+        
+        sources = []
+        # Get sources from the reference column
+        for ref_column in columns_to_process:
+            if ref_column not in row or not isinstance(row[ref_column], str) or not row[ref_column].strip():
+                continue
+            
+            # Get sources            
+            sources.extend(row[ref_column].split('\n'))
+        
+        # Get sources unique list
+        sources = list(set([source.strip() for source in sources if source.strip()]))
+        
+        # Process each source link
+        for source in sources:
+            # Skip if this source has already been processed in any row
+            if source in processed_sources:
+                print(f"{source} already processed in a previous row")
+                continue
+            
+            # Add to processed sources
+            processed_sources.add(source)
+            
+            # Check if source already exists in other sources
+            
+            # Check in client reference list
+            if source in client_reference_df['Source Link'].values:
+                print(f"{source} already present in client references")
+                continue
+            
+            # Check in video research list
+            if 'Manual Review' in videos_research_df.columns:
+                video_id = get_video_id_from_url(source) if ('youtube.com' in source or 'youtu.be' in source) else None
+                if video_id and video_id in videos_research_df[videos_research_df['Manual Review'] == 'Yes']['video_id'].to_list():
+                    print(f"{source} already present in video research")
+                    continue
+            
+            # Check in deep research list
+            if 'source' in deep_research_df.columns:
+                deep_sources = deep_research_df['source'].astype(str).str.split('\n').explode().str.strip()
+                if source in deep_sources.values:
+                    print(f"{source} already present in deep research")
+                    continue
+            
+            # Check in web research list (preliminary research)
+            if 'article' in preliminary_research_df.columns and source in preliminary_research_df['article'].values:
+                # Check learning objective col to check if already covered
+                if 'learning_objectives' in preliminary_research_df.columns and source in filtered_df['article'].values:
+                    print(f"{source} already present in web research")
+                    continue
+                else:
+                    # Get source row from preliminary_research_df
+                    source_row = preliminary_research_df[preliminary_research_df['article'] == source]
+                    if not source_row.empty:
+                        # Get article content
+                        article_content = ''.join(
+                            [source_row[f'article_content_{i}'].values[0] for i in range(article_content_col_count) 
+                             if f'article_content_{i}' in source_row.columns and i < len(source_row.columns)]
+                        )
+
+                        # Chunk the doc
+                        chunked_list = general_chunker(article_content)
+                        chunked_docs = []
+                        for chunk in chunked_list:
+                            chunked_docs.append(
+                                Document(
+                                    page_content=chunk["text"],
+                                    # Update metadata with chunk info
+                                    metadata={
+                                        "source": source,
+                                        "query": query,
+                                        "level": chunk["level"] if "level" in chunk else "",
+                                        "title": chunk["title"] if "title" in chunk else "",
+                                        "images": '\n'.join(extract_image_links_from_markdown(chunk["text"]))
+                                    }
+                                )
+                            )
+                        
+                        topic_outline_doc_chunk_list.extend(chunked_docs)
+                        continue
+            
+            # Check if it's a YouTube video
+            if video_id:
+                # Check if video already chunked
+                if video_id in video_chunks_df['video_id'].values:
+                    print(f"Video {video_id} already chunked")
+                    # Add the chunks
+                    temp_df = video_chunks_df[video_chunks_df['video_id'] == video_id]
+                    # Get text col count
+                    text_col_count = len([col for col in temp_df.columns if 'text_' in col])
+                    docs = [
+                        Document(
+                            page_content=''.join([r[f'text_{i}'] for i in range(text_col_count)]),
+                            metadata=json.loads(r['metadata'])
+                        )
+                        for i, r in temp_df.iterrows()
+                    ]
+                else:
+                    # Load and chunk this
+                    try:
+                        docs = get_yt_chapters_chunks_as_docs(video_id=video_id, video_title=f"Topic Outline: {video_id}", llm='gemini_2_flash')
+                    except Exception as e:
+                        print(f"Error processing YouTube video {source}: {e}")
+                        continue
+                
+                # Update metadata with the query
+                for doc in docs:
+                    doc.metadata["query"] = query
+                topic_outline_doc_chunk_list.extend(docs)
+            
+            # If it's a web article or other type
+            else:
+                # Load and chunk this
+                try:
+                    docs = get_docs_from_url(url=source, query=query)
+                    topic_outline_doc_chunk_list.extend(docs)
+                except Exception as e:
+                    print(f"Error processing URL {source}: {e}")
+                    continue
+        
+        # Update progress
+        progress.update()
+    
+    return topic_outline_doc_chunk_list
+
+
 ### Get All Chunks as Docs
 def get_all_chunks_as_docs(sheet, video_research_sheet_name = 'Videos Research', video_chunk_sheet_name = 'Video Chunks', 
                           client_reference_sheet_name = 'Client References', web_research_sheet_name = 'Preliminary Research',
-                          deep_research_sheet_name = 'Deep Research'):
+                          deep_research_sheet_name = 'Deep Research', topic_outline_sheet_name = 'Topic Outline',
+                          topic_deep_research_sheet_name = 'Topic Deep Research'):
     """
     This function gets all chunks as docs.
 
@@ -371,6 +668,8 @@ def get_all_chunks_as_docs(sheet, video_research_sheet_name = 'Videos Research',
     :param client_reference_sheet_name: The name of the sheet containing client reference data.
     :param web_research_sheet_name: The name of the sheet containing web research data.
     :param deep_research_sheet_name: The name of the sheet containing deep research data.
+    :param topic_outline_sheet_name: The name of the sheet containing topic outline data.
+    :param topic_deep_research_sheet_name: The name of the sheet containing topic deep research data.
     :return: A list of `Document` objects representing all chunks.
     """
     # Load the sheets and df
@@ -380,6 +679,8 @@ def get_all_chunks_as_docs(sheet, video_research_sheet_name = 'Videos Research',
     client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet = sheet, sheet_name = client_reference_sheet_name)
     preliminary_research_sheet, preliminary_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = web_research_sheet_name)
     deep_research_sheet, deep_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = deep_research_sheet_name)
+    topic_outline_sheet, topic_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = topic_outline_sheet_name)
+    topic_deep_research_sheet, topic_deep_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = topic_deep_research_sheet_name)
     
     with st.spinner(text = "Getting video chunks...", show_time = True):
         print("Getting video chunks...")
@@ -412,8 +713,29 @@ def get_all_chunks_as_docs(sheet, video_research_sheet_name = 'Videos Research',
             client_reference_df = client_reference_df,
             preliminary_research_df = preliminary_research_df
         )
+    
+    with st.spinner(text = "Getting topic deep research chunks...", show_time = True):
+        print("Getting topic deep research chunks...")
+        topic_deep_research_doc_chunk_list = get_topic_deep_research_doc_list(
+            topic_deep_research_df = topic_deep_research_df,
+            videos_research_df = videos_research_df,
+            client_reference_df = client_reference_df,
+            preliminary_research_df = preliminary_research_df
+        )
+    
+    with st.spinner(text = "Getting topic outline references chunks...", show_time = True):
+        print("Getting topic outline references chunks...")
+        topic_outline_doc_chunk_list = get_topic_outline_reference_doc_list(
+            topic_outline_df = topic_outline_df,
+            videos_research_df = videos_research_df,
+            video_chunks_df = video_chunks_df,
+            client_reference_df = client_reference_df,
+            preliminary_research_df = preliminary_research_df,
+            deep_research_df = deep_research_df
+        )
 
     print("Total chunks:", len(video_chunk_doc_list) + len(client_reference_doc_chunk_list) + 
-          len(web_research_doc_chunk_list) + len(deep_research_doc_chunk_list))
+          len(web_research_doc_chunk_list) + len(deep_research_doc_chunk_list) + 
+          len(topic_deep_research_doc_chunk_list) + len(topic_outline_doc_chunk_list))
 
-    return video_chunk_doc_list + client_reference_doc_chunk_list + web_research_doc_chunk_list + deep_research_doc_chunk_list
+    return video_chunk_doc_list + client_reference_doc_chunk_list + web_research_doc_chunk_list + deep_research_doc_chunk_list + topic_deep_research_doc_chunk_list + topic_outline_doc_chunk_list

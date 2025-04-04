@@ -22,7 +22,7 @@ pipeline_sections = [
                     "root_folder_id": "root_folder_id",
                     "drive": "drive",
                     "sheet": "sheet",
-                    "worksheet_name": "Course Outline with LOs",
+                    "worksheet_name": "Enhanced Outline with LOs",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -36,7 +36,7 @@ pipeline_sections = [
                 "depends_on": ["Retriever"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Course Outline with LOs",
+                    "worksheet_name": "Enhanced Outline with LOs",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -55,7 +55,7 @@ pipeline_sections = [
                 "depends_on": ["Researcher"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Course Outline with LOs",
+                    "worksheet_name": "Enhanced Outline with LOs",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -69,10 +69,10 @@ pipeline_sections = [
                 "depends_on": ["Reviewer"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Course Outline with LOs",
+                    "worksheet_name": "Enhanced Outline with LOs",
                 },
                 "instructions": [
-                    "Review the research notes, and the ai generated review within the `Course Outline with LOs` sheet.",
+                    "Review the research notes, and the ai generated review within the `Enhanced Outline with LOs` sheet.",
                     "Column names:\n `research_notes`,\n `analysis`,\n `not_covered_at_all`,\n `not_covered_enough`,\n `perfectly_covered`,\n `covered_too_much`,\n `verdict`",
                     "---",
                     "1) Edit any of the category columns to incorporate your final review.",
@@ -95,7 +95,7 @@ pipeline_sections = [
                     "root_folder_id": "root_folder_id",
                     "drive": "drive",
                     "sheet": "sheet",
-                    "worksheet_name": "Course Outline with LOs",
+                    "worksheet_name": "Enhanced Outline with LOs",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -114,7 +114,7 @@ pipeline_sections = [
                 "depends_on": ["Reviser"],
                 "args": {
                     "sheet": "sheet",
-                    "source_worksheet_name": "Course Outline with LOs",
+                    "source_worksheet_name": "Enhanced Outline with LOs",
                     "target_worksheet_name": "Research Notes",
                 },
                 "estimated_time": "A few seconds",

@@ -223,7 +223,7 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
         flattened_data.append({
             "Topic": response.topic_name,
             "Subtopic": subtopic.subtopic_name,
-            "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
+            "Learning Objective": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
         })
     
     return flattened_data

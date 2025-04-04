@@ -6,7 +6,7 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydantic import BaseModel, Field
 from typing import List
-from services.helper_functions import get_topic_outline
+from services.helper_functions import get_topic_outline, get_outline_in_table_format
 
 
 label_learning_objectives_prompt = """You are tasked with labeling an existing list of learning objectives to insert them into a course outline. Here's the current course outline:
@@ -162,27 +162,6 @@ def label_learning_objectives(course_outline, course_name, target_audience, lear
     # Return original response and the structured learning objectives
     return response['output'], learning_objectives_df
 
-
-# Function to get outline in this format
-def get_outline_in_table_format(topic_outline_df):
-    """
-    Get the course outline in a table format.
-
-    :param topic_outline_df: The topic outline dataframe.
-    :return: The course outline in a table format.
-    """
-    # Add line number column
-    topic_outline_df['Line No.'] = topic_outline_df.index + 1
-
-    # Select the required columns
-    outline_table = topic_outline_df[['Line No.', 'Topic', 'Learning Objective']]
-
-    # Convert to markdown table
-    outline_table_md = "| Line No. | Topic | Learning Objective |\n| --- | --- | --- |\n"
-    for index, row in outline_table.iterrows():
-        outline_table_md += f"| {row['Line No.']} | {row['Topic']} | {row['Learning Objective']} |\n"
-
-    return outline_table_md
 
 
 def update_course_outline_with_missing_objectives(sheet, topic_outline_sheet_name="Topic Outline", missing_lo_sheet_name="Missing Learning Objectives", revised_outline_sheet_name="Revised Outline"):
