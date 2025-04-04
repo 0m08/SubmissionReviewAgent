@@ -1,10 +1,10 @@
 import pandas as pd
 from services.sheets_service import get_sheet_data_and_df
 from modules.chain import Chain
-from agents.generate_assessments.checklist_sheet import get_review_checklist
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
+import gspread
 
 
 generate_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously assessing the quality of assessment questions based on a predefined checklist. The course name for which the assessment questions are based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment questions are based:
@@ -139,6 +139,8 @@ def get_assessment_questions(sheet, worksheet_name):
     return assessment_questions
 
 
+
+
     # Function to evaluate a checklist task
 def generate_checklist(course_name, target_audience, task_name, evidence_list, slides, assessment_questions, llm):
     """
@@ -186,15 +188,23 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
     :return: None
     """
     
-    checklist_sheet, checklist_df = get_review_checklist(sheet, 'Assessment Checklist')
-    unique_tasks = checklist_df['Task'].unique()
-    
     _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
     unique_topics = pd.unique(slide_chunks_df['Topic'])
     topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == unique_topics[0]]
     
     assessment_questions = get_assessment_questions(sheet, worksheet_name)
     
+    
+    checklist_sheet_link = "https://docs.google.com/spreadsheets/d/1O8ADTCJcwfZJwXRQEb09aXzax1b4Ll2mzagEhIdCdS0/edit?usp=sharing"
+    
+    
+    checklist_sheet, checklist_df = get_sheet_data_and_df(sheet, 'Assessment Checklist')
+    
+    gc = gspread.service_account(filename='content/service-credentials.json')
+    sheet = gc.open_by_url(checklist_sheet_link)
+    
+    
+    unique_tasks = checklist_df['Task'].unique()
     slides = "\n---\n".join(
         "Topic Name: " + topic_slides_data['Slide Title'] + "\n" + "Slide Content: " + topic_slides_data['Slide Content']
     )
@@ -206,34 +216,46 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
         print("LLM Based Output column already has data. Skipping processing.")
     
     
-    with ThreadPoolExecutor() as executor:
-        future_to_task = {
-            executor.submit(
+    # Prepare for parallel processing
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for task_name in unique_tasks:
+            evidence_list = checklist_df[checklist_df['Task'] == task_name]['Review Criteria'].tolist()
+
+            # Submit the task
+            future = executor.submit(
                 generate_checklist,
-                course_name,
-                target_audience,
-                task_name,
-                checklist_df[checklist_df['Task'] == task_name]['Review Criteria'].tolist(),
-                slides,
-                assessment_questions,
-                llm
-            ): task_name for task_name in unique_tasks
-        }
-        
-        total_tasks = len(unique_tasks)
+                course_name=course_name,
+                target_audience=target_audience,
+                task_name=task_name,
+                evidence_list=evidence_list,
+                slides=slides,
+                assessment_questions=assessment_questions,
+                llm=llm
+            )
+
+            # Map the Future to the task name
+            futures_map[future] = task_name
+
+        # Initialize the progress tracker
+        total_tasks = len(futures_map)
         progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
-        
-        for future in as_completed(future_to_task):
-            task_name = future_to_task[future]
-            try:
-                response = future.result()
-                checklist_by_task[task_name] = response
-                print(f"Task: {task_name}")
-                print(f"Evaluation:\n{response}\n")
-            except Exception as e:
-                print(f"Task {task_name} generated an exception: {e}")
-            finally:
-                progress.update(1)
+
+        # Collect the results as they complete
+        for future in as_completed(futures_map):
+            task_name = futures_map[future]
+            response = future.result()
+
+            # Store the response in the dictionary
+            checklist_by_task[task_name] = response
+
+            # Update progress
+            progress.update()
+
+    # Display checklist evaluations
+    for task, evaluation in checklist_by_task.items():
+        print(f"Task: {task}")
+        print(f"Evaluation:\n{evaluation}\n")
     
     if "LLM Based Output" not in checklist_df.columns:
         checklist_df["LLM Based Output"] = ""
