@@ -497,7 +497,7 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
                             'video_id': [videos_research_df.loc[index, 'video_id']],
                             'video_title': [videos_research_df.loc[index, 'title']],
                             'chapter_title': [doc.metadata.get('chapter_title', '')],
-                            'metadata': [json.dumps(doc.metadata)],
+                            'metadata': [json.dumps({**doc.metadata, 'channel': 'HVAC School'})],
                             'text_0': ''#[doc.page_content[:49000]]  # Trim if needed
                         })
                     ], ignore_index=True)

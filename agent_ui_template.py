@@ -8,6 +8,8 @@ from services.sheets_service import get_sheet_data_and_df, create_or_read_worksh
 from services.smart_progress_bar import SmartProgressBar
 from services.drive_service import login_with_service_account
 from datetime import datetime
+import os
+from langtrace_python_sdk import langtrace # Must precede any llm module imports
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict]):
@@ -41,6 +43,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
         if st.button("Load Data"):
             load_dotenv()  # Load env variables from .env
             try:
+                if os.environ.get('LANGTRACE_ON', 'false') == "true":
+                    langtrace.init(api_key = os.environ.get('LANGTRACE_API_KEY'))
                 gauth = login_with_service_account("content/service-credentials.json")
                 drive = GoogleDrive(gauth)
 

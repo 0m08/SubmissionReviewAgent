@@ -11,6 +11,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import compare_text_versions
+import xml.etree.ElementTree as ET
 
 
 review_course_outline_prompt = """You are an experienced instructional designer tasked with reviewing and improving a course outline. Your goal is to provide a comprehensive analysis of the outline, identifying any issues and offering suggestions for improvement.
@@ -139,8 +140,59 @@ extract_topic_subtopic_los_prompt = """Your task is to extract topic, subtopics,
     - Ensure the learning objectives are stated properly. In most cases, they will, thus don't paraphrase.
     - But in cases where the learning objectives in the text are listed as words / list of words without proper context, then combine them into proper standalone statements.
 
+Edge Cases:
+- If you find more nesting at the learning objectives level eg 1a, 1b, or 1.1, 1.2, etc, then extract each of them as a separate learning objective.
+- Incase the outline doesn't follow the expected format, then use your best judgement to extract the topic, subtopics and learning objectives.
 
-Make sure to output in the proper format.
+---
+
+Output Format:
+
+1. **Root Element: `<topic>`**  
+   - This is the main container of the XML document. It represents a single topic.
+
+2. **Child Element: `<topic_name>`**  
+   - Inside `<topic>`, the first element must be `<topic_name>`.  
+   - Use this element to specify the name or title of the topic.
+
+3. **Repeated Child Element: `<subtopic>`**  
+   - After `<topic_name>`, there can be one or more `<subtopic>` elements.  
+   - Each `<subtopic>` element describes a single subtopic within the main topic.
+
+4. **Subtopic Name: `<subtopic_name>`**  
+   - Within each `<subtopic>`, the first element is `<subtopic_name>`.  
+   - Use this element to name or label the subtopic clearly.
+
+5. **Learning Objectives: `<learning_objectives>`**  
+   - Within each `<subtopic>`, the next element is `<learning_objectives>`.  
+   - This is a container for the learning objectives, which describe what the reader should learn or be able to do after studying the subtopic.
+
+6. **Learning Objective Lines: `<objective>`**  
+   - Inside `<learning_objectives>`, you can list multiple learning objectives. Each objective is written inside its own `<objective>` element.  
+   - Each `<objective>` must be a standalone statement. Avoid paraphrasing unless necessary, and list them as separate items to keep them clear and concise.
+
+7. **Example Structure**  
+   ```xml
+   <topic>
+     <topic_name>Sample Topic</topic_name>
+     <subtopic>
+       <subtopic_name>Introduction</subtopic_name>
+       <learning_objectives>
+         <objective>Understand the basics of the topic</objective>
+         <objective>Become familiar with common terminology</objective>
+       </learning_objectives>
+     </subtopic>
+     <subtopic>
+       <subtopic_name>Advanced Concepts</subtopic_name>
+       <learning_objectives>
+         <objective>Master the advanced techniques</objective>
+         <objective>Apply concepts to real-world scenarios</objective>
+       </learning_objectives>
+     </subtopic>
+   </topic>
+   ```
+
+Following these guidelines and the schema above ensures that your XML document is valid and conforms to the specified structure.
 """
 
 
@@ -165,28 +217,92 @@ def print_course_outline_before_review(sheet, worksheet_name = 'Outline Review')
     return
 
 
+def extract_outline_data(response):
+    """
+    Extracts topic name, subtopics, and learning objectives from the response.
+    Works with both object responses and text responses containing XML.
+    
+    Args:
+        response: The response from the LLM containing topic, subtopics, and learning objectives.
+               Can be either an object with attributes or a text string with XML.
+        
+    Returns:
+        dict: A dictionary containing:
+            - topic_name (str): The name of the topic
+            - subtopics (list): A list of dictionaries, each containing:
+                - subtopic_name (str): The name of the subtopic
+                - learning_objectives (list): A list of learning objective strings
+    """
+    print(response)
+    # Check if response is a string (text) or an object
+    if isinstance(response, str):
+        # Parse XML from text
+        
+        # Extract the XML content if it's embedded in other text
+        xml_pattern = r'<topic>.*?</topic>'
+        xml_match = re.search(xml_pattern, response, re.DOTALL)
+        
+        if xml_match:
+            xml_content = xml_match.group(0)
+        else:
+            xml_content = response
+            
+        try:
+            # Parse the XML
+            root = ET.fromstring(xml_content)
+            
+            # Extract topic name
+            topic_name = root.find('topic_name').text
+            
+            # Extract subtopics
+            subtopics = []
+            for subtopic_elem in root.findall('subtopic'):
+                subtopic_name = subtopic_elem.find('subtopic_name').text
+                learning_objectives = []
+                
+                for objective_elem in subtopic_elem.find('learning_objectives').findall('objective'):
+                    learning_objectives.append(objective_elem.text)
+                
+                subtopics.append({
+                    "subtopic_name": subtopic_name,
+                    "learning_objectives": learning_objectives
+                })
+                
+            return {
+                "topic_name": topic_name,
+                "subtopics": subtopics
+            }
+            
+        except Exception as e:
+            # If XML parsing fails, return empty data
+            print(f"Error parsing XML: {e}")
+            return {
+                "topic_name": "Error parsing topic",
+                "subtopics": []
+            }
+    else:
+        # Process object response
+        data = {
+            "topic_name": response.topic_name,
+            "subtopics": []
+        }
+        
+        for subtopic in response.subtopics:
+            subtopic_data = {
+                "subtopic_name": subtopic.subtopic_name,
+                "learning_objectives": subtopic.learning_objectives
+            }
+            data["subtopics"].append(subtopic_data)
+        
+        return data
+
+
 def parse_course_outline(text, llm = "gemini_2_flash"):
     """
     Parses the text with help of LLM
     """
 
-    class Subtopic(BaseModel):
-        subtopic_name: str = Field(
-            description="Name of the subtopic."
-        )
-        learning_objectives: List[str] = Field(
-            description="List of learning objectives for this subtopic."
-        )
-
-    class Topic(BaseModel):
-        topic_name: str = Field(
-            description="The main topic name."
-        )
-        subtopics: List[Subtopic] = Field(
-            description="All subtopics under this main topic."
-        )
-
-    parse_course_outline_agent = Chain(llm=llm)
+    parse_course_outline_agent = Chain(llm=llm, use_xml_checker = True)
 
     parse_course_outline_agent.add_message(
         role = "user",
@@ -195,17 +311,18 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
         )
     )
 
-    parse_course_outline_agent.structured_output = Topic
-
     response = parse_course_outline_agent.run()
+    
+    # Extract structured data from response
+    outline_data = extract_outline_data(response)
 
     # Convert extracted data into a DataFrame
     flattened_data = []
-    for subtopic in response.subtopics:
+    for subtopic in outline_data["subtopics"]:
         flattened_data.append({
-            "Topic": response.topic_name,
-            "Subtopic": subtopic.subtopic_name,
-            "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
+            "Topic": outline_data["topic_name"],
+            "Subtopic": subtopic["subtopic_name"],
+            "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic["learning_objectives"])])
         })
     
     return flattened_data

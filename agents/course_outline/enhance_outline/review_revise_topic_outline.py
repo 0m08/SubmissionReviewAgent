@@ -297,7 +297,7 @@ def parse_course_outline_for_all_topics(sheet, worksheet_name, outline_review_df
     return
 
 
-def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemini_2_flash', skip_manual_step = False):
+def run_review_and_revise_topic_outline(sheet, course_name, target_audience, llm='gemini_2_flash', skip_manual_step = False):
     """
     Runs the review and revision process for course outlines using AI.
 

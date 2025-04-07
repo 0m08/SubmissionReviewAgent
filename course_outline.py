@@ -29,7 +29,7 @@ from agents.course_outline.enhance_outline.topic_deep_research import run_topic_
 from agents.course_outline.enhance_outline.generate_learning_objectives import run_generate_learning_objectives
 from agents.course_outline.enhance_outline.categorize_learning_objectives import run_categorize_learning_objectives
 from agents.course_outline.enhance_outline.label_learning_objectives import run_label_learning_objectives
-from agents.course_outline.enhance_outline.review_revise_topic_outline import show_outline_diff, run_review_and_revise_outline
+from agents.course_outline.enhance_outline.review_revise_topic_outline import show_outline_diff, run_review_and_revise_topic_outline
 from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import map_original_outline_to_revised_outline_for_all_topics
 
 
@@ -451,7 +451,7 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash_thinking",
+                    "llm": "gemini_2_flash",
                     "skip_manual_step": "skip_manual_step"
                 },
                 "instructions": [
@@ -564,7 +564,7 @@ pipeline_sections = [
             },
             {
                 "name": "Review and Revise Topic Outline",
-                "func": run_review_and_revise_outline,
+                "func": run_review_and_revise_topic_outline,
                 "depends_on": ["Label Learning Objectives"],
                 "args": {
                     "sheet": "sheet",

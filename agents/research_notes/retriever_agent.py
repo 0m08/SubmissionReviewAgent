@@ -188,7 +188,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                        course_name, target_audience, course_outline, llm):
     """
     Processes a single row: runs the retriever agent for each Learning Objective
-    and accumulates the context string. Returns (index, context_string, source_links).
+    and accumulates the context string. Returns (index, context_string, source_links, as_is_sources, content_sources).
     """
     # # If row is already populated, just return existing context
     # if row['context_0'] != '':
@@ -203,7 +203,9 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
 
     context = ""
     context_docs = []
-    source_links = []  # List to store source links
+    source_links = []  # List to store all source links
+    as_is_sources = []  # List to store sources used as is
+    content_sources = []  # List to store sources for content
 
     for lo in learning_objectives:
         # Run the retriever agent
@@ -240,15 +242,37 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                 if hasattr(context_doc, 'metadata') and 'source' in context_doc.metadata:
                     source_link = context_doc.metadata['source']
                     if source_link:
-                        source_links.append(f"[{len(context_docs)}] {source_link}") # Format - [1] www.example.com
+                        # Format the source link with the doc ID
+                        formatted_source = f"[{len(context_docs)}] {source_link}"
+                        source_links.append(formatted_source)
+                        
+                        # Categorize the source based on criteria
+                        is_hvac_school = False
+                        
+                        # Check if the source is from HVAC School
+                        if hasattr(context_doc, 'metadata') and 'channel' in context_doc.metadata:
+                            if context_doc.metadata['channel'] == 'HVAC School':
+                                is_hvac_school = True
+                        
+                        # Check if the source URL contains hvacrschool.com
+                        if 'https://hvacrschool.com/' in source_link:
+                            is_hvac_school = True
+                            
+                        # Add to appropriate category
+                        if is_hvac_school:
+                            as_is_sources.append(formatted_source)
+                        else:
+                            content_sources.append(formatted_source)
             else:
                 print(f'Skipping doc id {doc_id} as it is not an integer')
                 continue
 
     # Join all source links with newline character
     source_links_text = '\n'.join(source_links)
+    as_is_sources_text = '\n'.join(as_is_sources)
+    content_sources_text = '\n'.join(content_sources)
     
-    return index, context, source_links_text
+    return index, context, source_links_text, as_is_sources_text, content_sources_text
 
 
 def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
@@ -270,6 +294,12 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
     # Create source_links column if not already present
     if 'source_links' not in course_outline_with_lo_df.columns:
         course_outline_with_lo_df['source_links'] = ''
+        
+    # Create as_is_sources and content_sources columns if not already present
+    if 'as_is_sources' not in course_outline_with_lo_df.columns:
+        course_outline_with_lo_df['as_is_sources'] = ''
+    if 'content_sources' not in course_outline_with_lo_df.columns:
+        course_outline_with_lo_df['content_sources'] = ''
 
     # Check if this step is already done by checking the last row of 'context_0'
     if course_outline_with_lo_df.iloc[-1]['context_0'] != '':
@@ -325,7 +355,7 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
         for future in tqdm(as_completed(futures), total=total_tasks):
-            index, context, source_links = future.result()
+            index, context, source_links, as_is_sources, content_sources = future.result()
 
             # Update the row in the DataFrame
             course_outline_with_lo_df = create_and_populate_columns(
@@ -336,8 +366,10 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                 chunk_size=49000
             )
             
-            # Update the source_links column
+            # Update the source links columns
             course_outline_with_lo_df.at[index, 'source_links'] = source_links
+            course_outline_with_lo_df.at[index, 'as_is_sources'] = as_is_sources
+            course_outline_with_lo_df.at[index, 'content_sources'] = content_sources
 
             # Update progress
             progress.update()
