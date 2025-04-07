@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydantic import BaseModel, Field
 from typing import List
 from services.helper_functions import get_topic_outline, get_outline_in_table_format
+import re
 
 
 label_learning_objectives_prompt = """You are tasked with labeling an existing list of learning objectives to insert them into a course outline. Here's the current course outline:
@@ -77,10 +78,60 @@ For each learning objective, provide the following information:
 """
 
 
-def get_learning_objective_structured(learning_objectives, llm='gemini_2_flash'):
+def extract_learning_objective_details_with_regex(text):
+    """
+    Extracts learning objective details from the text using regex.
+    
+    :param text: The text containing learning objective information.
+    :return: A DataFrame with the extracted learning objective details.
+    """
+    # Split text into individual learning objective blocks
+    learning_objective_blocks = re.split(r'<learning_objective>|</learning_objective>', text)
+    
+    # Filter out empty blocks or non-learning objective text
+    learning_objective_blocks = [block.strip() for block in learning_objective_blocks if 'LO text:' in block]
+    
+    results = []
+    
+    for block in learning_objective_blocks:
+        # Extract learning objective text
+        lo_text_match = re.search(r'LO text:\s*(.*?)(?=\n|$)', block)
+        lo_text = lo_text_match.group(1).strip() if lo_text_match else None
+        
+        # Extract operation type
+        operation_match = re.search(r'Operation type:\s*(add|edit)', block)
+        operation_type = operation_match.group(1) if operation_match else None
+        
+        # Extract line number
+        line_match = re.search(r'Line number:\s*(\d+)', block)
+        line_number = int(line_match.group(1)) if line_match else None
+        
+        if lo_text is not None and operation_type is not None and line_number is not None:
+            results.append({
+                "objective_text": lo_text,
+                "line_number": line_number,
+                "operation_type": operation_type
+            })
+    
+    return pd.DataFrame(results)
+
+
+def get_learning_objective_structured(learning_objectives, llm='gemini_2_flash', use_regex=True):
     """
     Get the learning objectives in a structured format.
     """
+    if use_regex:
+        try:
+            # Try regex extraction first
+            df = extract_learning_objective_details_with_regex(learning_objectives)
+            
+            # Validate the results
+            if not df.empty and all(df["objective_text"].notna()) and all(df["operation_type"].notna()) and all(df["line_number"].notna()):
+                return df
+                    
+            print("Regex extraction produced incomplete results. Falling back to structured output.")
+        except Exception as e:
+            print(f"Regex extraction failed with error: {str(e)}. Falling back to structured output.")
 
     class LearningObjective(BaseModel):
         """
