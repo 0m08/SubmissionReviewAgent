@@ -117,6 +117,7 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
         if not (complexity_review or missing_sentences_review or accuracy_review or reuse_previous_graphics_review or human_review):
             print("✅ No issues detected. Skipping Reviser Agent and using original Graphics Definition.\n")
             revised_graphics_definition = graphics_definition  # Copy graphics definition directly
+            progress.update()  
 
             # Update previous graphics definition even when reviser agent is skipped
             previous_graphics_definition = get_previous_graphics_definition_as_str(
@@ -201,7 +202,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
     
-    total_tasks = 6 * len(slide_chunks_df)  # 6 tasks per slide
+    total_tasks = 6 * len(slide_chunks_df) + 2 # 6 tasks per slide
     
     # progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 

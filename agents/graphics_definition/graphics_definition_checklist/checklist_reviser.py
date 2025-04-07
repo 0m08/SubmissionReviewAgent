@@ -157,8 +157,6 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
     
     checklist_sheet_link = 'https://docs.google.com/spreadsheets/d/1L55vp_jPw-XnZ5ue3ZI-c-2EkS60E0VX2KAIfnuGNhk/edit?usp=sharing'
-    gauth = login_with_service_account("content/service-credentials.json")
-    drive = GoogleDrive(gauth)
 
     gc = gspread.service_account(filename='content/service-credentials.json')
     sheet = gc.open_by_url(checklist_sheet_link)
