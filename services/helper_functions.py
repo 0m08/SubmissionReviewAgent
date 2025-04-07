@@ -4,6 +4,7 @@ from typing import List, Optional
 import difflib
 import streamlit as st
 
+
 # Get outline as text with topic, subtopic and los (if present)
 def get_outline_with_los(df, include_learning_objectives = False, include_prefix = True):
     """
