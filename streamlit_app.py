@@ -139,6 +139,7 @@ if st.session_state.role in authenticated_roles:
     current_page = st.navigation(page_dict)
 
 
+
 else:
     # User not logged in, or role is None
     # Show only the login page
