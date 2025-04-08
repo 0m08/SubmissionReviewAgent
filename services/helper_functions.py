@@ -529,4 +529,3 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
 
     # Display the HTML
     st.markdown(html_output, unsafe_allow_html=True)
-
