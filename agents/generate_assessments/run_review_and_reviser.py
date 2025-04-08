@@ -1,5 +1,5 @@
 import pandas as pd
-from modules.chain import Chain, extract_text_in_tags
+from modules.chain import Chain
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet
 from agents.generate_assessments.revise_assessment import revise_assessment, detect_question_type, get_question_format
 from agents.generate_assessments.review_assessment import review_assessment
