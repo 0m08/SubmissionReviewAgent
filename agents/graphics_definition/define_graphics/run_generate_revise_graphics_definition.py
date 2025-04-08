@@ -1,5 +1,4 @@
 from services.sheets_service import get_sheet_data_and_df
-from modules.chain import Chain
 from tqdm import tqdm
 import re
 import streamlit as st
@@ -54,11 +53,16 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
             llm=llm
         )
 
+        if isinstance(graphics_definition, list):
+            graphics_definition = "\n".join(graphics_definition)
+
         results = {'graphics_definition': graphics_definition}
         progress.update()  # Update progress after generating graphics definition
 
         def generate_review(review_func, *args):
             review_text = review_func(*args)
+            if isinstance(review_text, list):
+                review_text = "\n".join(review_text)
             verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", review_text, re.DOTALL)
             verdict = verdict_match.group(1).strip().lower() if verdict_match else ""
             return review_text if verdict == "fail" else ""
@@ -149,6 +153,8 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
             references = references,
             llm = llm
         )
+        if isinstance(revised_graphics_definition, list):
+            revised_graphics_definition = "\n".join(revised_graphics_definition)
 
         print("✅ Generated Revised Graphics Definition\n")
         progress.update()  # Update progress after generating revised graphics definition
@@ -194,7 +200,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
     """
 
     # Read the sheet and dataframe
-    slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
+    _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
     # Ensure required columns exist
     for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review', 
@@ -202,7 +208,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
     
-    total_tasks = 6 * len(slide_chunks_df) + 2 # 6 tasks per slide
+    total_tasks = 6 * len(slide_chunks_df)# 6 tasks per slide
     
     # progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
