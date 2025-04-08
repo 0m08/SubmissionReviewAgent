@@ -1,4 +1,4 @@
-from modules.chain import Chain, extract_text_in_tags
+from modules.chain import Chain
 import pandas as pd
 from services.sheets_service import get_sheet_data_and_df
 from tqdm import tqdm

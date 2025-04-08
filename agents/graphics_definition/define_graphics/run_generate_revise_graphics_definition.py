@@ -1,10 +1,10 @@
-from services.sheets_service import get_sheet_data_and_df
-from modules.chain import Chain
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet
 from tqdm import tqdm
 import re
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 
 from agents.graphics_definition.define_graphics.generate_graphics_definition import generate_graphics_definition
@@ -54,11 +54,16 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
             llm=llm
         )
 
+        # if isinstance(graphics_definition, list):
+        #     graphics_definition = "\n".join(graphics_definition)
+
         results = {'graphics_definition': graphics_definition}
         progress.update()  # Update progress after generating graphics definition
 
         def generate_review(review_func, *args):
             review_text = review_func(*args)
+            # if isinstance(review_text, list):
+            #     review_text = "\n".join(review_text)
             verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", review_text, re.DOTALL)
             verdict = verdict_match.group(1).strip().lower() if verdict_match else ""
             return review_text if verdict == "fail" else ""
@@ -84,9 +89,11 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
         slide_chunks_df.loc[index, 'missing_sentences_review'] = results['missing_sentences_review']
         slide_chunks_df.loc[index, 'accuracy_review'] = results['accuracy_review']
         slide_chunks_df.loc[index, 'reuse_previous_graphics_review'] = results['reuse_previous_graphics_review']
+        
+    
+        save_to_sheet(worksheet = slide_chunks_sheet, df = slide_chunks_df)
 
-        slide_chunks_df = slide_chunks_df.astype(str)
-        slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
+        format_worksheet(slide_chunks_sheet)
 
         print(f"Please enter manual feedback for this graphics definition: row_number - {index + 1}")
         return  # Stop execution after one row is processed
@@ -149,6 +156,8 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
             references = references,
             llm = llm
         )
+        # if isinstance(revised_graphics_definition, list):
+        #     revised_graphics_definition = "\n".join(revised_graphics_definition)
 
         print("✅ Generated Revised Graphics Definition\n")
         progress.update()  # Update progress after generating revised graphics definition
@@ -157,15 +166,14 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
         # Add this to the df
         slide_chunks_df.loc[index, 'revised_graphics_definition'] = revised_graphics_definition
 
+        save_to_sheet(worksheet = slide_chunks_sheet, df = slide_chunks_df)
+    
         # Preserve the human review in the sheet before updating the DataFrame
         slide_chunks_df.loc[index, 'human_review'] = human_review
 
-        # Convert all values to strings before updating
-        slide_chunks_df = slide_chunks_df.astype(str)
-
-        # Update Sheet with Reviser Output
-        slide_chunks_sheet.update([slide_chunks_df.columns.values.tolist()] + slide_chunks_df.values.tolist())
         
+            
+
         # Update previous graphics definition
         # Update previous graphics definition even when reviser agent is skipped
         previous_graphics_definition = get_previous_graphics_definition_as_str(
@@ -194,7 +202,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
     """
 
     # Read the sheet and dataframe
-    slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
+    _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
     # Ensure required columns exist
     for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review', 
@@ -202,7 +210,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
     
-    total_tasks = 6 * len(slide_chunks_df) + 2 # 6 tasks per slide
+    total_tasks = 6 * len(slide_chunks_df) +1# 6 tasks per slide
     
     # progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 

@@ -3,8 +3,6 @@ from tqdm import tqdm
 from agents.graphics_definition.graphics_definition_checklist.checklist_generation import generate_checklist_evaluation
 import re
 from modules.chain import Chain
-from services.drive_service import login_with_service_account
-from pydrive2.drive import GoogleDrive
 import gspread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -122,6 +120,9 @@ def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist
             llm=llm
         )
 
+        if isinstance(checklist_evaluation, list):
+            checklist_evaluation = "\n".join(checklist_evaluation)
+
         pattern = r"Final Verdict:\s*(Pass|Fail)(?:\s*Feedback:\s*(.*?))?(?:\n|$)"
         results = re.findall(pattern, checklist_evaluation, re.DOTALL)
 
@@ -159,9 +160,9 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     checklist_sheet_link = 'https://docs.google.com/spreadsheets/d/1L55vp_jPw-XnZ5ue3ZI-c-2EkS60E0VX2KAIfnuGNhk/edit?usp=sharing'
 
     gc = gspread.service_account(filename='content/service-credentials.json')
-    sheet = gc.open_by_url(checklist_sheet_link)
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
     
-    checklist_sheet, checklist_df = get_sheet_data_and_df(sheet, 'Graphics Definition Checklist')
+    checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, 'Graphics Definition Checklist')
 
     unique_tasks = list(checklist_df['Task'].dropna().unique())
     slide_count = slide_chunks_df.shape[0]
