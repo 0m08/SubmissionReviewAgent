@@ -4,7 +4,7 @@ from services.sheets_service import get_sheet_data_and_df, create_or_read_worksh
 from agents.generate_assessments.revise_assessment import revise_assessment, detect_question_type, get_question_format
 from agents.generate_assessments.review_assessment import review_assessment
 from tqdm import tqdm
-from services.helper_functions import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
+from generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
 from agents.generate_assessments.checklist_sheet import get_review_checklist
 import re
 from gspread_formatting import CellFormat, TextFormat, set_column_width, set_row_height
