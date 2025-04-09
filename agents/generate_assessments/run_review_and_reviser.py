@@ -1,10 +1,10 @@
 import pandas as pd
-from modules.chain import Chain
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet
+from agents.generate_assessments.chains import Chain, extract_text_in_tags
+from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet
 from agents.generate_assessments.revise_assessment import revise_assessment, detect_question_type, get_question_format
 from agents.generate_assessments.review_assessment import review_assessment
 from tqdm import tqdm
-from generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
+from agents.generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
 from agents.generate_assessments.checklist_sheet import get_review_checklist
 import re
 from gspread_formatting import CellFormat, TextFormat, set_column_width, set_row_height
@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 
 
-def review_and_revise_assessment_questions_with_agents(course_name, topic_slides, target_audience, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
+def review_and_revise_assessment_questions_with_agents(course_name,target_audience, topic_slides, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
     """
     This function reviews and revises an assessment question based on a checklist criterion.
     :param assessment_question: The assessment question to review.
@@ -23,7 +23,8 @@ def review_and_revise_assessment_questions_with_agents(course_name, topic_slides
     :param llm: The language model to use.
     :return: The review of the assessment question.
     """
-    
+
+
     # Detect the question type dynamically
     question_type = detect_question_type(assessment_question)  # Function to determine question type
     question_format = get_question_format(question_type)  # Get the correct output format
@@ -42,23 +43,19 @@ def review_and_revise_assessment_questions_with_agents(course_name, topic_slides
         # Collect feedback for the current iteration
         question_feedback_list = []
 
-        # Use ThreadPoolExecutor to process each evaluation
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {
-                executor.submit(extract_text_in_tags, 
-                                tags=['item_name', 'analysis', 'verdict', 'feedback_summary', 'improvement_suggestions'], 
-                                text=evaluation): evaluation 
-                for evaluation in reviewer_response['evaluation']
-            }
 
-            for future in as_completed(futures):
-                evaluation_dict = future.result()
-                # Check for failed criteria
-                if 'pass' not in evaluation_dict['verdict'].lower():
-                    question_feedback_list.append(
-                        f"Feedback summary: {evaluation_dict['feedback_summary']}\n"
-                        f"Improvement suggestions: {evaluation_dict['improvement_suggestions']}"
-                    )
+        # Loop through evaluations and extract feedback for failed criteria
+        for evaluation in reviewer_response['evaluation']:
+            evaluation_dict = extract_text_in_tags(
+                tags=['item_name', 'analysis', 'verdict', 'feedback_summary', 'improvement_suggestions'],
+                text=evaluation
+            )
+            # Check for failed criteria
+            if 'pass' not in evaluation_dict['verdict'].lower():
+                question_feedback_list.append(
+                    f"Feedback summary: {evaluation_dict['feedback_summary']}\n"
+                    f"Improvement suggestions: {evaluation_dict['improvement_suggestions']}"
+                )
 
         # If length of question_feedback_list is more than 0 (which means feedback exists), then pass it to reviser agent
         if len(question_feedback_list) > 0:
@@ -364,5 +361,7 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
         set_column_width(final_assessement_sheet, chr(64 + col), 100)
         
         progress.update()
+
+    format_worksheet(final_assessement_sheet)
 
     print("Final Assessment Tab updated successfully!")

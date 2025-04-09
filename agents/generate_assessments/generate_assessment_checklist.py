@@ -2,7 +2,6 @@ import pandas as pd
 from services.sheets_service import get_sheet_data_and_df
 from modules.chain import Chain
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
 import gspread
 
@@ -198,10 +197,11 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
     checklist_sheet_link = "https://docs.google.com/spreadsheets/d/1O8ADTCJcwfZJwXRQEb09aXzax1b4Ll2mzagEhIdCdS0/edit?usp=sharing"
     
     
-    checklist_sheet, checklist_df = get_sheet_data_and_df(sheet, 'Assessment Checklist')
-    
     gc = gspread.service_account(filename='content/service-credentials.json')
-    sheet = gc.open_by_url(checklist_sheet_link)
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
+    
+
+    checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, 'Assessment Checklist')
     
     
     unique_tasks = checklist_df['Task'].unique()
