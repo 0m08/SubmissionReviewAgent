@@ -1,4 +1,4 @@
-from modules.chain import Chain
+from agents.generate_assessments.chains import Chain
 import re
 
 
