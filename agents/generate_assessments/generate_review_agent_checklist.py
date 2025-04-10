@@ -1,8 +1,7 @@
 import pandas as pd
 import gspread
 from services.sheets_service import get_sheet_data_and_df
-from modules.chain import Chain
-from agents.generate_assessments.checklist_sheet import get_review_checklist
+from agents.generate_assessments.chains import Chain
 from gspread_dataframe import set_with_dataframe
 from gspread_formatting import CellFormat, TextFormat, format_cell_range
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -106,7 +105,14 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
     """
     # Prepare a dictionary to store results
     review_checklist_by_task = {}
-    _, checklist_df = get_review_checklist(sheet, worksheet_name)
+    _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
+    
+    checklist_sheet_link = course_info_df['Checklist Link'][0]
+    gc = gspread.service_account(filename='content/service-credentials.json')
+
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
+
+    _, checklist_df = get_sheet_data_and_df(checklist_sheet, worksheet_name)
 
     # Iterate through unique tasks and evaluate each question
     unique_tasks = checklist_df['Task'].unique()
@@ -265,12 +271,14 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
     # Initialize progress bar with 4 major steps
     progress = SmartProgressBar(total_tasks=4, description="Percent complete:", save_interval=5)
     
-    checklist_sheet_link = "https://docs.google.com/spreadsheets/d/1O8ADTCJcwfZJwXRQEb09aXzax1b4Ll2mzagEhIdCdS0/edit?usp=sharing"
+    _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
+    checklist_sheet_link = course_info_df['Checklist Link'][0]
     gc = gspread.service_account(filename='content/service-credentials.json')
-    sheet = gc.open_by_url(checklist_sheet_link)
-    
-    checklist_sheet, checklist_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
+
+    checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, worksheet_name)
 
     # Load existing data into a DataFrame
     print(checklist_df)

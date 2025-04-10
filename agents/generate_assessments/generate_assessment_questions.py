@@ -1,8 +1,7 @@
-from modules.chain import Chain
+from agents.generate_assessments.chains import Chain
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet
 import pandas as pd
 from tqdm import tqdm
-
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
