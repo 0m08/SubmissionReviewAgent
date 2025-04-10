@@ -178,7 +178,7 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
 
             futures_map[future] = topic_name
 
-        total_tasks = len(futures_map) + 2
+        total_tasks = len(futures_map)
         progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=5)
 
         for future in tqdm(as_completed(futures_map), total=total_tasks):
@@ -188,12 +188,9 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
             progress.update()
 
     # Convert the questions_by_topic dictionary to a DataFrame
-    assessment_questions_df = pd.DataFrame(list(questions_by_topic.items()), columns=['topic', 'questions'])
-    progress.update()
+    assessment_questions_df = pd.DataFrame((questions_by_topic.items()), columns=['topic', 'questions'])
     
     # Save the DataFrame to the 'Assessment questions' worksheet
     save_to_sheet(assessment_questions_sheet, assessment_questions_df)
-    progress.update()
     
     return questions_by_topic
-

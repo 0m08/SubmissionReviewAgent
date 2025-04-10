@@ -101,6 +101,8 @@ class Chain:
     def set_llm(self, llm):
         self.llm = llm
 
+        
+
     def add_chain_step(self, step_function):
         """
         Adds a function or process to the chain sequence.
@@ -289,4 +291,3 @@ class Chain:
             self.add_message('ai', str(response))
 
         return response
-    

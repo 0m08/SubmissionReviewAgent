@@ -1,4 +1,4 @@
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, resize_column_by_name, format_worksheet
 from tqdm import tqdm
 from agents.graphics_definition.graphics_definition_checklist.checklist_generation import generate_checklist_evaluation
 import re
@@ -156,8 +156,10 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     """
     # Read the main sheet data
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+    course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
-    checklist_sheet_link = 'https://docs.google.com/spreadsheets/d/1L55vp_jPw-XnZ5ue3ZI-c-2EkS60E0VX2KAIfnuGNhk/edit?usp=sharing'
+    checklist_sheet_link = course_info_df['Checklist Link'][0]
 
     gc = gspread.service_account(filename='content/service-credentials.json')
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
@@ -211,4 +213,11 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     print('All slides processed. Saving final data.')
     save_to_sheet(worksheet=checklist_sheet, df=checklist_df)
     save_to_sheet(worksheet=slide_chunks_sheet, df=slide_chunks_df)
+
+    # Resize the checklist_revised_graphics_definition column
+    resize_column_by_name(slide_chunks_sheet, "checklist_revised_graphics_definition", 189, wrap="WRAP")
+
+    # Format the Checklist worksheet
+    format_worksheet(checklist_sheet)
+    
     return True

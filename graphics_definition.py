@@ -20,14 +20,14 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
                 "instructions": [
-                    "1. This step will generate the graphics definition for each row in the `Slide Chunks` sheet.",
-                    "2. The generated graphics definition will be saved in the `graphics_definition` sheet.",
-                    "3. Open the Google Sheet and navigate to the `Slide Chunks` worksheet.",
-                    "4. Locate the `graphics_definition` column the current slide.",
-                    "5. **Manually enter feedback**(Optional) in the `human_review` column.",
+                    "1. This step will generate the graphics definition for each slide in the `Slide Chunks` sheet.",
+                    "2. The generated graphics definition will be saved in the `graphics_definition` column of the `Slide Chunks` sheet.",
+                    "3. Open the Google Sheet and navigate to the `Slide Chunks` sheet.",
+                    "4. Locate the `graphics_definition` column of the current slide.",
+                    "5. **Manually enter feedback** (Optional) in the `human_review` column. This feedback should be regarding the changes you want in the generated graphics definition in the `graphics_definition` column.",
                 ],
                 "estimated_time": "~ Semi-Automated Step",
-                "description": "Review the generated graphics definition in the `graphics_definition` sheet. Add comments in the `human_review` column (Optional)."
+                "description": "Review the generated graphics definition in the `graphics_definition` column of the `Slide Chunks` sheet. Add comments in the human_review column (Optional)"
             },
       
         ],
@@ -52,7 +52,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
                 "estimated_time": "~ 5 - 10 minutes",
-                "description": "Generates client reference based outlines for all the rows in the `Graphics Definition Checklist` sheet.",
+                "description": "Generates revised Graphics Definition based on the review of the generated graphics definitions on the checklist criteria. The final Graphics Definitions are populated in the `checklist_revised_graphics_definition` column.",
             },
         ],
     }

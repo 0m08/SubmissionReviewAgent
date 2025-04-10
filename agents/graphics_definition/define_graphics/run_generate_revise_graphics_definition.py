@@ -32,17 +32,17 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
             continue
 
         references = row['Reference Description'].strip()
+
         if index > 0:
-            
             revised_graphics_definition = slide_chunks_df.loc[index - 1, 'revised_graphics_definition'].strip()
+            previous_graphics_definition = get_previous_graphics_definition_as_str(
+                slide_no = index,  
+                text = revised_graphics_definition,
+                existing_definition_str = previous_graphics_definition
+            )
         else:
             revised_graphics_definition = ""
-
-        previous_graphics_definition = get_previous_graphics_definition_as_str(
-            slide_no=index + 1,
-            text=revised_graphics_definition,
-            existing_definition_str=previous_graphics_definition
-        )
+            previous_graphics_definition = ""
 
         graphics_definition = generate_graphics_definition(
             course_name=course_name,
@@ -128,7 +128,7 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
 
             # Update previous graphics definition even when reviser agent is skipped
             previous_graphics_definition = get_previous_graphics_definition_as_str(
-                slide_no = index + 1,
+                slide_no = index,
                 text = revised_graphics_definition,
                 existing_definition_str = previous_graphics_definition
             )
@@ -177,13 +177,14 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
         # Update previous graphics definition
         # Update previous graphics definition even when reviser agent is skipped
         previous_graphics_definition = get_previous_graphics_definition_as_str(
-            slide_no = index + 1,
+            slide_no = index,
             text = revised_graphics_definition,
             existing_definition_str = previous_graphics_definition
         )
         
         return
     return True
+
 
 def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
     """
@@ -210,7 +211,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
     
-    total_tasks = 6 * len(slide_chunks_df) +1# 6 tasks per slide
+    total_tasks = (len(slide_chunks_df) * 6) +1# 6 tasks per slide
     
     # progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
