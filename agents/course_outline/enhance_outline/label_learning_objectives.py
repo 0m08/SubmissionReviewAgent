@@ -6,7 +6,7 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydantic import BaseModel, Field
 from typing import List
-from services.helper_functions import get_topic_outline, get_outline_in_table_format
+from services.helper_functions import get_topic_outline, get_outline_in_table_format, create_and_populate_columns
 import re
 
 
@@ -431,25 +431,45 @@ def run_label_learning_objectives(sheet, worksheet_name, course_name, target_aud
         print("Revised Outline sheet already exists. Skipping update.")
 
     # Update the Enhanced Outline Review sheet
-    if 'Enhanced Outline Review' not in sheet_names:
-        outline_review_sheet, outline_review_df = create_or_read_worksheet(sheet, 'Enhanced Outline Review')
+    outline_review_sheet, outline_review_df = create_or_read_worksheet(sheet, 'Enhanced Outline Review')
 
+    if outline_review_df.empty:
         # Get topic outline from the Revised Outline sheet
         _, revised_outline_df = get_sheet_data_and_df(sheet, 'Revised Outline')
         topic_outline = get_topic_outline(revised_outline_df, use_text_labels = True)
 
+        # Create initial DataFrame with Turn column and other columns
         outline_review_df = pd.DataFrame([{
             'Turn': 1,
-            'Outline': topic_outline,
             'Verdict': '',
             'Manual Feedback': '',
             'AI Suggestions': ''
         }])
 
+        # Use create_and_populate_columns to split large topic outline into multiple columns
+        outline_review_df = create_and_populate_columns(
+            df=outline_review_df,
+            text=topic_outline,
+            specific_index=0,
+            col_base_name='outline_chunk',
+            chunk_size=49000
+        )
+
+        # Reorder columns to have Turn first, followed by outline_chunk columns, then the rest
+        all_columns = outline_review_df.columns.tolist()
+        outline_chunk_columns = [col for col in all_columns if col.startswith('outline_chunk')]
+        other_columns = [col for col in all_columns if col != 'Turn' and not col.startswith('outline_chunk')]
+        
+        # Define the new column order
+        new_column_order = ['Turn'] + sorted(outline_chunk_columns) + other_columns
+        
+        # Reorder the DataFrame
+        outline_review_df = outline_review_df[new_column_order]
+
         save_to_sheet(worksheet = outline_review_sheet, df = outline_review_df)
         format_worksheet(worksheet = outline_review_sheet)
     else:
-        print("Enhanced Outline Review sheet already exists. Skipping update.")
+        print("Enhanced Outline Review sheet already exists and is not empty. Skipping creation.")
 
     return
 
