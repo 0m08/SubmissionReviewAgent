@@ -10,6 +10,8 @@ import time
 import csv
 from datetime import datetime
 import os
+from google import genai
+import json
 
 
 def log_token_usage(llm, input_tokens, output_tokens, log_file="content/token_usage_log.csv"):
@@ -23,6 +25,75 @@ def log_token_usage(llm, input_tokens, output_tokens, log_file="content/token_us
         writer.writerow([datetime.now().isoformat(), llm, input_tokens, output_tokens])
 
 
+# Function to generate structured output using direct provider APIs
+def generate_structured_output(prompt, structured_output, model="gemini-2.0-flash", temperature=0.7, max_tokens=8192):
+    """
+    Generate structured output using Gemini API directly.
+    
+    Args:
+        prompt: The input prompt to the model
+        structured_output: A Pydantic BaseModel class for structured output
+        model: The model to use
+        temperature: Temperature for generation
+        max_tokens: Maximum tokens for generation
+        
+    Returns:
+        The structured output as a Pydantic model instance or list of instances
+    """
+    try:
+        client = genai.Client()
+
+        print(type(prompt))
+        print(prompt)
+        
+        response = client.models.generate_content(
+            model=model,
+            contents=str(prompt),
+            config={
+                'response_mime_type': 'application/json',
+                'response_schema': structured_output,
+                'temperature': temperature,
+                'max_output_tokens': max_tokens,
+            },
+        )
+        
+        # Log token usage
+        try:
+            log_token_usage(
+                llm=model,
+                input_tokens=response.usage_metadata.prompt_token_count,
+                output_tokens=response.usage_metadata.candidates_token_count,
+                log_file="token_usage_log.csv"
+            )
+        except Exception as e:
+            print(f"Token usage logging failed: {e}")
+        
+        # Get the JSON response text
+        json_response = response.candidates[0].content.parts[0].text
+        
+        # Parse the JSON into the appropriate Pydantic model
+        try:
+            # If structured_output is a list type (like list[Topic])
+            if hasattr(structured_output, "__origin__") and structured_output.__origin__ is list:
+                # Get the item type from the list
+                item_type = structured_output.__args__[0]
+                json_data = json.loads(json_response)
+                # Return a list of parsed model instances
+                return [item_type.model_validate(item) for item in json_data]
+            else:
+                # For single object types
+                json_data = json.loads(json_response)
+                return structured_output.model_validate(json_data)
+        except Exception as e:
+            print(f"Failed to parse JSON response into Pydantic model: {e}")
+            # If parsing fails, return the raw JSON response
+            return json_response
+        
+    except Exception as e:
+        print(f"Error generating structured output: {e}")
+        raise e
+
+
 # Function to make llm calls
 def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = None):
     """
@@ -30,8 +101,46 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
     Args:
         arg: The input to the LLM.
         max_retries (int): The maximum number of retries in case of failure.
-        structured_output (Optional[BaseModel]): A Pydantic BaseModel for structured output.
+        structured_output (Optional): A Pydantic BaseModel for structured output.
+        llm_name (Optional[str]): The name of the LLM to use.
     """
+    # List of models that support direct API structured output
+    direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash"]
+    
+    # Use direct API for Gemini models with structured output
+    if structured_output and (llm_name in direct_api_models or (llm_name is None and structured_output)):
+        retries = 0
+        while retries < max_retries:
+            try:
+                # Map LLM name to actual model name for the API
+                model_mapping = {
+                    "gemini_2_flash": "gemini-2.0-flash",
+                    "gemini_2_flash_thinking": "gemini-2.0-flash-thinking-exp",
+                    "gemini_flash": "gemini-1.5-flash-latest",
+                    None: "gemini-2.0-flash"  # Default if no name provided
+                }
+                
+                model = model_mapping.get(llm_name, "gemini-2.0-flash")
+                
+                return generate_structured_output(
+                    prompt=arg,
+                    structured_output=structured_output,
+                    model=model
+                )
+            except KeyboardInterrupt:
+                print('Keyboard interrupt')
+                raise Exception("Keyboard interrupt")
+            except Exception as e:
+                print(e)
+                wait_time = retries * 5 + 1
+                print(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+                retries += 1
+        else:
+            print("Max retries exceeded.")
+            return None
+    
+    # Use LangChain for non-Gemini models or when structured output is not needed
     llm = ChatGoogleGenerativeAI(
         model = "gemini-2.0-flash",
         temperature = 0.7,
@@ -55,7 +164,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             # gemini_2_flash_open_router = ChatOpenAI(model = 'google/gemini-2.0-flash-exp:free', temperature = 0.7, max_completion_tokens = 8192, base_url = 'https://openrouter.ai/api/v1', api_key = os.environ.get('OPENROUTER_API_KEY'))
             )
 
-    # Optionally add structured output
+    # Optionally add structured output for LangChain method
     if structured_output:
         llm = llm.with_structured_output(structured_output)
 
