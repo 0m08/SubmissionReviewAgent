@@ -20,11 +20,11 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
                 "instructions": [
-                    "1. This step will generate the graphics definition for each row in the `Slide Chunks` sheet.",
-                    "2. TThe generated graphics definition will be saved in the `graphics_definition` column of the `Slide Chunks` sheet.",
+                    "1. This step will generate the graphics definition for each slide in the `Slide Chunks` sheet.",
+                    "2. The generated graphics definition will be saved in the `graphics_definition` column of the `Slide Chunks` sheet.",
                     "3. Open the Google Sheet and navigate to the `Slide Chunks` sheet.",
                     "4. Locate the `graphics_definition` column of the current slide.",
-                    "5. **Manually enter feedback**(Optional) in the `human_review` column. This feedback should be regarding the changes you want in the generated graphics definition in the `graphics_definition` column.",
+                    "5. **Manually enter feedback** (Optional) in the `human_review` column. This feedback should be regarding the changes you want in the generated graphics definition in the `graphics_definition` column.",
                 ],
                 "estimated_time": "~ Semi-Automated Step",
                 "description": "Review the generated graphics definition in the `graphics_definition` column of the `Slide Chunks` sheet. Add comments in the human_review column (Optional)"
