@@ -156,8 +156,10 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     """
     # Read the main sheet data
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+    course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
-    checklist_sheet_link = 'https://docs.google.com/spreadsheets/d/1L55vp_jPw-XnZ5ue3ZI-c-2EkS60E0VX2KAIfnuGNhk/edit?usp=sharing'
+    checklist_sheet_link = course_info_df['Checklist Link'][0]
 
     gc = gspread.service_account(filename='content/service-credentials.json')
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
