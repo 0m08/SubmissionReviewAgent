@@ -1,5 +1,4 @@
-from modules.chain import Chain
-
+from agents.generate_assessments.chains import Chain
 
 
 review_assessment_prompt = """As an expert Review Agent, provide a review of the following assessment question for the course titled {course_name}, tailored to the {target_audience}. Below is the slide content on which the assessment question is based on:

@@ -5,16 +5,16 @@ from agents.generate_assessments.revise_assessment import revise_assessment, det
 from agents.generate_assessments.review_assessment import review_assessment
 from tqdm import tqdm
 from agents.generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
-from agents.generate_assessments.checklist_sheet import get_review_checklist
 import re
 from gspread_formatting import CellFormat, TextFormat, set_column_width, set_row_height
 from gspread_dataframe import set_with_dataframe
 import gspread_formatting as gs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+import gspread
 
 
-def review_and_revise_assessment_questions_with_agents(course_name,target_audience, topic_slides, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
+def review_and_revise_assessment_questions_with_agents(course_name, topic_slides, target_audience, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
     """
     This function reviews and revises an assessment question based on a checklist criterion.
     :param assessment_question: The assessment question to review.
@@ -23,8 +23,7 @@ def review_and_revise_assessment_questions_with_agents(course_name,target_audien
     :param llm: The language model to use.
     :return: The review of the assessment question.
     """
-
-
+    
     # Detect the question type dynamically
     question_type = detect_question_type(assessment_question)  # Function to determine question type
     question_format = get_question_format(question_type)  # Get the correct output format
@@ -43,19 +42,23 @@ def review_and_revise_assessment_questions_with_agents(course_name,target_audien
         # Collect feedback for the current iteration
         question_feedback_list = []
 
+        # Use ThreadPoolExecutor to process each evaluation
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(extract_text_in_tags, 
+                                tags=['item_name', 'analysis', 'verdict', 'feedback_summary', 'improvement_suggestions'], 
+                                text=evaluation): evaluation 
+                for evaluation in reviewer_response['evaluation']
+            }
 
-        # Loop through evaluations and extract feedback for failed criteria
-        for evaluation in reviewer_response['evaluation']:
-            evaluation_dict = extract_text_in_tags(
-                tags=['item_name', 'analysis', 'verdict', 'feedback_summary', 'improvement_suggestions'],
-                text=evaluation
-            )
-            # Check for failed criteria
-            if 'pass' not in evaluation_dict['verdict'].lower():
-                question_feedback_list.append(
-                    f"Feedback summary: {evaluation_dict['feedback_summary']}\n"
-                    f"Improvement suggestions: {evaluation_dict['improvement_suggestions']}"
-                )
+            for future in as_completed(futures):
+                evaluation_dict = future.result()
+                # Check for failed criteria
+                if 'pass' not in evaluation_dict['verdict'].lower():
+                    question_feedback_list.append(
+                        f"Feedback summary: {evaluation_dict['feedback_summary']}\n"
+                        f"Improvement suggestions: {evaluation_dict['improvement_suggestions']}"
+                    )
 
         # If length of question_feedback_list is more than 0 (which means feedback exists), then pass it to reviser agent
         if len(question_feedback_list) > 0:
@@ -142,7 +145,14 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     
     questions_by_topic = assessment_questions_df.set_index("topic")["questions"].to_dict()  # Convert to dict for easy lookup
     
-    _, review_checklist_df = get_review_checklist(sheet, 'Review Agent Checklist')
+    _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
+    
+    checklist_sheet_link = course_info_df['Checklist Link'][0]
+    gc = gspread.service_account(filename='content/service-credentials.json')
+
+    review_checklist_sheet = gc.open_by_url(checklist_sheet_link)
+
+    review_checklist_sheet, review_checklist_df = get_sheet_data_and_df(review_checklist_sheet, 'Review Agent Checklist')
     grouped_checklist = review_checklist_df.groupby('Task', sort=False)
     
     _, assessment_df = get_sheet_data_and_df(sheet, 'Final Assessment')
@@ -179,7 +189,7 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
                 future = executor.submit(process_question, topic, assessment_question)
                 futures_map[future] = assessment_question
 
-        total_tasks = len(futures_map) + 2
+        total_tasks = len(futures_map)
         progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
 
         for future in tqdm(as_completed(futures_map), total=total_tasks):
@@ -294,7 +304,6 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
 
     # Write DataFrame to Google Sheets with headers
     set_with_dataframe(final_assessement_sheet, assessment_df[required_columns], include_index=False, include_column_header=True)
-    progress.update()
 
     # Re-read all data from the sheet after setting text format
     data = final_assessement_sheet.get_all_values()
@@ -360,8 +369,6 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     for col in range(2, len(required_columns) + 1):
         set_column_width(final_assessement_sheet, chr(64 + col), 100)
         
-        progress.update()
 
-    format_worksheet(final_assessement_sheet)
 
     print("Final Assessment Tab updated successfully!")
