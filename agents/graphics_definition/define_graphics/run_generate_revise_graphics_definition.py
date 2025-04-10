@@ -204,6 +204,8 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
     # Read the sheet and dataframe
     _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
+    
+
     # Ensure required columns exist
     for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review', 
                 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
