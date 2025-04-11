@@ -8,7 +8,7 @@ from agents.generate_assessments.generate_review_agent_checklist import run_upda
 
 pipeline_sections = [
     {
-        "section_name": "Section 1: Assessement",
+        "section_name": "Section 1: Assessment",
         "steps": [
             
             {

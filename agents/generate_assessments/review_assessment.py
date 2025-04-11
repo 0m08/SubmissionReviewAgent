@@ -19,7 +19,7 @@ Review the assessment question based on the following checklist criteria:
 {checklist_criteria}
 </checklist_criteria>
 
-Conduct your review of the assessment question based on the checklist criteria. Give your evaluation of the assessment question against each of the checklist criterion. Based on your evaluation, assign a verdict of "PASS" or "FAIL". If your verdict is "PASS", give  feedback stating "No feedback". If your verdict is "FAIL", give reasons for this negative verdict and how the assessment question can be fixed. Ensure that you do not rewrite the assessment question; instead, focus on providing constructive feedback.
+Conduct your review of the assessment question based on the checklist criteria. Give your evaluation of the assessment question against each of the checklist criterion. Based on your evaluation, assign a verdict of "PASS" or "FAIL". If your verdict is "PASS", simply state "No feedback" in the feedback section. If your verdict is "FAIL", give reasons for this negative verdict and how the assessment question can be fixed. Ensure that you do not rewrite the assessment question; instead, focus on providing constructive feedback.
 
 Make sure to reply in the following output format:
 <output>
@@ -50,7 +50,7 @@ Make sure to reply in the following output format:
 
 [Repeat the evaluation block for each checklist item in the same format.]
 
-<evaluations>
+</evaluations>
 
 </output>
 """

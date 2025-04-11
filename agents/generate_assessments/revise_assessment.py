@@ -20,10 +20,10 @@ This is the feedback received from the reviewing agent for this Original Assessm
 {reviewer_feedback}
 </reviewer_feedback>
 
-Now, follow these steps to revise the assessment question:
+Follow the steps below to revise the assessment question:
 
 1. Carefully analyze the reviewer feedback to identify specific areas for improvement.
-2. Revise the assessment question strictly based on the reviewer feedback. Only address the issues highlighted by the reviewing agent, and do not make any additional or unrelated changes to the question or its structure. Reference the slide content where necessary to ensure the revised question aligns with the course material. Avoid altering the question type while revising the question.
+2. Revise the assessment question strictly according to the reviewer feedback. Only address the issues raised — do not introduce unrelated changes. Reference the slide content where necessary to ensure the revised question aligns with the course material. Strictly avoid altering the question type while revising the question.
 3. Provide the final revised question in the required question format.
 
 Make sure to reply in the following output format:
