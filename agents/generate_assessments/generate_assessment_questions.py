@@ -1,5 +1,5 @@
 from agents.generate_assessments.chains import Chain
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, format_worksheet,create_or_read_worksheet, save_to_sheet
 import pandas as pd
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
@@ -16,17 +16,17 @@ generate_assessment_prompt = """As an expert Instructional Designer with extensi
 Create questions from the following question types, delimited by XML tags:
 <assessment_questions_types>
 Question Type, Description
-Multiple Choice, allows the selection of a single response from a pre-defined list.
-True/False, a simple form of multiple choice question with just the two choices 'True' and 'False'.
-Matching, the answer to each of a number of sub-question must be selected from a list of possibilities.
+Multiple Choice: allows the selection of a single response from a pre-defined list.
+True/False: a simple form of multiple choice question with just the two choices 'True' and 'False'.
+Matching: the answer to each of a number of sub-questions must be selected from a list of possibilities.
 </assessment_question_types>
 
 Follow these guidelines when creating the questions.
 - Ensure exhaustive and proportional coverage of the course content, including a mix of first-level and second-level questions, with thoughtful answer choices.
-- Any field that does not apply to any question type should be left empty. For instance, True/False question type will have options C and D left empty.
+- Any field that does not apply to a given question type should be left empty. For instance, True/False question type will have options C and D left empty.
 - For Matching question types, give the exact correct answer under the ""Correct Answer"" field. Match correctly without using Options. Use the exact option text and words being matched. Ensure that all the option text and match text for matching type questions are unique.
 - The correct feedback will be shown everytime the user answers correctly. The incorrect feedback is common feedback that will be shown anytime a user does not answer the question correctly and it should explain the correct answer.
-- Correct and incorrect feedback should be there for all question types including the matching question types.
+- Correct and incorrect feedback must be provided for all question types, including matching.
 - For Multiple Choice and True/False questions, simply indicate the correct answer (e.g., ""B"") in the ""Correct Answer"" field.
 
 Reply in the following output format:
@@ -40,10 +40,10 @@ Question: [Question text here]
 
 Option A: [Option A text here]
 Option B: [Option B text here]
-Option C: [Option C text here. Leave blank for true false questions]
-Option D: [Option D text here. Leave blank for true false questions]
+Option C: [Option C text here. Leave blank for True/False questions]
+Option D: [Option D text here. Leave blank for True/False questions]
 
-Correct Answer: [Correct Option letter eg. ""B""]
+Correct Answer: [Correct Option letter eg. ""C""]
 
 Correct feedback: [Feedback for correct answer. Always start this feedback with this word - Correct!]
 
@@ -58,8 +58,8 @@ Question: [Question text here]
 
 Option A: [Option A text here]
 Option B: [Option B text here]
-Option C: [Option C text here. Leave blank for true false questions]
-Option D: [Option D text here. Leave blank for true false questions]
+Option C: [Option C text here. Leave blank for True/False questions]
+Option D: [Option D text here. Leave blank for True/False questions]
 
 Correct Answer: [Correct Option letter eg. ""B""]
 
@@ -95,7 +95,7 @@ Correct feedback: Correct! You have correctly matched all the options with their
 
 Incorrect feedback: Incorrect! These are the correct match choices:
 A. [Option A text here] - [Correct Match text here]; B. [Option B text here] - [Correct Match text here]; C. [Option C text here] - [Correct Match text here]; D. [Option D text here] - [Correct Match text here].
-Ensure you provide all the exact option texts and their corresponding correct answer texts, not just the option or match numbers.
+Ensure you provide all the exact option texts and their corresponding correct match texts-not just the option or match numbers.
 </question>
 
 [Repeat such pattern for all the questions]
@@ -191,5 +191,8 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
     
     # Save the DataFrame to the 'Assessment questions' worksheet
     save_to_sheet(assessment_questions_sheet, assessment_questions_df)
+
+    # Format the worksheet after saving
+    format_worksheet(assessment_questions_sheet)
     
     return questions_by_topic

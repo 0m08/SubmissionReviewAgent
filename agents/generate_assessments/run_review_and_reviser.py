@@ -1,13 +1,12 @@
 import pandas as pd
 from agents.generate_assessments.chains import Chain, extract_text_in_tags
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet
 from agents.generate_assessments.revise_assessment import revise_assessment, detect_question_type, get_question_format
 from agents.generate_assessments.review_assessment import review_assessment
 from tqdm import tqdm
 from agents.generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
 import re
-from gspread_formatting import CellFormat, TextFormat, set_column_width, set_row_height
-from gspread_dataframe import set_with_dataframe
+from gspread_formatting import CellFormat
 import gspread_formatting as gs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -302,8 +301,8 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     )
     gs.format_cell_range(final_assessement_sheet, 'F:G', plain_text_format)
 
-    # Write DataFrame to Google Sheets with headers
-    set_with_dataframe(final_assessement_sheet, assessment_df[required_columns], include_index=False, include_column_header=True)
+    # Save to sheet using retry-safe helper
+    save_to_sheet(final_assessement_sheet, assessment_df[required_columns].fillna(""))
 
     # Re-read all data from the sheet after setting text format
     data = final_assessement_sheet.get_all_values()
@@ -325,50 +324,7 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     # Write back the cleaned data
     final_assessement_sheet.update(cleaned_data)
 
-    # Final Assessment Tab formatting
-
-    # Set all Text size to 8
-    text_size_format = CellFormat(
-        textFormat=TextFormat(fontSize=8)
-    )
-    gs.format_cell_range(final_assessement_sheet, 'A:Z', text_size_format)
-
-    # Clip all text
-    clip_text_format = CellFormat(
-        wrapStrategy='CLIP'
-    )
-    gs.format_cell_range(final_assessement_sheet, 'A:Z', clip_text_format)
-
-    # Freeze the first row and set its height to 21
-    gs.set_frozen(final_assessement_sheet, rows=1)
-    set_row_height(final_assessement_sheet, '1', 21)
-
-    # Apply bold formatting to the header row
-    header_format = CellFormat(
-        textFormat=TextFormat(bold=True)
-    )
-    gs.format_cell_range(final_assessement_sheet, 'A1:Z1', header_format)
-
-    # Left align all text
-    left_align_format = CellFormat(
-        horizontalAlignment="LEFT"
-    )
-    gs.format_cell_range(final_assessement_sheet, 'A:Z', left_align_format)
-
-    # Set row height for all rows except header to 30
-    set_row_height(final_assessement_sheet, f'2:{len(assessment_df) + 1}', 30)
-
-    # Set column width for "#" column to 32 and center align text
-    center_align_format = CellFormat(
-        horizontalAlignment="CENTER"
-    )
-    set_column_width(final_assessement_sheet, 'A', 32)
-    gs.format_cell_range(final_assessement_sheet, 'A:A', center_align_format)
-
-    # Set column width for all other columns to 100
-    for col in range(2, len(required_columns) + 1):
-        set_column_width(final_assessement_sheet, chr(64 + col), 100)
-        
-
+    #  Apply standard formatting
+    format_worksheet(final_assessement_sheet)
 
     print("Final Assessment Tab updated successfully!")

@@ -4,7 +4,7 @@ from typing import Literal, List
 
 #Multiple Choice Question
 class MultiChoiceQuestion(BaseModel):
-    question_type: str = Field(default="multichoice", description="The type of the question. Always set to 'multichoice' for multiple-choice questions.")
+    question_type: str = Field(description="The type of the question. Always set to 'multichoice' for multiple-choice questions.")
     question_text: str = Field(description="The question text.")
     option_a: str = Field(description="Text for Option A")
     option_b: str = Field(description="Text for Option B")
@@ -16,10 +16,10 @@ class MultiChoiceQuestion(BaseModel):
 
 # True/False Question
 class TrueFalseQuestion(BaseModel):
-    question_type: str = Field(default="truefalse", description="The type of the question. Always set to 'truefalse' for true/false questions.")
+    question_type: str = Field(description="The type of the question. Always set to 'truefalse' for true/false questions.")
     question_text: str = Field(description="The question text.")
-    option_a: str = Field(default="True", description="Option A for True.")
-    option_b: str = Field(default="False", description="Option B for False.")
+    option_a: str = Field(description="Option A for True.")
+    option_b: str = Field(description="Option B for False.")
     correct_answer: Literal["A", "B"] = Field(description="The label of the correct answer, must be one of 'A', 'B'. This corresponds to the correct answer.")
     correct_feedback: str = Field(description="Correct feedback for the answer. Should be positive and reinforce the correct choice.")
     incorrect_feedback: str = Field(description="Incorrect feedback for the answer. Should briefly explain why the correct answer is correct without mentioning slide content explicitly.")
@@ -31,7 +31,7 @@ class MatchingPair(BaseModel):
     answer: str = Field(description="The correct match text. This should represent the related term, phrase, or explanation that matches the subquestion. It must correspond directly to the correct match text. The answer text must not contain any option numbers, letters, or additional formatting. It should only include the match text.")
 
 class MatchingQuestion(BaseModel):
-    question_type: str = Field(default="matching", description="The type of the question. Always set to 'matching' for matching-type questions.")
+    question_type: str = Field(description="The type of the question. Always set to 'matching' for matching-type questions.")
     question_text: str = Field(description="The question text. It should instruct the learner to match subquestions with their correct answers.")
     options: List[MatchingPair] = Field(
         description="A list of subquestion-answer pairs for the matching question. Each pair must have:"
