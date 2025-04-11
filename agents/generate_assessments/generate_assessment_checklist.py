@@ -6,7 +6,7 @@ from services.smart_progress_bar import SmartProgressBar
 import gspread
 
 
-generate_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously assessing the quality of assessment questions based on a predefined checklist. The course name for which the assessment questions are based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment questions are based:
+generate_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously evaluating the quality of assessment questions using a predefined checklist. The course name for which the assessment questions are based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment questions are based:
 
 <slides>
 {slides}
@@ -38,8 +38,8 @@ Evaluation Guidelines:
 - Base your evaluation of the assessment questions on the provided review criteria, ensuring alignment with the specified task and its associated review criteria. Reference the slide content, as needed, to verify aspects such as topic relevance and slide content.
 - Do not alter or modify the phrasing of the task name or review criteria in any way.
 - Ensure that the evaluation for every review criterion is objective and unbiased.
-- Include a scratchpad field for each piece of review criterion in the final output. This section should clearly document the thought process behind your verdict.
-- Based on your evaluation in the scratchpad, provide a verdict of "Yes" or "No" inside the Verdict field for each piece of review criterion, without adding explanations, interpretations, or additional commentary. If the review criterion is satisfied, your verdict will be "Yes" and if the review criterion is not satisfied, your verdict will be "No".
+- Include a scratchpad field for each review criterion in the final output. This section should clearly document the thought process behind your verdict.
+- Based on your evaluation in the scratchpad, provide a verdict of "Yes" or "No" inside the Verdict field for each review criterion, without adding explanations, interpretations, or additional commentary. If the review criterion is satisfied, your verdict will be "Yes" and if the review criterion is not satisfied, your verdict will be "No".
 - If the verdict is "Yes," include only the fields for Task, Required Evidence, Scratchpad, and Verdict. If the verdict is "No," include an additional field, "Why no", to explain the negative verdict concisely
 
 Reply in the following format:
@@ -48,7 +48,7 @@ Task: [Task Name]
 Review Criteria: [Review Criterion Name]
 Scratchpad: [Provide your reasoning here regarding whether the review criterion has been met.]
 Verdict: [Yes/No]
-[Why no: [Provide a reason only if your verdict is "No". Omit this field entirely if your verdict is "Yes".]]
+Why no: [Provide a reason only if your verdict is "No". Omit this field entirely if your verdict is "Yes".]
 
 [Repeat the above pattern for all review criterion under the task]
 """
@@ -69,9 +69,9 @@ def get_assessment_questions(sheet, worksheet_name):
     _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
     
     _, assessment_df = get_sheet_data_and_df(sheet, 'Final Assessment')
-
     
     # Ensure topics are properly aligned in the dataframe
+    assessment_df['Topic'].replace('', pd.NA, inplace=True)
     assessment_df['Topic'] = assessment_df['Topic'].ffill()
 
     # Extract unique topics from the Slide Chunks DataFrame
@@ -189,25 +189,25 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
     
     _, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
     unique_topics = pd.unique(slide_chunks_df['Topic'])
-    topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == unique_topics[0]]
-    
+
+    #  Combine slides from ALL topics
+    slides = "\n---\n".join(
+        "Topic Name: " + row['Topic'] + "\n" +
+        "Slide Title: " + row['Slide Title'] + "\n" +
+        "Slide Content: " + row['Slide Content']
+        for _, row in slide_chunks_df.iterrows()
+    )
+
     assessment_questions = get_assessment_questions(sheet, worksheet_name)
         
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
     gc = gspread.service_account(filename='content/service-credentials.json')
-
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
-    
-
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, 'Assessment Checklist')
     
-    
     unique_tasks = checklist_df['Task'].unique()
-    slides = "\n---\n".join(
-        "Topic Name: " + topic_slides_data['Slide Title'] + "\n" + "Slide Content: " + topic_slides_data['Slide Content']
-    )
     
     checklist_by_task = {}
     

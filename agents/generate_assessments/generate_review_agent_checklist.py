@@ -2,14 +2,13 @@ import pandas as pd
 import gspread
 from services.sheets_service import get_sheet_data_and_df
 from agents.generate_assessments.chains import Chain
-from gspread_dataframe import set_with_dataframe
-from gspread_formatting import CellFormat, TextFormat, format_cell_range
+from services.sheets_service import save_to_sheet, format_worksheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 
 
 
-generate_review_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously assessing the quality of an assessment question based on a predefined checklist. The course name for which this assessment question is based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment question is based:
+generate_review_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously evaluating the quality of an assessment question using a predefined checklist. The course name for which this assessment question is based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment question is based:
 
 <slides>
 {slides}
@@ -40,8 +39,8 @@ For every review criterion, follow these steps:
 Evaluation Guidelines:
 - Base your evaluation of the assessment question on the provided review criteria, ensuring alignment with the specified task and its associated review criteria. Reference the slide content, as needed, to verify aspects such as topic relevance.
 - Do not alter or modify the phrasing of the task name or review criteria in any way.
-- Ensure that your evaluation for every review criterion is objective and unbiased.
-- Include a scratchpad field for each piece of review criterion in the final output. This section should clearly document the thought process behind your verdict.
+- Ensure your evaluation for each criterion is objective and unbiased.
+- Include a scratchpad field for each review criterion in your final output. This section should clearly document the thought process behind your verdict.
 - Based on your evaluation in the scratchpad, provide a verdict of "Yes" or "No" inside the Verdict field for each piece of review criterion, without adding explanations, interpretations, or additional commentary. If the review criterion is satisfied, your verdict will be "Yes" and if the review criterion is not satisfied, your verdict will be "No".
 - If the verdict is "Yes", include only the fields for Task, Required Evidence, Scratchpad, and Verdict. If the verdict is "No," include an additional field, "Why no", to explain the negative verdict concisely.
 
@@ -292,12 +291,9 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
     updated_checklist_df = update_checklist_with_verdicts_preserve(checklist_df, review_checklist_by_task)
     progress.update()
 
-    # Write the verdict data back to the Google Sheet
-    set_with_dataframe(checklist_sheet, updated_checklist_df, include_index=False, include_column_header=True)
-
-    # Apply bold formatting to column headers
-    bold_format = CellFormat(textFormat=TextFormat(bold=True))
-    format_cell_range(checklist_sheet, '1:1', bold_format)
+    #Save and format the updated checklist using helper functions
+    save_to_sheet(checklist_sheet, updated_checklist_df)
+    format_worksheet(checklist_sheet)
     progress.update()
 
     print("Review Agent Checklist updated successfully!")

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from modules.chain import Chain
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet, delete_worksheet, clear_worksheet, get_worksheet_names
-from services.helper_functions import get_topic_outline
+from services.helper_functions import get_topic_outline, create_and_populate_columns
 from services.smart_progress_bar import SmartProgressBar
 import regex as re
 from typing import List
@@ -11,6 +11,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import compare_text_versions
+import json
 
 
 review_course_outline_prompt = """You are an experienced instructional designer tasked with reviewing and improving a course outline. Your goal is to provide a comprehensive analysis of the outline, identifying any issues and offering suggestions for improvement.
@@ -131,7 +132,7 @@ Don't include prefixes like Topic: or LO: or anything similar. Just output the t
 """
 
 
-extract_topic_subtopic_los_prompt = """Your task is to extract topic, subtopics, and learning objectives in a structured manner from the below text.
+extract_topic_subtopic_los_structured_prompt = """Your task is to extract topic, subtopics, and learning objectives in a structured manner from the below text.
 
 <text>
 {text}
@@ -208,7 +209,7 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
 
     parse_course_outline_agent.add_message(
         role = "user",
-        content = extract_topic_subtopic_los_prompt.format(
+        content = extract_topic_subtopic_los_structured_prompt.format(
             text = text
         )
     )
@@ -217,7 +218,27 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
 
     response = parse_course_outline_agent.run()
 
-    # Convert extracted data into a DataFrame
+    # Handle both Pydantic object and JSON string responses
+    if isinstance(response, str):
+        try:
+            # Try to parse JSON string
+            json_data = json.loads(response)
+            # Convert JSON to a Topic object if needed
+            if isinstance(json_data, dict):
+                flattened_data = []
+                topic_name = json_data.get("topic_name", "")
+                for subtopic in json_data.get("subtopics", []):
+                    flattened_data.append({
+                        "Topic": topic_name,
+                        "Subtopic": subtopic.get("subtopic_name", ""),
+                        "Learning Objective": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.get("learning_objectives", []))])
+                    })
+                return flattened_data
+        except Exception as e:
+            print(f"Error parsing JSON response: {e}")
+            return []
+
+    # Convert extracted data into a DataFrame (handles Pydantic object response)
     flattened_data = []
     for subtopic in response.subtopics:
         flattened_data.append({
@@ -241,11 +262,42 @@ def parse_course_outline_for_all_topics(sheet, worksheet_name, outline_review_df
         print("Outline sheet with LOs - Already populated")
         return
 
-    # Retrieve the last row in the 'outline' column
-    last_outline_entry = outline_review_df['Outline'].iloc[-1]
+    # Retrieve outline from all outline_chunk columns
+    outline_chunks = []
+    outline_columns = [col for col in outline_review_df.columns if col.startswith('outline_chunk')]
+    
+    # Sort columns to ensure they're in the right order
+    outline_columns = sorted(outline_columns)
+    
+    # Concatenate all chunks from the last row
+    last_row_index = outline_review_df.index[-1]
+    for col in outline_columns:
+        chunk = outline_review_df.loc[last_row_index, col]
+        if pd.notna(chunk) and chunk.strip():
+            outline_chunks.append(chunk)
+    
+    # Combine all chunks into a single string
+    last_outline_entry = "".join(outline_chunks)
 
-    # Updated Regex to Extract Topics, Subtopics, and Learning Objectives
-    topics = re.split(r"\n(?=[IVXLCDM]+\.)", last_outline_entry.strip())
+    # Check if we're parsing the first row or a later row
+    if last_row_index == 0:  # First row
+        # Parse with Topic regex first
+        topics = re.split(r"\n(?=Topic: )", last_outline_entry.strip())
+        # If we only got one item, try the Roman numeral pattern instead
+        if len(topics) <= 1:
+            topics = re.split(r"\n(?=[IVXLCDM]+\.)", last_outline_entry.strip())
+        elif not topics[0].startswith("Topic: "):
+            # Handle case where the first topic might not have the prefix
+            topics[0] = "Topic: " + topics[0]
+    else:  # Later rows
+        # Parse with Roman numeral regex first
+        topics = re.split(r"\n(?=[IVXLCDM]+\.)", last_outline_entry.strip())
+        # If we only got one item, try the Topic pattern instead
+        if len(topics) <= 1:
+            topics = re.split(r"\n(?=Topic: )", last_outline_entry.strip())
+            if topics and not topics[0].startswith("Topic: "):
+                # Handle case where the first topic might not have the prefix
+                topics[0] = "Topic: " + topics[0]
 
     # Prepare for parallel processing
     futures_map = {}
@@ -328,7 +380,22 @@ def run_review_and_revise_topic_outline(sheet, course_name, target_audience, llm
 
     # Raise an exception if the user has not provided manual feedback
     if not last_manual_feedback:
-        raise Exception("Error: 'Manual Feedback' column is empty in the last row. Please add your feedback before continuing.")
+        raise Exception(
+f"""## ❌ Missing Required Input
+
+**Error**: The 'Manual Feedback' column is empty in the last row of the [Enhanced Outline Review sheet]({outline_review_sheet.url}).
+
+### How to fix this:
+
+1. **Option 1**: If you approve the outline
+   - Enter `Approved` in the **Verdict** column
+
+2. **Option 2**: If you want changes
+   - Add your feedback in the **Manual Feedback** column
+
+*Please complete one of these actions before continuing.*
+"""
+        )
 
     # Initialize the progress tracker
     progress = SmartProgressBar(total_tasks = 2, description = "Percent complete")
@@ -337,7 +404,15 @@ def run_review_and_revise_topic_outline(sheet, course_name, target_audience, llm
     messages = []
     for ind, row in outline_review_df.iterrows():
         # Get the values
-        outline = row['Outline']
+        outline_chunks = []
+        outline_columns = [col for col in outline_review_df.columns if col.startswith('outline_chunk')]
+        outline_columns = sorted(outline_columns)
+        
+        for col in outline_columns:
+            chunk = row[col] if pd.notna(row[col]) else ""
+            outline_chunks.append(chunk)
+        
+        outline = "".join(outline_chunks)
         ai_suggestions = row['AI Suggestions']
         manual_feedback = row['Manual Feedback']
 
@@ -396,33 +471,92 @@ def run_review_and_revise_topic_outline(sheet, course_name, target_audience, llm
     # Update progress
     progress.update()
 
-    # Add revision as a new row
-    outline_review_df = pd.concat([outline_review_df, pd.DataFrame([{
+    # Create a new row df with Turn and default empty values
+    new_row_data = {
         'Turn': int(outline_review_df.iloc[-1]['Turn']) + 1,
-        'Outline': reviser_response['revised_outline'],
         'Verdict': '',
         'AI Suggestions': '',
         'Manual Feedback': ''
-    }])])
+    }
+    
+    # Create the new row DataFrame
+    new_row_df = pd.DataFrame([new_row_data])
+    
+    # Use create_and_populate_columns to split the revised outline into multiple chunks
+    new_row_df = create_and_populate_columns(
+        df=new_row_df,
+        text=reviser_response['revised_outline'],
+        specific_index=0,
+        col_base_name='outline_chunk',
+        chunk_size=49000
+    )
+
+    # Make sure new_row_df doesn't have nan values
+    new_row_df = new_row_df.fillna('')
+    
+    # Determine which columns should be in the result
+    all_columns = outline_review_df.columns.tolist()
+    
+    # Make sure all necessary columns exist in new_row_df
+    for col in all_columns:
+        if col not in new_row_df.columns and not col.startswith('outline_chunk'):
+            new_row_df[col] = ''
+    
+    # Add any new outline_chunk columns to all_columns if they don't exist
+    for col in new_row_df.columns:
+        if col.startswith('outline_chunk') and col not in all_columns:
+            outline_review_df[col] = ''
+            all_columns.append(col)
+    
+    # Concatenate the dataframes
+    outline_review_df = pd.concat([outline_review_df, new_row_df], ignore_index=True)
+
+    # Make sure outline_review_df doesn't have nan values
+    outline_review_df = outline_review_df.fillna('')
 
     # Save to sheet
     save_to_sheet(worksheet = outline_review_sheet, df = outline_review_df)
 
     # Print the diff
     st.write("### Comparing the Two Most Recent Versions: ")
+    
+    # Get the full outline text for the two most recent versions
+    previous_outline_chunks = []
+    latest_outline_chunks = []
+    
+    for col in sorted([col for col in outline_review_df.columns if col.startswith('outline_chunk')]):
+        if pd.notna(outline_review_df.iloc[-2][col]):
+            previous_outline_chunks.append(outline_review_df.iloc[-2][col])
+        if pd.notna(outline_review_df.iloc[-1][col]):
+            latest_outline_chunks.append(outline_review_df.iloc[-1][col])
+    
+    previous_outline = "".join(previous_outline_chunks)
+    latest_outline = "".join(latest_outline_chunks)
+    
     compare_text_versions(
-        outline_review_df.iloc[-2]['Outline'],
-        outline_review_df.iloc[-1]['Outline']
+        previous_outline,
+        latest_outline
     )
 
-    raise Exception("You got this error since the outline is not Approved. If the outline looks good to you, enter Approved in the `Verdict` column last row. If the outline doesn't look good, you can enter Rejected in the `Verdict` column and enter your Feedback in the `Manual Feedback` column and run the agent again to generate a new outline.")
+    raise Exception("""
+## Outline Approval Required
+
+**You received this error because the outline has not been approved yet.**
+
+### What to do next:
+
+- **If the outline looks good:** Enter `Approved` in the `Verdict` column of the last row.
+
+- **If the outline needs changes:** Enter `Rejected` in the `Verdict` column, provide your feedback 
+    in the `Manual Feedback` column, and run the agent again to generate a new outline.
+""")
     # return outline_review_df
 
 
 def delete_review_and_revise_outline(sheet):
     """
     Resets the outline sheet to the initial state and deletes the Course Outline with LO sheet.
-    The reset state has the header row and one data row with only Turn and Outline columns populated.
+    The reset state has the header row and one data row with only Turn and outline_chunk columns populated.
     :param sheet: The Google Sheets object.
     :return: None
     """
@@ -433,10 +567,14 @@ def delete_review_and_revise_outline(sheet):
         # Get the outline review worksheet and dataframe
         outline_review_sheet, outline_review_df = get_sheet_data_and_df(sheet, 'Outline Review')
         
-        # Create a new dataframe with one row, keeping only Turn and Outline values from first row
+        # Create a new dataframe with one row, keeping only Turn and outline_chunk values from first row
         first_row_data = {col: '' for col in outline_review_df.columns}  # Initialize all columns as empty
         first_row_data['Turn'] = outline_review_df['Turn'].iloc[0]  # Keep Turn from first row
-        first_row_data['Outline'] = outline_review_df['Outline'].iloc[0]  # Keep Outline from first row
+        
+        # Keep outline_chunk columns
+        for col in outline_review_df.columns:
+            if col.startswith('outline_chunk'):
+                first_row_data[col] = outline_review_df[col].iloc[0]  # Keep outline chunks from first row
         
         new_df = pd.DataFrame([first_row_data])
         
