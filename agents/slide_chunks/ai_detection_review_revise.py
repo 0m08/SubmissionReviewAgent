@@ -734,7 +734,7 @@ def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_au
             progress.update()
 
             # Check if we should save
-            if progress.should_save % save_interval == 0:
+            if progress.should_save:
                 print(f'Saving partial progress to sheet after {progress.n} tasks completed.')
                 save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 

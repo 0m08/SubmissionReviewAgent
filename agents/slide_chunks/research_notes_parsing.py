@@ -11,6 +11,7 @@ from services.smart_progress_bar import SmartProgressBar
 
 
 
+
 extract_slide_info_prompt = """You are an expert in structuring and extracting slide information from XML-formatted content. Your task is to extract slide details for a given topic from the following content.
 
 <content>
@@ -18,7 +19,7 @@ extract_slide_info_prompt = """You are an expert in structuring and extracting s
 </content>
 
 1. Extraction Rules:
-    Subtopic Name: The subtopic name should be the same as the transition slide’s title.
+    Subtopic Name: The subtopic name should be the same as the transition slide's title.
     Slides to Extract:
      - Transition Slide: Extract its title and content.
      - Content Slides: Extract a list of slides, each with its title and content.
@@ -30,7 +31,7 @@ extract_slide_info_prompt = """You are an expert in structuring and extracting s
 """
 
 
-def process_row(row):
+def process_row(row, index):
     slide_chunks_data = []
     topic = row['Topic']
     section_notes = row['section_notes']
@@ -83,7 +84,7 @@ def process_row(row):
             "Slide Chunk": response.summary_slide.slide_content
         })
 
-    return slide_chunks_data
+    return index, slide_chunks_data
 
 
 def run_research_notes_parsing(sheet, worksheet_name):
@@ -106,7 +107,7 @@ def run_research_notes_parsing(sheet, worksheet_name):
     with ThreadPoolExecutor(max_workers=5) as executor:
         # Submit tasks for each row
         for index, row in research_notes_df.iterrows():
-            future = executor.submit(process_row, row)
+            future = executor.submit(process_row, row, index)
             futures_map[future] = index
             
         
@@ -114,13 +115,21 @@ def run_research_notes_parsing(sheet, worksheet_name):
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete:")
 
         # Collect the results as they complete
+        results = []
         for future in tqdm(as_completed(futures_map)):
             try:
-                slide_chunks_data.extend(future.result())
+                index, data = future.result()
+                results.append((index, data))
             except Exception as e:
                 print(f"Error processing row {futures_map[future]}: {e}")
             progress.update()
         
+    # Sort results by index
+    results.sort(key=lambda x: x[0])
+
+    # Flatten the sorted results
+    for _, data in results:
+        slide_chunks_data.extend(data)
 
     # Convert slide_chunks_data into a DataFrame for easy insertion
     slide_chunks_df = pd.DataFrame(slide_chunks_data)

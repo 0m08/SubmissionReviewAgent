@@ -22,7 +22,7 @@ pipeline_sections = [
                 },
             
                 "estimated_time": "10-20 minutes",
-                "description": "This function parses the research notes and extracts slide chunks.",
+                "description": "This function parses the research notes from the `Research Notes` sheet and extracts slide chunks in the `Slide Chunks` sheet.",
             },
             
             {
@@ -69,7 +69,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
             
-                "estimated_time": "8-10 minutes",
+                "estimated_time": "30-50 minutes",
                 "description": "This function reviews and revises the slide chunks based on AI detection to ensure quality and coherence.",
             },
             
