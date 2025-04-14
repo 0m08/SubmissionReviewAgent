@@ -95,37 +95,41 @@ def generate_checklist_evaluation(course_name, target_audience, topic, subtopic,
     :return: The generated checklist evaluation.
     """
 
-    # Initialize the checklist evaluation agent
-    checklist_agent = Chain(llm=llm, tags=["output"])
+    def task():
+        # Initialize the checklist evaluation agent
+        checklist_agent = Chain(llm=llm, tags=["output"])
 
-    # Add the user message
-    checklist_agent.add_message(
-        role="user",
-        content=generate_checklist_based_review_prompt.format(
-            course_name=course_name,
-            target_audience=target_audience,
-            topic=topic,
-            subtopic=subtopic,
-            slide_title=slide_title,
-            slide_chunk=slide_chunk,
-            task_name=task_name,
-            checklist_criteria=checklist_criteria
+        # Add the user message
+        checklist_agent.add_message(
+            role="user",
+            content=generate_checklist_based_review_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                topic=topic,
+                subtopic=subtopic,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                task_name=task_name,
+                checklist_criteria=checklist_criteria
+            )
         )
-    )
 
-    # Run the agent
-    response = checklist_agent.run()
+        # Run the agent
+        response = checklist_agent.run()
 
-    # Debug: Check the type and content of the response
-    print(f"Debug: Type of response['output']: {type(response['output'])}")
-    print(f"Debug: Content of response['output']: {response['output']}")
+        # Debug: Check the type and content of the response
+        print(f"Debug: Type of response['output']: {type(response['output'])}")
+        print(f"Debug: Content of response['output']: {response['output']}")
 
-    # Join the list into a single string if response['output'] is a list
-    if isinstance(response['output'], list):
-        response['output'] = "\n".join(response['output'])
+        # Join the list into a single string if response['output'] is a list
+        if isinstance(response['output'], list):
+            response['output'] = "\n".join(response['output'])
 
-    # Extract the structured checklist evaluation output
-    return response["output"]
+        return response["output"]
+
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
   
   
 
@@ -197,36 +201,35 @@ def generate_checklist_revised_slide_chunk(course_name, target_audience, topic, 
     :return: The revised slide chunk with updated content.
     """
 
-    # Initialize the checklist revision agent
-    checklist_reviser_agent = Chain(llm=llm, tags=["revised_slide"])
+    def task():
+        # Initialize the checklist revision agent
+        checklist_reviser_agent = Chain(llm=llm, tags=["revised_slide"])
 
-    # Add the user message
-    checklist_reviser_agent.add_message(
-        role="user",
-        content=generated_checklist_revised_slide_chunks_prompt.format(
-            course_name=course_name,
-            target_audience=target_audience,
-            topic=topic,
-            subtopic=subtopic,
-            slide_title=slide_title,
-            slide_chunk=slide_chunk,
-            feedback=feedback
+        # Add the user message
+        checklist_reviser_agent.add_message(
+            role="user",
+            content=generated_checklist_revised_slide_chunks_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                topic=topic,
+                subtopic=subtopic,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                feedback=feedback
+            )
         )
-    )
 
-    # Run the agent
-    response = checklist_reviser_agent.run()
+        # Run the agent
+        response = checklist_reviser_agent.run()
 
-    # Extract the structured revised slide output
-    return response["revised_slide"]
+        # Extract the structured revised slide output
+        return response["revised_slide"]
+
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
   
   # Function to ensure checklist sheet has correct slide columns
-
-
-
-        
-
-#     print("\n✅ Checklist Review & Revise Process Completed 🚀")
 
 def ensure_checklist_columns(sheet,worksheet_name):
     """
@@ -257,8 +260,9 @@ def ensure_checklist_columns(sheet,worksheet_name):
 
     # Reorder columns to match required structure
     current_cols = list(checklist_df.columns)
+    slide_cols = [col for col in current_cols if col.startswith('Slide ')]
     remaining_cols = [c for c in current_cols if c not in required_columns]
-    checklist_df = checklist_df[required_columns + remaining_cols]
+    checklist_df = checklist_df[base_columns + sorted(slide_cols, key=lambda x: int(x.split(' ')[1])) + remaining_cols]
 
 
     # Ensure 'checklist_based_review_output' exists in Slide Chunks Sheet
@@ -417,10 +421,21 @@ def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_a
             index = futures_map[future]
             try:
                 future.result()
+
+                print(f" ✅ Successfully updated slide {index + 1}.")
+
+                save_to_sheet(checklist_sheet, checklist_df)
+                save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
             except Exception as e:
                 print(f"Error processing slide {index}: {e}")
             progress.update()
 
-    save_to_sheet(checklist_sheet, checklist_df)
-    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+    base_columns = ["Task", "Review Criteria"]
+    # Reorder columns to match required structure after processing all slides
+    current_cols = list(checklist_df.columns)
+    slide_cols = [col for col in current_cols if col.startswith('Slide ')]
+    remaining_cols = [c for c in current_cols if c not in required_columns]
+    checklist_df = checklist_df[base_columns + sorted(slide_cols, key=lambda x: int(x.split(' ')[1])) + remaining_cols]
+
     print("\n✅ Checklist Review & Revise Process Completed 🚀")

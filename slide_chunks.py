@@ -53,7 +53,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
             
-                "estimated_time": "8-10 minutes",
+                "estimated_time": "40-60 minutes",
                 "description": "This function reviews and revises the slide chunks based on the review checklist to ensure quality and coherence.",
             },
             
@@ -83,11 +83,11 @@ pipeline_sections = [
                 },
             
                 "estimated_time": "1-2 minutes",
-                "description": "This function reviews and revises the slide chunks based on AI detection to ensure quality and coherence.",
+                "description": "This function checks for plagiarism in the slide chunks using Winston.ai.",
             },
             
             {
-                "name": "Winston.ai Detection with Readability",
+                "name": "Winston.ai AI Detection Check with Readability Score based Reviser Agent",
                 "func": run_ai_detection_with_readability,
                 "depends_on": ['Winston.ai Plagiarism Check'],
                 "args": {
@@ -97,8 +97,8 @@ pipeline_sections = [
                     "target_audience": "target_audience"
                 },
             
-                "estimated_time": "8-10 minutes",
-                "description": "This function reviews and revises the slide chunks based on AI detection to ensure quality and coherence.",
+                "estimated_time": "5-10 minutes",
+                "description": "This function checks for AI detection and readability in the slide chunks using Winston.ai.",
             },
         
         

@@ -7,6 +7,8 @@ import time
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 
 
@@ -220,7 +222,6 @@ def format_slides_for_readability_prompt(slide_contents):
 
     
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target_audience, max_iterations=5):
     """
@@ -295,8 +296,12 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
                 slide_chunks_df.at[index, key] = value
 
             if merged:
+                # Mark Slide B as "Merged into previous row"
                 slide_chunks_df.at[index + 1, "Human Score"] = "Merged into previous row"
                 slide_chunks_df.at[index + 1, "AI Detection Error"] = "Merged into previous row"
+                slide_chunks_df.at[index + 1, "Readability Score"] = ""
+                slide_chunks_df.at[index + 1, "Sentence-Level Scores"] = ""
+                slide_chunks_df.at[index + 1, "final_slide_content"] = ""
 
             score = ai_result.get("Readability Score", 100)
             try:
