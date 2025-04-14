@@ -105,6 +105,13 @@ graphics_search_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
+slide_chunks_page = st.Page(
+    "slide_chunks.py",
+    title="Slide Chunks",
+    icon=":material/topic:",
+    # Optional: default=(role == "Requester") or any logic
+)
+
 
 #######################
 # 3) Common app layout
@@ -129,7 +136,7 @@ if st.session_state.role in authenticated_roles:
     account_pages = [list_of_agents_page, logout_page]
     user_pages = [course_outline_page, research_notes_page, graphics_definition_page, 
                 #   graphics_search_page, 
-                  assessments_generation_page]
+                  assessments_generation_page, slide_chunks_page]
 
     page_dict["Account"] = account_pages
     page_dict["User Pages"] = user_pages
