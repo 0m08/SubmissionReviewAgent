@@ -299,23 +299,31 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
         all_failed_criteria = []
         all_pass = True
 
-        for task_name in checklist_df["Task"].unique():
-            print(f"⏳ Reviewing Task: {task_name} for Slide {slide_index}")
+        task_names = checklist_df["Task"].unique()
+        task_futures = {}
 
-            task_criteria = checklist_df.loc[checklist_df["Task"] == task_name, "Review Criteria"].dropna().tolist()
-            formatted_criteria = "\n- " + "\n- ".join(task_criteria) if task_criteria else "No review criteria available."
+        with ThreadPoolExecutor(max_workers=5) as task_executor:
+            for task_name in task_names:
+                task_criteria = checklist_df.loc[checklist_df["Task"] == task_name, "Review Criteria"].dropna().tolist()
+                formatted_criteria = "\n- " + "\n- ".join(task_criteria) if task_criteria else "No review criteria available."
 
-            review_output = generate_checklist_evaluation(
-                course_name=course_name,
-                target_audience=target_audience,
-                topic=topic,
-                subtopic=subtopic,
-                slide_title=current_title,
-                slide_chunk=current_chunk,
-                task_name=task_name,
-                checklist_criteria=formatted_criteria,
-                llm=llm
-            )
+                future = task_executor.submit(
+                    generate_checklist_evaluation,
+                    course_name = course_name,
+                    target_audience = target_audience,
+                    topic = topic,
+                    subtopic = subtopic,
+                    slide_title = current_title,
+                    slide_chunk = current_chunk,
+                    task_name = task_name,
+                    checklist_criteria = formatted_criteria,
+                    llm = llm
+                )
+                task_futures[future] = task_name
+
+        for future in as_completed(task_futures):
+            task_name = task_futures[future]
+            review_output = future.result()
 
             criteria_pattern = re.compile(
                 r"Checklist Criterion:\s*(.*?)\s*"
@@ -324,7 +332,6 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
                 r"(?:\s*Feedback:\s*(.*?))?(?:\n|$)",
                 re.DOTALL
             )
-
             matches = criteria_pattern.findall(review_output)
 
             for match in matches:
