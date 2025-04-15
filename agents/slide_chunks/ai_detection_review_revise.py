@@ -708,7 +708,7 @@ def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_au
 
     # Prepare for parallel processing
     futures_map = {}
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         # Submit tasks for each slide
         for index, row in slide_chunks_df.iterrows():
             future = executor.submit(process_slide, index, row, course_name, target_audience, llm, max_iterations)
@@ -734,8 +734,8 @@ def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_au
             progress.update()
 
             # Check if we should save
-            if progress.should_save % save_interval == 0:
-                print(f'Saving partial progress to sheet after {progress.n} tasks completed.')
+            if progress.should_save:
+                print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
     # Final save to sheet after all tasks
