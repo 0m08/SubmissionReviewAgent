@@ -160,14 +160,11 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
         return
 
 
-    def process_question(topic, assessment_question, progress_bar):
+    def process_question(topic, assessment_question):
         topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic]
         topic_slides = "\n---\n".join(
             "Topic Name: " + topic_slides_data['Slide Title'] + "\n" + "Slide Content: " + topic_slides_data['Slide Content']
         )
-
-        total_checklist_items = sum(1 for _ in grouped_checklist)
-        progress_increment = 1.0 / (total_checklist_items + 1)  # +1 for the final structuring step
 
         for task, group in grouped_checklist:
             checklist_criteria = group['Review Criteria'].tolist()
@@ -181,32 +178,26 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
                 llm=llm
             )
             assessment_question = revised_question
-            progress_bar.update(progress_increment)
 
         return topic, assessment_question
 
     futures_map = {}
-    total_questions = sum(len(eval(questions)) for questions in questions_by_topic.values())
-    total_steps = total_questions * (len(list(grouped_checklist)) + 1)  # +1 for structuring step per question
-    
-    progress = SmartProgressBar(total_tasks=total_steps, description="Step 4. Update Review Agent Checklist")
-
     with ThreadPoolExecutor(max_workers=5) as executor:
         for topic in unique_topics:
             for assessment_question in eval(questions_by_topic[topic]):
-                future = executor.submit(process_question, topic, assessment_question, progress)
+                future = executor.submit(process_question, topic, assessment_question)
                 futures_map[future] = assessment_question
 
-        for future in as_completed(futures_map):
-            try:
-                topic, revised_question = future.result()
-                if topic not in revised_questions_by_topic:
-                    revised_questions_by_topic[topic] = []
-                revised_questions_by_topic[topic].append(revised_question)
-            except Exception as e:
-                print(f"Error processing question: {e}")
+        total_tasks = len(futures_map)
+        progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
 
-    # Update progress for structuring questions
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            topic, revised_question = future.result()
+            if topic not in revised_questions_by_topic:
+                revised_questions_by_topic[topic] = []
+            revised_questions_by_topic[topic].append(revised_question)
+            progress.update()
+
     for topic, revised_questions in revised_questions_by_topic.items():
         for revised_question in revised_questions:
             try:
@@ -230,7 +221,6 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
                     )],
                     ignore_index=True
                 )
-                progress.update(1)  # Update progress for structuring step
             except Exception as e:
                 print(f"Error processing question for topic '{topic}': {e}")
 
