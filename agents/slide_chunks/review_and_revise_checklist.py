@@ -95,37 +95,41 @@ def generate_checklist_evaluation(course_name, target_audience, topic, subtopic,
     :return: The generated checklist evaluation.
     """
 
-    # Initialize the checklist evaluation agent
-    checklist_agent = Chain(llm=llm, tags=["output"])
+    def task():
+        # Initialize the checklist evaluation agent
+        checklist_agent = Chain(llm=llm, tags=["output"])
 
-    # Add the user message
-    checklist_agent.add_message(
-        role="user",
-        content=generate_checklist_based_review_prompt.format(
-            course_name=course_name,
-            target_audience=target_audience,
-            topic=topic,
-            subtopic=subtopic,
-            slide_title=slide_title,
-            slide_chunk=slide_chunk,
-            task_name=task_name,
-            checklist_criteria=checklist_criteria
+        # Add the user message
+        checklist_agent.add_message(
+            role="user",
+            content=generate_checklist_based_review_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                topic=topic,
+                subtopic=subtopic,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                task_name=task_name,
+                checklist_criteria=checklist_criteria
+            )
         )
-    )
 
-    # Run the agent
-    response = checklist_agent.run()
+        # Run the agent
+        response = checklist_agent.run()
 
-    # Debug: Check the type and content of the response
-    print(f"Debug: Type of response['output']: {type(response['output'])}")
-    print(f"Debug: Content of response['output']: {response['output']}")
+        # Debug: Check the type and content of the response
+        print(f"Debug: Type of response['output']: {type(response['output'])}")
+        print(f"Debug: Content of response['output']: {response['output']}")
 
-    # Join the list into a single string if response['output'] is a list
-    if isinstance(response['output'], list):
-        response['output'] = "\n".join(response['output'])
+        # Join the list into a single string if response['output'] is a list
+        if isinstance(response['output'], list):
+            response['output'] = "\n".join(response['output'])
 
-    # Extract the structured checklist evaluation output
-    return response["output"]
+        return response["output"]
+
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
   
   
 
@@ -197,452 +201,35 @@ def generate_checklist_revised_slide_chunk(course_name, target_audience, topic, 
     :return: The revised slide chunk with updated content.
     """
 
-    # Initialize the checklist revision agent
-    checklist_reviser_agent = Chain(llm=llm, tags=["revised_slide"])
+    def task():
+        # Initialize the checklist revision agent
+        checklist_reviser_agent = Chain(llm=llm, tags=["revised_slide"])
 
-    # Add the user message
-    checklist_reviser_agent.add_message(
-        role="user",
-        content=generated_checklist_revised_slide_chunks_prompt.format(
-            course_name=course_name,
-            target_audience=target_audience,
-            topic=topic,
-            subtopic=subtopic,
-            slide_title=slide_title,
-            slide_chunk=slide_chunk,
-            feedback=feedback
+        # Add the user message
+        checklist_reviser_agent.add_message(
+            role="user",
+            content=generated_checklist_revised_slide_chunks_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience,
+                topic=topic,
+                subtopic=subtopic,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                feedback=feedback
+            )
         )
-    )
 
-    # Run the agent
-    response = checklist_reviser_agent.run()
+        # Run the agent
+        response = checklist_reviser_agent.run()
 
-    # Extract the structured revised slide output
-    return response["revised_slide"]
+        # Extract the structured revised slide output
+        return response["revised_slide"]
+
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(task)
+        return future.result()
   
   # Function to ensure checklist sheet has correct slide columns
-
-
-# def ensure_checklist_columns(sheet ):
-#     """
-#     Ensures that the Checklist Sheet has 'Slide 1', 'Slide 2', ... columns based on the number of slide chunks in the Slide Chunks Sheet.
-#     Also ensures the new column 'checklist_based_review_output' exists in Slide Chunks Sheet.
-#     """
-#     checklist_sheet_link = "https://docs.google.com/spreadsheets/d/1MKvalVSwIoIDX64-0hsdMiSay90eski1gU6iXyLPXpg/edit?usp=sharing"
-    
-#     gc = gspread.service_account(filename='content/service-credentials.json')
-#     sheet = gc.open_by_url(checklist_sheet_link)
-    
-#     checklist_sheet, checklist_df = get_sheet_data_and_df(sheet,  "Slide Chunks Checklist")
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, "Slide Chunks")
-    
-#     num_slides = len(slide_chunks_df)
-#     required_columns = ["Task", "Review Criteria"] + [f"Slide {i+1}" for i in range(num_slides)]
-
-#     for col in required_columns:
-#         if col not in checklist_df.columns:
-#             checklist_df[col] = ""
-
-#     # Insert a column to store the review agent output into Slide Chunks Sheet
-#     if "checklist_based_review_output" not in slide_chunks_df.columns:
-#         insert_at = list(slide_chunks_df.columns).index("checklist_based_slide_title")
-#         slide_chunks_df.insert(insert_at, "checklist_based_review_output", "")
-
-#     set_with_dataframe(checklist_sheet, checklist_df)
-#     set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
-
-
-
-
-# def process_slide(sheet, index, row, course_name, target_audience, llm):
-    
-#     # Helper to normalize text for accurate matching
-#     def normalize(text):
-#         return " ".join(text.strip().lower().split())
-    
-#     slide_index = index + 1
-#     topic = strip_roman_numerals(row["Topic"])
-#     subtopic = strip_section_prefix(row["Subtopic"])
-#     original_title = row["Slide Chunk Title"]
-#     base_chunk = row["learning_objectives_added_slide_chunk"]
-    
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, "Slide Chunks")
-    
-    
-#     checklist_sheet_link = "https://docs.google.com/spreadsheets/d/1MKvalVSwIoIDX64-0hsdMiSay90eski1gU6iXyLPXpg/edit?usp=sharing"
-    
-#     gc = gspread.service_account(filename='content/service-credentials.json')
-#     sheet = gc.open_by_url(checklist_sheet_link)
-    
-#     checklist_sheet, checklist_df = get_sheet_data_and_df(sheet,  "Slide Chunks Checklist")
-    
-#     # checklist_sheet, checklist_df = get_slide_chunks_checklist(sheet, "Slide Chunks Checklist") 
-#     # Start with revised version if available, else use original
-#     current_title = row["checklist_based_slide_title"] or original_title
-#     current_chunk = row["checklist_based_slide_content"] or base_chunk
-
-#     print(f"\n🚀 Processing Slide: {slide_index} | Title: {current_title}")
-#     print("-" * 100)
-    
-
-
-#     # Run up to 3 review-revise iterations
-#     for iteration in range(1, 4):
-#         print(f"\n🔁 Iteration {iteration} for Slide {slide_index}")
-#         all_failed_criteria = []  # Store failed feedback here
-#         all_pass = True  # Becomes False if even 1 criterion fails
-
-#         # Go through each task from checklist
-#         for task_name in checklist_df["Task"].unique():
-#             print(f"⏳ Reviewing Task: {task_name} for Slide {slide_index}")
-
-#             # Format criteria block for this task
-#             task_criteria = checklist_df.loc[checklist_df["Task"] == task_name, "Review Criteria"].dropna().tolist()
-#             formatted_criteria = "\n- " + "\n- ".join(task_criteria) if task_criteria else "No review criteria available."
-
-#             # Run the Review Agent
-#             review_output = generate_checklist_evaluation(
-#                 course_name=course_name,
-#                 target_audience=target_audience,
-#                 topic=topic,
-#                 subtopic=subtopic,
-#                 slide_title=current_title,
-#                 slide_chunk=current_chunk,
-#                 task_name=task_name,
-#                 checklist_criteria=formatted_criteria,
-#                 llm=llm
-#             )
-
-#             # Extract results using regex
-#             criteria_pattern = re.compile(
-#                 r"Checklist Criterion:\s*(.*?)\s*"
-#                 r"Evaluation Breakdown:\s*(.*?)\s*"
-#                 r"Final Verdict:\s*(Pass|Fail)"
-#                 r"(?:\s*Feedback:\s*(.*?))?(?:\n|$)",
-#                 re.DOTALL
-#             )
-
-#             matches = criteria_pattern.findall(review_output)
-
-#             # Process each reviewed criterion
-#             for match in matches:
-#                 criterion, breakdown, verdict, feedback = match
-#                 criterion = criterion.strip()
-#                 verdict = verdict.strip()
-#                 feedback = feedback.strip() if feedback else ""
-
-#                 print(f"📝 Extracted - Criterion: {criterion}, Verdict: {verdict}, Feedback: {feedback}")
-
-#                 task_mask = checklist_df["Task"] == task_name
-#                 matched = False
-
-#                 # Match and update verdict in checklist sheet
-#                 for row_idx in checklist_df[task_mask].index:
-#                     sheet_criterion = checklist_df.at[row_idx, "Review Criteria"]
-#                     if normalize(sheet_criterion) == normalize(criterion):
-#                         if verdict.lower() == "fail":
-#                             checklist_df.at[row_idx, f"Slide {slide_index}"] = f"Fail Feedback: {feedback}"
-#                             all_failed_criteria.append(
-#                                 f"<criterion>\nChecklist Criterion: {criterion}\nFeedback: {feedback}\n</criterion>"
-#                             )
-#                             all_pass = False
-#                         else:
-#                             checklist_df.at[row_idx, f"Slide {slide_index}"] = "Pass"
-#                         matched = True
-#                         break
-
-#                 if not matched:
-#                     print(f"❌ Could not match criterion to checklist sheet: {criterion}")
-
-#         # ✅ Update Checklist Sheet after all task reviews (Pass or Fail)
-#         set_with_dataframe(checklist_sheet, checklist_df)
-
-#         # After all tasks have been reviewed for the slide
-#         if all_pass:
-#             slide_chunks_df.at[index, "checklist_based_review_output"] = "Pass"
-#             slide_chunks_df.at[index, "checklist_based_slide_title"] = current_title
-#             slide_chunks_df.at[index, "checklist_based_slide_content"] = current_chunk
-#             set_with_dataframe(slide_chunks_sheet, slide_chunks_df)  # ✅ Write "Pass" result to sheet immediately
-#             print(f"✅ All criteria passed. Review complete for Slide {slide_index}.")
-#             break  # Exit loop
-#         else:
-#             # ⚠️ If any criteria failed, revise slide using combined feedback
-#             combined_feedback = "\n\n".join(all_failed_criteria)
-#             slide_chunks_df.at[index, "checklist_based_review_output"] = combined_feedback
-#             set_with_dataframe(slide_chunks_sheet, slide_chunks_df)  # ✅ Write fail feedback after to sheet each iteration
-
-#             print(f"⚠️ Revising Slide {slide_index} based on collected feedback")
-#             revised_slide = generate_checklist_revised_slide_chunk(
-#                 course_name=course_name,
-#                 target_audience=target_audience,
-#                 topic=topic,
-#                 subtopic=subtopic,
-#                 slide_title=current_title,
-#                 slide_chunk=current_chunk,
-#                 feedback=slide_chunks_df.at[index, "checklist_based_review_output"],
-#                 llm=llm
-#             )
-#             print(f"Debug: Type of revised_slide: {type(revised_slide)}")
-
-#             # Extract revised title and content for next iteration
-#             current_title = revised_slide.split("Slide Title: ")[1].split("\n")[0].strip()
-#             current_chunk = revised_slide.split("Slide Content: ")[1].split("</revised_slide>")[0].strip()
-
-#     # Final update to Slide Chunks Sheet after up to 3 iterations
-#     slide_chunks_df.at[index, "checklist_based_slide_title"] = current_title
-#     slide_chunks_df.at[index, "checklist_based_slide_content"] = current_chunk
-
-#     # Write back only the updated row to the sheet
-#     set_with_dataframe(slide_chunks_sheet, slide_chunks_df.iloc[[index]])
-#     print(f"📌 Google Sheet updated for Slide {slide_index} ✅\n")
-
-# def run_checklist_review_and_revise(sheet, course_name, target_audience, llm="gemini_2_flash"):
-#     """
-#     Updated workflow: For each slide, run review agent across all checklist tasks first,
-#     accumulate feedback, then run revise agent once if needed. Repeat max 3 times.
-#     """
-
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, 'Slide Chunks')
-    
-#     # Skip if this step is already completed
-#     if "checklist_based_review_output" in slide_chunks_df.columns and slide_chunks_df["checklist_based_review_output"].notnull().any():
-#         print("✅ Checklist Review & Revise Process already completed. Skipping...")
-#         if slide_chunks_df.iloc[-1]["checklist_based_review_output"]:
-#             print("✅ Checklist Review & Revise Process already completed. Skipping...")
-#             return
-#         return
-
-#     # Ensure required columns exist in Slide Chunks Sheet
-#     required_columns = ["checklist_based_review_output", "checklist_based_slide_title", "checklist_based_slide_content"]
-#     for col in required_columns:
-#         if col not in slide_chunks_df.columns:
-#             slide_chunks_df[col] = ""
-
-#     set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
-
-
-#     # Use ThreadPoolExecutor to process slides in parallel
-#     futures_map = {}
-#     with ThreadPoolExecutor(max_workers=5) as executor:
-#         for index, row in slide_chunks_df.iterrows():
-#              # Skip if the slide has already been reviewed
-#             if row["checklist_based_review_output"]:
-#                 print(f"Skipping slide {index + 1}: Already reviewed.")
-#                 continue
-                
-#             future = executor.submit(process_slide,sheet, index, row, course_name, target_audience, llm)
-#             futures_map[future] = index
-            
-#         total_tasks = len(futures_map)
-#         progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
-
-#         for future in tqdm(as_completed(futures_map)):
-#             index = futures_map[future]
-#             try:
-#                 future.result()  # This will raise any exceptions that occurred during processing
-#             except Exception as e:
-#                 print(f"Error processing slide {index}: {e}")
-#             progress.update()
-
-#     print("\n✅ Checklist Review & Revise Process Completed 🚀")
-
-
-# # Function to ensure checklist sheet has correct slide columns
-# def ensure_checklist_columns():
-#     """
-#     Ensures that the Checklist Sheet has 'Slide 1', 'Slide 2', ... columns based on the number of slide chunks in the Slide Chunks Sheet.
-#     Also ensures the new column 'checklist_based_review_output' exists in Slide Chunks Sheet.
-#     """
-    
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, "Slide Chunks")
-#     num_slides = len(slide_chunks_df)
-#     required_columns = ["Task", "Review Criteria"] + [f"Slide {i+1}" for i in range(num_slides)]
-    
-#     checklist_sheet_link = "https://docs.google.com/spreadsheets/d/1MKvalVSwIoIDX64-0hsdMiSay90eski1gU6iXyLPXpg/edit?usp=sharing"
-    
-#     gc = gspread.service_account(filename='content/service-credentials.json')
-#     sheet = gc.open_by_url(checklist_sheet_link)
-    
-#     checklist_sheet, checklist_df = get_sheet_data_and_df(sheet,  "Slide Chunks Checklist")
-
-#     for col in required_columns:
-#         if col not in checklist_df.columns:
-#             checklist_df[col] = ""
-
-#     # Insert a column to store the review agent output into Slide Chunks Sheet
-#     if "checklist_based_review_output" not in slide_chunks_df.columns:
-#         insert_at = list(slide_chunks_df.columns).index("checklist_based_slide_title")
-#         slide_chunks_df.insert(insert_at, "checklist_based_review_output", "")
-
-#     set_with_dataframe(checklist_sheet, checklist_df)
-#     set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
-
-# def run_checklist_review_and_revise(sheet, course_name, target_audience, llm="gemini_2_flash"):
-#     """
-#     Updated workflow: For each slide, run review agent across all checklist tasks first,
-#     accumulate feedback, then run revise agent once if needed. Repeat max 3 times.
-#     """
-
-#     # Ensure required columns exist in Slide Chunks Sheet
-#     required_columns = ["checklist_based_review_output", "checklist_based_slide_title", "checklist_based_slide_content"]
-    
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, "Slide Chunks")
-    
-#     for col in required_columns:
-#         if col not in slide_chunks_df.columns:
-#             slide_chunks_df[col] = ""
-
-#     set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
-
-#     # Helper to normalize text for accurate matching
-#     def normalize(text):
-#         return " ".join(text.strip().lower().split())
-    
-#     checklist_sheet_link = "https://docs.google.com/spreadsheets/d/1MKvalVSwIoIDX64-0hsdMiSay90eski1gU6iXyLPXpg/edit?usp=sharing"
-    
-#     gc = gspread.service_account(filename='content/service-credentials.json')
-#     sheet = gc.open_by_url(checklist_sheet_link)
-    
-#     checklist_sheet, checklist_df = get_sheet_data_and_df(sheet,  "Slide Chunks Checklist")
-
-#     # Process each slide one-by-one
-#     for index, row in tqdm(slide_chunks_df.iterrows(), total=len(slide_chunks_df), desc="Processing Slides"):
-
-#         slide_index = index + 1
-#         topic = strip_roman_numerals(row["Topic"])
-#         subtopic = strip_section_prefix(row["Subtopic"])
-#         original_title = row["Slide Chunk Title"]
-#         base_chunk = row["learning_objectives_added_slide_chunk"]
-
-#         # Start with revised version if available, else use original
-#         current_title = row["checklist_based_slide_title"] or original_title
-#         current_chunk = row["checklist_based_slide_content"] or base_chunk
-
-#         print(f"\n🚀 Processing Slide: {slide_index} | Title: {current_title}")
-#         print("-" * 100)
-        
-        
-#         total_tasks = len(slide_chunks_df)
-#         progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
-        
-        
-#         # Run up to 3 review-revise iterations
-#         for iteration in range(1, 4):
-#             print(f"\n🔁 Iteration {iteration} for Slide {slide_index}")
-#             all_failed_criteria = []  # Store failed feedback here
-#             all_pass = True  # Becomes False if even 1 criterion fails
-            
-            
-
-#             # Go through each task from checklist
-#             for task_name in checklist_df["Task"].unique():
-#                 print(f"⏳ Reviewing Task: {task_name} for Slide {slide_index}")
-
-#                 # Format criteria block for this task
-#                 task_criteria = checklist_df.loc[checklist_df["Task"] == task_name, "Review Criteria"].dropna().tolist()
-#                 formatted_criteria = "\n- " + "\n- ".join(task_criteria) if task_criteria else "No review criteria available."
-
-#                 # Run the Review Agent
-#                 review_output = generate_checklist_evaluation(
-#                     course_name=course_name,
-#                     target_audience=target_audience,
-#                     topic=topic,
-#                     subtopic=subtopic,
-#                     slide_title=current_title,
-#                     slide_chunk=current_chunk,
-#                     task_name=task_name,
-#                     checklist_criteria=formatted_criteria,
-#                     llm=llm
-#                 )
-
-#                 # Join the list into a single string if review_output is a list
-#                 if isinstance(review_output, list):
-#                     review_output = "\n".join(review_output)
-
-#                 # Extract results using regex
-#                 criteria_pattern = re.compile(
-#                     r"Checklist Criterion:\s*(.*?)\s*"
-#                     r"Evaluation Breakdown:\s*(.*?)\s*"
-#                     r"Final Verdict:\s*(Pass|Fail)"
-#                     r"(?:\s*Feedback:\s*(.*?))?(?:\n|$)",
-#                     re.DOTALL
-#                 )
-
-#                 matches = criteria_pattern.findall(review_output)
-
-#                 # Process each reviewed criterion
-#                 for match in matches:
-#                     criterion, breakdown, verdict, feedback = match
-#                     criterion = criterion.strip()
-#                     verdict = verdict.strip()
-#                     feedback = feedback.strip() if feedback else ""
-
-#                     print(f"📝 Extracted - Criterion: {criterion}, Verdict: {verdict}, Feedback: {feedback}")
-
-#                     task_mask = checklist_df["Task"] == task_name
-#                     matched = False
-
-#                     # Match and update verdict in checklist sheet
-#                     for row_idx in checklist_df[task_mask].index:
-#                         sheet_criterion = checklist_df.at[row_idx, "Review Criteria"]
-#                         if normalize(sheet_criterion) == normalize(criterion):
-#                             if verdict.lower() == "fail":
-#                                 checklist_df.at[row_idx, f"Slide {slide_index}"] = f"Fail Feedback: {feedback}"
-#                                 all_failed_criteria.append(
-#                                     f"<criterion>\nChecklist Criterion: {criterion}\nFeedback: {feedback}\n</criterion>"
-#                                 )
-#                                 all_pass = False
-#                             else:
-#                                 checklist_df.at[row_idx, f"Slide {slide_index}"] = "Pass"
-#                             matched = True
-#                             break
-
-#                     if not matched:
-#                         print(f"❌ Could not match criterion to checklist sheet: {criterion}")
-
-#             # ✅ Update Checklist Sheet after all task reviews (Pass or Fail)
-#             set_with_dataframe(checklist_sheet, checklist_df)
-
-#             # After all tasks have been reviewed for the slide
-#             if all_pass:
-#                 slide_chunks_df.at[index, "checklist_based_review_output"] = "Pass"
-#                 slide_chunks_df.at[index, "checklist_based_slide_title"] = current_title
-#                 slide_chunks_df.at[index, "checklist_based_slide_content"] = current_chunk
-#                 set_with_dataframe(slide_chunks_sheet, slide_chunks_df)  # ✅ Write "Pass" result to sheet immediately
-#                 print(f"✅ All criteria passed. Review complete for Slide {slide_index}.")
-#                 break  # Exit loop
-#             else:
-#                 # ⚠️ If any criteria failed, revise slide using combined feedback
-#                 combined_feedback = "\n\n".join(all_failed_criteria)
-#                 slide_chunks_df.at[index, "checklist_based_review_output"] = combined_feedback
-#                 set_with_dataframe(slide_chunks_sheet, slide_chunks_df)  # ✅ Write fail feedback after to sheet each iteration
-
-#                 print(f"⚠️ Revising Slide {slide_index} based on collected feedback")
-#                 revised_slide = generate_checklist_revised_slide_chunk(
-#                     course_name=course_name,
-#                     target_audience=target_audience,
-#                     topic=topic,
-#                     subtopic=subtopic,
-#                     slide_title=current_title,
-#                     slide_chunk=current_chunk,
-#                     feedback=slide_chunks_df.at[index, "checklist_based_review_output"],
-#                     llm=llm
-#                 )
-
-#                 # Extract revised title and content for next iteration
-#                 current_title = revised_slide.split("Slide Title: ")[1].split("\n")[0].strip()
-#                 current_chunk = revised_slide.split("Slide Content: ")[1].split("</revised_slide>")[0].strip()
-
-#         # Final update to Slide Chunks Sheet after up to 3 iterations
-#         slide_chunks_df.at[index, "checklist_based_slide_title"] = current_title
-#         slide_chunks_df.at[index, "checklist_based_slide_content"] = current_chunk
-#         set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
-#         print(f"📌 Google Sheet updated for Slide {slide_index} ✅\n")
-#         progress.update()
-        
-        
-
-#     print("\n✅ Checklist Review & Revise Process Completed 🚀")
 
 def ensure_checklist_columns(sheet,worksheet_name):
     """
@@ -673,8 +260,9 @@ def ensure_checklist_columns(sheet,worksheet_name):
 
     # Reorder columns to match required structure
     current_cols = list(checklist_df.columns)
+    slide_cols = [col for col in current_cols if col.startswith('Slide ')]
     remaining_cols = [c for c in current_cols if c not in required_columns]
-    checklist_df = checklist_df[required_columns + remaining_cols]
+    checklist_df = checklist_df[base_columns + sorted(slide_cols, key=lambda x: int(x.split(' ')[1])) + remaining_cols]
 
 
     # Ensure 'checklist_based_review_output' exists in Slide Chunks Sheet
@@ -840,10 +428,21 @@ def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_a
             index = futures_map[future]
             try:
                 future.result()
+
+                print(f" ✅ Successfully updated slide {index + 1}.")
+
+                save_to_sheet(checklist_sheet, checklist_df)
+                save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
             except Exception as e:
                 print(f"Error processing slide {index}: {e}")
             progress.update()
 
-    save_to_sheet(checklist_sheet, checklist_df)
-    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+    base_columns = ["Task", "Review Criteria"]
+    # Reorder columns to match required structure after processing all slides
+    current_cols = list(checklist_df.columns)
+    slide_cols = [col for col in current_cols if col.startswith('Slide ')]
+    remaining_cols = [c for c in current_cols if c not in required_columns]
+    checklist_df = checklist_df[base_columns + sorted(slide_cols, key=lambda x: int(x.split(' ')[1])) + remaining_cols]
+
     print("\n✅ Checklist Review & Revise Process Completed 🚀")
