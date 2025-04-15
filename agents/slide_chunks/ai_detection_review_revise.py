@@ -708,7 +708,7 @@ def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_au
 
     # Prepare for parallel processing
     futures_map = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         # Submit tasks for each slide
         for index, row in slide_chunks_df.iterrows():
             future = executor.submit(process_slide, index, row, course_name, target_audience, llm, max_iterations)
