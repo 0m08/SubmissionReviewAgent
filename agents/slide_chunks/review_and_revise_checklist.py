@@ -258,13 +258,6 @@ def ensure_checklist_columns(sheet,worksheet_name):
         if col not in checklist_df.columns:
             checklist_df[col] = ""
 
-    # Reorder columns to match required structure
-    current_cols = list(checklist_df.columns)
-    slide_cols = [col for col in current_cols if col.startswith('Slide ')]
-    remaining_cols = [c for c in current_cols if c not in required_columns]
-    checklist_df = checklist_df[base_columns + sorted(slide_cols, key=lambda x: int(x.split(' ')[1])) + remaining_cols]
-
-
     # Ensure 'checklist_based_review_output' exists in Slide Chunks Sheet
     if "checklist_based_review_output" not in slide_chunks_df.columns:
         insert_at = list(slide_chunks_df.columns).index("checklist_based_slide_title")
@@ -434,8 +427,34 @@ def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_a
     base_columns = ["Task", "Review Criteria"]
     # Reorder columns to match required structure after processing all slides
     current_cols = list(checklist_df.columns)
-    slide_cols = [col for col in current_cols if col.startswith('Slide ')]
-    remaining_cols = [c for c in current_cols if c not in required_columns]
-    checklist_df = checklist_df[base_columns + sorted(slide_cols, key=lambda x: int(x.split(' ')[1])) + remaining_cols]
+    
+    # Get all columns except base columns
+    other_cols = [col for col in current_cols if col not in base_columns]
+    
+    # Sort slide columns
+    slide_cols = [col for col in other_cols if col.startswith('Slide ')]
+    slide_cols_sorted = sorted(slide_cols, key=lambda x: int(x.split(' ')[1]))
+    
+    # Get remaining non-slide columns
+    remaining_cols = [col for col in other_cols if col not in slide_cols]
+    
+    # Create new DataFrame with correct column order
+    new_df = pd.DataFrame()
+    # Add base columns first
+    for col in base_columns:
+        new_df[col] = checklist_df[col]
+    # Add sorted slide columns
+    for col in slide_cols_sorted:
+        new_df[col] = checklist_df[col]
+    # Add remaining columns
+    for col in remaining_cols:
+        new_df[col] = checklist_df[col]
+    
+    # Replace the original DataFrame
+    checklist_df = new_df
+
+    # Save the reordered DataFrame back to the sheet
+    save_to_sheet(checklist_sheet, checklist_df)
+
 
     print("\n✅ Checklist Review & Revise Process Completed 🚀")
