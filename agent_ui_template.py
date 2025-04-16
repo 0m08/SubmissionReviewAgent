@@ -19,6 +19,15 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
     if "sheet" in st.session_state:
         load_completed_steps(st.session_state["sheet"], step_name)
 
+    if "google_api_key" not in st.session_state:
+        st.session_state["google_api_key"] = ""
+
+    with st.sidebar:
+        st.text_input(label="Google API Key", type = "password", key = "google_api_key", value = st.session_state["google_api_key"])
+
+    if st.session_state["google_api_key"] != "":
+        os.environ["GOOGLE_API_KEY"] = st.session_state["google_api_key"]
+
     # --- 1) Define pipeline as sections, each with its own steps ---
 
     # --- 2) Initialize session states for each step ---
@@ -42,6 +51,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
         # Button to load data
         if st.button("Load Data"):
             load_dotenv()  # Load env variables from .env
+            # Check if the Google API key is provided
+            if st.session_state["google_api_key"] != "":
+                os.environ["GOOGLE_API_KEY"] = st.session_state["google_api_key"]
             try:
                 if os.environ.get('LANGTRACE_ON', 'false') == "true":
                     langtrace.init(api_key = os.environ.get('LANGTRACE_API_KEY'))

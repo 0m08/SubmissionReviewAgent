@@ -106,7 +106,7 @@ def is_pdf_url(url):
             return True
 
         # If the URL doesn't end with '.pdf', check the Content-Type header
-        response = requests.head(url, allow_redirects=True)
+        response = requests.head(url, allow_redirects=True, timeout=10)
         if response.headers.get("Content-Type") == "application/pdf":
             return True
     except requests.RequestException as e:
@@ -214,6 +214,7 @@ def get_docs_from_url(url: str, query: str):
                 # Add query to the metadata
                 doc.metadata['query'] = query
             except Exception as e: # Try with Jina AI
+                print(f"Error extracting markdown from {url} with AsyncChromimuLoader. Trying with Jina AI. Error: {e}")
                 doc = fetch_with_jina_ai(url = url, query = query)
 
     # Chunk the doc

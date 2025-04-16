@@ -120,7 +120,16 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
 
     response = generate_research_notes_agent.run()
 
-    return response['create_notes']
+    # Check is research notes is under character limit
+    if len(response['create_notes']) > 50000:
+        print(f'Research notes are too long - {len(response["create_notes"])}. Summarizing...')
+        generate_research_notes_agent.add_message(
+            role = 'user',
+            content = f"The research notes are too long. The current length is {len(response['create_notes'])} characters. Please summarize them to be under 50000 characters. Make sure to output in the same format as above."
+        )
+        response = generate_research_notes_agent.run()
+
+    return response['create_notes'] if len(response['create_notes']) < 50000 else response['create_notes'][:49990]
 
 
 def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm='groq'):

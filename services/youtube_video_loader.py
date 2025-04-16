@@ -624,6 +624,9 @@ If the result is [NEEDS IMPROVEMENT], provide specific feedback for each issue f
 
 Wrap your entire output within output tags.
 
+Exception:
+In some cases, the final timestamp may be set to a large number such as 23:59:59. This is acceptable as long as the chapter content is coherent and self-contained. If you encounter this, it is still okay to approve if the rest of the chapters look good.
+
 Remember, your primary goal is to ensure that the chapters accurately represent the video's content, have correct timestamps, and provide a logical structure for the educational video. Be thorough in your review and provide constructive feedback when necessary, focusing on these key aspects.
 """
 
