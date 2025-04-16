@@ -107,6 +107,8 @@ def run_review_topic_notes_agent_for_all_rows(sheet, worksheet_name, course_name
         include_learning_objectives = False
     )
 
+    research_notes_col_count = len([col for col in research_notes_df.columns if 'research_notes_' in col])
+
     # Prepare for parallel processing
     futures_map = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -118,6 +120,10 @@ def run_review_topic_notes_agent_for_all_rows(sheet, worksheet_name, course_name
                 print(f'Skipping row {index}. Already populated')
                 continue
             
+            research_notes = ''.join(
+                    [str(row[f'research_notes_{i}']) for i in range(research_notes_col_count)]
+                ).strip()
+
             # Submit the task
             future = executor.submit(
                 review_topic_notes,
@@ -125,7 +131,7 @@ def run_review_topic_notes_agent_for_all_rows(sheet, worksheet_name, course_name
                 target_audience = target_audience,
                 course_outline = course_outline,
                 topic_focus = row['Topic'],
-                research_notes = row['research_notes'],
+                research_notes = research_notes,
                 llm = llm
             )
 

@@ -7,13 +7,23 @@ from agents.research_notes.revise_subtopic_notes import run_reviser_agent_for_al
 from agents.research_notes.create_research_notes_sheet import create_research_notes_sheet
 from agents.research_notes.review_topic_notes import run_review_topic_notes_agent_for_all_rows, manual_input_review_topic_notes
 from agents.research_notes.revise_topic_notes import run_revise_topic_notes_for_all_rows
-
+from agents.research_notes.load_references import load_references  # New import
 
 # --- 1) Define pipeline as sections, each with its own steps ---
 pipeline_sections = [
     {
         "section_name": "Section 1: Subtopic Research",
         "steps": [
+            {
+                "name": "Load References",
+                "func": load_references,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                },
+                "estimated_time": "~ 2-5 minutes",
+                "description": "Loads all reference documents into the vectorstore for faster retrieval.",
+            },
             {
                 "name": "Retriever",
                 "func": run_retriever_agent_for_all_rows,

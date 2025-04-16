@@ -1,11 +1,17 @@
 import streamlit as st
-from PIL import Image  # Pillow library
+import time
 
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
     st.session_state.role = None
 
-authenticated_roles = ["Editor", "Admin"]  # example roles
+authenticated_roles = {
+    "Editor": "Editor",
+    "Admin": "Admin",
+    "Content Head": "ch", 
+    "Instructional Designer": "id", 
+    "Visual Designer": "vd",
+}
 
 # skillcat_logo_image = Image.open("assets/SkillCat-Logo.png")
 # skillcat_helmet_image = Image.open("assets/SkillCat-Helmet.png")
@@ -26,12 +32,18 @@ def login():
        Called if user is not logged in."""
     st.header("Login Page")
     role_choice = st.text_input("Enter your login name: ")
+    password = st.text_input("Enter the password: ")
     if st.button("Log in"):
         if role_choice in authenticated_roles:
-            st.success("Logging in")
-            st.session_state.role = role_choice
+            if password == authenticated_roles[role_choice]:
+                st.success("Logging in")
+                st.session_state.role = role_choice
+            else:
+                st.error("Failed to authenticate. Wrong passsword. Try again.")
+                time.sleep(2)
         else:
-            st.error("Failed to authenticate. Try again.")
+            st.error("Failed to authenticate. Wrong user name. Try again.")
+            time.sleep(2)
         st.rerun()
 
 
@@ -52,9 +64,9 @@ def list_of_agents():
 -|-
 :material/toc: Course Outline Agent | :material/check_circle: Done
 :material/quick_reference_all: Research Notes Agent | :material/check_circle: Done
-:material/topic: Slide Chunks Agent | :material/cancel: Pending
-:material/quiz: Assessment Agent | :material/cancel: UI Pending
-:material/image: Graphics Definition Agent | :material/cancel: UI Pending
+:material/topic: Slide Chunks Agent | :material/check_circle: Done
+:material/quiz: Assessment Agent | :material/check_circle: Done
+:material/image: Graphics Definition Agent | :material/check_circle: Done
 """
     )
 
@@ -83,6 +95,13 @@ research_notes_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
+slide_chunks_page = st.Page(
+    "slide_chunks.py",
+    title="Slide Chunks",
+    icon=":material/topic:",
+    # Optional: default=(role == "Requester") or any logic
+)
+
 graphics_definition_page = st.Page(
     "graphics_definition.py",
     title="Graphics Definiton",
@@ -105,12 +124,6 @@ graphics_search_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
-slide_chunks_page = st.Page(
-    "slide_chunks.py",
-    title="Slide Chunks",
-    icon=":material/topic:",
-    # Optional: default=(role == "Requester") or any logic
-)
 
 
 #######################
@@ -129,14 +142,21 @@ slide_chunks_page = st.Page(
 # plus one for the "logged out" scenario.
 
 
+role_based_page_access_dict = {
+    "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page],
+    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page],
+    "Content Head": [course_outline_page, research_notes_page],
+    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page],
+    "Visual Designer": [graphics_definition_page],
+}
+
+
 if st.session_state.role in authenticated_roles:
     # The user is logged in (role != None)
     page_dict = {}
 
     account_pages = [list_of_agents_page, logout_page]
-    user_pages = [course_outline_page, research_notes_page, graphics_definition_page, 
-                #   graphics_search_page, 
-                  assessments_generation_page, slide_chunks_page]
+    user_pages = role_based_page_access_dict[st.session_state.role]
 
     page_dict["Account"] = account_pages
     page_dict["User Pages"] = user_pages

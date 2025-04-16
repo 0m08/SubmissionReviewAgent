@@ -144,8 +144,8 @@ def run_topic_deep_research(sheet, worksheet_name, course_name, target_audience,
     # Ensure research and sources columns exist
     if 'research' not in deep_research_df.columns:
         deep_research_df['research'] = ''
-    if 'sources' not in deep_research_df.columns:
-        deep_research_df['sources'] = ''
+    if 'source' not in deep_research_df.columns:
+        deep_research_df['source'] = ''
     
     # Prepare for parallel processing
     futures_map = {}
@@ -189,7 +189,7 @@ def run_topic_deep_research(sheet, worksheet_name, course_name, target_audience,
             
             # Update the research and sources columns
             deep_research_df.loc[index, 'research'] = research_content
-            deep_research_df.loc[index, 'sources'] = sources
+            deep_research_df.loc[index, 'source'] = sources
             
             # Update progress
             progress.update()
