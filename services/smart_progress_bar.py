@@ -31,7 +31,6 @@ class SmartProgressBar:
             
             self.progress_bar.progress(
                 max(0, min(1, fraction_complete)),  # Ensure fraction_complete stays within 0-1 range
-                fraction_complete, 
                 text=f"{self.description}: {int(fraction_complete * 100)}% | Elapsed: {elapsed_time_str} | Remaining: {remaining_time_str}"
             )
 
