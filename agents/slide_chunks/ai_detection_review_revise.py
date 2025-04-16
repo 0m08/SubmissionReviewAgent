@@ -706,6 +706,12 @@ def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_au
         final_content_index = final_title_index + 1
         slide_chunks_df.insert(final_content_index, "final_slide_content", "")
 
+    # Skip the process if the columns are already filled 
+    if slide_chunks_df["final_slide_title"].astype(str).str.strip().ne("").all() and slide_chunks_df["final_slide_content"].astype(str).str.strip().ne("").all():
+      print("All slides already processed. Skipping the review and revise process")
+      return
+
+
     # Prepare for parallel processing
     futures_map = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
