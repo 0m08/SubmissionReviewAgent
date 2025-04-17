@@ -36,7 +36,8 @@ def main():
     if st.button("Load Data"):
         load_dotenv()  # Load env variables from .env
         try:
-            gc = gspread.service_account(filename='content/service-credentials.json')
+            # gc = gspread.service_account(filename='content/service-credentials.json')
+            gc = st.session_state["gc"]
             sheet = gc.open_by_url(sheet_link)
             course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 

@@ -12,6 +12,7 @@ from datetime import datetime
 import os
 from google import genai
 import json
+import streamlit as st
 
 
 def log_token_usage(llm, input_tokens, output_tokens, log_file="content/token_usage_log.csv"):
@@ -21,8 +22,8 @@ def log_token_usage(llm, input_tokens, output_tokens, log_file="content/token_us
     with open(log_file, mode="a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         if not file_exists:
-            writer.writerow(["timestamp", "llm", "input_tokens", "output_tokens"])
-        writer.writerow([datetime.now().isoformat(), llm, input_tokens, output_tokens])
+            writer.writerow(["agent_name", "step_name", "timestamp", "llm", "input_tokens", "output_tokens"])
+        writer.writerow([st.session_state.get("agent_name", ""), st.session_state.get("current_step", ""), datetime.now().isoformat(), llm, input_tokens, output_tokens])
 
 
 # Function to generate structured output using direct provider APIs
@@ -67,6 +68,15 @@ def generate_structured_output(prompt, structured_output, model="gemini-2.0-flas
             )
         except Exception as e:
             print(f"Token usage logging failed: {e}")
+            try:
+                log_token_usage(
+                    llm=model,
+                    input_tokens=0,
+                    output_tokens=0,
+                    log_file="token_usage_log.csv"
+                )
+            except Exception as e:
+                print(f"Token usage logging failed: {e}")
         
         # Get the JSON response text
         json_response = response.candidates[0].content.parts[0].text
@@ -189,6 +199,15 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                 )
             except Exception as e:
                 print(f"LLM usage could not be logged. Error: {e}")
+                try:
+                    log_token_usage(
+                        llm = llm_name,
+                        input_tokens = 0,
+                        output_tokens = 0,
+                        log_file = "token_usage_log.csv"
+                    )
+                except Exception as e:
+                    print(f"LLM usage could not be logged. Error: {e}")
 
             return result  # Return the successful API response
         except KeyboardInterrupt:

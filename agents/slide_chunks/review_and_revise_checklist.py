@@ -8,7 +8,8 @@ import re
 import gspread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
-
+import pandas as pd
+import streamlit as st
 
 
 generate_checklist_based_review_prompt = """We are creating structured slide content for an e-learning course. You are a Checklist Evaluation Agent tasked with rigorously assessing the quality of a slide based on a predefined checklist review criteria.
@@ -248,8 +249,8 @@ def ensure_checklist_columns(sheet,worksheet_name):
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
-    gc = gspread.service_account(filename='content/service-credentials.json')
-
+    # gc = gspread.service_account(filename='content/service-credentials.json')
+    gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
 
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, 'Slide Chunks Checklist')
@@ -392,7 +393,8 @@ def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_a
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
     checklist_sheet_link = course_info_df['Checklist Link'][0]
-    gc = gspread.service_account(filename='content/service-credentials.json')
+    # gc = gspread.service_account(filename='content/service-credentials.json')
+    gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet,  "Slide Chunks Checklist")
 

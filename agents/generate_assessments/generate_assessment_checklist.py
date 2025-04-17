@@ -3,7 +3,7 @@ from services.sheets_service import get_sheet_data_and_df
 from agents.generate_assessments.chains import Chain
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
-import gspread
+import streamlit as st
 
 
 generate_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously evaluating the quality of assessment questions using a predefined checklist. The course name for which the assessment questions are based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment questions are based:
@@ -203,7 +203,8 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
-    gc = gspread.service_account(filename='content/service-credentials.json')
+    # gc = gspread.service_account(filename='content/service-credentials.json')
+    gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, 'Assessment Checklist')
     

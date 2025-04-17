@@ -6,6 +6,7 @@ from modules.chain import Chain
 import gspread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+import streamlit as st
 
 
 generate_revised_graphics_definition_from_checklist_evaluation_prompt = """You are a Graphics Definition Revision Agent. Your primary task is to generate a revised graphics definition by analyzing an existing graphic definition for the given slide and considering the feedback received from a checklist evaluation agent. Your overarching goal is to create a visual representation of the slide content that is clear, instructionally effective, and engaging, while carefully balancing simplicity, accuracy, and creative variation.
@@ -161,7 +162,8 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
 
-    gc = gspread.service_account(filename='content/service-credentials.json')
+    # gc = gspread.service_account(filename='content/service-credentials.json')
+    gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, 'Graphics Definition Checklist')

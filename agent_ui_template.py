@@ -10,6 +10,7 @@ from services.drive_service import login_with_service_account
 from datetime import datetime
 import os
 from langtrace_python_sdk import langtrace # Must precede any llm module imports
+import tempfile
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict]):
@@ -27,6 +28,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
 
     if st.session_state["google_api_key"] != "":
         os.environ["GOOGLE_API_KEY"] = st.session_state["google_api_key"]
+
+    if "current_step" not in st.session_state:
+        st.session_state["current_step"] = None
 
     # --- 1) Define pipeline as sections, each with its own steps ---
 
@@ -57,10 +61,18 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
             try:
                 if os.environ.get('LANGTRACE_ON', 'false') == "true":
                     langtrace.init(api_key = os.environ.get('LANGTRACE_API_KEY'))
-                gauth = login_with_service_account("content/service-credentials.json")
+                
+                sa_json = os.environ["GDRIVE_SA_JSON"]   # injected secret
+                # print("Service Account JSON: ", sa_json)
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+                    tmp.write(sa_json)
+                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
+                    # print(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+
+                gauth = login_with_service_account(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
                 drive = GoogleDrive(gauth)
 
-                gc = gspread.service_account(filename='content/service-credentials.json')
+                gc = gspread.service_account(filename=os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
                 sheet = gc.open_by_url(sheet_link)
                 course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
@@ -70,6 +82,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                 st.session_state["target_audience"] = course_info_df['Target Audience & Industry'][0]
                 st.session_state["course_background"] = course_info_df['Course Background'][0]
                 st.session_state["drive"] = drive
+                st.session_state["gc"] = gc
                 
                 # Load previously completed steps from Agent logs
                 load_completed_steps(sheet, step_name)
@@ -112,6 +125,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                 st.header(section["section_name"], divider = True)
                 for step in section["steps"]:
                     step_key = f"{step['name']}_done"
+
+                    # Add current step to session state
+                    st.session_state["current_step"] = step["name"]
                     
                     # Check if dependencies are satisfied
                     dependencies_satisfied = all(
@@ -361,6 +377,9 @@ def run_all_automated_steps(pipeline_sections):
                 # Skip if already done
                 if st.session_state[step_key]:
                     continue
+
+                # Add current step to session state
+                st.session_state["current_step"] = step["name"]
 
                 # Skip manual steps unless "skip_manual_step" is checked
                 # if "instructions" in step and not st.session_state.get("skip_manual_step", False):

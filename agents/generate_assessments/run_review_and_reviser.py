@@ -10,7 +10,7 @@ from gspread_formatting import CellFormat
 import gspread_formatting as gs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
-import gspread
+import streamlit as st
 
 
 def review_and_revise_assessment_questions_with_agents(course_name, topic_slides, target_audience, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
@@ -147,8 +147,8 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
-    gc = gspread.service_account(filename='content/service-credentials.json')
-
+    # gc = gspread.service_account(filename='content/service-credentials.json')
+    gc = st.session_state["gc"]
     review_checklist_sheet = gc.open_by_url(checklist_sheet_link)
 
     review_checklist_sheet, review_checklist_df = get_sheet_data_and_df(review_checklist_sheet, 'Review Agent Checklist')
