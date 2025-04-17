@@ -22,7 +22,7 @@ Before cloning your code into Lightning.ai, ensure your GitHub branches are sync
 
 ---
 
-## Step 3: Open Terminal in Lightning Studio
+## Step 3: Open Terminal in Lightning Studio and Clone the Repository
 
 In your Lightning.ai Studio:
 
