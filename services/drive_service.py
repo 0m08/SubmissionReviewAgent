@@ -2,7 +2,7 @@ from pydrive2.auth import GoogleAuth
 import os
 
 
-def login_with_service_account(path):
+def login_with_service_account(path = None, json_str = None):
     """
     Google Drive service with a service account.
     note: for the service account to work, you need to share the folder or
@@ -10,15 +10,21 @@ def login_with_service_account(path):
 
     :return: google auth
     """
-    # Define the settings dict to use a service account
-    # We also can use all options available for the settings dict like
-    # oauth_scope,save_credentials,etc.
-    settings = {
-                "client_config_backend": "service",
-                "service_config": {
-                    "client_json_file_path": path,
+    if path:
+        settings = {
+                    "client_config_backend": "service",
+                    "service_config": {
+                        "client_json_file_path": path,
+                    }
                 }
-            }
+    elif json_str:
+        settings = {
+                    "client_config_backend": "service",
+                    "service_config": {
+                        "client_json": json_str,
+                    }
+                }
+
     # Create instance of GoogleAuth
     gauth = GoogleAuth(settings=settings)
     # Authenticate
