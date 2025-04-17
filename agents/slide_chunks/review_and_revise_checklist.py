@@ -3,6 +3,7 @@ from agents.slide_chunks.format_inputs import strip_roman_numerals, strip_sectio
 from services.sheets_service import get_sheet_data_and_df, format_worksheet, save_to_sheet
 # from gspread_dataframe import set_with_dataframe
 from tqdm import tqdm
+import pandas as pd
 import re
 import gspread
 from concurrent.futures import ThreadPoolExecutor, as_completed
