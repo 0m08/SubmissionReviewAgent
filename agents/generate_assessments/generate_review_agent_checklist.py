@@ -5,7 +5,7 @@ from agents.generate_assessments.chains import Chain
 from services.sheets_service import save_to_sheet, format_worksheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
-
+import streamlit as st
 
 
 generate_review_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously evaluating the quality of an assessment question using a predefined checklist. The course name for which this assessment question is based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment question is based:
@@ -107,8 +107,8 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
-    gc = gspread.service_account(filename='content/service-credentials.json')
-
+    # gc = gspread.service_account(filename='content/service-credentials.json')
+    gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
 
     _, checklist_df = get_sheet_data_and_df(checklist_sheet, worksheet_name)
@@ -273,8 +273,8 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
-    gc = gspread.service_account(filename='content/service-credentials.json')
-
+    # gc = gspread.service_account(filename='content/service-credentials.json')
+    gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
 
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, worksheet_name)
