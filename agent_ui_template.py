@@ -10,7 +10,7 @@ from services.drive_service import login_with_service_account
 from datetime import datetime
 import os
 from langtrace_python_sdk import langtrace # Must precede any llm module imports
-import tempfile
+import tempfile, json, base64
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict]):
@@ -61,18 +61,26 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
             try:
                 if os.environ.get('LANGTRACE_ON', 'false') == "true":
                     langtrace.init(api_key = os.environ.get('LANGTRACE_API_KEY'))
-                
-                sa_json = os.environ["GDRIVE_SA_JSON"]   # injected secret
-                # print("Service Account JSON: ", sa_json)
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-                    tmp.write(sa_json)
-                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
-                    # print(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
 
-                gauth = login_with_service_account(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+                # --- decode the secret ---
+                key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
+                sa_json = key_bytes.decode()
+                sa_dict   = json.loads(sa_json)        # <‑ real newlines intact
+                # sa_dict = json.loads(os.environ["GDRIVE_SA_JSON"])   # injected secret
+                # print("Service Account JSON: ", sa_dict)
+                # with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+                #     json.dump(sa_dict, tmp)
+                #     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
+                #     # print(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+
+                # with open(os.environ["GOOGLE_APPLICATION_CREDENTIALS"], "r") as f:
+                #     st.write(f"Service Account JSON: {f.read()}")
+                gauth = login_with_service_account(json_str = sa_json)
+                gauth.ServiceAuth()
                 drive = GoogleDrive(gauth)
 
-                gc = gspread.service_account(filename=os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+                gc = gspread.service_account_from_dict(sa_dict)
+                # gc = gspread.service_account(filename=os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
                 sheet = gc.open_by_url(sheet_link)
                 course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
