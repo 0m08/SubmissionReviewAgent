@@ -79,7 +79,19 @@ sudo apt update && sudo xargs -a packages.txt apt install -y
    - Add the **name** and **value** (without double quotes `" "`).
 5. Add all necessary credentials and API keys here. These will be securely injected into your app during runtime.
 
+### Getting the Environment Variable for the Service Account
+1. To get the environment variable for the service account, we convert the json file into base64 and then pass it as env variable.
+2. Then, within the code, we decode the base64 to get json back which is used for authentication.
+3. Here's the code to convert to base64 -
+   ```bash
+   import base64, pathlib, json, sys, textwrap
+   data = pathlib.Path("/content/service-credentials.json").read_bytes()
+   print(base64.b64encode(data).decode())
+   ```
+
 ---
+
+
 
 ## Step 7: Add the Streamlit Plugin
 
