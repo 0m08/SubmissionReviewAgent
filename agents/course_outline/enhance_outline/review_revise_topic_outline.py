@@ -231,7 +231,7 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
                     flattened_data.append({
                         "Topic": topic_name,
                         "Subtopic": subtopic.get("subtopic_name", ""),
-                        "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.get("learning_objectives", []))])
+                        "Learning Objective": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.get("learning_objectives", []))])
                     })
                 return flattened_data
         except Exception as e:
@@ -244,7 +244,7 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
         flattened_data.append({
             "Topic": response.topic_name,
             "Subtopic": subtopic.subtopic_name,
-            "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
+            "Learning Objective": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
         })
     
     return flattened_data
@@ -252,7 +252,7 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
 
 def parse_course_outline_for_all_topics(sheet, worksheet_name, outline_review_df, llm = "gemini_2_flash"):
     """
-    This function parses the final outline, and pastes in a newly created sheet - Course Outline with LOs
+    This function parses the final outline, and pastes in a newly created sheet - Enhanced Outline with LOs
     """
 
     course_outline_sheet,  course_outline_df = create_or_read_worksheet(sheet, worksheet_name)
@@ -369,7 +369,7 @@ def run_review_and_revise_topic_outline(sheet, course_name, target_audience, llm
 
     # Check if already approved
     last_verdict = outline_review_df.iloc[-1]['Verdict'].strip()
-    if 'approved' in last_verdict.lower() or skip_manual_step:
+    if (isinstance(last_verdict, str) and 'approved' in last_verdict.lower()) or skip_manual_step:
         print("Course Outline Approved")
         # Parse the outline and save it in new sheet
         parse_course_outline_for_all_topics(sheet = sheet, worksheet_name = "Enhanced Outline with LOs", outline_review_df = outline_review_df, llm = llm)

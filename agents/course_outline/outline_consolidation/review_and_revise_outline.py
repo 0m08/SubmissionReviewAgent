@@ -412,7 +412,7 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
 
     # Check if already approved
     last_verdict = outline_review_df.iloc[-1]['Verdict'].strip()
-    if 'approved' in last_verdict.lower() or skip_manual_step:
+    if (isinstance(last_verdict, str) and 'approved' in last_verdict.lower()) or skip_manual_step:
         print("Course Outline Approved")
         # Parse the outline and save it in new sheet
         parse_course_outline_for_all_topics(sheet = sheet, worksheet_name = "Course Outline with LOs", outline_review_df = outline_review_df, llm = llm)

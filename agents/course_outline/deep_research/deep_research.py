@@ -51,11 +51,19 @@ def google_search_with_grounding(course_name, target_audience, subtopic_query):
         return None
 
     def get_uris(response_obj):
-        # Gather all URLs first
         urls = []
-        for candidate in response_obj.candidates:
-            for grounding_chunk in candidate.grounding_metadata.grounding_chunks:
-                urls.append(grounding_chunk.web.uri)
+        for candidate in getattr(response_obj, "candidates", []) or []:
+            grounding_meta = getattr(candidate, "grounding_metadata", None)
+            if grounding_meta is None:
+                continue
+
+            for chunk in getattr(grounding_meta, "grounding_chunks", []) or []:
+                uri = getattr(getattr(chunk, "web", None), "uri", None)
+                if uri:
+                    urls.append(uri)
+
+        # (optional) keep only first occurrence of each URL
+        urls = list(dict.fromkeys(urls))
 
         # Run requests in parallel
         valid_uris = []
