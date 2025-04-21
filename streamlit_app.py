@@ -65,8 +65,8 @@ def list_of_agents():
 :material/toc: Course Outline Agent | :material/check_circle: Done
 :material/quick_reference_all: Research Notes Agent | :material/check_circle: Done
 :material/topic: Slide Chunks Agent | :material/check_circle: Done
-:material/quiz: Assessment Agent | :material/check_circle: Done
 :material/image: Graphics Definition Agent | :material/check_circle: Done
+:material/quiz: Assessment Agent | :material/check_circle: Done
 """
     )
 
