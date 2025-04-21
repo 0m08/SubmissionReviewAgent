@@ -153,7 +153,8 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
 
     # Extract partial outlines from the dataframe
     i = 0
-    for ind, row in videos_research_df[videos_research_df['Manual Review'] == 'Yes'].iterrows():
+    mask = videos_research_df['Manual Review'].str.contains("yes", case=False, na=False)
+    for ind, row in videos_research_df[mask].iterrows():
         partial_outlines += f"""<outline id={i} user_comments='{row['consolidation_comments']}'>
 {row['outline']}
 </outline>

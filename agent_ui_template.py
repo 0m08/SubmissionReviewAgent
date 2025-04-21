@@ -16,7 +16,11 @@ import tempfile, json, base64
 def agent_ui(step_name: str, pipeline_sections: list[dict]):
     st.title(f"{step_name} Agent")
 
-    st.session_state["agent_name"] = step_name
+    if "agent_name" not in st.session_state:
+        st.session_state["agent_name"] = ""
+    if st.session_state["agent_name"] != step_name:
+        st.session_state["agent_name"] = step_name
+
     if "sheet" in st.session_state:
         load_completed_steps(st.session_state["sheet"], step_name)
 
@@ -25,6 +29,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
 
     with st.sidebar:
         st.text_input(label="Google API Key", type = "password", key = "google_api_key", value = st.session_state["google_api_key"])
+        # st.selectbox(label="LLM Model", options= ["gemini_2_flash", "gpt4_1"], index = None, key = "llm_model")
 
     if st.session_state["google_api_key"] != "":
         os.environ["GOOGLE_API_KEY"] = st.session_state["google_api_key"]
@@ -133,9 +138,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                 st.header(section["section_name"], divider = True)
                 for step in section["steps"]:
                     step_key = f"{step['name']}_done"
-
-                    # Add current step to session state
-                    st.session_state["current_step"] = step["name"]
                     
                     # Check if dependencies are satisfied
                     dependencies_satisfied = all(
@@ -209,6 +211,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
 
                             if st.button(button_name, type=button_type, key=f"btn_{step['name']}"):
                                 try:
+                                    # Add current step to session state
+                                    st.session_state["current_step"] = step["name"]
+
                                     # Gather actual arguments from session_state
                                     kwargs = {}
                                     for arg_name, session_key in step["args"].items():
@@ -274,7 +279,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                                 )
 
     # Debug
-    # st.write(st.session_state)
+    st.write(st.session_state)
 
 
 def get_dependent_steps(pipeline_sections, step_name):
@@ -386,9 +391,6 @@ def run_all_automated_steps(pipeline_sections):
                 if st.session_state[step_key]:
                     continue
 
-                # Add current step to session state
-                st.session_state["current_step"] = step["name"]
-
                 # Skip manual steps unless "skip_manual_step" is checked
                 # if "instructions" in step and not st.session_state.get("skip_manual_step", False):
                     # continue
@@ -402,6 +404,9 @@ def run_all_automated_steps(pipeline_sections):
                 if dependencies_satisfied:
                     try:
                         with st.spinner(text = f"Running: Step {step_global_count}. {step['name']}...", show_time = True):
+                            # Add current step to session state
+                            st.session_state["current_step"] = step["name"]
+
                             # Gather actual arguments from session_state
                             kwargs = {}
                             for arg_name, session_key in step["args"].items():

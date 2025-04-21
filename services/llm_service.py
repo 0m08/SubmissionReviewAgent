@@ -15,7 +15,7 @@ import json
 import streamlit as st
 
 
-def log_token_usage(llm, input_tokens, output_tokens, log_file="content/token_usage_log.csv"):
+def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.csv"):
     """Appends token usage data to a CSV file."""
     # Check if the log file already exists to decide if we need a header row.
     file_exists = os.path.isfile(log_file)
@@ -160,6 +160,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             default_key = "gemini_2_flash_default",
             gpt4o_mini = ChatOpenAI(model_name = "gpt-4o-mini", temperature = 0.7, max_tokens = 4096),
             gpt4o = ChatOpenAI(model_name = "gpt-4o", temperature = 0.7, max_tokens = 4096),
+            gpt4_1 = ChatOpenAI(model_name = "gpt-4.1", temperature = 0.7),
             haiku = ChatAnthropic(model_name = "claude-3-haiku-20240307", temperature = 0.7, max_tokens = 4096),
             sonnet = ChatAnthropic(model_name = "claude-3-5-sonnet-20240620", temperature = 0.7, max_tokens = 4096),
             haiku_3_5 = ChatAnthropic(model_name = "claude-3-5-haiku-20241022", temperature = 0.7, max_tokens = 4096),
