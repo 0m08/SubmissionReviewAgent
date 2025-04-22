@@ -373,7 +373,7 @@ def map_original_outline_to_revised_outline_for_all_topics(sheet, worksheet_name
     unmapped_rows = topic_outline_df[topic_outline_df["mapping"] == ""]
 
     # Get the enhanced outline with LOs in table format
-    enhanced_outline_with_los_md_table = get_outline_in_table_format(enhanced_outline_with_los_df)
+    enhanced_outline_with_los_md_table = get_outline_in_table_format(enhanced_outline_with_los_df, topic_col_name="Topic", los_col_name="Learning Objectives")
 
     # print(enhanced_outline_with_los_md_table)
 

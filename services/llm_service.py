@@ -13,6 +13,11 @@ import os
 from google import genai
 import json
 import streamlit as st
+import requests
+from google import genai
+from google.genai import types
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from utils.decorator_helpers import try_n_times
 
 
 def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.csv"):
@@ -24,6 +29,91 @@ def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.
         if not file_exists:
             writer.writerow(["agent_name", "step_name", "timestamp", "llm", "input_tokens", "output_tokens"])
         writer.writerow([st.session_state.get("agent_name", ""), st.session_state.get("current_step", ""), datetime.now().isoformat(), llm, input_tokens, output_tokens])
+
+
+@try_n_times(n=5, wait=2, backoff="exponential")
+def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
+    """
+    Makes an API call to Gemini with search grounding, then attempts to resolve each returned URL in parallel.
+    :param prompt: str
+    :param model: str
+    :return: (response, list_of_uris)
+    """
+    client = genai.Client()
+    
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(
+                google_search=types.GoogleSearchRetrieval
+            )]
+        )
+    )
+
+    # Log token usage ── pick counts safely, fall back to 0
+    meta = getattr(response, "usage_metadata", None)
+    input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
+    output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+
+    try:
+        log_token_usage(
+            llm=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            log_file="token_usage_log.csv",
+        )
+    except Exception as e:
+        print(f"Token usage logging failed: {e}")
+
+    # --- Function to fetch the final (redirected) URL for a single link --- #
+    def fetch_final_url(url):
+        try:
+            r = requests.head(url, allow_redirects=True, timeout=10)
+            return r.url
+        except requests.exceptions.Timeout:
+            print(f"Timeout occurred for URL: {url}")
+        except requests.exceptions.RequestException as e:
+            print(f"Request error for URL {url}: {e}")
+        return None
+
+    def get_uris(response_obj):
+        urls = []
+        for candidate in getattr(response_obj, "candidates", []) or []:
+            grounding_meta = getattr(candidate, "grounding_metadata", None)
+            if grounding_meta is None:
+                continue
+
+            for chunk in getattr(grounding_meta, "grounding_chunks", []) or []:
+                uri = getattr(getattr(chunk, "web", None), "uri", None)
+                if uri:
+                    urls.append(uri)
+
+        # (optional) keep only first occurrence of each URL
+        urls = list(dict.fromkeys(urls))
+
+        # Run requests in parallel
+        valid_uris = []
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            # Dictionary of future -> original_url
+            future_to_url = {executor.submit(fetch_final_url, url): url for url in urls}
+
+            # Collect results as they complete
+            for future in as_completed(future_to_url):
+                original_url = future_to_url[future]
+                try:
+                    final_url = future.result()
+                    # Only add if we got a valid response
+                    if final_url is not None:
+                        valid_uris.append(final_url)
+                except Exception as exc:
+                    # Catch any unexpected exceptions from future
+                    print(f"URL {original_url} generated an exception: {exc}")
+
+        return valid_uris
+
+    sources = get_uris(response)
+    return response.text, sources
 
 
 # Function to generate structured output using direct provider APIs
@@ -58,26 +148,21 @@ def generate_structured_output(prompt, structured_output, model="gemini-2.0-flas
             },
         )
         
-        # Log token usage
+        # Log token usage ── pick counts safely, fall back to 0
+        meta = getattr(response, "usage_metadata", None)
+        input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
+        output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+
         try:
             log_token_usage(
                 llm=model,
-                input_tokens=response.usage_metadata.prompt_token_count,
-                output_tokens=response.usage_metadata.candidates_token_count,
-                log_file="token_usage_log.csv"
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                log_file="token_usage_log.csv",
             )
         except Exception as e:
             print(f"Token usage logging failed: {e}")
-            try:
-                log_token_usage(
-                    llm=model,
-                    input_tokens=0,
-                    output_tokens=0,
-                    log_file="token_usage_log.csv"
-                )
-            except Exception as e:
-                print(f"Token usage logging failed: {e}")
-        
+
         # Get the JSON response text
         json_response = response.candidates[0].content.parts[0].text
         
@@ -190,25 +275,20 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             else:
                 result = llm.invoke(arg)
 
+            # Log structured token usage — robust + cleaner
+            meta = getattr(result, "usage_metadata", {}) or {}
+            input_tokens = (meta.get("input_tokens")  if isinstance(meta, dict) else getattr(meta, "input_tokens", 0)) or 0
+            output_tokens = (meta.get("output_tokens") if isinstance(meta, dict) else getattr(meta, "output_tokens", 0)) or 0
+
             try:
-                # Log structured token usage.
                 log_token_usage(
-                    llm = llm_name,
-                    input_tokens = result.usage_metadata['input_tokens'],
-                    output_tokens = result.usage_metadata['output_tokens'],
-                    log_file = "token_usage_log.csv"
+                    llm=llm_name,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    log_file="token_usage_log.csv",
                 )
             except Exception as e:
                 print(f"LLM usage could not be logged. Error: {e}")
-                try:
-                    log_token_usage(
-                        llm = llm_name,
-                        input_tokens = 0,
-                        output_tokens = 0,
-                        log_file = "token_usage_log.csv"
-                    )
-                except Exception as e:
-                    print(f"LLM usage could not be logged. Error: {e}")
 
             return result  # Return the successful API response
         except KeyboardInterrupt:
