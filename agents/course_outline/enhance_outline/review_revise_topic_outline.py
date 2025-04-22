@@ -231,7 +231,7 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
                     flattened_data.append({
                         "Topic": topic_name,
                         "Subtopic": subtopic.get("subtopic_name", ""),
-                        "Learning Objective": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.get("learning_objectives", []))])
+                        "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.get("learning_objectives", []))])
                     })
                 return flattened_data
         except Exception as e:
@@ -244,7 +244,7 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
         flattened_data.append({
             "Topic": response.topic_name,
             "Subtopic": subtopic.subtopic_name,
-            "Learning Objective": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
+            "Learning Objectives": "\n".join([f"{i+1}. {obj}" for i, obj in enumerate(subtopic.learning_objectives)])
         })
     
     return flattened_data
