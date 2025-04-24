@@ -5,88 +5,13 @@ import pandas as pd
 from services.helper_functions import get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests
-from google import genai
-from google.genai import types
-
+from services.llm_service import google_search_with_grounding
 
 subtopic_research_prompt = """Research the following topic within a course - {course_name} and target audience - {target_audience}.
 
 Topic - {subtopic}.
 """
 
-def google_search_with_grounding(course_name, target_audience, subtopic_query):
-    """
-    Makes an API call to Gemini with search grounding, then attempts to resolve each returned URL in parallel.
-    :param course_name: str
-    :param target_audience: str
-    :param subtopic_query: str
-    :return: (response, list_of_uris)
-    """
-    client = genai.Client()
-    
-    response = client.models.generate_content(
-        model='gemini-2.0-flash',
-        contents=subtopic_research_prompt.format(
-            course_name=course_name,
-            target_audience=target_audience,
-            subtopic=subtopic_query
-        ),
-        config=types.GenerateContentConfig(
-            tools=[types.Tool(
-                google_search=types.GoogleSearchRetrieval
-            )]
-        )
-    )
-
-    # --- Function to fetch the final (redirected) URL for a single link --- #
-    def fetch_final_url(url):
-        try:
-            r = requests.head(url, allow_redirects=True, timeout=10)
-            return r.url
-        except requests.exceptions.Timeout:
-            print(f"Timeout occurred for URL: {url}")
-        except requests.exceptions.RequestException as e:
-            print(f"Request error for URL {url}: {e}")
-        return None
-
-    def get_uris(response_obj):
-        urls = []
-        for candidate in getattr(response_obj, "candidates", []) or []:
-            grounding_meta = getattr(candidate, "grounding_metadata", None)
-            if grounding_meta is None:
-                continue
-
-            for chunk in getattr(grounding_meta, "grounding_chunks", []) or []:
-                uri = getattr(getattr(chunk, "web", None), "uri", None)
-                if uri:
-                    urls.append(uri)
-
-        # (optional) keep only first occurrence of each URL
-        urls = list(dict.fromkeys(urls))
-
-        # Run requests in parallel
-        valid_uris = []
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            # Dictionary of future -> original_url
-            future_to_url = {executor.submit(fetch_final_url, url): url for url in urls}
-
-            # Collect results as they complete
-            for future in as_completed(future_to_url):
-                original_url = future_to_url[future]
-                try:
-                    final_url = future.result()
-                    # Only add if we got a valid response
-                    if final_url is not None:
-                        valid_uris.append(final_url)
-                except Exception as exc:
-                    # Catch any unexpected exceptions from future
-                    print(f"URL {original_url} generated an exception: {exc}")
-
-        return valid_uris
-
-    sources = get_uris(response)
-    return response.text, sources
 
 def deep_research_subtopic(course_name, target_audience, subtopic, llm="gemini_with_grounding"):
     """
@@ -99,7 +24,14 @@ def deep_research_subtopic(course_name, target_audience, subtopic, llm="gemini_w
     :return tuple: A tuple containing (research_content, sources)
     """
     if llm == "gemini_with_grounding":
-        research_content, sources = google_search_with_grounding(course_name, target_audience, subtopic)
+        research_content, sources = google_search_with_grounding(
+            prompt = subtopic_research_prompt.format(
+                course_name = course_name,
+                target_audience = target_audience,
+                subtopic = subtopic
+            ),
+            # model = "gemini-2.0-flash"
+        )
     else:
         research_agent = Chain(llm=llm, use_output_parser=False)
         
