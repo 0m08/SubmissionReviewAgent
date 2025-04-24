@@ -2,15 +2,13 @@ from modules.chain import Chain
 import requests
 import pandas as pd
 import re
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name
 import time
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-
-
+from gspread_formatting import set_column_width
 
 
 
@@ -247,8 +245,17 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
     for col in required_columns:
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
+    
+    # Insert Slide No. as the first column
+    slide_chunks_df.insert(0, "Slide No.", range(1, len(slide_chunks_df) + 1))
 
     save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
+    # ✅ Set the column width of "Slide No." (column A) to 50
+    set_column_width(slide_chunks_sheet, 'A', 50)
+
+    # Freeze the first column ("Slide No.")
+    slide_chunks_sheet.freeze(rows=0, cols=1)
 
     def process_slide(index):
         iteration = 0
@@ -358,6 +365,22 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
         save_to_sheet(slide_chunks_sheet, slide_chunks_df)
         print("✅ Sheet updated with all slide results.")
 
-        
+    # ✅ Hide AI detection-related columns
+    hide_columns_by_name(
+        worksheet = slide_chunks_sheet,
+        column_names = [    
+        "Human Score", "Sentence-Level Scores", "Readability Score",
+        "AI Manipulation Detected", "Zero-Width Space Attack",
+        "Homoglyph Attack", "Detected Language", "AI Detection Error",
+        "Plagiarism Score", "Total Words", "Plagiarized Words",
+        "Identical Matches", "Similar Matches", "Sources Found", "Plagiarized Text",
+        ],
+        df = slide_chunks_df
+    )
+
+    print("\n✅ AI detection completed and columns hidden")
 
     return slide_chunks_df
+        
+
+

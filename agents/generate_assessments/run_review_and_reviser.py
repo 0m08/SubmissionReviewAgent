@@ -163,7 +163,7 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     def process_question(topic, assessment_question):
         topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic]
         topic_slides = "\n---\n".join(
-            "Topic Name: " + topic_slides_data['Slide Title'] + "\n" + "Slide Content: " + topic_slides_data['Slide Content']
+            "Topic Name: " + topic_slides_data['final_slide_title'] + "\n" + "Slide Content: " + topic_slides_data['final_slide_content']
         )
 
         for task, group in grouped_checklist:

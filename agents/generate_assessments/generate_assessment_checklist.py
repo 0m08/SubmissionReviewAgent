@@ -82,7 +82,7 @@ def get_assessment_questions(sheet, worksheet_name):
     for topic_name in unique_topics:
         topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic_name]
         topic_slides = "\n".join(
-            topic_slides_data['Slide Title'] + ": " + topic_slides_data['Slide Content']
+            topic_slides_data['final_slide_title'] + ": " + topic_slides_data['final_slide_content']
         )
         slides.append(f"Topic: {topic_name}\n{topic_slides}")
 
@@ -193,8 +193,8 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
     #  Combine slides from ALL topics
     slides = "\n---\n".join(
         "Topic Name: " + row['Topic'] + "\n" +
-        "Slide Title: " + row['Slide Title'] + "\n" +
-        "Slide Content: " + row['Slide Content']
+        "Slide Title: " + row['final_slide_title'] + "\n" +
+        "Slide Content: " + row['final_slide_content']
         for _, row in slide_chunks_df.iterrows()
     )
 

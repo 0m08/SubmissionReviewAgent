@@ -163,7 +163,7 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
         for topic_name in unique_topics:
             topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic_name]
             slides = "\n".join(
-                topic_slides_data['Slide Title'] + ": " + topic_slides_data['Slide Content']
+                topic_slides_data['final_slide_title'] + ": " + topic_slides_data['final_slide_content']
             )
 
             future = executor.submit(

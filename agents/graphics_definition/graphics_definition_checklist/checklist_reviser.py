@@ -113,8 +113,8 @@ def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist
         checklist_evaluation = generate_checklist_evaluation(
             course_name=course_name,
             target_audience=target_audience,
-            slide_title=row["Slide Title"],
-            slide_content=row["Slide Content"],
+            slide_title=row["final_slide_title"],
+            slide_content=row["final_slide_content"],
             graphics_definition=revised_graphics_definition,
             task_name=task_name,
             checklist_criteria=task_checklist_criteria,
@@ -141,8 +141,8 @@ def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist
         revised_graphics_definition = generated_checklist_revised_graphics_definition(
             course_name=course_name,
             target_audience=target_audience,
-            slide_title=row["Slide Title"],
-            slide_content=row["Slide Content"],
+            slide_title=row["final_slide_title"],
+            slide_content=row["final_slide_content"],
             graphics_definition=revised_graphics_definition,
             feedback=failed_feedback_text,
             llm=llm

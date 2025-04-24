@@ -20,7 +20,7 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
     # Ensure required columns exist
-    for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review', 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
+    for col in ['Reference Description', 'graphics_definition', 'complexity_review', 'missing_sentences_review', 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
 
@@ -47,8 +47,8 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
         graphics_definition = generate_graphics_definition(
             course_name=course_name,
             target_audience=target_audience,
-            slide_title=row['Slide Title'],
-            slide_content=row['Slide Content'],
+            slide_title=row['final_slide_title'],
+            slide_content=row['final_slide_content'],
             previous_graphics_definition=previous_graphics_definition,
             references=references,
             llm=llm
@@ -70,10 +70,10 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
 
         with ThreadPoolExecutor() as executor:
             future_to_review = {
-                executor.submit(generate_review, generate_complexity_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, llm): 'complexity_review',
-                executor.submit(generate_review, generate_missing_sentences_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, llm): 'missing_sentences_review',
-                executor.submit(generate_review, generate_accuracy_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, llm): 'accuracy_review',
-                executor.submit(generate_review, generate_reuse_previous_graphics_review, course_name, target_audience, row['Slide Title'], row['Slide Content'], graphics_definition, previous_graphics_definition, llm): 'reuse_previous_graphics_review'
+                executor.submit(generate_review, generate_complexity_review, course_name, target_audience, row['final_slide_title'], row['final_slide_content'], graphics_definition, llm): 'complexity_review',
+                executor.submit(generate_review, generate_missing_sentences_review, course_name, target_audience, row['final_slide_title'], row['final_slide_content'], graphics_definition, llm): 'missing_sentences_review',
+                executor.submit(generate_review, generate_accuracy_review, course_name, target_audience, row['final_slide_title'], row['final_slide_content'], graphics_definition, llm): 'accuracy_review',
+                executor.submit(generate_review, generate_reuse_previous_graphics_review, course_name, target_audience, row['final_slide_title'], row['final_slide_content'], graphics_definition, previous_graphics_definition, llm): 'reuse_previous_graphics_review'
             }
 
             for future in as_completed(future_to_review):
@@ -144,8 +144,8 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
         revised_graphics_definition = generate_reviser_output_for_slide(
             course_name = course_name,
             target_audience = target_audience,
-            slide_title = row['Slide Title'],
-            slide_content = row['Slide Content'],
+            slide_title = row['final_slide_title'],
+            slide_content = row['final_slide_content'],
             graphics_definition = graphics_definition,
             complexity_review = complexity_review,
             missing_sentences_review = missing_sentences_review,

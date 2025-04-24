@@ -8,6 +8,7 @@ import time
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import os
 
+
 # Winston AI API Configuration
 WINSTON_API_URL = "https://api.gowinston.ai/v2/plagiarism"
 WINSTON_API_KEY = os.environ.get("WINSTON_API_KEY")
@@ -164,11 +165,17 @@ def run_plagiarism_detection(sheet, worksheet_name):
             # Update progress
             progress.update()
 
-
             # Delay to avoid API rate limits (adjust if needed)
             time.sleep(1)
 
+    # ✅ Final save to ensure all results are written before hiding columns
+    print("📄 Finalizing sheet with all plagiarism results...")
+    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
+    print("\n✅ Plagiarism detection completed and columns hidden")
+
     return slide_chunks_df  # Return the updated DataFrame
+
 
 
 
