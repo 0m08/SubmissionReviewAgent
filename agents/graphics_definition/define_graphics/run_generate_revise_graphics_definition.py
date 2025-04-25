@@ -200,7 +200,8 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
     return True
 
 
-def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
+
+def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_audience, skip_manual_step=False, llm="gemini_2_flash"):
     """
     Combined function to:
     1. Generate graphics definitions if missing.
@@ -212,6 +213,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
     :param worksheet_name: The worksheet name.
     :param course_name: The course name.
     :param target_audience: The target audience.
+    :param:param skip_manual_step: Bool. If True, it will assume all the graphics definitionas have been generated.
     :param llm: The language model to use.
     :return: True if all slides have been processed, False otherwise.
     """
@@ -224,10 +226,8 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
                 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
-    
-    total_tasks = (len(slide_chunks_df) * 6) +1# 6 tasks per slide
-    
-    # progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
+
+    total_tasks = (len(slide_chunks_df) * 6) + 1  # 6 tasks per slide
 
     if not hasattr(run_generate_and_revise_graphics, "progress"):
         run_generate_and_revise_graphics.progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete")
@@ -237,7 +237,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
     for index, row in tqdm(slide_chunks_df.iterrows(), total=total_tasks):  # Track rows, not tasks
         graphics_definition = row['graphics_definition'].strip()
         revised_graphics_definition = row['revised_graphics_definition'].strip()
-        
+
         # If graphics definition exists, check if revision is needed
         if graphics_definition:
             if revised_graphics_definition:
@@ -248,13 +248,21 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
             run_revise_generated_graphics_definition(sheet, worksheet_name, course_name, target_audience, progress, llm)
             continue  # Move to the next row after revising
 
-        # If graphics definition is missing, generate it and stop execution
+        # If graphics definition is missing, generate it
         print(f"⏳ Generating Graphics Definition for Slide {index + 1}\n")
         run_generate_graphics_definition(sheet, worksheet_name, course_name, target_audience, progress, llm)
 
-        # Show message and stop execution
-        st.write(f"✔ Graphics Definition generated for Slide {index + 1}. Please enter review comments before continuing.(Optional)")
-        return  # Stop execution to allow user to review
+# Show message and stop execution if manual review is needed
+        st.write(f"✔ Graphics Definition generated and revised for Slide {index + 1}. Please enter review comments before continuing.(Optional)")
 
+        # Stop execution to allow user manual review unless skip_manual_step is True
+        if not skip_manual_step:
+            return  # Stop execution to allow user to review the generated graphics definition
+
+        # After generating, immediately revise the generated graphics definition if it's missing
+        print(f"⏳ Revising Generated Graphics Definition for Slide {index + 1} (after generation)\n")
+        run_revise_generated_graphics_definition(sheet, worksheet_name, course_name, target_audience, progress, llm)
+
+    
     print('All slides processed.')
-    return True  # If all slides have been processed, return True
+    return True

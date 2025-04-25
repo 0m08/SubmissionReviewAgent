@@ -22,6 +22,7 @@ pipeline_sections = [
                     "worksheet_name": "Slide Chunks",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
+                    "skip_manual_step":"skip_manual_step",
                     "llm": "gemini_2_flash"
                 },
                 "instructions": [
