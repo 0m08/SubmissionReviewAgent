@@ -6,8 +6,6 @@ from agents.generate_assessments.review_assessment import review_assessment
 from tqdm import tqdm
 from agents.generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
 import re
-from gspread_formatting import CellFormat
-import gspread_formatting as gs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 import streamlit as st
@@ -159,7 +157,6 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
         print("The 'Final Assessment' sheet is already populated. Skipping the process.")
         return
 
-
     def process_question(topic, assessment_question):
         topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic]
         topic_slides = "\n---\n".join(
@@ -295,12 +292,6 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
             axis=1
         )
 
-    # Set columns F and G (Option A and Option B for True/False) to Plain Text to prevent Google Sheets from interpreting as booleans
-    plain_text_format = CellFormat(
-        numberFormat={"type": "TEXT"}
-    )
-    gs.format_cell_range(final_assessement_sheet, 'F:G', plain_text_format)
-
     # Save to sheet using retry-safe helper
     save_to_sheet(final_assessement_sheet, assessment_df[required_columns].fillna(""))
 
@@ -312,14 +303,6 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
         [re.sub(r'\s{2,}', ' ', cell.strip()) if isinstance(cell, str) else cell for cell in row]
         for row in data
     ]
-
-    # Update True/False values explicitly in columns F and G
-    for row_idx in range(2, len(cleaned_data) + 1):
-        # Directly set "True" for Column F (Option A)
-        final_assessement_sheet.update_cell(row_idx, 6, "True")
-
-        # Directly set "False" for Column G (Option B)
-        final_assessement_sheet.update_cell(row_idx, 7, "False")
 
     # Write back the cleaned data
     final_assessement_sheet.update(cleaned_data)
