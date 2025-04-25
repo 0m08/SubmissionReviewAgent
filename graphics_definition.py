@@ -1,6 +1,6 @@
 from agent_ui_template import agent_ui
 
-from agents.graphics_definition.define_graphics.run_generate_revise_graphics_definition import run_generate_and_revise_graphics
+from agents.graphics_definition.define_graphics.run_generate_revise_graphics_definition import run_generate_and_revise_graphics, ensure_reference_description_column
 from agents.graphics_definition.graphics_definition_checklist.checklist_reviser import run_checklist_evaluation_for_all_slides
 
 
@@ -11,6 +11,11 @@ pipeline_sections = [
             {
                 "name": "Generate Graphics Definition",
                 "func": run_generate_and_revise_graphics,
+                "pre_exec_func": ensure_reference_description_column, 
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks"
+                },
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",

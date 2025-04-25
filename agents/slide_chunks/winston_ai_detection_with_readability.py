@@ -2,7 +2,7 @@ from modules.chain import Chain
 import requests
 import pandas as pd
 import re
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, resize_column_by_name
 import time
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
@@ -43,7 +43,7 @@ Revision Guidelines: Before revising the slide content, follow these principles 
   - Avoid repetition and excessive elaboration.
 
  4) Maintain the Original Meaning:
-  - Do not add any new information that was not present in the original slide content — no explanations, examples, or background context beyond what is already written.
+  - Strictly do not add any new information that was not present in the original slide content — no explanations, examples, or background context beyond what is already written.
   - Do not remove any existing information from the original slide content.
   - Do not change the meaning of any sentence or idea — your revisions must only improve readability, not rephrase or reinterpret the content in a way that alters its instructional purpose.
   - If you're simplifying a sentence, you must retain 100% of its original factual meaning and intent.
@@ -105,18 +105,6 @@ def run_readability_revision(course_name, target_audience, slide_content, llm="g
 
     #  Initialize the Readability Revisor Agent
     readability_agent = Chain(llm=llm, tags=["output"])
-
-    # Format the prompt for debugging (printing)
-    formatted_prompt = readability_agent_prompt.format(
-        course_name=course_name,
-        target_audience=target_audience,
-        slide_content=slide_content
-    )
-
-    # Print the formatted prompt for debugging (just for printing purposes)
-    print("\n🔹 READABILITY REVISION PROMPT BEING SENT TO LLM:\n")
-    print(formatted_prompt)
-    print("\n" + "=" * 100 + "\n")
 
     # Add the user message
     readability_agent.add_message(
@@ -246,13 +234,13 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
     
-    # Insert Slide No. as the first column
-    slide_chunks_df.insert(0, "Slide No.", range(1, len(slide_chunks_df) + 1))
+    if "Slide No." not in slide_chunks_df.columns:
+        slide_chunks_df.insert(0, "Slide No.", range(1, len(slide_chunks_df) + 1))
 
     save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
     # ✅ Set the column width of "Slide No." (column A) to 50
-    set_column_width(slide_chunks_sheet, 'A', 50)
+    resize_column_by_name(slide_chunks_sheet, column_name="Slide No.", pixel_size=50)
 
     # Freeze the first column ("Slide No.")
     slide_chunks_sheet.freeze(rows=0, cols=1)
@@ -308,7 +296,7 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
                 slide_chunks_df.at[index + 1, "AI Detection Error"] = "Merged into previous row"
                 slide_chunks_df.at[index + 1, "Readability Score"] = ""
                 slide_chunks_df.at[index + 1, "Sentence-Level Scores"] = ""
-                slide_chunks_df.at[index + 1, "final_slide_content"] = ""
+                #slide_chunks_df.at[index + 1, "final_slide_content"] = ""
 
             score = ai_result.get("Readability Score", 100)
             try:

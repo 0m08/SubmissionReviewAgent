@@ -15,12 +15,26 @@ from agents.graphics_definition.define_graphics.generate_accuracy_review import 
 from agents.graphics_definition.define_graphics.generate_reuse_previous_review import generate_reuse_previous_graphics_review
 from agents.graphics_definition.define_graphics.generate_reviser_output import generate_reviser_output_for_slide
 
+# Pre-Exec function to create the "Reference Description" column
+def ensure_reference_description_column(sheet, worksheet_name):
+    """
+    Adds the 'Reference Description' column if missing in Slide Chunks sheet.
+    This is designed to run as a pre_exec_func before the main agent starts.
+    """
+    worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Reference Description" not in df.columns:
+        df["Reference Description"] = ""
+        save_to_sheet(worksheet=worksheet, df=df)
+        print("✅ 'Reference Description' column added.")
+    else:
+        print("ℹ️ 'Reference Description' column already exists.")
+
 def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_audience, progress, llm="gemini_2_flash"):
     # Read the sheet and df
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
     # Ensure required columns exist
-    for col in ['Reference Description', 'graphics_definition', 'complexity_review', 'missing_sentences_review', 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
+    for col in ['graphics_definition', 'complexity_review', 'missing_sentences_review', 'accuracy_review', 'reuse_previous_graphics_review', 'human_review', 'revised_graphics_definition']:
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
 
