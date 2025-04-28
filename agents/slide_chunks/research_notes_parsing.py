@@ -37,7 +37,7 @@ def process_row(row, index):
     section_notes = row['section_notes']
 
     # Split section_notes into individual subtopics
-    subtopic_contents = section_notes.split("---")
+    subtopic_contents = section_notes.split("\n\n---\n\n")
 
     # Process each subtopic separately
     for subtopic_content in subtopic_contents:
