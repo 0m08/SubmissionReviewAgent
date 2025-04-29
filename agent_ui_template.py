@@ -157,6 +157,17 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                         # Always show estimated time
                         st.write(f"**Estimated Time:** {step.get('estimated_time', 'N/A')}")
 
+                        # Add video link if provided (Streamlit-styled)
+                        if 'video_link' in step:
+                            st.markdown(f"""<div style='margin: 0.5rem 0;'>
+                                <a href='{step['video_link']}' target='_blank' 
+                                   style='color: #FF4B4B; font-size: 0.9em; text-decoration: none; 
+                                          display: inline-flex; align-items: center; gap: 4px;'>
+                                    <span>📺</span>
+                                    <span style='border-bottom: 1px solid rgba(255,75,75,0.2);'>Click here - Video Guide</span>
+                                </a>
+                            </div>""", unsafe_allow_html=True)
+
                         if not dependencies_satisfied:
                             # If dependencies are not done, show a message & skip
                             missing_steps = [
