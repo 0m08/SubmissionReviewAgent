@@ -124,10 +124,11 @@ def run_research_notes_parsing(sheet, worksheet_name):
                 print(f"Error processing row {futures_map[future]}: {e}")
             progress.update()
         
-    # Sort results by index
+     # Sort results by index
     results.sort(key=lambda x: x[0])
 
-    # Flatten the sorted results
+    # Flatten the results after sorting
+    slide_chunks_data = []
     for _, data in results:
         slide_chunks_data.extend(data)
 
