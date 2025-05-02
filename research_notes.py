@@ -101,6 +101,7 @@ pipeline_sections = [
                 ],
                 "estimated_time": "Manual step",
                 "description": "Manually verify and refine the AI review for each subtopic note.",
+                "video_link": "https://drive.google.com/file/d/1o5LabDPkV8LjFx-yA_XK28P6YlZChXIq/view?usp=drive_link",
             },
             {
                 "name": "Reviser",
@@ -117,6 +118,7 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 10 minutes",
                 "description": "AI-driven revision of the subtopic research notes based on your manual inputs."
+                
             },
         ],
     },
@@ -169,7 +171,9 @@ pipeline_sections = [
                     
                 ],
                 "estimated_time": "Manual step",
-                "description": "Manually verify and refine AI's review for each topic-level note."
+                "description": "Manually verify and refine AI's review for each topic-level note.",
+                "video_link": "https://drive.google.com/file/d/1IwSqwFzI3vxNHTsmfpQUw62hyTzjyUPx/view?usp=drive_link",
+                
             },
             {
                 "name": "Revise Topic Notes",
