@@ -94,6 +94,7 @@ pipeline_sections = [
                     "All of the above are just examples of what can be added / edited.",
                     "You are expected to review all the rows. If you agree with the AI's review, leave it as is. If you disagree, add them in appropriate columns as illustrated with the above examples."
                 ],
+                "is_manual_step": True,
                 "estimated_time": "Manual step",
                 "description": "Manually verify and refine the AI review for each subtopic note.",
             },
@@ -159,6 +160,7 @@ pipeline_sections = [
                     "You can put any additional comments in the `Manual Comments` column.",
                     "---",
                 ],
+                "is_manual_step": True,
                 "estimated_time": "Manual step",
                 "description": "Manually verify and refine AI’s review for each topic-level note."
             },

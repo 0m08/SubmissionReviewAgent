@@ -149,9 +149,14 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                     # if not dependencies_satisfied:
                     #     continue
 
-                    # Expander
+                    # Manual step formatting
+                    is_manual = step.get("is_manual_step", False)
+                    manual_icon = "👨‍💻" if is_manual else ""
+
+                    # Expander 
                     with st.expander(label = f"Step {step_global_count}: {step['name']}", expanded = (not st.session_state[step_key] and dependencies_satisfied)):
-                        st.subheader(f"Step {step_global_count}: {step['name']}")
+                        # Subheader 
+                        st.subheader(f"{manual_icon}Step {step_global_count}: {step['name']}")
                         step_global_count += 1
 
                         # Always show estimated time

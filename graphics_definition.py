@@ -34,6 +34,7 @@ pipeline_sections = [
                     "6. After entering your feedback (if any), click on **Confirm Generate Graphics Definition** to generate the revised graphics definition based on your feedback and the AI reviews in the `revised_graphics_definition` column.",
                     "7. The agent will automatically move to the next slide and repeat the same process."   
                 ],
+                "is_manual_step": True,
                 "estimated_time": "~ Semi-Automated Step",
                 "description": "Review the generated graphics definition in the `graphics_definition` column of the `Slide Chunks` sheet. Add comments in the human_review column (Optional)",
                 "video_link": "https://drive.google.com/file/d/14pis5XLbK30_u23Amyek-uLw5bFr8Cm4/view?usp=sharing"
