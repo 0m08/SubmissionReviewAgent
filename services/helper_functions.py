@@ -3,6 +3,7 @@ import math
 from typing import List, Optional
 import difflib
 import streamlit as st
+import re
 
 
 # Get outline as text with topic, subtopic and los (if present)
@@ -84,24 +85,29 @@ def create_and_populate_columns(df: pd.DataFrame, text: str, specific_index: int
 
 def get_short_name(text: str) -> str:
     """
-    Get a short name for a text.
-    Args:
-        text (str): The text to get the short name for.
-    Returns:
-        str: The short name.
+    Return a valid collection name (3-63 chars, a-z0-9, _ or - only,
+    starting & ending with an alphanumeric).
     """
-    # Remove blanks, dots, and hyphens from text
-    text = text.strip()
-    text = text.lower()
-    text = text.replace(' ', '_')
-    text = text.replace('.', '')
-    text = text.replace('-', '')
+    if not text:
+        return "untitled"
 
-    # text no longer than 60 chars
-    if len(text) > 60:
-        text = text[:60]
+    # 1. lowercase + collapse whitespace into single underscores
+    text = re.sub(r'\s+', '_', text.strip().lower())
 
-    return text
+    # 2. drop every char that is *not* allowed
+    text = re.sub(r'[^a-z0-9_-]', '', text)
+
+    # 3. ensure we don’t start / end with _ or -
+    text = text.strip('_-')
+
+    # 4. truncate to 60 chars to stay under the 63-char hard limit
+    text = text[:60]
+
+    # 5. if the name is now too short, pad it
+    if len(text) < 3:
+        text = text.rjust(3, 'x')          # gives ‘xxx’, ‘axx’, … as needed
+
+    return text or "untitled"
 
 
 def add_list_as_new_column(df: pd.DataFrame, new_values: list, new_col_name: str) -> pd.DataFrame:
