@@ -166,7 +166,7 @@ def get_compression_retriever(course_name, root_folder_id, drive, sheet, retriev
     ensemble_retriever = get_ensemble_retriever(course_name, root_folder_id, drive, sheet, retriever_1_weight, retriever_2_weight)
 
     compressor = CohereRerank(
-        model="rerank-english-v2.0",
+        model="rerank-v3.5",
         top_n=15,
     )
 
