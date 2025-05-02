@@ -85,18 +85,24 @@ pipeline_sections = [
                     "Review the research notes, and the ai generated review within the `Enhanced Outline with LOs` sheet.",
                     "Column names:\n `research_notes`,\n `analysis`,\n `not_covered_at_all`,\n `not_covered_enough`,\n `perfectly_covered`,\n `covered_too_much`,\n `verdict`",
                     "---",
-                    "1) Edit any of the category columns to incorporate your final review.",
-                    "2) You can put any additional comments in the `Manual Comments` column. This is optional, but recommended for all the Failed rows.",
-                    "3) For example, you can add items such as 'Cover all types of manometer include A, B, C' within the not covered columns.",
-                    "4) Or say something like 'Measurement will be covered in more detail in a separate course, thus remove it from here' within the covered to much column.",
-                    "5) Similarly, you can add any addition comments such as 'restructure / change the phrasing of this part' in the Manual comments column",
+                    "1. **Review and edit** the category columns (`not_covered_at_all`, `not_covered_enough`, etc.) as needed to incorporate your final thoughts.",
+                    "2. If something stands out or the outline needs more changes, add your thoughts in the **`Manual Comments`** column. This is optional—but strongly recommended for rows where the verdict is **Fail**.",
+                    "---",
+                    "Example",
+                    "- In `not_covered_at_all`, add explanation of all types of manometers: U-tube, digital, inclined.",
+                    "- In `covered_too_much`, Remove detailed measurement methods — will be covered in another course.",
+                    "- In `Manual Comments` consider rephrasing the learning objective to focus on application instead of theory.",
+
                     "---",
                     "All of the above are just examples of what can be added / edited.",
-                    "You are expected to review all the rows. If you agree with the AI's review, leave it as is. If you disagree, add them in appropriate columns as illustrated with the above examples."
+                    "If you **agree** with the AI's review, you can **leave the row as is**.",
+                    "If you **disagree**, update the appropriate columns accordingly.",
+                    "Make sure all rows are reviewed."
                 ],
                 "is_manual_step": True,
                 "estimated_time": "Manual step",
                 "description": "Manually verify and refine the AI review for each subtopic note.",
+                "video_link": "https://drive.google.com/file/d/1o5LabDPkV8LjFx-yA_XK28P6YlZChXIq/view?usp=drive_link",
             },
             {
                 "name": "Reviser",
@@ -113,6 +119,7 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 10 minutes",
                 "description": "AI-driven revision of the subtopic research notes based on your manual inputs."
+                
             },
         ],
     },
@@ -157,12 +164,18 @@ pipeline_sections = [
                     "Review the research notes, and the ai generated review within the `Research Notes` sheet.",
                     "Column names:\n `research_notes`,\n `final_review`",
                     "---",
-                    "You can put any additional comments in the `Manual Comments` column.",
+                    "- Go through each row and review the AI's `final_review` in context of the `research_notes`.",
+                    "- If you have anything to add, clarify, or correct, use the **`Manual Comments`** column to leave your notes",
                     "---",
+                    "Manual comments are optional but helpful—especially if the review needs changes or extra clarity.",
+                    "If everything looks good, you can leave the row as is."
+                    
                 ],
                 "is_manual_step": True,
                 "estimated_time": "Manual step",
-                "description": "Manually verify and refine AI’s review for each topic-level note."
+                "description": "Manually verify and refine AI's review for each topic-level note.",
+                "video_link": "https://drive.google.com/file/d/1IwSqwFzI3vxNHTsmfpQUw62hyTzjyUPx/view?usp=drive_link",
+                
             },
             {
                 "name": "Revise Topic Notes",
