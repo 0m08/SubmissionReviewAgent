@@ -26,14 +26,17 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
                 "instructions": [
-                    "1. This step will generate the graphics definition for each slide in the `Slide Chunks` sheet.",
-                    "2. The generated graphics definition will be saved in the `graphics_definition` column of the `Slide Chunks` sheet.",
-                    "3. Open the Google Sheet and navigate to the `Slide Chunks` sheet.",
-                    "4. Locate the `graphics_definition` column of the current slide.",
-                    "5. **Manually enter feedback** (Optional) in the `human_review` column. This feedback should be regarding the changes you want in the generated graphics definition in the `graphics_definition` column.",
+                    "1. Before running this step, open the `Slide Chunks` sheet, review all the Slide content in the `final_slide_content` column, and populate the `Reference Description` column for any slides where you have visual suggestions, references, or instructions — or leave it blank if you don’t have input for a particular slide. These suggestions will be used by the agent as references when generating the graphics definition for each slide.",
+                    "2. Click on **Confirm Generate Graphics Definition** button to start processing the first slide.",
+                    "3. The agent will generate a scene-by-scene graphics definition and 4 AI reviews: complexity, missing sentences, accuracy, and reuse previous graphics.",
+                    "4. Navigate to the `Slide Chunks` sheet and review the generated graphics definition in the `graphics_definition` column.",
+                    "5. You can optionally provide feedback in the `human_review` column to suggest improvements for the generated graphics definition.",
+                    "6. After entering your feedback (if any), click on **Confirm Generate Graphics Definition** to generate the revised graphics definition based on your feedback and the AI reviews in the `revised_graphics_definition` column.",
+                    "7. The agent will automatically move to the next slide and repeat the same process."   
                 ],
                 "estimated_time": "~ Semi-Automated Step",
-                "description": "Review the generated graphics definition in the `graphics_definition` column of the `Slide Chunks` sheet. Add comments in the human_review column (Optional)"
+                "description": "Review the generated graphics definition in the `graphics_definition` column of the `Slide Chunks` sheet. Add comments in the human_review column (Optional)",
+                "video_link": "https://drive.google.com/file/d/14pis5XLbK30_u23Amyek-uLw5bFr8Cm4/view?usp=sharing"
             },
       
         ],
