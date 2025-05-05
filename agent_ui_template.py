@@ -111,7 +111,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
         st.success(f"Data already loaded for course: **{st.session_state['course_name']}**. Proceed below.")
         
         # Admin exclusive features
-        if 'role' in st.session_state and st.session_state['role'] == 'Admin':
+        if 'role' in st.session_state: #and st.session_state['role'] == 'Admin':
             # Skip Manual Steps
             st.checkbox(label = "Skip Manual Steps", value = False, key = "skip_manual_step")
             
