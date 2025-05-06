@@ -33,6 +33,7 @@ Subtopic Name: {subtopic}
 
 Here is the slide that needs to be evaluated:
 <slide>
+Slide Type: {slide_type}
 Slide Title: {slide_title}
 Slide Content: {slide_chunk}
 </slide>
@@ -62,6 +63,9 @@ Evaluation Guidelines:
   - Perform your evaluation of the slide on all the provided checklist criteria.
   - Do not alter or modify the phrasing of the checklist criteria in any way.
   - Ensure that your evaluation for every checklist criterion is objective, unbiased, and based strictly on the content of the slide in the context of the course details and target audience.
+  - While suggesting improvements, avoid recommending additions that expand the slide beyond what is necessary to meet the checklist criterion. Suggestions should prioritize clarity, relevance, and instructional intent — not elaboration for its own sake.
+  - When providing feedback and suggestions for a failed criterion, avoid suggesting significant content expansion. Keep in mind that the revised slide should ideally stay within approximately 10-20% of the original content length.
+  - Avoid recommending generic or overly detailed explanations that can unnecessarily increase the length of the slide content
   - Include a "Evaluation Breakdown" field for every checklist criterion in the final output. This section should clearly document the thought process behind your verdict.
   - If the Final Verdict is "Pass", include only the fields for Checklist Criterion, Evaluation Breakdown, and Final Verdict in your output. If the Final Verdict is "Fail", include an additional field, "Feedback", to explain the negative verdict concisely.
 
@@ -80,8 +84,7 @@ Feedback: [Provide your explanation and suggestions if your final verdict is "Fa
 """
 
 
-
-def generate_checklist_evaluation(course_name, target_audience, topic, subtopic, slide_title, slide_chunk, task_name, checklist_criteria, llm="gemini_2_flash"):
+def generate_checklist_evaluation(course_name, target_audience, topic, subtopic, slide_type, slide_title, slide_chunk, task_name, checklist_criteria, llm="gemini_2_flash"):
     """
     Generate checklist evaluation for a given slide chunk.
 
@@ -109,6 +112,7 @@ def generate_checklist_evaluation(course_name, target_audience, topic, subtopic,
                 target_audience=target_audience,
                 topic=topic,
                 subtopic=subtopic,
+                slide_type=slide_type,
                 slide_title=slide_title,
                 slide_chunk=slide_chunk,
                 task_name=task_name,
@@ -157,6 +161,7 @@ Subtopic Name: {subtopic}
 Here is the original slide that requires revision:
 
 <original_slide>
+Slide Type: {slide_type}
 Slide title: {slide_title}
 Slide content: {slide_chunk}
 </original_slide>
@@ -167,7 +172,13 @@ Here is the feedback received from the evaluation agent:
 {feedback}
 </evaluation_feedback>
 
-Based on the feedback from the evaluation agent, generate a revised version of the slide content that effectively addresses the identified issues.
+Based on the feedback from the evaluation agent, generate a revised version of the slide content that effectively addresses the identified issues. 
+
+When revising:
+- Avoid significantly increasing the overall content length. The revised slide should ideally stay within approximately 10–20% of the original slide content's length.
+- Avoid unnecessary elaboration or the addition of extra information that does not directly enhance or clarify the existing content, even if it is suggested in the evaluation feedback. Prioritize maintaining the original focus and instructional clarity.
+- Be concise, eliminate redundancy, and preserve the instructional clarity and focus of the original slide.
+- Prioritize brevity, clarity, and effectiveness over expansion.
 
 Provide your output strictly in the following format:
 
@@ -188,7 +199,7 @@ Slide Content: [Provide the revised slide content, ensuring that all identified 
 """
 
 
-def generate_checklist_revised_slide_chunk(course_name, target_audience, topic, subtopic, slide_title, slide_chunk, feedback, llm="gemini_2_flash"):
+def generate_checklist_revised_slide_chunk(course_name, target_audience, topic, subtopic, slide_type, slide_title, slide_chunk, feedback, llm="gemini_2_flash"):
     """
     Generate a revised slide chunk based on checklist evaluation feedback.
 
@@ -215,6 +226,7 @@ def generate_checklist_revised_slide_chunk(course_name, target_audience, topic, 
                 target_audience=target_audience,
                 topic=topic,
                 subtopic=subtopic,
+                slide_type=slide_type,
                 slide_title=slide_title,
                 slide_chunk=slide_chunk,
                 feedback=feedback
@@ -278,6 +290,7 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
     slide_index = index + 1
     topic = strip_roman_numerals(row["Topic"])
     subtopic = strip_section_prefix(row["Subtopic"])
+    slide_type = row["Slide Type"]
     original_title = row["Slide Chunk Title"]
     base_chunk = row["learning_objectives_added_slide_chunk"]
 
@@ -308,6 +321,7 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
                     target_audience = target_audience,
                     topic = topic,
                     subtopic = subtopic,
+                    slide_type = slide_type,
                     slide_title = current_title,
                     slide_chunk = current_chunk,
                     task_name = task_name,
@@ -375,6 +389,7 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
                 target_audience=target_audience,
                 topic=topic,
                 subtopic=subtopic,
+                slide_type=slide_type,
                 slide_title=current_title,
                 slide_chunk=current_chunk,
                 feedback=slide_chunks_df.at[index, "checklist_based_review_output"],
