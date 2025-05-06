@@ -108,8 +108,11 @@ B) Evaluation Guidelines: Before assigning a Pass or Fail verdict, carefully rev
     - If the slide content fully meets a specific criterion, provide a brief justification confirming its effectiveness in the feedback section. In the suggestion section, state "No changes needed" and assign a verdict of "Pass" for that criterion.
     - If the slide content fails a specific criterion, clearly explain the issue in the feedback section. In the suggestion section, provide direct, actionable recommendations to address the problem while maintaining the instructional alignment and strictly assign a "Fail" verdict for that criterion.
     - Strictly ensure that all your feedback and suggestions focus on refining the existing slide content - do not introduce new information unnecessarily or alter its original intent. The content itself should remain unchanged; your task is only to improve its language, tone, and flow to make it feel more human-written and natural while preserving its meaning.
-    - Ensure that while improving human-likeness, the writing continues to function as instructional content - delivering clear, purposeful learning without becoming overly casual, vague, or drifting off-topic. The goal is to humanize the writing without diluting its instructional function.
+    - While making suggestions for failed criteria, you must consider the total impact across all failed items. Your suggestions across all failed criteria should strictly result in no more than a 10–20% increase in the original slide content’s length. You are strictly responsible for ensuring that your collective suggestions across all failed criteria do not exceed a total 10–20% increase in content length. If adhering to this limit requires omitting or deferring less essential improvements, you must do so. Breaching this threshold is not permitted, regardless of the number of failed criteria.
     - When suggesting improvements, do not expand or lengthen the original slide content beyond what is necessary for human-like improvement. Only propose adding new sentences or phrases if they are absolutely essential to enhance clarity, tone, or human-likeness - and even then, keep such additions minimal and purposeful. The revised content should remain similar in length to the original. Avoid suggestions that would make the content substantially longer. The goal is to maintain concise, tightly focused, and instructionally efficient communication while improving human-likeness.
+    - Avoid proposing additions or elaborations unless they are essential for improving human-likeness. Be selective and concise in your recommendations.
+    - Ensure that while improving human-likeness, the writing continues to function as instructional content - delivering clear, purposeful learning without becoming overly casual, vague, or drifting off-topic. The goal is to humanize the writing without diluting its instructional function.
+
 
 Present your output strictly in the following format:
 
@@ -220,6 +223,9 @@ Suggestion: Suggest using a light, conversational or idiomatic phrase only if it
 """
 
 
+
+
+
 def generate_humanlike_review(course_name, target_audience, topic, subtopic, slide_type, slide_title, slide_content, llm="gemini_2_flash"):
     """
     Generate a human-likeness review for a slide content based on predefined review criteria.
@@ -259,7 +265,7 @@ def generate_humanlike_review(course_name, target_audience, topic, subtopic, sli
 
 
 
-generate_humanlike_revise_prompt = """We are creating structured slide content for an e-learning course. You are an expert instructional designer and e-learning content creator, crafting educational materials with the fluency and adaptability of a world-class writer — producing content indistinguishable from human authorship. In this role, you are serving as a Slide Content Revisor Agent, responsible for refining slide content that was flagged as AI-generated, robotic, or overly mechanical. Your task is to carefully revise the slide content based on the feedback and suggestions received from a review agent. Your revisions should specifically address the issues identified in the review agent's evaluation while ensuring that all other content remains unchanged.
+generate_humanlike_revise_prompt = """We are creating structured slide content for an e-learning course. You are an expert instructional designer and e-learning content creator, crafting educational materials with the fluency and adaptability of a world-class writer — producing content indistinguishable from human authorship. In this role, you are serving as a Slide Content Revisor Agent, responsible for refining slide content that was flagged as AI-generated, robotic, or overly mechanical. Your task is to carefully revise the slide content based on the feedback and suggestions received from a review agent. Your revisions should specifically address the issues identified in the review agent's evaluation while ensuring that all other content remains unchanged. You must prioritize only the most essential improvements, ensuring that the revised content remains concise and does not exceed a total length increase of 10–20%.
 
 Below is the course information for which you will be revising the slide content:
 
@@ -315,8 +321,12 @@ Revision Guidelines: Before revising the slide content, follow these principles 
   - Revised content should blend naturally with the surrounding text, maintaining a smooth and logical flow.
   - Avoid making revisions that feel disjointed or inconsistent with the rest of the slide content.
 
-4) Revised Slide Content:
-  - Give only the revised slide content in your output and not any other details like slide title, slide type, etc.
+4) Maintain Conciseness and Length Constraint:
+  - Strictly ensure that your revised slide content does not exceed a total increase of 10–20% in length compared to the original.
+  - Even if multiple suggestions were given, you must prioritize only the most essential and high-impact changes.
+  - If adhering to this limit requires skipping or scaling down certain suggestions, you must do so.
+  - You are strictly responsible for ensuring the overall revised content remains within this threshold — this limit must not be breached.
+  - Do not blindly implement all suggestions. Always assess the value and impact of each one before deciding to include it.
 
 5) Maintain Conciseness and Avoid Unnecessary Expansion:
   - Keep the revised content as concise and focused as the original.
@@ -324,7 +334,11 @@ Revision Guidelines: Before revising the slide content, follow these principles 
   - Add new sentences or phrases only when they are absolutely essential to improve clarity, tone, or natural flow — and even then, keep additions minimal and purposeful.
   - Do not elaborate unnecessarily or over-explain in ways that dilute instructional efficiency.
   - All revisions must prioritize tight, efficient communication that aligns with human-like but instructionally sound writing.
-  - Even if the review feedback suggests multiple additions or elaborations, do not implement all of them blindly. Use judgment to determine which suggestions are truly necessary. Also follow the examples given at the end as a guide for the patterns, structure and detail of your revised slide content. The revised slide content should remain close in length to the original — avoid making it substantially longer. Prioritize clarity and human-likeness, but never at the cost of brevity and instructional efficiency.
+  - The revised slide content should remain close in length to the original — avoid making it substantially longer under any condition.
+  - Clarity, tone, and flow improvements should never come at the cost of length discipline.
+
+6) Revised Slide Content:
+  - Give only the revised slide content in your output and not any other details like slide title, slide type, etc.
 
 Present your output strictly in the following format:
 
@@ -332,13 +346,19 @@ Present your output strictly in the following format:
 
 <evaluation_breakdown>
 
-(Before making revisions, carefully analyze the feedback and suggestions provided. Document your thought process for refining the slide content for each of the failed criteria in the following format)
+(Before making revisions, carefully analyze the feedback and suggestions provided. While planning your revisions, consider the total length impact across all criteria. Your combined changes should not increase the overall slide content length by more than 10–20%. Prioritize only the most essential and high-impact suggestions. Omit or scale down lower-priority improvements if needed to stay within this limit. Document your thought process for refining the slide content for the failed criteria in the following format)
 
 - [Insert failed criterion name]: Provide your detailed thought process and approach for revising this aspect of the slide content.
 
 - [Insert failed criterion name]: Provide your detailed thought process and approach for revising this aspect of the slide content.
 
 Repeat this pattern for each failed criterion.
+
+<prioritization_strategy>
+
+Explain how you plan to prioritize which suggestions to implement in order to stay within the 10–20% total length increase limit. Mention which lower-priority suggestions you plan to skip or scale back, and justify your decisions to maintain brevity while still achieving human-likeness improvements.
+
+</prioritization_strategy>
 
 </evaluation_breakdown>
 
