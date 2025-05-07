@@ -108,6 +108,7 @@ B) Evaluation Guidelines: Before assigning a Pass or Fail verdict, carefully rev
     - If the slide content fully meets a specific criterion, provide a brief justification confirming its effectiveness in the feedback section. In the suggestion section, state "No changes needed" and assign a verdict of "Pass" for that criterion.
     - If the slide content fails a specific criterion, clearly explain the issue in the feedback section. In the suggestion section, provide direct, actionable recommendations to address the problem while maintaining the instructional alignment and strictly assign a "Fail" verdict for that criterion.
     - Strictly ensure that all your feedback and suggestions focus on refining the existing slide content - do not introduce new information unnecessarily or alter its original intent. The content itself should remain unchanged; your task is only to improve its language, tone, and flow to make it feel more human-written and natural while preserving its meaning.
+    - Strictly avoid suggesting rhetorical or formulaic openings like “Ever wondered…”, “Ever notice…”, “Ever been…”, “Have you ever…”, “Imagine…”, or similar patterns. These expressions are frequently overused by AI models and can make multiple slides sound repetitive and unnatural.
     - While making suggestions for failed criteria, you must consider the total impact across all failed items. Your suggestions across all failed criteria should strictly result in no more than a 10–20% increase in the original slide content’s length. You are strictly responsible for ensuring that your collective suggestions across all failed criteria do not exceed a total 10–20% increase in content length. If adhering to this limit requires omitting or deferring less essential improvements, you must do so. Breaching this threshold is not permitted, regardless of the number of failed criteria.
     - When suggesting improvements, do not expand or lengthen the original slide content beyond what is necessary for human-like improvement. Only propose adding new sentences or phrases if they are absolutely essential to enhance clarity, tone, or human-likeness - and even then, keep such additions minimal and purposeful. The revised content should remain similar in length to the original. Avoid suggestions that would make the content substantially longer. The goal is to maintain concise, tightly focused, and instructionally efficient communication while improving human-likeness.
     - Avoid proposing additions or elaborations unless they are essential for improving human-likeness. Be selective and concise in your recommendations.
@@ -337,7 +338,11 @@ Revision Guidelines: Before revising the slide content, follow these principles 
   - The revised slide content should remain close in length to the original — avoid making it substantially longer under any condition.
   - Clarity, tone, and flow improvements should never come at the cost of length discipline.
 
-6) Revised Slide Content:
+6) Avoid Overused Rhetorical Openings:
+  - Strictly avoid beginning the slide with rhetorical or formulaic openings like “Ever wondered…”, “Ever been…”, “Ever notice…”, “Have you ever…”, “Imagine…”, or similar patterns — even if suggested in the review feedback and suggestions.
+  - These openings are commonly overused by AI models and reduce the naturalness and variety of the slide content.
+
+7) Revised Slide Content:
   - Give only the revised slide content in your output and not any other details like slide title, slide type, etc.
 
 Present your output strictly in the following format:

@@ -11,6 +11,7 @@ from services.smart_progress_bar import SmartProgressBar
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from langchain_core.documents import Document
+from services.sheets_service import safe_get_sheet_data_and_df
 
 
 ## Video Based Outline References
@@ -642,11 +643,17 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
     # Add deep research references
     references_df = list_deep_research_references(references_df, deep_research_df, videos_research_df, video_chunks_df, preliminary_research_df)
 
-    # Add topic deep research references
-    references_df = list_topic_deep_research_references(references_df, topic_deep_research_df, videos_research_df, video_chunks_df, preliminary_research_df)
+    # Conditionally add topic deep research references
+    if not topic_deep_research_df.empty:
+        references_df = list_topic_deep_research_references(
+            references_df, topic_deep_research_df, videos_research_df, video_chunks_df, preliminary_research_df
+        )
 
-    # Add topic outline references
-    references_df = list_topic_outline_references(references_df, topic_outline_df, videos_research_df, video_chunks_df, preliminary_research_df)
+    # Conditionally add topic outline references
+    if not topic_outline_df.empty:
+        references_df = list_topic_outline_references(
+            references_df, topic_outline_df, videos_research_df, video_chunks_df, preliminary_research_df
+        )
     
     # Drop any references row with empty source
     references_df = references_df.fillna('')
@@ -674,11 +681,11 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
     client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet = sheet, sheet_name = client_reference_sheet_name)
     preliminary_research_sheet, preliminary_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = web_research_sheet_name)
     deep_research_sheet, deep_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = deep_research_sheet_name)
-    topic_outline_sheet, topic_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = topic_outline_sheet_name)
-    topic_deep_research_sheet, topic_deep_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = topic_deep_research_sheet_name)
+    topic_outline_sheet, topic_outline_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_outline_sheet_name)
+    topic_deep_research_sheet, topic_deep_research_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_deep_research_sheet_name)
 
     # Enlist the sources from all sheets in a single sheet
-    references_sheet, references_df = list_references(sheet, videos_research_df, video_chunks_df, client_reference_df, preliminary_research_df, deep_research_df, topic_deep_research_df, topic_outline_df)
+    references_sheet, references_df = list_references(sheet, videos_research_df, video_chunks_df, client_reference_df, preliminary_research_df, deep_research_df, topic_deep_research_df if not topic_deep_research_df.empty else pd.DataFrame(), topic_outline_df if not topic_outline_df.empty else pd.DataFrame())
 
     print("Loading references to chunks...")
     # Prepare for parallel processing
