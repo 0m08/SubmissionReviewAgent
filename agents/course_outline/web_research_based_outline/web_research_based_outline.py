@@ -26,12 +26,17 @@ Here's the information you'll be working with:
 {user_guidelines}
 </user_guidelines>
 
-4. Rough Outline (concepts to cover):
+4. Required Topic Count:
+<required_topic_count>
+{required_topic_count}
+</required_topic_count>
+
+5. Rough Outline (concepts to cover):
 <rough_outline>
 {rough_outline}
 </rough_outline>
 
-5. Preliminary Research:
+6. Preliminary Research:
 <preliminary_research>
 {preliminary_research}
 </preliminary_research>
@@ -43,11 +48,15 @@ Your task is to analyze and synthesize this information to create a well-structu
 3. Organize these topics into a logical sequence, considering the learning progression for entry-level HVAC technicians.
 4. Break down main topics into subtopics, ensuring each section is self-contained and can be studied independently if needed.
 5. Ensure the outline adheres to the user guidelines and aligns with the course background information.
+6. The course outline must include a specific number of main topics as defined in the Required Topic Count. Follow the rules below carefully to stay within that limit:
+   a. If a single number is provided (e.g., “8”), generate exactly that number of main topics. You may allow ±1 variation if absolutely unavoidable to maintain logical structure or topic coherence.
+   b. If a range is provided (e.g., “5–8”), the number of main topics must strictly fall within that range. Do not exceed the upper limit or fall below the lower limit. Strictly do not add or remove topics beyond this range, even if you believe it might improve coverage or flow.
 
 Before creating the final outline, use the <scratchpad> tags to plan your approach. Consider the following:
 - How can you structure the outline to make it easy for learners to follow?
 - What is the most logical sequence for the topics?
 - How can you ensure each topic is self-contained yet connected to the overall course flow?
+- How many main topics are expected based on the Required Topic Count, and how can the outline stay strictly within that limit?
 - Are there any topics from the rough outline or preliminary research that need to be expanded or condensed?
 
 After your planning, create the course outline. Use the following format for your outline:
@@ -65,7 +74,7 @@ II. Main Topic 2
    B. Subtopic 2
    ...
 
-[Continue with remaining main topics and subtopics]
+[Continue with remaining main topics and subtopics, but remember to stay strictly within the specified required topic count.]
 </course_outline>
 
 Ensure that your outline is comprehensive, well-structured, and tailored to the needs of entry-level HVAC technicians. The topics should progress logically and build upon each other where appropriate.
@@ -87,6 +96,11 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
 
     proposer_agents, _ = get_proposer_and_aggregator_agents(agents_df)  # Unpack proposer_agents correctly
 
+    # Fetch topic count from Course Info
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    raw_count = course_info_df.loc[0, "Required Topic Count"]
+    required_topic_count = str(raw_count).strip() if pd.notna(raw_count) and str(raw_count).strip() else "unspecified"
+
     # Collect the results as they complete
     total_tasks = len(proposer_agents)
 
@@ -105,7 +119,7 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
         concepts_to_include = get_outline_with_los(df = rough_outline_df, include_learning_objectives = False, include_prefix = False)
         research_summary = '\n\n---\n\n'.join(rough_outline_df['Manual Extract'].to_list())
         course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
-        
+
         generate_outline_agent.add_message(
             role="system",
             content=proposer_agent.description
@@ -118,7 +132,8 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
                     course_background = course_background,
                     user_guidelines = course_objective_guidelines,
                     rough_outline = concepts_to_include,
-                    preliminary_research = research_summary
+                    preliminary_research = research_summary,
+                    required_topic_count = required_topic_count
                 ))
             ]
         )

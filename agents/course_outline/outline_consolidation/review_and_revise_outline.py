@@ -78,7 +78,7 @@ Refrain from giving generic suggestions such as:
 - Add hands-on activities or demonstrations where appropriate
 - Include knowledge check points throughout the course
 - Consider adding a glossary of basic terms
--Develop clear learning objectives for each main section
+- Develop clear learning objectives for each main section
 
 All of the above tasks are to be done while keeping the user feedback on the course outline in your mind.
 
