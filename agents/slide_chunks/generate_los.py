@@ -797,23 +797,19 @@ def run_learning_objectives_agent(sheet, worksheet_name, course_name, target_aud
         total_tasks = len(futures_map)
         progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
 
-        # Collect the results as they complete
+        # Temporary dict to collect updated topic data
+        topic_data_map = {}
+
+        # Collect results as they complete
         for future in tqdm(as_completed(futures_map)):
             topic, updated_topic_df = future.result()
-
-            # Update main DataFrame with modified topic rows
-            slide_chunks_df = slide_chunks_df[slide_chunks_df["Topic"] != topic]  # Remove old topic rows
-            slide_chunks_df = pd.concat([slide_chunks_df, updated_topic_df], ignore_index=True)
-
-            # Write updates to Google Sheets
-            set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
-            print(f"📌 Google Sheet updated for Topic: {topic} ✅\n")
+            topic_data_map[topic] = updated_topic_df
             progress.update()
 
-    print("\n✅ All Topics Processed and Updated in Google Sheets 🚀\n")
+        # Reconstruct slide_chunks_df in original topic order
+        ordered_topic_dfs = [topic_data_map[topic] for topic in unique_topics if topic in topic_data_map]
+        slide_chunks_df = pd.concat(ordered_topic_dfs, ignore_index=True)
 
-
-        
-        
-        
-            
+        # Write once to Google Sheets after all processing
+        set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
+        print("\n✅ All Topics Processed and Updated in Google Sheets 🚀\n")
