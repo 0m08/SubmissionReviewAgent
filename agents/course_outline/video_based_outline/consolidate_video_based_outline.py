@@ -23,6 +23,11 @@ Tentative Outline:
 <tentative_outline>
 {tentative_outline}
 </tentative_outline>
+
+Required Topic Count:
+<required_topic_count>
+{required_topic_count}
+</required_topic_count>
 </course_info>
 
 Now, examine the partial outlines generated from video content:
@@ -52,7 +57,12 @@ Your task is to analyze these partial outlines and create a final, comprehensive
    - Organize the content in a coherent and logical order
    - Ensure all key topics from the partial outlines are included
 
-4. Create the final course outline:
+4. Enforce the required topic count strictly:
+   - The course outline must include a specific number of main topics as defined in the Required Topic Count. Follow the rules below carefully to stay within that limit
+     a. If a single number is provided (e.g., “8”), generate exactly that number of main topics. You may allow ±1 variation if absolutely unavoidable to maintain logical structure or topic coherence
+     b. If a range is provided (e.g., “5–8”), the number of main topics must strictly fall within that range. Do not exceed the upper limit or fall below the lower limit. Strictly do not add or remove topics beyond this range, even if you believe it might improve coverage or flow
+    
+5. Create the final course outline:
    - Use the course information to guide the overall structure
    - Incorporate the combined content from the partial outlines
    - Ensure the outline aligns with the course name, target audience, and tentative outline provided in the course info
@@ -70,6 +80,7 @@ Before presenting the final outline, show your thought process inside <outline_s
   - What additions or modifications are necessary to create a comprehensive course outline?
   - How have you ensured that the final outline maintains a logical flow and avoids hindering elements?
   - What unique concepts from other outlines have you incorporated, and why?
+  - How many main topics are expected based on the Required Topic Count, and how have you ensured the final outline stays within that range?
 
 It's OK for this section to be quite long.
 
@@ -92,14 +103,14 @@ II. Main Topic 2
       1. Specific point (Brief explanation if necessary)
       2. Specific point (Brief explanation if necessary)
 
-[Continue with additional main topics as needed]
+[Continue with additional main topics as needed, but remember to stay strictly within the specified required topic count.]
 </final_outline>
 
 Remember to maintain a logical flow, ensure comprehensive coverage of the course content, and align the final outline with the provided course information. Your analysis and final outline should demonstrate thorough reasoning and careful consideration of all provided materials.
 """
 
 
-def process_proposer(proposer_agent, partial_outlines, course_name, target_audience, course_outline, use_agent_llm, llm):
+def process_proposer(proposer_agent, partial_outlines, course_name, target_audience, course_outline, required_topic_count, use_agent_llm, llm):
     print(proposer_agent.name)
     if use_agent_llm:
         llm = proposer_agent.llm  # If no llm is provided, use the llm of the agent
@@ -119,7 +130,8 @@ def process_proposer(proposer_agent, partial_outlines, course_name, target_audie
             course_name=course_name,
             target_audience=target_audience,
             tentative_outline=course_outline,
-            partial_outlines=partial_outlines
+            partial_outlines=partial_outlines,
+            required_topic_count=required_topic_count
         )
     )
 
@@ -179,10 +191,16 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
         df = rough_outline_df,
         include_learning_objectives = False
     )
+    
+    # Fetch topic count from Course Info
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    raw_count = course_info_df.loc[0, "Required Topic Count"]
+    required_topic_count = str(raw_count).strip() if pd.notna(raw_count) and str(raw_count).strip() else "unspecified"
+
 
     with ThreadPoolExecutor(max_workers = 5) as executor:
         futures_map = {
-            executor.submit(process_proposer, proposer_agent, partial_outlines, course_name, target_audience, course_outline, use_agent_llm, llm): proposer_agent
+            executor.submit(process_proposer, proposer_agent, partial_outlines, course_name, target_audience, course_outline, required_topic_count, use_agent_llm, llm): proposer_agent
             for proposer_agent in proposer_agents
         }
 

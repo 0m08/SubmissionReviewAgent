@@ -27,12 +27,17 @@ Here's the information you'll be working with:
 {user_guidelines}
 </user_guidelines>
 
-4. Rough Outline (concepts to cover):
+4. Required Topic Count:
+<required_topic_count>
+{required_topic_count}
+</required_topic_count>
+
+5. Rough Outline (concepts to cover):
 <rough_outline>
 {rough_outline}
 </rough_outline>
 
-5. Preliminary Research:
+6. Preliminary Research:
 <preliminary_research>
 {preliminary_research}
 </preliminary_research>
@@ -44,12 +49,18 @@ Your task is to analyze and synthesize this information to create a well-structu
 3. Organize these topics into a logical sequence, considering the learning progression for entry-level HVAC technicians.
 4. Break down main topics into subtopics, ensuring each section is self-contained and can be studied independently if needed.
 5. Ensure the outline adheres to the user guidelines and aligns with the course background information.
-6. Be detailed with the outline. Use sentences if necessary to explain exactly what is to be covered such that there is no guesswork down the line on what material to include
+6. Be detailed with the outline. Use sentences if necessary to explain exactly what is to be covered such that there is no guesswork down the line on what material to include.
+7. The course outline must include a specific number of main topics as defined in the Required Topic Count. Follow the rules below carefully to stay within that limit:
+   a. If a single number is provided (e.g., “8”), generate exactly that number of main topics. You may allow ±1 variation if absolutely unavoidable to maintain logical structure or topic coherence.
+   b. If a range is provided (e.g., “5–8”), the number of main topics must strictly fall within that range. Do not exceed the upper limit or fall below the lower limit. Strictly do not add or remove topics beyond this range, even if you believe it might improve coverage or flow.
+   
+
 
 Before creating the final outline, use the <scratchpad> tags to plan your approach. Consider the following:
 - How can you structure the outline to make it easy for learners to follow?
 - What is the most logical sequence for the topics?
 - How can you ensure each topic is self-contained yet connected to the overall course flow?
+- How many main topics are expected based on the Required Topic Count, and how can the outline stay strictly within that limit?
 - Are there any topics from the rough outline or preliminary research that need to be expanded or condensed?
 
 After your planning, create the course outline. Use the following format for your outline:
@@ -71,14 +82,14 @@ II. Main Topic 2
       1. Specific point (Brief explanation if necessary)
       2. Specific point (Brief explanation if necessary)
 
-[Continue with additional main topics as needed]
+[Continue with additional main topics as needed, but remember to stay strictly within the specified required topic count.]
 </course_outline>
 
 Ensure that your outline is comprehensive, well-structured, and tailored to the needs of entry-level HVAC technicians. The topics should progress logically and build upon each other where appropriate.
 """
 
 
-def process_agent_outline(proposer_agent, course_name, course_background, concepts_to_include, research_summary, course_objective_guidelines, llm=None):
+def process_agent_outline(proposer_agent, course_name, course_background, concepts_to_include, research_summary, course_objective_guidelines, required_topic_count, llm=None):
     """
     Process a single agent's outline generation task
     
@@ -88,6 +99,7 @@ def process_agent_outline(proposer_agent, course_name, course_background, concep
     :param concepts_to_include: Concepts to include in the outline
     :param research_summary: Research summary from Deep Research
     :param course_objective_guidelines: Guidelines for course objectives
+    :param required_topic_count: The number of topics specified
     :param llm: Language model to use (if None, use agent's llm)
     :return: Tuple of (agent_name, outline)
     """
@@ -111,7 +123,8 @@ def process_agent_outline(proposer_agent, course_name, course_background, concep
                 course_background=course_background,
                 user_guidelines=course_objective_guidelines,
                 rough_outline=concepts_to_include,
-                preliminary_research=research_summary
+                preliminary_research=research_summary,
+                required_topic_count=required_topic_count
             ))
         ]
     )
@@ -148,6 +161,11 @@ def propose_web_research_outline_with_agents(sheet, course_name, course_backgrou
     research_summary = '\n\n---\n\n'.join(deep_research_df['research'].to_list())
     course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
 
+    # Fetch topic count from Course Info
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    raw_count = course_info_df.loc[0, "Required Topic Count"]
+    required_topic_count = str(raw_count).strip() if pd.notna(raw_count) and str(raw_count).strip() else "unspecified"
+
     # Prepare for parallel processing
     futures_map = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -165,6 +183,7 @@ def propose_web_research_outline_with_agents(sheet, course_name, course_backgrou
                 concepts_to_include,
                 research_summary,
                 course_objective_guidelines,
+                required_topic_count,
                 agent_llm
             )
             
