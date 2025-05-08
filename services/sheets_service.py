@@ -329,3 +329,18 @@ def resize_column_by_name(worksheet, column_name, pixel_size, wrap=None):
 
     return
 
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
+def safe_get_sheet_data_and_df(sheet, sheet_name):
+    """
+    Safely get sheet data and dataframe. If the sheet does not exist, return empty DataFrame.
+    
+    :param sheet: gspread sheet object
+    :param sheet_name: Name of the worksheet
+    :return: (worksheet, DataFrame) or (None, empty DataFrame)
+    """
+    worksheet_names = get_worksheet_names(sheet)
+    if sheet_name in worksheet_names:
+        return get_sheet_data_and_df(sheet, sheet_name)
+    else:
+        print(f"'{sheet_name}' not found in the sheet. Skipping.")
+        return None, pd.DataFrame()

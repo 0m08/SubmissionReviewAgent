@@ -1,4 +1,6 @@
 from agent_ui_template import agent_ui
+import streamlit as st
+from services.sheets_service import get_worksheet_names
 
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
 from agents.research_notes.generate_notes import run_research_notes_agent_for_all_rows
@@ -8,6 +10,13 @@ from agents.research_notes.create_research_notes_sheet import create_research_no
 from agents.research_notes.review_topic_notes import run_review_topic_notes_agent_for_all_rows, manual_input_review_topic_notes
 from agents.research_notes.revise_topic_notes import run_revise_topic_notes_for_all_rows
 from agents.research_notes.load_references import load_references  # New import
+
+# Determine which outline sheet to use
+outline_worksheet = "Enhanced Outline with LOs"
+if "sheet" in st.session_state:
+    worksheet_names = get_worksheet_names(st.session_state["sheet"])
+    if "Enhanced Outline with LOs" not in worksheet_names:
+        outline_worksheet = "Course Outline with LOs"
 
 # --- 1) Define pipeline as sections, each with its own steps ---
 pipeline_sections = [
@@ -32,7 +41,7 @@ pipeline_sections = [
                     "root_folder_id": "root_folder_id",
                     "drive": "drive",
                     "sheet": "sheet",
-                    "worksheet_name": "Enhanced Outline with LOs",
+                    "worksheet_name": outline_worksheet,
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -46,7 +55,7 @@ pipeline_sections = [
                 "depends_on": ["Retriever"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Enhanced Outline with LOs",
+                    "worksheet_name": outline_worksheet,
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -65,7 +74,7 @@ pipeline_sections = [
                 "depends_on": ["Researcher"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Enhanced Outline with LOs",
+                    "worksheet_name": outline_worksheet,
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -79,10 +88,10 @@ pipeline_sections = [
                 "depends_on": ["Reviewer"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Enhanced Outline with LOs",
+                    "worksheet_name": outline_worksheet,
                 },
                 "instructions": [
-                    "Review the research notes, and the ai generated review within the `Enhanced Outline with LOs` sheet.",
+                    f"Review the research notes, and the AI-generated review within the `{outline_worksheet}` sheet.",
                     "Column names:\n `research_notes`,\n `analysis`,\n `not_covered_at_all`,\n `not_covered_enough`,\n `perfectly_covered`,\n `covered_too_much`,\n `verdict`",
                     "---",
                     "1. **Review and edit** the category columns (`not_covered_at_all`, `not_covered_enough`, etc.) as needed to incorporate your final thoughts.",
@@ -112,7 +121,7 @@ pipeline_sections = [
                     "root_folder_id": "root_folder_id",
                     "drive": "drive",
                     "sheet": "sheet",
-                    "worksheet_name": "Enhanced Outline with LOs",
+                    "worksheet_name": outline_worksheet,
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": "gemini_2_flash",
@@ -132,7 +141,7 @@ pipeline_sections = [
                 "depends_on": ["Reviser"],
                 "args": {
                     "sheet": "sheet",
-                    "source_worksheet_name": "Enhanced Outline with LOs",
+                    "source_worksheet_name": outline_worksheet,
                     "target_worksheet_name": "Research Notes",
                 },
                 "estimated_time": "A few seconds",

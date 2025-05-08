@@ -66,6 +66,7 @@ Evaluation Guidelines:
   - While suggesting improvements, avoid recommending additions that expand the slide beyond what is necessary to meet the checklist criterion. Suggestions should prioritize clarity, relevance, and instructional intent — not elaboration for its own sake.
   - When providing feedback and suggestions for a failed criterion, avoid suggesting significant content expansion. Keep in mind that the revised slide should ideally stay within approximately 10-20% of the original content length.
   - Avoid recommending generic or overly detailed explanations that can unnecessarily increase the length of the slide content
+  - Strictly avoid suggesting rhetorical or formulaic openings such as “Ever wondered…”, “Ever been…”, “Imagine…”, or similar patterns that are commonly overused. These openings reduce variety and make the content sound repetitive or templated across slides.
   - Include a "Evaluation Breakdown" field for every checklist criterion in the final output. This section should clearly document the thought process behind your verdict.
   - If the Final Verdict is "Pass", include only the fields for Checklist Criterion, Evaluation Breakdown, and Final Verdict in your output. If the Final Verdict is "Fail", include an additional field, "Feedback", to explain the negative verdict concisely.
 
@@ -177,6 +178,7 @@ Based on the feedback from the evaluation agent, generate a revised version of t
 When revising:
 - Avoid significantly increasing the overall content length. The revised slide should ideally stay within approximately 10–20% of the original slide content's length.
 - Avoid unnecessary elaboration or the addition of extra information that does not directly enhance or clarify the existing content, even if it is suggested in the evaluation feedback. Prioritize maintaining the original focus and instructional clarity.
+- Strictly avoid using rhetorical openings like “Ever wonder…”, “Ever notice…”, “Ever been…”, or “Have you ever…”, “Imagine…”, or similar patterns, even if such phrasing is suggested in the evaluation feedback. These expressions are often overused, sound formulaic, and reduce variation across slides.
 - Be concise, eliminate redundancy, and preserve the instructional clarity and focus of the original slide.
 - Prioritize brevity, clarity, and effectiveness over expansion.
 
