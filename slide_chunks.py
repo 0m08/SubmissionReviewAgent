@@ -70,7 +70,7 @@ pipeline_sections = [
                 },
             
                 "estimated_time": "30-50 minutes",
-                "description": "This function reviews and revises the slide chunks based on AI detection to ensure quality and coherence.",
+                "description": "This function reviews and revises the slide chunks based on AI detection to ensure that the content looks Human-generated and not AI-generated.",
             },
             
             {

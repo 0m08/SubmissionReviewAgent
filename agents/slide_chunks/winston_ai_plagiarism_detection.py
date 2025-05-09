@@ -99,7 +99,7 @@ def check_plagiarism_winston(text):
 
 def run_plagiarism_detection(sheet, worksheet_name):
     """
-    Run plagiarism detection for each row in 'final_slide_content' and update the sheet.
+    Run plagiarism detection for each row in 'Content' and update the sheet.
 
     :param sheet: The Google Sheets object.
     :param slide_chunks_df: The DataFrame containing slide content.
@@ -126,7 +126,7 @@ def run_plagiarism_detection(sheet, worksheet_name):
     with ThreadPoolExecutor(max_workers=5) as executor:
         # Submit tasks for each row
         for index, row in slide_chunks_df.iterrows():
-            slide_content = row["final_slide_content"]
+            slide_content = row["Content"]
 
             # Skip if slide content is empty or already checked
             if not slide_content or pd.isna(slide_content) or slide_chunks_df.at[index, "Plagiarism Score"]:

@@ -26,7 +26,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
                 "instructions": [
-                    "1. Before running this step, open the `Slide Chunks` sheet, review all the Slide content in the `final_slide_content` column, and populate the `Reference Description` column for any slides where you have visual suggestions, references, or instructions — or leave it blank if you don’t have input for a particular slide. These suggestions will be used by the agent as references when generating the graphics definition for each slide.",
+                    "1. Before running this step, open the `Slide Chunks` sheet, review all the Slide content in the `Content` column, and populate the `Reference Description` column for any slides where you have visual suggestions, references, or instructions — or leave it blank if you don’t have input for a particular slide. These suggestions will be used by the agent as references while generating the graphics definition for each slide.",
                     "2. Click on **Confirm Generate Graphics Definition** button to start processing the first slide.",
                     "3. The agent will generate a scene-by-scene graphics definition and 4 AI reviews: complexity, missing sentences, accuracy, and reuse previous graphics.",
                     "4. Navigate to the `Slide Chunks` sheet and review the generated graphics definition in the `graphics_definition` column.",
@@ -62,7 +62,7 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
                 "estimated_time": "~ 5 - 10 minutes",
-                "description": "Generates revised Graphics Definition based on the review of the generated graphics definitions on the checklist criteria. The final Graphics Definitions are populated in the `checklist_revised_graphics_definition` column.",
+                "description": "Generates revised Graphics Definition based on the review of the generated graphics definitions on the checklist criteria. The final Graphics Definitions are populated in the `Graphics Definition` column.",
             },
         ],
     }

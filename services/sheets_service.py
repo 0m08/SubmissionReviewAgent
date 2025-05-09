@@ -344,3 +344,40 @@ def safe_get_sheet_data_and_df(sheet, sheet_name):
     else:
         print(f"'{sheet_name}' not found in the sheet. Skipping.")
         return None, pd.DataFrame()
+    
+@try_n_times(n=5, wait=2, backoff='exponential')
+def hide_worksheet_by_name(sheet, worksheet_name):
+    """
+    Hides the specified worksheet (tab) in the Google Sheet by name.
+
+    :param sheet: The gspread sheet object (entire Google Sheet).
+    :param worksheet_name: The name of the worksheet/tab to hide.
+
+    Returns:
+        None
+    """
+    # Get all worksheet names
+    worksheet_names = get_worksheet_names(sheet)
+
+    # Validate worksheet exists
+    if worksheet_name not in worksheet_names:
+        print(f"⚠️ Worksheet '{worksheet_name}' not found. Nothing to hide.")
+        return
+
+    # Get worksheet object
+    worksheet = sheet.worksheet(worksheet_name)
+
+    # Issue the hide request
+    request = {
+        "updateSheetProperties": {
+            "properties": {
+                "sheetId": worksheet.id,
+                "hidden": True
+            },
+            "fields": "hidden"
+        }
+    }
+
+    # Apply the request
+    sheet.batch_update({'requests': [request]})
+    print(f" Worksheet '{worksheet_name}' has been successfully hidden.")
