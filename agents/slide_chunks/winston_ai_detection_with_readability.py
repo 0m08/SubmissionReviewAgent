@@ -239,7 +239,7 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
 
     save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
-    # ✅ Set the column width of "Slide No." (column A) to 50
+    # Set the column width of "Slide No." (column A) to 50
     resize_column_by_name(slide_chunks_sheet, column_name="Slide No.", pixel_size=50)
 
     # Freeze the first column ("Slide No.")
@@ -251,7 +251,7 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
         merged_with_previous = False
 
         while iteration < max_iterations:
-            slide_1 = slide_chunks_df.at[index, "final_slide_content"]
+            slide_1 = slide_chunks_df.at[index, "Content"]
             slide_2 = None
 
             if not slide_1 or pd.isna(slide_1):
@@ -260,11 +260,11 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
 
             # Merge short slides (<300 chars) with next or previous
             if iteration == 0 and len(slide_1) < 300 and index + 1 < len(slide_chunks_df):
-                slide_2 = slide_chunks_df.at[index + 1, "final_slide_content"]
+                slide_2 = slide_chunks_df.at[index + 1, "Content"]
                 if slide_2 and not pd.isna(slide_2):
                     merged = True
             elif iteration == 0 and len(slide_1) < 300 and index == len(slide_chunks_df) - 1 and index > 0:
-                prev_slide = slide_chunks_df.at[index - 1, "final_slide_content"]
+                prev_slide = slide_chunks_df.at[index - 1, "Content"]
                 if prev_slide and not pd.isna(prev_slide):
                     slide_2 = slide_1
                     slide_1 = prev_slide
@@ -274,8 +274,8 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
 
             # Re-fetch revised slides in later iterations if merged
             if merged and iteration > 0:
-                slide_1 = slide_chunks_df.at[index, "final_slide_content"]
-                slide_2 = slide_chunks_df.at[index + 1, "final_slide_content"]
+                slide_1 = slide_chunks_df.at[index, "Content"]
+                slide_2 = slide_chunks_df.at[index + 1, "Content"]
 
             # Prepare content for AI check or readability revision
             if merged and slide_2:
@@ -296,7 +296,6 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
                 slide_chunks_df.at[index + 1, "AI Detection Error"] = "Merged into previous row"
                 slide_chunks_df.at[index + 1, "Readability Score"] = ""
                 slide_chunks_df.at[index + 1, "Sentence-Level Scores"] = ""
-                #slide_chunks_df.at[index + 1, "final_slide_content"] = ""
 
             score = ai_result.get("Readability Score", 100)
             try:
@@ -317,16 +316,16 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
                 slide_content=formatted_slide_input
             )
 
-            # Extract and update revised slide content in the final_slide_content column
+            # Extract and update revised slide content in the Content column
             revised_blocks = re.findall(r"<revised_slide_content>(.*?)</revised_slide_content>", revised_output, re.DOTALL)
             if not revised_blocks:
                 print("⚠️ No revised content returned. Breaking.")
                 # return index, merged, merged_with_previous
                 break
 
-            slide_chunks_df.at[index, "final_slide_content"] = revised_blocks[0].strip()
+            slide_chunks_df.at[index, "Content"] = revised_blocks[0].strip()
             if merged and len(revised_blocks) > 1:
-                slide_chunks_df.at[index + 1, "final_slide_content"] = revised_blocks[1].strip()
+                slide_chunks_df.at[index + 1, "Content"] = revised_blocks[1].strip()
 
             iteration += 1
 
@@ -357,6 +356,8 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
     hide_columns_by_name(
         worksheet = slide_chunks_sheet,
         column_names = [    
+        "Slide Chunk Title", "Slide Chunk", "learning_objectives_added_slide_chunk",
+        "checklist_based_review_output", "checklist_based_slide_title", "checklist_based_slide_content",
         "Human Score", "Sentence-Level Scores", "Readability Score",
         "AI Manipulation Detected", "Zero-Width Space Attack",
         "Homoglyph Attack", "Detected Language", "AI Detection Error",
