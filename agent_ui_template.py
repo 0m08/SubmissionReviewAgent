@@ -37,6 +37,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
     if "current_step" not in st.session_state:
         st.session_state["current_step"] = None
 
+
     # --- 1) Define pipeline as sections, each with its own steps ---
 
     # --- 2) Initialize session states for each step ---
@@ -248,7 +249,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                                             # Log the completed step
                                             log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
                                             st.success(f"{step['name']} completed!")
+                                            
+                                            run_all_automated_steps(pipeline_sections)
                                             st.rerun()
+                                        
                                         else:
                                             st.warning(f"{step['name']} not completed!")
                                     else:
@@ -389,7 +393,10 @@ def delete_steps(sheet, agent_name, step_names, pipeline_sections):
 
 
 def run_all_automated_steps(pipeline_sections):
-    """Run all non-manual steps in the pipeline that have their dependencies satisfied."""
+    """Run all steps in the pipeline that have their dependencies satisfied.
+    - If skip_manual_step is checked - run all steps including manual ones.
+    - If unchecked - stop execution when a manual step is reached.
+    """
     progress_made = True
     
     # Keep iterating as long as we're making progress
@@ -404,18 +411,25 @@ def run_all_automated_steps(pipeline_sections):
                 step_global_count += 1
 
                 # Skip if already done
-                if st.session_state[step_key]:
+                if st.session_state.get(step_key, False):
                     continue
-
-                # Skip manual steps unless "skip_manual_step" is checked
-                # if "instructions" in step and not st.session_state.get("skip_manual_step", False):
-                    # continue
 
                 # Check if dependencies are satisfied
                 dependencies_satisfied = all(
                     st.session_state.get(f"{dep}_done", False)
                     for dep in step["depends_on"]
                 )
+
+                if not dependencies_satisfied:
+                    continue
+
+                # Check if this is a manual step
+                is_manual = "instructions" in step
+
+                # Stop at manual steps unless "skip_manual_step" is checked
+                if is_manual and not st.session_state.get("skip_manual_step", False):
+                    st.info(f" Paused at manual step: **{step['name']}**. Please complete it manually to continue.")
+                    return  # Exit early, waiting for manual confirmation
 
                 if dependencies_satisfied:
                     try:
@@ -440,9 +454,11 @@ def run_all_automated_steps(pipeline_sections):
                             log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
                             progress_made = True
                             st.success(f"Auto-run: Step {step_global_count}. {step['name']} completed!")
+                            
                     except Exception as e:
                         st.error(f"Error auto-running Step {step_global_count}. {step['name']}: {e}")
                         st.text(traceback.format_exc())
+                        return
 
 
 def log_completed_step(sheet, agent_name, step_name):
