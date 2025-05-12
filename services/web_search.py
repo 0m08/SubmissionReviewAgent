@@ -12,7 +12,7 @@ from langsmith import traceable
     "agent_name": "course_outline",
     "step_name": "Obtain Web Article Links",
     "function_name": "ddgs_search",
-    "user_id": st.session_state.get("user_id")
+    "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(2, wait = 5, backoff = 'linear')
 def ddgs_search(search_query, max_results=30, backend = 'api'):
@@ -39,7 +39,7 @@ def ddgs_search(search_query, max_results=30, backend = 'api'):
     "agent_name": "course_outline",
     "step_name": "Obtain Web Article Links",
     "function_name": "exa_search",
-    "user_id": st.session_state.get("user_id")
+    "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(2, wait = 5, backoff = 'linear')
 def exa_search(search_query):
@@ -75,7 +75,7 @@ def exa_search(search_query):
     "agent_name": "course_outline",
     "step_name": "Obtain Web Article Links",
     "function_name": "web_search_screening",
-    "user_id": st.session_state.get("user_id")
+    "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(3)
 def web_search_screening(course_name, course_outline, search_query, llm = 'gemini_2_flash'):

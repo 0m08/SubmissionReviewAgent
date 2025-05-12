@@ -92,7 +92,7 @@ def get_docs_as_string(docs, all_docs):
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "retriever_agent",
+    "step_name": "Retriever",
     "function_name": "retrieve_relevant_docs",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -190,7 +190,7 @@ def retrieve_relevant_docs(compression_retriever, web_search_retriever, course_n
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "retriever_agent",
+    "step_name": "Retriever",
     "function_name": "process_single_row",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -287,7 +287,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "retriever_agent",
+    "step_name": "Retriever",
     "function_name": "run_retriever_agent_for_all_rows",
     "user_id": st.session_state.get("role", "anonymous")
 })

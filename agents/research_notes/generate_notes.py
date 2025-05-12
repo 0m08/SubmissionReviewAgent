@@ -93,7 +93,7 @@ Remember:
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "generate_notes",
+    "step_name": "Researcher",
     "function_name": "generate_research_notes",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -139,7 +139,7 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "generate_notes",
+    "step_name": "Researcher",
     "function_name": "run_research_notes_agent_for_all_rows",
     "user_id": st.session_state.get("role", "anonymous")
 })

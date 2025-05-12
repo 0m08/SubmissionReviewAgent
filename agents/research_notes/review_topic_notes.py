@@ -46,7 +46,7 @@ Output your response in the following format:
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "review_topic_notes",
+    "step_name": "Review Topic Notes",
     "function_name": "review_topic_notes",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -83,7 +83,7 @@ def review_topic_notes(course_name, target_audience, course_outline, topic_focus
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "review_topic_notes",
+    "step_name": "Review Topic Notes",
     "function_name": "run_review_topic_notes_agent_for_all_rows",
     "user_id": st.session_state.get("role", "anonymous")
 })

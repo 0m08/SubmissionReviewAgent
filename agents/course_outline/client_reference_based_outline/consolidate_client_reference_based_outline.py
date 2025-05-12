@@ -169,7 +169,7 @@ def run_propose_consolidated_reference_outlines(sheet, worksheet_name, course_na
     "agent_name": "course_outline",
     "step_name": "Consolidate Client Reference Based Outline",
     "function_name": "process_agent",
-    "user_id": st.session_state.get("user_id")
+    "user_id": st.session_state.get("role", "anonymous")
 })
     def process_agent(proposer_agent):
         print(proposer_agent.name)

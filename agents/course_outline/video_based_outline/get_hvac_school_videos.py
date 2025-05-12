@@ -9,7 +9,7 @@ from langsmith import traceable
 
 @traceable(metadata={
     "agent_name": "course_outline",
-    "step_name": "get_hvac_school_videos",
+    "step_name": "Retrieve HVAC School Videos",
     "function_name": "run_get_hvac_school_videos",
     "user_id": st.session_state.get("role", "anonymous")
 })

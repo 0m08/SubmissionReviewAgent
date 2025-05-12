@@ -77,7 +77,7 @@ Ensure that your analysis is thorough and your categorization is well-justified 
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "review_subtopic_notes",
+    "step_name": "Reviewer",
     "function_name": "review_research_notes",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -114,7 +114,7 @@ def review_research_notes(course_name, target_audience, course_outline, subtopic
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "review_subtopic_notes",
+    "step_name": "Reviewer",
     "function_name": "run_reviewer_agent_for_all_rows",
     "user_id": st.session_state.get("role", "anonymous")
 })

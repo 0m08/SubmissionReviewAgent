@@ -108,7 +108,7 @@ Remember:
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "revise_subtopic_notes",
+    "step_name": "Reviser",
     "function_name": "revise_research_notes",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -218,7 +218,7 @@ def revise_research_notes(compression_retriever, web_search_retriever, course_na
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "revise_subtopic_notes",
+    "step_name": "Reviser",
     "function_name": "run_reviser_agent_for_all_rows",
     "user_id": st.session_state.get("role", "anonymous")
 })

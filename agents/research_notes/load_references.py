@@ -17,7 +17,7 @@ from langsmith import traceable
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "list_video_research_references",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -86,7 +86,7 @@ def list_video_research_references(references_df, videos_research_df, video_chun
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "list_client_references",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -187,7 +187,7 @@ def list_client_references(references_df, videos_research_df, video_chunks_df, p
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "populate_reference_df_from_video_chunks_df",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -267,7 +267,7 @@ def populate_reference_df_from_video_chunks_df(source, source_origin, title, ref
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "populate_reference_df_from_preliminary_research_df",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -343,7 +343,7 @@ def populate_reference_df_from_preliminary_research_df(source, source_origin, ti
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "list_web_research_references",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -427,7 +427,7 @@ def list_web_research_references(references_df, preliminary_research_df):
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "list_deep_research_references",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -501,7 +501,7 @@ def list_deep_research_references(references_df, deep_research_df, videos_resear
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "list_topic_deep_research_references",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -575,7 +575,7 @@ def list_topic_deep_research_references(references_df, topic_deep_research_df, v
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "list_topic_outline_references",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -655,7 +655,7 @@ def list_topic_outline_references(references_df, topic_outline_df, videos_resear
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "list_references",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -720,7 +720,7 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "load_references",
+    "step_name": "Load References",
     "function_name": "load_references",
     "user_id": st.session_state.get("role", "anonymous")
 })

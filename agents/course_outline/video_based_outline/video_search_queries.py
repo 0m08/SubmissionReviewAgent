@@ -51,7 +51,7 @@ Remember to tailor the language and complexity of your search queries to match t
 
 @traceable(metadata={
     "agent_name": "course_outline",
-    "step_name": "video_search_queries",
+    "step_name": "Video Search Query Generator",
     "function_name": "generate_video_search_queries",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -81,7 +81,7 @@ def generate_video_search_queries(course_name, target_audience, course_outline, 
 
 @traceable(metadata={
     "agent_name": "course_outline",
-    "step_name": "video_search_queries",
+    "step_name": "Video Search Query Generator",
     "function_name": "create_additional_video_search_queries",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -106,7 +106,7 @@ def create_additional_video_search_queries(rough_outline_df):
 
 @traceable(metadata={
     "agent_name": "course_outline",
-    "step_name": "video_search_queries",
+    "step_name": "Video Search Query Generator",
     "function_name": "run_construct_video_search_queries",
     "user_id": st.session_state.get("role", "anonymous")
 })

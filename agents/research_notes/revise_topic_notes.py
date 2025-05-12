@@ -59,7 +59,7 @@ Slide Content: [Place content of the slide here. This is supposed to revise the 
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "revise_topic_notes",
+    "step_name": "Revise Topic Notes",
     "function_name": "revise_topic_notes",
     "user_id": st.session_state.get("role", "anonymous")
 })
@@ -141,7 +141,7 @@ def revise_topic_notes(course_name, target_audience, course_outline, topic_focus
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "revise_topic_notes",
+    "step_name": "Revise Topic Notes",
     "function_name": "run_revise_topic_notes_for_all_rows",
     "user_id": st.session_state.get("role", "anonymous")
 })

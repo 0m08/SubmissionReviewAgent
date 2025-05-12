@@ -8,7 +8,7 @@ import streamlit as st
 
 @traceable(metadata={
     "agent_name": "research_notes",
-    "step_name": "create_research_notes_sheet",
+    "step_name": "Create Research Notes Sheet",
     "function_name": "create_research_notes_sheet",
     "user_id": st.session_state.get("role", "anonymous")
 })
