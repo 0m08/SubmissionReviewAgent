@@ -1,5 +1,5 @@
 from agents.generate_assessments.chains import Chain
-from services.sheets_service import get_sheet_data_and_df, format_worksheet,create_or_read_worksheet, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, hide_worksheet_by_name, format_worksheet,create_or_read_worksheet, save_to_sheet
 import pandas as pd
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
@@ -163,7 +163,7 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
         for topic_name in unique_topics:
             topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic_name]
             slides = "\n".join(
-                topic_slides_data['final_slide_title'] + ": " + topic_slides_data['final_slide_content']
+                topic_slides_data['Title'] + ": " + topic_slides_data['Content']
             )
 
             future = executor.submit(
@@ -194,5 +194,8 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
 
     # Format the worksheet after saving
     format_worksheet(assessment_questions_sheet)
-    
+
+    #  Hide the worksheet after population
+    hide_worksheet_by_name(sheet, "Assessment questions")
+
     return questions_by_topic

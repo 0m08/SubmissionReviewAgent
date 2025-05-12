@@ -722,17 +722,17 @@ def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_au
     # Load Slide Chunks Data
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
-    # Ensure "final_slide_title" and "final_slide_content" columns exist
-    if "final_slide_title" not in slide_chunks_df.columns:
+    # Ensure "Title" and "Content" columns exist
+    if "Title" not in slide_chunks_df.columns:
         final_title_index = slide_chunks_df.columns.get_loc("checklist_based_slide_content") + 1
-        slide_chunks_df.insert(final_title_index, "final_slide_title", "")
+        slide_chunks_df.insert(final_title_index, "Title", "")
 
-    if "final_slide_content" not in slide_chunks_df.columns:
+    if "Content" not in slide_chunks_df.columns:
         final_content_index = final_title_index + 1
-        slide_chunks_df.insert(final_content_index, "final_slide_content", "")
+        slide_chunks_df.insert(final_content_index, "Content", "")
 
     # Skip the process if the columns are already filled 
-    if slide_chunks_df["final_slide_title"].astype(str).str.strip().ne("").all() and slide_chunks_df["final_slide_content"].astype(str).str.strip().ne("").all():
+    if slide_chunks_df["Title"].astype(str).str.strip().ne("").all() and slide_chunks_df["Content"].astype(str).str.strip().ne("").all():
       print("All slides already processed. Skipping the review and revise process")
       return
 
@@ -758,8 +758,8 @@ def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_au
             slide_content, final_slide_title = future.result()
 
             # Update the df with the final slide content and title
-            slide_chunks_df.at[index, "final_slide_content"] = slide_content
-            slide_chunks_df.at[index, "final_slide_title"] = final_slide_title
+            slide_chunks_df.at[index, "Content"] = slide_content
+            slide_chunks_df.at[index, "Title"] = final_slide_title
 
             # Update progress
             progress.update()

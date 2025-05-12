@@ -1,4 +1,4 @@
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, resize_column_by_name, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, resize_column_by_name, format_worksheet
 from tqdm import tqdm
 from agents.graphics_definition.graphics_definition_checklist.checklist_generation import generate_checklist_evaluation
 import re
@@ -113,8 +113,8 @@ def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist
         checklist_evaluation = generate_checklist_evaluation(
             course_name=course_name,
             target_audience=target_audience,
-            slide_title=row["final_slide_title"],
-            slide_content=row["final_slide_content"],
+            slide_title=row["Title"],
+            slide_content=row["Content"],
             graphics_definition=revised_graphics_definition,
             task_name=task_name,
             checklist_criteria=task_checklist_criteria,
@@ -141,8 +141,8 @@ def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist
         revised_graphics_definition = generated_checklist_revised_graphics_definition(
             course_name=course_name,
             target_audience=target_audience,
-            slide_title=row["final_slide_title"],
-            slide_content=row["final_slide_content"],
+            slide_title=row["Title"],
+            slide_content=row["Content"],
             graphics_definition=revised_graphics_definition,
             feedback=failed_feedback_text,
             llm=llm
@@ -176,8 +176,8 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
         if col not in checklist_df.columns:
             checklist_df[col] = ""
 
-    if "checklist_revised_graphics_definition" not in slide_chunks_df.columns:
-        slide_chunks_df["checklist_revised_graphics_definition"] = ""
+    if "Graphics Definition" not in slide_chunks_df.columns:
+        slide_chunks_df["Graphics Definition"] = ""
 
     futures_map = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -203,7 +203,7 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
             for task_name, (verdict, feedback) in checklist_results.items():
                 checklist_df.loc[checklist_df['Task'] == task_name, f"Slide {index+1}"] = verdict
             
-            slide_chunks_df.at[index, "checklist_revised_graphics_definition"] = revised_graphics_definition
+            slide_chunks_df.at[index, "Graphics Definition"] = revised_graphics_definition
                 
             progress.update()
 
@@ -216,10 +216,24 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     save_to_sheet(worksheet=checklist_sheet, df=checklist_df)
     save_to_sheet(worksheet=slide_chunks_sheet, df=slide_chunks_df)
 
-    # Resize the checklist_revised_graphics_definition column
-    resize_column_by_name(slide_chunks_sheet, "checklist_revised_graphics_definition", 189, wrap="WRAP")
+    # Resize the Graphics Definition column
+    resize_column_by_name(slide_chunks_sheet, "Graphics Definition", 189, wrap="WRAP")
 
     # Format the Checklist worksheet
     format_worksheet(checklist_sheet)
     
+    # Hide unnecessary columns
+    column_names = [
+        "Reference Description",
+        "graphics_definition",
+        "complexity_review",
+        "missing_sentences_review",
+        "accuracy_review",
+        "reuse_previous_graphics_review",
+        "human_review",
+        "revised_graphics_definition"
+    ]
+
+    hide_columns_by_name(slide_chunks_sheet, column_names, slide_chunks_df)
+
     return True
