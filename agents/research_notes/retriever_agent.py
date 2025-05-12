@@ -7,7 +7,7 @@ from services.helper_functions import create_and_populate_columns, get_outline_w
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
-
+from langsmith import traceable
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
@@ -90,7 +90,12 @@ def get_docs_as_string(docs, all_docs):
 
     return docs_as_string, all_docs
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "retriever_agent",
+    "function_name": "retrieve_relevant_docs",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def retrieve_relevant_docs(compression_retriever, web_search_retriever, course_name, target_audience, course_outline, topic_name, subtopic_name, learning_objective, max_turns = 5, llm = 'groq'):
     """
     This function retrieves the relevant documents for the given learning objective.
@@ -183,7 +188,12 @@ def retrieve_relevant_docs(compression_retriever, web_search_retriever, course_n
 
     return selected_doc_ids, all_docs
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "retriever_agent",
+    "function_name": "process_single_row",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def process_single_row(index, row, compression_retriever, web_search_retriever,
                        course_name, target_audience, course_outline, llm):
     """
@@ -275,6 +285,12 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
     return index, context, source_links_text, as_is_sources_text, content_sources_text
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "retriever_agent",
+    "function_name": "run_retriever_agent_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
                                      course_name, target_audience, llm):
     """

@@ -12,8 +12,15 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from langchain_core.documents import Document
 from services.sheets_service import safe_get_sheet_data_and_df
+from langsmith import traceable
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "list_video_research_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 ## Video Based Outline References
 def list_video_research_references(references_df, videos_research_df, video_chunks_df):
     """
@@ -77,6 +84,12 @@ def list_video_research_references(references_df, videos_research_df, video_chun
     return references_df
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "list_client_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 ## Client References
 def list_client_references(references_df, videos_research_df, video_chunks_df, preliminary_research_df, client_reference_df):
     """
@@ -172,7 +185,12 @@ def list_client_references(references_df, videos_research_df, video_chunks_df, p
     
     return references_df
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "populate_reference_df_from_video_chunks_df",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def populate_reference_df_from_video_chunks_df(source, source_origin, title, reference_type, videos_research_df, video_chunks_df, references_df):
     """
     This function populates the references DataFrame with video chunks.
@@ -247,7 +265,12 @@ def populate_reference_df_from_video_chunks_df(source, source_origin, title, ref
     
     return references_df
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "populate_reference_df_from_preliminary_research_df",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def populate_reference_df_from_preliminary_research_df(source, source_origin, title, reference_type, query, preliminary_research_df, references_df):
     """
     This function populates the references DataFrame with data from the preliminary research DataFrame.
@@ -318,7 +341,12 @@ def populate_reference_df_from_preliminary_research_df(source, source_origin, ti
     
     return references_df
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "list_web_research_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 ## Web Research References
 def list_web_research_references(references_df, preliminary_research_df):
     """
@@ -397,6 +425,12 @@ def list_web_research_references(references_df, preliminary_research_df):
     # return web_research_doc_chunk_list
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "list_deep_research_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 ## Deep Research References
 def list_deep_research_references(references_df, deep_research_df, videos_research_df, video_chunks_df, preliminary_research_df):
     """
@@ -465,6 +499,12 @@ def list_deep_research_references(references_df, deep_research_df, videos_resear
     return references_df
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "list_topic_deep_research_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 ## Topic Deep Research References
 def list_topic_deep_research_references(references_df, topic_deep_research_df, videos_research_df, video_chunks_df, preliminary_research_df):
     """
@@ -533,6 +573,12 @@ def list_topic_deep_research_references(references_df, topic_deep_research_df, v
     return references_df
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "list_topic_outline_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 ## Topic Outline References
 def list_topic_outline_references(references_df, topic_outline_df, videos_research_df, video_chunks_df, preliminary_research_df):
     """
@@ -607,7 +653,12 @@ def list_topic_outline_references(references_df, topic_outline_df, videos_resear
 
     return references_df
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "list_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 # Enlist all the references in a sheet along with source type
 def list_references(sheet, videos_research_df, video_chunks_df, client_reference_df, preliminary_research_df, deep_research_df, topic_deep_research_df, topic_outline_df):
     """
@@ -667,7 +718,12 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
 
     return references_sheet, references_df
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "load_references",
+    "function_name": "load_references",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def load_references(sheet, video_research_sheet_name = 'Videos Research', video_chunk_sheet_name = 'Video Chunks', 
                           client_reference_sheet_name = 'Client References', web_research_sheet_name = 'Preliminary Research',
                           deep_research_sheet_name = 'Deep Research', topic_outline_sheet_name = 'Topic Outline',

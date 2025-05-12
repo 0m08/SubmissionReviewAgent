@@ -5,8 +5,15 @@ import re
 from duckduckgo_search import DDGS
 from exa_py import Exa
 import os
+import streamlit as st
+from langsmith import traceable
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Obtain Web Article Links",
+    "function_name": "ddgs_search",
+    "user_id": st.session_state.get("user_id")
+})
 @try_n_times(2, wait = 5, backoff = 'linear')
 def ddgs_search(search_query, max_results=30, backend = 'api'):
     """
@@ -28,7 +35,12 @@ def ddgs_search(search_query, max_results=30, backend = 'api'):
         )
     return search_results
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Obtain Web Article Links",
+    "function_name": "exa_search",
+    "user_id": st.session_state.get("user_id")
+})
 @try_n_times(2, wait = 5, backoff = 'linear')
 def exa_search(search_query):
     """
@@ -59,7 +71,12 @@ def exa_search(search_query):
 
     return search_results
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Obtain Web Article Links",
+    "function_name": "web_search_screening",
+    "user_id": st.session_state.get("user_id")
+})
 @try_n_times(3)
 def web_search_screening(course_name, course_outline, search_query, llm = 'gemini_2_flash'):
     """

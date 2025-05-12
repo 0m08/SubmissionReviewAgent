@@ -5,7 +5,7 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
-
+from langsmith import traceable
 
 generate_research_notes_prompt = """You are an expert educational content developer tasked with creating comprehensive research notes for a specific subtopic within a larger course. Your goal is to produce well-structured, engaging, and educational notes that align precisely with the given learning objectives while considering the overall course structure and target audience.
 
@@ -91,7 +91,12 @@ Remember:
 - Do not add any information that is not derived from the provided relevant documents.
 """
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "generate_notes",
+    "function_name": "generate_research_notes",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_research_notes(course_name, target_audience, course_outline, subtopic_and_los, relevant_documents, llm = 'groq'):
     """
     This function generates research notes for a specific subtopic.
@@ -132,6 +137,12 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
     return response['create_notes'] if len(response['create_notes']) < 50000 else response['create_notes'][:49990]
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "generate_notes",
+    "function_name": "run_research_notes_agent_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm='groq'):
     """
     This function runs the research notes agent for all rows in the sheet.

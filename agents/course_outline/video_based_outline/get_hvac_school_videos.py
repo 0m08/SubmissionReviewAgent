@@ -1,9 +1,18 @@
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from tqdm import tqdm
 import pandas as pd
+import streamlit as st
 from services.youtube_search import search_youtube_videos
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
+
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "get_hvac_school_videos",
+    "function_name": "run_get_hvac_school_videos",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_get_hvac_school_videos(sheet, worksheet_name):
     
     rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')

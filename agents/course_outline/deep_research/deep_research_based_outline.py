@@ -5,7 +5,9 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import pandas as pd
 from services.smart_progress_bar import SmartProgressBar
 from tqdm import tqdm
+import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from langsmith import traceable
 
 
 generate_deep_research_outline_prompt = """You are tasked with creating a comprehensive course outline for an HVAC technician training program. This is a crucial task as the outline will serve as the foundation for the entire course, ensuring that all necessary topics are covered in a logical and learner-friendly sequence.
@@ -88,7 +90,12 @@ II. Main Topic 2
 Ensure that your outline is comprehensive, well-structured, and tailored to the needs of entry-level HVAC technicians. The topics should progress logically and build upon each other where appropriate.
 """
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Deep Research Based Outline",
+    "function_name": "process_agent_outline",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def process_agent_outline(proposer_agent, course_name, course_background, concepts_to_include, research_summary, course_objective_guidelines, required_topic_count, llm=None):
     """
     Process a single agent's outline generation task
@@ -135,7 +142,12 @@ def process_agent_outline(proposer_agent, course_name, course_background, concep
     
     return proposer_agent.name, outline
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Deep Research Based Outline",
+    "function_name": "propose_web_research_outline_with_agents",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def propose_web_research_outline_with_agents(sheet, course_name, course_background, llm=None):
     """
     Generate the course outline based on deep research
@@ -208,7 +220,12 @@ def propose_web_research_outline_with_agents(sheet, course_name, course_backgrou
 
     return proposer_responses
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Deep Research Based Outline",
+    "function_name": "run_generate_deep_research_outline",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_generate_deep_research_outline(sheet, worksheet_name, course_name, course_background, llm='gemini_2_flash'):
     """
     Consolidate all outlines and review/revise course outlines based on deep research.

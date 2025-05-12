@@ -18,7 +18,7 @@ from google import genai
 from google.genai import types
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.decorator_helpers import try_n_times
-
+from langsmith import traceable
 
 def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.csv"):
     """Appends token usage data to a CSV file."""
@@ -31,6 +31,7 @@ def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.
         writer.writerow([st.session_state.get("agent_name", ""), st.session_state.get("current_step", ""), datetime.now().isoformat(), llm, input_tokens, output_tokens])
 
 
+@traceable
 @try_n_times(n=5, wait=2, backoff="exponential")
 def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
     """

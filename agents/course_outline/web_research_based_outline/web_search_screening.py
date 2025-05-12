@@ -1,11 +1,19 @@
 from services.web_search import web_search_screening
 from services.sheets_service import create_or_read_worksheet, get_sheet_data_and_df, save_to_sheet, format_worksheet
 import pandas as pd
+import streamlit as st
 from tqdm import tqdm
 from services.helper_functions import get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Obtain Web Article Links",
+    "function_name": "run_web_search_screening",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_web_search_screening(sheet, worksheet_name, course_name, llm='gemini_2_flash'):
     """
     Runs the web search screening step that gets article links for all the search queries.

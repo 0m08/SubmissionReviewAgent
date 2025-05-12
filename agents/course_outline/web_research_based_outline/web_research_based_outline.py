@@ -3,8 +3,10 @@ from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import pandas as pd
+import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from tqdm import tqdm
+from langsmith import traceable
 
 
 generate_web_research_outline_prompt = """You are tasked with creating a comprehensive course outline for an HVAC technician training program. This is a crucial task as the outline will serve as the foundation for the entire course, ensuring that all necessary topics are covered in a logical and learner-friendly sequence.
@@ -81,6 +83,12 @@ Ensure that your outline is comprehensive, well-structured, and tailored to the 
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Web Research Based Outline",
+    "function_name": "propose_outline_with_agents",
+    "user_id": st.session_state.get("user_id")
+})
 def propose_outline_with_agents(sheet, course_name, course_background, llm=None):
     """
     Generate the course outline
@@ -147,7 +155,12 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
 
     return proposer_responses
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Web Research Based Outline",
+    "function_name": "run_generate_web_research_outline",
+    "user_id": st.session_state.get("user_id")
+})
 def run_generate_web_research_outline(sheet, worksheet_name, course_name, course_background, llm='gemini_2_flash'):
     """
     Consolidate all outlines and review/revise course outlines.

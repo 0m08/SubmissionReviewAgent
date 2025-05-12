@@ -2,8 +2,16 @@ from services.sheets_service import get_sheet_data_and_df, create_or_read_worksh
 import pandas as pd
 from services.sheets_service import format_worksheet
 from services.helper_functions import create_and_populate_columns
+from langsmith import traceable
+import streamlit as st
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "create_research_notes_sheet",
+    "function_name": "create_research_notes_sheet",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def create_research_notes_sheet(sheet, source_worksheet_name, target_worksheet_name):
     """
     This function creates a new sheet for the research notes.

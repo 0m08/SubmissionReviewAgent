@@ -6,7 +6,7 @@ import streamlit as st
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
-
+from langsmith import traceable
 
 review_topic_notes_prompt = """Your task is to review research notes generated for a given topic.
 
@@ -44,7 +44,12 @@ Output your response in the following format:
 </final_review>
 """
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "review_topic_notes",
+    "function_name": "review_topic_notes",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def review_topic_notes(course_name, target_audience, course_outline, topic_focus, research_notes, llm = 'groq'):
     """
     This function reviews the topic notes.
@@ -76,6 +81,12 @@ def review_topic_notes(course_name, target_audience, course_outline, topic_focus
     return review_response['text']
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "review_topic_notes",
+    "function_name": "run_review_topic_notes_agent_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_review_topic_notes_agent_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm = 'groq'):
     """
     This function runs the review topic notes agent for all rows in the sheet.

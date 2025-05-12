@@ -7,6 +7,7 @@ import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import get_outline_with_los
+from langsmith import traceable
 
 
 consolidate_reference_outlines_prompt = """You are tasked with creating a final course outline based on partial, potentially overlapping outlines generated from reference content. Your goal is to produce a coherent, well-structured course outline that effectively covers all necessary topics.
@@ -108,7 +109,12 @@ II. Main Topic 2
 Remember to maintain a logical flow, ensure comprehensive coverage of the course content, and align the final outline with the provided course information. Your analysis and final outline should demonstrate thorough reasoning and careful consideration of all provided materials.
 """
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Consolidate Client Reference Based Outline",
+    "function_name": "run_propose_consolidated_reference_outlines",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_propose_consolidated_reference_outlines(sheet, worksheet_name, course_name, target_audience, llm=None):
     """
     Propose a consolidated reference outline
@@ -159,6 +165,12 @@ def run_propose_consolidated_reference_outlines(sheet, worksheet_name, course_na
     required_topic_count = str(raw_count).strip() if pd.notna(raw_count) and str(raw_count).strip() else "unspecified"
 
     # Function to process each agent in parallel
+    @traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Consolidate Client Reference Based Outline",
+    "function_name": "process_agent",
+    "user_id": st.session_state.get("user_id")
+})
     def process_agent(proposer_agent):
         print(proposer_agent.name)
         agent_llm = proposer_agent.llm if use_agent_llm else llm

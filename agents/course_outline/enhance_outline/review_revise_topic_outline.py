@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import compare_text_versions
 import json
-
+from langsmith import traceable
 
 review_course_outline_prompt = """You are an experienced instructional designer tasked with reviewing and improving a course outline. Your goal is to provide a comprehensive analysis of the outline, identifying any issues and offering suggestions for improvement.
 
@@ -183,7 +183,12 @@ def show_outline_diff(sheet):
 
     return
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Review and Revise Topic Outline",
+    "function_name": "parse_course_outline",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def parse_course_outline(text, llm = "gemini_2_flash"):
     """
     Parses the text with help of LLM
@@ -250,6 +255,12 @@ def parse_course_outline(text, llm = "gemini_2_flash"):
     return flattened_data
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Review and Revise Topic Outline",
+    "function_name": "parse_course_outline_for_all_topics",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def parse_course_outline_for_all_topics(sheet, worksheet_name, outline_review_df, llm = "gemini_2_flash"):
     """
     This function parses the final outline, and pastes in a newly created sheet - Enhanced Outline with LOs
@@ -349,6 +360,12 @@ def parse_course_outline_for_all_topics(sheet, worksheet_name, outline_review_df
     return
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Review and Revise Topic Outline",
+    "function_name": "run_review_and_revise_topic_outline",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_review_and_revise_topic_outline(sheet, course_name, target_audience, llm='gemini_2_flash', skip_manual_step = False):
     """
     Runs the review and revision process for course outlines using AI.
