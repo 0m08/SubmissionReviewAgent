@@ -2,9 +2,11 @@ from modules.chain import Chain
 from tqdm import tqdm
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import pandas as pd
+import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import get_topic_outline
+from langsmith import traceable
 
 
 categorize_learning_objectives_prompt = """You are an AI assistant specializing in educational content analysis. Your task is to categorize proposed learning objectives for a specific course topic. Please review the following course information:
@@ -88,6 +90,12 @@ Ensure that your analysis is thorough and your categorizations are consistent wi
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Categorize Learning Objectives",
+    "function_name": "categorize_learning_objectives",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def categorize_learning_objectives(course_outline, course_name, target_audience, current_topic, proposed_objectives, llm='gemini_2_flash'):
     """
     Categorize learning objectives for a specific topic.

@@ -5,7 +5,7 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
-
+from langsmith import traceable
 
 review_research_notes_prompt = """You are tasked with reviewing research notes for a specific subtopic of a course. Your goal is to determine if the subtopic is sufficiently covered based on the learning objectives (LOs) and the overall scope of the course. Follow these steps carefully:
 
@@ -75,7 +75,12 @@ Then, formulate and answer a series of questions  to do a thorough analysis (eg.
 Ensure that your analysis is thorough and your categorization is well-justified based on the provided information. Incase no items belong to a certain category, leave it blank. Your goal is to provide a clear assessment of how well the research notes cover the subtopic in relation to the course's learning objectives and overall scope.
 """
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Reviewer",
+    "function_name": "review_research_notes",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def review_research_notes(course_name, target_audience, course_outline, subtopic_focus, research_notes, llm = 'groq'):
     """
     This function reviews the research notes for a specific subtopic.
@@ -107,6 +112,12 @@ def review_research_notes(course_name, target_audience, course_outline, subtopic
     return response
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Reviewer",
+    "function_name": "run_reviewer_agent_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_reviewer_agent_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm = 'groq'):
     """
     This function runs the reviewer agent for all rows in the sheet.

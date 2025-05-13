@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.helper_functions import validate_column_values, get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
 
 extract_relevant_info_from_article_as_lo_prompt = """
@@ -126,6 +127,12 @@ Remember to focus on content that is directly relevant to the course and appropr
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Extract Relevant Information from Articles",
+    "function_name": "get_relevant_info_from_article",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def get_relevant_info_from_article(course_name, target_audience, course_background, course_outline, search_query, article_content,
                                     user_guidelines = 'None',
                                     llm = 'gemini_2_flash'):

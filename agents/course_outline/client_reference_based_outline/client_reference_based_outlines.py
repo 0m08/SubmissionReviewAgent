@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.helper_functions import get_outline_with_los, validate_column_values
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
 
 generate_outline_from_client_reference_prompt = """You are tasked with creating an outline (or a section of an outline) for a course based on the content of a client reference. Your goal is to generate a structured outline that accurately reflects the concepts covered in the reference while aligning with the course objectives.
@@ -166,6 +167,12 @@ Topic: Magnetism
 }
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Client Reference Based Outlines",
+    "function_name": "generate_outline_from_client_reference",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_outline_from_client_reference(course_name, target_audience, course_outline, reference_title, reference_content, client_comments, example = generate_outline_from_client_reference_example, llm = 'gemini_2_flash'):
     """
     This function generates an outline for a course based on a client reference.
@@ -297,6 +304,7 @@ def run_generate_outline_from_client_reference(sheet, worksheet_name, course_nam
 
     return
 
+
 generate_client_reference_outline_consolidation_comments_prompt = """You are tasked to add "consolidation comments" for a list of partial outlines generated from reference material. You are overtaking this task from a human thus, you need to ensure to achieve similar / better performance.
 
 The course outline was generated based on the following course info:
@@ -332,6 +340,12 @@ Remember: Since your are reviewing a partial outline, focus on the information a
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Manual Review - Client References Outline Consolidation Comments",
+    "function_name": "generate_client_reference_outline_consolidation_comments",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_client_reference_outline_consolidation_comments(course_name, target_audience, course_outline, partial_outline, llm = "gemini_2_flash"):
     """
     Generates consolidation comments for client_reference_ based outlines

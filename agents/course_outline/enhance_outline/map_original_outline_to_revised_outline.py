@@ -8,6 +8,8 @@ from services.helper_functions import get_outline_in_table_format
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import re
+import streamlit as st
+from langsmith import traceable
 
 
 map_original_outline_to_revised_outline_prompt = """You are given two outlines (in Markdown tables): an old outline (partial section) and a new, revised outline.
@@ -70,6 +72,13 @@ Your output should extract the following data:
 Return your findings in the proper format.
 """
 
+
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Map Topic Outline to Enhanced Outline",
+    "function_name": "extract_line_mappings_with_regex",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def extract_line_mappings_with_regex(text):
     """
     Extracts line mappings from the text using regex.
@@ -108,6 +117,12 @@ def extract_line_mappings_with_regex(text):
     return pd.DataFrame(results)
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Map Topic Outline to Enhanced Outline",
+    "function_name": "map_original_outline_to_revised_outline",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def map_original_outline_to_revised_outline(old_outline, new_outline, llm = "gemini_2_flash", use_regex=True):
     """
     Maps the original outline to the revised outline.
@@ -232,6 +247,12 @@ def map_original_outline_to_revised_outline(old_outline, new_outline, llm = "gem
     return pd.DataFrame(flattened_data)
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Map Topic Outline to Enhanced Outline",
+    "function_name": "map_additional_columns_to_enhanced_outline",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def map_additional_columns_to_enhanced_outline(sheet):
     """
     Maps additional columns from the topic outline to the enhanced outline based on the line number mapping.
@@ -342,6 +363,12 @@ def map_additional_columns_to_enhanced_outline(sheet):
     return
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Map Topic Outline to Enhanced Outline",
+    "function_name": "map_original_outline_to_revised_outline_for_all_topics",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def map_original_outline_to_revised_outline_for_all_topics(sheet, worksheet_name = "Enhanced Outline with LOs", llm = "gemini_2_flash"):
     """
     Maps the original outline to the revised outline for all topics.

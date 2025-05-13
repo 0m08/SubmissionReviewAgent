@@ -3,6 +3,8 @@ from services.llm_service import extract_csv_lines
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from services.helper_functions import get_outline_with_los, add_list_as_new_column
 from services.smart_progress_bar import SmartProgressBar
+import streamlit as st
+from langsmith import traceable
 
 
 generate_search_queries_prompt = """You are tasked with generating multiple web search queries to gather resources for a course. You will be provided with the course name and course outline. Your goal is to create a list of search queries that will help retrieve relevant research material and content for the course.
@@ -132,6 +134,12 @@ Provide your updated list of search queries within these tags. Each query should
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Web Search Queries Generator",
+    "function_name": "generate_search_query",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_search_query(course_name, target_audience, course_outline, llm = 'gemini_2_flash'):
     """
     Generate search queries
@@ -159,6 +167,12 @@ def generate_search_query(course_name, target_audience, course_outline, llm = 'g
     return search_queries
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Web Search Queries Generator",
+    "function_name": "refine_search_queries",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def refine_search_queries(course_name, target_audience, course_outline, search_queries, llm = 'gemini_2_flash'):
     """
     Generate revised search queries
@@ -186,7 +200,12 @@ def refine_search_queries(course_name, target_audience, course_outline, search_q
     
     return refined_search_queries
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Web Search Queries Generator",
+    "function_name": "run_construct_web_search_queries",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_construct_web_search_queries(sheet, worksheet_name, course_name, target_audience, llm='gemini_2_flash'):
     """
     This function creates a list of search queries to be used to search for HVAC school youtube videos.

@@ -10,8 +10,10 @@ from langchain_community.document_transformers import Html2TextTransformer
 from langchain_core.documents import Document
 from services.chunking_service import general_chunker
 import subprocess
+from langsmith import traceable
 
 
+@traceable
 def extract_markdown_and_videos_from_webpage(url, timeout=10):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
@@ -69,7 +71,7 @@ def extract_markdown_and_videos_from_webpage(url, timeout=10):
     return markdown, video_links
 
 
-
+@traceable
 def extract_image_links_from_markdown(markdown_text):
     # First, let's remove line breaks within markdown image links
     markdown_text = re.sub(r'!\[.*?\]\([^\)]*\n[^\)]*\)', lambda match: match.group(0).replace('\n', ''), markdown_text)
@@ -88,7 +90,7 @@ def extract_image_links_from_markdown(markdown_text):
 
     return image_links
 
-
+@traceable
 def is_pdf_url(url):
     """
     Check if a URL points to a PDF file by examining the URL and the Content-Type header.
@@ -114,7 +116,7 @@ def is_pdf_url(url):
 
     return False
 
-
+@traceable
 def fetch_with_jina_ai(url, query):
     print(f"--- Fetching content from URL using Jina AI: {url} ---")
     response = requests.get(f"https://r.jina.ai/{url}", timeout=15)
@@ -132,7 +134,7 @@ def fetch_with_jina_ai(url, query):
         metadata={'source': url, 'query': query, 'method': 'JinaAI'}
     )
 
-
+@traceable
 def clean_mark_article_stdout(url, output_type='md'):
     """
     Fetch article from URL, convert it with clean-mark, and return the result
@@ -164,6 +166,7 @@ def clean_mark_article_stdout(url, output_type='md'):
 
 
 #@try_n_times(2)
+@traceable
 def get_docs_from_url(url: str, query: str):
     """
     Get the page content of a given url

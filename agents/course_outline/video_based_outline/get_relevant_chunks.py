@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from services.helper_functions import get_outline_with_los, validate_column_values
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
 
 get_relevant_chunks_prompt = """You are tasked with identifying sections of a video that can be used as-is for a given course. Your goal is to analyze the video chapter summaries and determine which parts, if any, align well with the course content and are suitable for the target audience. Be conservative in your selections and only suggest sections that properly fit the course intent.
@@ -236,6 +237,12 @@ Partially Relevant
 }
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Identify Relevant Chunks",
+    "function_name": "get_relevant_chunks",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def get_relevant_chunks(course_name, target_audience, course_outline, video_title, chapter_summaries, llm='gemini_2_flash'):
     """
     This function identifies relevant sections of a video based on its relevance to a course outline.

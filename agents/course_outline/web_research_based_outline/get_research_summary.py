@@ -1,9 +1,11 @@
 from modules.chain import Chain
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from tqdm import tqdm
+import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import validate_column_values, get_outline_with_los
+from langsmith import traceable
 
 
 summarize_prompt = """We are developing a course on {course_name}.
@@ -85,6 +87,12 @@ Remember, your task is to remove unfit content only. Do not add new information 
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Research Summaries",
+    "function_name": "summarize_info",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def summarize_info(course_name, info_to_summarize, llm = 'gemini_2_flash'):
     """
     Summarize the information
@@ -199,7 +207,12 @@ def run_get_research_summary(sheet, worksheet_name, course_name, llm='gemini_2_f
 
     return
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Manual Review - Web Research Summary",
+    "function_name": "review_research_summary",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def review_research_summary(course_name, target_audience, course_outline, research_summary, llm = 'gemini_2_flash'):
     """
     Review the research summary and return the revised summary
@@ -225,7 +238,12 @@ def review_research_summary(course_name, target_audience, course_outline, resear
     response = review_research_summary_agent.run()
     return response['revised_summary']
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Manual Review - Web Research Summary",
+    "function_name": "run_review_research_summary_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_review_research_summary_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm = "gemini_2_flash"):
     """
     Runs the review of research summary for all search query rows in the rough outline.

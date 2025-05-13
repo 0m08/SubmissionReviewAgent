@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from typing import List
 from services.helper_functions import get_topic_outline, get_outline_in_table_format, create_and_populate_columns
 import re
+import streamlit as st
+from langsmith import traceable
 
 
 label_learning_objectives_prompt = """You are tasked with labeling an existing list of learning objectives to insert them into a course outline. Here's the current course outline:
@@ -78,6 +80,12 @@ For each learning objective, provide the following information:
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Label Learning Objectives",
+    "function_name": "extract_learning_objective_details_with_regex",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def extract_learning_objective_details_with_regex(text):
     """
     Extracts learning objective details from the text using regex.
@@ -115,7 +123,12 @@ def extract_learning_objective_details_with_regex(text):
     
     return pd.DataFrame(results)
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Label Learning Objectives",
+    "function_name": "get_learning_objective_structured",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def get_learning_objective_structured(learning_objectives, llm='gemini_2_flash', use_regex=True):
     """
     Get the learning objectives in a structured format.
@@ -180,7 +193,12 @@ def get_learning_objective_structured(learning_objectives, llm='gemini_2_flash',
 
     return learning_objectives_df
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Label Learning Objectives",
+    "function_name": "label_learning_objectives",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def label_learning_objectives(course_outline, course_name, target_audience, learning_objectives, llm='gemini_2_flash'):
     """
     Label learning objectives for a course outline.
@@ -212,7 +230,6 @@ def label_learning_objectives(course_outline, course_name, target_audience, lear
 
     # Return original response and the structured learning objectives
     return response['output'], learning_objectives_df
-
 
 
 def update_course_outline_with_missing_objectives(sheet, topic_outline_sheet_name="Topic Outline", missing_lo_sheet_name="Missing Learning Objectives", revised_outline_sheet_name="Revised Outline"):

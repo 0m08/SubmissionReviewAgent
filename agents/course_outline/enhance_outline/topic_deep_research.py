@@ -2,10 +2,11 @@ from modules.chain import Chain
 from tqdm import tqdm
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import pandas as pd
+import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.llm_service import google_search_with_grounding
-
+from langsmith import traceable
 
 # Prompt for researching topics
 topic_research_prompt = """Research the following topic within a course - {course_name} and target audience - {target_audience}.
@@ -13,7 +14,12 @@ topic_research_prompt = """Research the following topic within a course - {cours
 Topic - {topic}.
 """
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Topic Deep Research",
+    "function_name": "deep_research_topic",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def deep_research_topic(course_name, target_audience, topic, llm="gemini_with_grounding"):
     """
     Performs deep research on a specific topic for a course.

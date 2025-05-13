@@ -2,8 +2,10 @@ from modules.chain import Chain
 from tqdm import tqdm
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import pandas as pd
+import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from langsmith import traceable
 
 
 generate_learning_objectives_from_deep_research_prompt = """You are an AI assistant specializing in educational design. Your task is to generate clear, specific, and detailed learning objectives based on provided research. These objectives should be tailored to a specific course, audience, and topic.
@@ -64,7 +66,12 @@ There is no strict limit on the number of learning objectives. Generate as many 
 Remember, your goal is to create learning objectives that are so clear, specific, and detailed that no uncertainty is left regarding what learners should be able to do or understand after completing this part of the course.
 """
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Learning Objectives",
+    "function_name": "generate_learning_objectives",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_learning_objectives(course_name, target_audience, topic_name, research, llm='gemini_2_flash'):
     """
     Generate learning objectives based on research for a specific topic.
