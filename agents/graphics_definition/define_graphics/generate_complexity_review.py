@@ -1,6 +1,7 @@
 from modules.chain import Chain
 from concurrent.futures import ThreadPoolExecutor
-
+from langsmith import traceable
+import streamlit as st
 
 generate_complexity_review_prompt = """You are a Graphics Definition Review Agent. Your task is to analyze the provided graphics definition for a slide and evaluate its complexity. The goal is to ensure that the visualization is effective, easy to create, and not overly complex while maintaining clarity and instructional value.
 
@@ -73,7 +74,14 @@ If the verdict is Fail, provide specific suggestions on how to simplify the scen
 </output>
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Graphics Definition Generation",
+        "function_name": "generate_complexity_review",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_complexity_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm="gemini_2_flash"):
     """
     Generate complexity review for a given slide.

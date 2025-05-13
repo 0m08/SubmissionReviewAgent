@@ -1,6 +1,7 @@
 from modules.chain import Chain
 from concurrent.futures import ThreadPoolExecutor
-
+from langsmith import traceable
+import streamlit as st
 
 generate_accuracy_review_prompt = """You are a Graphics Definition Review Agent. Your task is to analyze the provided graphics definition for a slide and evaluate whether it accurately represents the slide content. The goal is to ensure that all technical details, equipment, tools, measurements, and concepts are visualized correctly and without any misrepresentation.
 
@@ -87,7 +88,14 @@ If Fail, provide specific recommendations on how to correct the inaccuracies whi
 """
 
 
-
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Graphics Definition Generation",
+        "function_name": "generate_accuracy_review",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_accuracy_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm="gemini_2_flash"):
     """
     Generate accuracy review for a given slide.

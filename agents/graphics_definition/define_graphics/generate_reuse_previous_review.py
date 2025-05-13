@@ -1,6 +1,7 @@
 from modules.chain import Chain
 from concurrent.futures import ThreadPoolExecutor
-
+from langsmith import traceable
+import streamlit as st
 
 generate_reuse_previous_graphics_review_prompt = """You are a Graphics Definition Review Agent. Your task is to critically analyze the graphics definition generated for a slide and determine whether any opportunities to reuse previously defined visual elements from earlier slides' graphics definitions were overlooked. Your objective is to identify relevant and beneficial opportunities to reuse graphics from earlier slides to enhance visual consistency and instructional alignment, only where it makes sense and does not compromise clarity or effectiveness.
 
@@ -96,7 +97,14 @@ Here is the list of graphics definitions from previous slides:
 Refer to these previous graphics definitions for any visual elements that could potentially be reused. Do not assume any information beyond what is explicitly stated in these previous slides' graphics definition. Only flag reuse opportunities if any relevant scene from these previous definitions contains elements that align with the current slide’s content. If none are relevant or beneficial, do not force reuse.
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Graphics Definition Generation",
+        "function_name": "generate_reuse_previous_graphics_review",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_reuse_previous_graphics_review(course_name, target_audience, slide_title, slide_content, graphics_definition, previous_graphics_definition, llm="gemini_2_flash"):
     """
     Generate reuse graphics opportunity review for a given slide.

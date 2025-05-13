@@ -5,6 +5,7 @@ from agents.generate_assessments.chains import Chain
 from services.sheets_service import save_to_sheet, format_worksheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 import streamlit as st
 
 
@@ -58,6 +59,14 @@ Why no: [Provide a reason only if your verdict is "No". Omit this field entirely
 
 
 # Function to evaluate a checklist task for a single question
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Update Review Agent Checklist",
+        "function_name": "generate_checklist_for_question",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_checklist_for_question(course_name, target_audience,  task_name, evidence_list, slides, question_text, llm):
     """
     This function evaluates a single question against a checklist task using an LLM.
@@ -91,7 +100,14 @@ def generate_checklist_for_question(course_name, target_audience,  task_name, ev
 
     return response
 
-
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Update Review Agent Checklist",
+        "function_name": "update_review_checklist",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def update_review_checklist(sheet, worksheet_name, course_name, target_audience, llm):
     """
     This function updates the review checklist for all questions in the assessment.
@@ -198,6 +214,14 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
             
     return review_checklist_by_task
 
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Update Review Agent Checklist",
+        "function_name": "update_checklist_with_verdicts_preserve",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def update_checklist_with_verdicts_preserve(checklist_df, review_checklist_by_task):
     """
     This function updates the review checklist DataFrame with the verdicts from the review checklist by task.

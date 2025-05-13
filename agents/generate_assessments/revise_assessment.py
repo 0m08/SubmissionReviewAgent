@@ -1,5 +1,7 @@
 from agents.generate_assessments.chains import Chain
 import re
+from langsmith import traceable
+import streamlit as st
 
 
 
@@ -150,6 +152,14 @@ def get_question_format(question_type):
     
 
 # Function to revise assessment question
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Review and Revise all Assessment Questions",
+        "function_name": "revise_assessment",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def revise_assessment(course_name, target_audience, assessment_question, slides, reviewer_response, question_format, llm='gemini_2_flash'):
     """
     Revise an assessment question based on reviewer feedback.

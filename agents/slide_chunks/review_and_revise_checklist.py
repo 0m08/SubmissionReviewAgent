@@ -9,6 +9,7 @@ import gspread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 import pandas as pd
+from langsmith import traceable
 import streamlit as st
 
 
@@ -84,7 +85,14 @@ Feedback: [Provide your explanation and suggestions if your final verdict is "Fa
 </output>
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Review and Revise Checklist",
+        "function_name": "generate_checklist_evaluation",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_checklist_evaluation(course_name, target_audience, topic, subtopic, slide_type, slide_title, slide_chunk, task_name, checklist_criteria, llm="gemini_2_flash"):
     """
     Generate checklist evaluation for a given slide chunk.
@@ -200,7 +208,14 @@ Slide Content: [Provide the revised slide content, ensuring that all identified 
 </output>
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Review and Revise Checklist",
+        "function_name": "generate_checklist_revised_slide_chunk",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_checklist_revised_slide_chunk(course_name, target_audience, topic, subtopic, slide_type, slide_title, slide_chunk, feedback, llm="gemini_2_flash"):
     """
     Generate a revised slide chunk based on checklist evaluation feedback.
@@ -288,6 +303,15 @@ def ensure_checklist_columns(sheet,worksheet_name):
 # Helper to normalize text for accurate matching
 def normalize(text):
     return " ".join(text.strip().lower().split())
+
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Review and Revise Checklist",
+        "function_name": "process_slide",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def process_slide(index, row, course_name, target_audience, llm, checklist_df, slide_chunks_df):
     slide_index = index + 1
     topic = strip_roman_numerals(row["Topic"])
@@ -404,7 +428,14 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
     slide_chunks_df.at[index, "checklist_based_slide_title"] = current_title
     slide_chunks_df.at[index, "checklist_based_slide_content"] = current_chunk
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Review and Revise Checklist",
+        "function_name": "run_checklist_review_and_revise",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
