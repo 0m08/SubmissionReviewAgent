@@ -218,7 +218,7 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
     metadata={
         "agent_name": "assessment",
         "step_name": "Update Review Agent Checklist",
-        "function_name": "run_update_checklist_with_verdicts_preserve",
+        "function_name": "update_checklist_with_verdicts_preserve",
         "user_id": st.session_state.get("role", "anonymous")
     }
 )
