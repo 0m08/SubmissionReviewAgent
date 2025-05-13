@@ -6,6 +6,7 @@ from agents.research_notes.review_topic_notes import review_topic_notes_prompt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
 
 propose_revised_notes_framework_prompt = """Your next task is to define a framework for the research notes.
@@ -56,7 +57,12 @@ Slide Content: [Place content of the slide here. This is supposed to revise the 
 </section_notes>
 """
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Revise Topic Notes",
+    "function_name": "revise_topic_notes",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def revise_topic_notes(course_name, target_audience, course_outline, topic_focus, research_notes, ai_review, manual_comments, llm = 'groq'):
     """
     This function reviews the topic notes.
@@ -133,7 +139,12 @@ def revise_topic_notes(course_name, target_audience, course_outline, topic_focus
 
     return framework_response['text'], '\n\n---\n\n'.join(section_notes)
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Revise Topic Notes",
+    "function_name": "run_revise_topic_notes_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_revise_topic_notes_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm = 'groq'):
     """
     This function runs the revise topic notes agent for all rows in the sheet.

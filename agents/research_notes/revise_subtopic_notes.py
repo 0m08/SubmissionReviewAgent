@@ -7,7 +7,7 @@ from agents.research_notes.retriever_agent import retrieve_relevant_docs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
-
+from langsmith import traceable
 
 revise_research_notes_prompt = """Your task is to revise the previously generated research notes based on ai and human review.
 
@@ -106,7 +106,12 @@ Remember:
 - Do not add any information that is not derived from the provided relevant documents.
 """
 
-
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Reviser",
+    "function_name": "revise_research_notes",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def revise_research_notes(compression_retriever, web_search_retriever, course_name, target_audience, course_outline, topic_name, subtopic_name, learning_objectives, current_notes, not_covered_at_all, not_covered_enough, perfectly_covered, covered_too_much, manual_comments, llm = 'groq'):
     """
     This function revises the research notes.
@@ -211,6 +216,12 @@ def revise_research_notes(compression_retriever, web_search_retriever, course_na
     return response['create_notes']
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Reviser",
+    "function_name": "run_reviser_agent_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_reviser_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name, course_name, target_audience, llm = 'groq'):
     """
     This function runs the reviser agent for all rows in the sheet.

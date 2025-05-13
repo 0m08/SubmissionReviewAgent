@@ -1,10 +1,12 @@
 from services.llm_service import extract_csv_lines
 from modules.chain import Chain
 import pandas as pd
+import streamlit as st
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from services.helper_functions import get_outline_with_los, add_list_as_new_column, find_blank_followed_by_filled_indices
-
+from langsmith import traceable
 ### Construct Video Search Queries
+
 
 generate_video_search_queries_prompt = """You are tasked with generating a list of search queries to find relevant YouTube videos for a given course. These queries will be used to search for educational content that aligns with the course outline and is suitable for the target audience.
 
@@ -47,6 +49,12 @@ Remember to tailor the language and complexity of your search queries to match t
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Video Search Query Generator",
+    "function_name": "generate_video_search_queries",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_video_search_queries(course_name, target_audience, course_outline, llm):
     """
     Function to generate search queries
@@ -71,7 +79,12 @@ def generate_video_search_queries(course_name, target_audience, course_outline, 
 
     return search_queries
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Video Search Query Generator",
+    "function_name": "create_additional_video_search_queries",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def create_additional_video_search_queries(rough_outline_df):
     """
     Function to create additional search queries by combining topic - subtopic keywords
@@ -90,12 +103,19 @@ def create_additional_video_search_queries(rough_outline_df):
     return additional_video_search_queries
 
 
+
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Video Search Query Generator",
+    "function_name": "run_construct_video_search_queries",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_construct_video_search_queries(sheet, course_name, target_audience, worksheet_name = 'Rough Outline', llm = 'groq'):
     """
     This function creates a list of search queries to be used to search for HVAC school youtube videos.
 
     :param sheet: The sheet object.
-    :param course_name: The course name.
+    :param course_name: The course name. 
     :param target_audience: The target audience.
     :param worksheet_name: The worksheet name.
     :param llm: The language model to use.

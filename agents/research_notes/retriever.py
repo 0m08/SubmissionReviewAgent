@@ -9,8 +9,9 @@ from langchain.retrievers import ContextualCompressionRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain_exa import ExaSearchRetriever
 import streamlit as st
+from langsmith import traceable
 
-
+@traceable
 def load_vector_db_retriever(course_name, course_drive_folder_id, drive, sheet):
     """
     Load the vector database retriever.
@@ -39,7 +40,7 @@ def load_vector_db_retriever(course_name, course_drive_folder_id, drive, sheet):
 
     return vector_db_retriever, all_doc_chunk_list
 
-
+@traceable
 def load_bm25_retriever_with_pydrive(root_folder_id: str, drive, all_doc_chunk_list):
     """
     Load the BM25 retriever from a pickle file stored in Google Drive.
@@ -122,7 +123,7 @@ def load_bm25_retriever_with_pydrive(root_folder_id: str, drive, all_doc_chunk_l
 
     return bm_25_retriever
 
-
+@traceable
 # initialize the ensemble retriever
 def get_ensemble_retriever(course_name, root_folder_id, drive, sheet, retriever_1_weight = 0.5, retriever_2_weight = 0.5):
     """
@@ -149,7 +150,7 @@ def get_ensemble_retriever(course_name, root_folder_id, drive, sheet, retriever_
     return ensemble_retriever
 
 
-
+@traceable
 def get_compression_retriever(course_name, root_folder_id, drive, sheet, retriever_1_weight = 0.5, retriever_2_weight = 0.5):
     """
     Get the compression retriever.
@@ -176,7 +177,7 @@ def get_compression_retriever(course_name, root_folder_id, drive, sheet, retriev
 
     return compression_retriever
 
-
+@traceable
 def get_web_search_retriever():
     """
     Get the web search retriever.

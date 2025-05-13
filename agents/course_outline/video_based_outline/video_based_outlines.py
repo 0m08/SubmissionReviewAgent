@@ -5,7 +5,9 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import get_outline_with_los, validate_column_values
 import json
+import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
 
 generate_outline_from_video_transcript_prompt = """You are tasked with creating an outline (or a section of an outline) for a course based on the content of a YouTube video. Your goal is to generate a structured outline that accurately reflects the concepts covered in the video while aligning with the course objectives.
@@ -167,7 +169,12 @@ Topic: Magnetism
 </outline>"""
 }
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Generate Video Based Outlines",
+    "function_name": "generate_outline_from_video_transcript",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_outline_from_video_transcript(course_name, target_audience, course_outline, video_title, transcript, list_of_concepts_to_include, example = generate_outline_from_video_transcript_example, llm = 'gemini_2_flash'):
     """
     This function generates an outline for a course based on a video transcript.
@@ -366,6 +373,12 @@ Remember: Since your are reviewing a partial outline, focus on the information a
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Manual Review - Video Outline Consolidation Comments",
+    "function_name": "generate_video_outline_consolidation_comments",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def generate_video_outline_consolidation_comments(course_name, target_audience, course_outline, video_title, video_scratchpad, video_relevance, proposed_chapters_to_include, partial_outline, llm = "gemini_2_flash"):
     """
     Generates consolidation comments for video based outlines

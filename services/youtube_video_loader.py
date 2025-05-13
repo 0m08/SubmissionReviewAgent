@@ -12,6 +12,8 @@ import requests
 import csv
 import streamlit as st
 import json
+from langsmith import traceable
+
 
 ### YT video link loader
 
@@ -172,7 +174,7 @@ def get_transcript(video_id: str, return_text_only = False):
     except Exception as e:
         raise Exception(f"Error fetching transcript: {e}")
 
-
+@traceable
 @try_n_times(3)
 def get_transcript_backup(video_id: str, return_text_only=False):
     """
@@ -255,7 +257,7 @@ def load_transcripts_from_csv():
     
     return transcripts_dict
 
-
+@traceable
 def get_transcript_with_fallback(video_id: str, return_text_only=False):
     """
     1. Uses st.cache_data to load all transcripts from CSV into memory.
@@ -695,6 +697,12 @@ def get_additional_metadata(video_id):
 
 
 ##### Function to get yt chapters as doc chunks
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "chunk_videos",
+    "function_name": "run_chunk_videos",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 @try_n_times(n = 3, wait = 1, backoff = "linear")
 def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestamped_transcript = None, llm = 'gemini_2_flash'):
     """

@@ -8,6 +8,7 @@ import streamlit as st
 from tqdm import tqdm
 from services.helper_functions import get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 
 
 consolidate_video_outlines_prompt = """You are tasked with creating a final course outline based on partial, potentially overlapping outlines generated from video content. Your goal is to produce a coherent, well-structured course outline that effectively covers all necessary topics.
@@ -109,7 +110,12 @@ II. Main Topic 2
 Remember to maintain a logical flow, ensure comprehensive coverage of the course content, and align the final outline with the provided course information. Your analysis and final outline should demonstrate thorough reasoning and careful consideration of all provided materials.
 """
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Consolidate Video Based Outlines",
+    "function_name": "process_proposer",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def process_proposer(proposer_agent, partial_outlines, course_name, target_audience, course_outline, required_topic_count, use_agent_llm, llm):
     print(proposer_agent.name)
     if use_agent_llm:
@@ -137,6 +143,7 @@ def process_proposer(proposer_agent, partial_outlines, course_name, target_audie
 
     response = consolidate_video_outlines_agent.run()
     return proposer_agent.name, response['final_outline']
+
 
 
 def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, target_audience, llm=None):

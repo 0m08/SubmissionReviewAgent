@@ -9,6 +9,7 @@ import json
 from services.helper_functions import create_and_populate_columns, get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
 from services.sheets_service import get_sheet_data_and_df, format_worksheet, create_or_read_worksheet, save_to_sheet, hide_columns_by_name
+from langsmith import traceable
 
 
 classify_video_few_shot_examples = """<examples>
@@ -204,6 +205,12 @@ Ensure your analysis is thorough and your verdict is clear and well-justified ba
 """
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Retrieve Video Transcripts",
+    "function_name": "run_get_transcripts",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_get_transcripts(sheet, worksheet = "Videos Research"):
     """
     This function will get the video transcripts for all the rows and add them to sheet.
@@ -273,6 +280,12 @@ def run_get_transcripts(sheet, worksheet = "Videos Research"):
     return
 
 
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Check Video Relevance",
+    "function_name": "classify_video",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def classify_video(course_name, target_audience, course_outline, video_title, video_transcript, llm = "gemini_2_flash"):
     """
     Processes and classifies a video based on its relevance to a course outline.
@@ -303,6 +316,7 @@ def classify_video(course_name, target_audience, course_outline, video_title, vi
     response = classify_video_agent.run()
 
     return response
+
 
 
 def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm = "gemini_2_flash"):
@@ -406,6 +420,7 @@ def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm 
     save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
 
     return
+
 
 
 def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_worksheet_name, llm = "gemini_2_flash"):

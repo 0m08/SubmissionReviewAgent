@@ -3,8 +3,10 @@ import os
 from services.helper_functions import get_short_name
 from agents.research_notes.load_references import get_all_chunks_as_docs
 from services.drive_service import upload_folder_to_drive, download_folder_from_drive
+from langsmith import traceable
 
 
+@traceable
 # Vectorstore
 def load_vector_db_with_pydrive(course_name: str,
                                 root_folder_id: str,

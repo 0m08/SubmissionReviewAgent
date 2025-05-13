@@ -1,6 +1,7 @@
 from googleapiclient.discovery import build
 import os
 from utils.decorator_helpers import cycle_api_keys_decorator
+from langsmith import traceable
 
 
 gcloud_yt_search_api_keys = [
@@ -9,7 +10,7 @@ gcloud_yt_search_api_keys = [
     os.environ.get("GCLOUD_YT_SEARCH_API_KEY_3")
 ]
 
-
+@traceable
 @cycle_api_keys_decorator(gcloud_yt_search_api_keys)
 def search_youtube_videos(query, max_results = 5, channel_id = None, developer_key = None):
     """

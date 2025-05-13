@@ -2,17 +2,25 @@ from modules.chain import Chain
 from tqdm import tqdm
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, clear_worksheet, delete_worksheet, get_worksheet_names
 import pandas as pd
+import streamlit as st
 from services.helper_functions import get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.llm_service import google_search_with_grounding
+from langsmith import traceable
+
 
 subtopic_research_prompt = """Research the following topic within a course - {course_name} and target audience - {target_audience}.
 
 Topic - {subtopic}.
 """
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Deep Research",
+    "function_name": "deep_research_subtopic",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def deep_research_subtopic(course_name, target_audience, subtopic, llm="gemini_with_grounding"):
     """
     Performs deep research on a specific subtopic for a course.
@@ -52,7 +60,12 @@ def deep_research_subtopic(course_name, target_audience, subtopic, llm="gemini_w
     
     return research_content, "\n".join(sources)
 
-
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Deep Research",
+    "function_name": "create_deep_research_sheet",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def create_deep_research_sheet(sheet, worksheet_name):
     """
     Creates the Deep Research sheet and populates it with subtopic_queries from the Rough Outline sheet.
