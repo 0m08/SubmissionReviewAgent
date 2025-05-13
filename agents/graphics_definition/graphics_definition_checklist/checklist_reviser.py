@@ -6,6 +6,7 @@ from modules.chain import Chain
 import gspread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 import streamlit as st
 
 
@@ -61,6 +62,15 @@ Each scene should contain the following fields:
 </output>
 """
 
+@traceable(
+    name="generate_checklist_evaluation",
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Checklist Evaluation",
+        "function_name": "generated_checklist_revised_graphics_definition",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generated_checklist_revised_graphics_definition(course_name, target_audience, slide_title, slide_content, graphics_definition, feedback, llm="gemini_2_flash"):
     """
     Generate a revised graphics definition for a given slide based on checklist evaluation feedback.
@@ -98,7 +108,15 @@ def generated_checklist_revised_graphics_definition(course_name, target_audience
     return response["checklist_revised_graphics_definition"]
 
 
-
+@traceable(
+    name="generate_checklist_evaluation",
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Checklist Evaluation",
+        "function_name": "process_slide_checklist_evaluation",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist_df, revised_graphics_definition, course_name, target_audience, llm):
     """
     Helper function to evaluate a single slide using the checklist criteria.
@@ -150,6 +168,15 @@ def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist
     
     return checklist_results, revised_graphics_definition or row["revised_graphics_definition"].strip()
 
+@traceable(
+    name="generate_checklist_evaluation",
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Checklist Evaluation",
+        "function_name": "run_checklist_evaluation_for_all_slides",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
     """
     Iterates over each slide and its graphics definition in the main sheet, runs the checklist evaluation for each unique task,

@@ -9,7 +9,8 @@ from services.smart_progress_bar import SmartProgressBar
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from gspread_formatting import set_column_width
-
+from langsmith import traceable
+import streamlit as st 
 
 
 readability_agent_prompt = """We are creating structured slide content for an e-learning course. You are a Readability score based Revisor Agent - an expert instructional designer with a specialization in simplifying complex educational content. Your task is to revise slide content that received a low readability score, indicating that the language may be too complex for the target audience and needs to be made more accessible. You will revise the content to make it easier to understand while preserving its original meaning and instructional purpose.
@@ -92,6 +93,14 @@ Based on your above evaluation, provide the revised slide content in the followi
 </output>
 """
 
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Winston.ai AI Detection Check with Readability Score based Reviser Agent",
+        "function_name": "run_readability_revision",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_readability_revision(course_name, target_audience, slide_content, llm="gemini_2_flash"):
     """
     Run the Readability Score Based Revisor Agent on slide content.
@@ -129,6 +138,14 @@ WINSTON_AI_URL = "https://api.gowinston.ai/v2/ai-content-detection"
 WINSTON_API_KEY = os.environ.get("WINSTON_API_KEY")
 
 # Function to check AI detection for a given slide content
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Winston.ai AI Detection Check with Readability Score based Reviser Agent",
+        "function_name": "check_ai_winston",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def check_ai_winston(text):
     """
     Sends slide content to Winston AI and retrieves AI detection results.
@@ -197,7 +214,16 @@ def check_ai_winston(text):
             "AI Detection Error": str(e)
         }
 
+
 # Function to format merged slides
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Winston.ai AI Detection Check with Readability Score based Reviser Agent",
+        "function_name": "format_slides_for_readability_prompt",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def format_slides_for_readability_prompt(slide_contents):
     if len(slide_contents) == 1:
         return f"<slide>\n\n{slide_contents[0]}\n\n</slide>"
@@ -208,7 +234,14 @@ def format_slides_for_readability_prompt(slide_contents):
 
     
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Winston.ai AI Detection Check with Readability Score based Reviser Agent",
+        "function_name": "run_ai_detection_with_readability",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target_audience, max_iterations=5):
     """
     Runs Winston.ai AI detection on each slide and applies Readability Reviser agent if Readability score < 50.

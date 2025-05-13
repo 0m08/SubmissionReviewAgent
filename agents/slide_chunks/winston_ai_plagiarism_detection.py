@@ -7,13 +7,22 @@ import pandas as pd
 import time
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 import os
-
+from langsmith import traceable
+import streamlit as st 
 
 # Winston AI API Configuration
 WINSTON_API_URL = "https://api.gowinston.ai/v2/plagiarism"
 WINSTON_API_KEY = os.environ.get("WINSTON_API_KEY")
 
 # Function to check plagiarism for a given slide content
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Winston.ai Plagiarism Check",
+        "function_name": "check_plagiarism_winston",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def check_plagiarism_winston(text):
     """
     Sends slide content to Winston AI and retrieves plagiarism results.
@@ -97,6 +106,14 @@ def check_plagiarism_winston(text):
             "Plagiarized Text": "Error"
         }
 
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Winston.ai Plagiarism Check",
+        "function_name": "run_plagiarism_detection",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_plagiarism_detection(sheet, worksheet_name):
     """
     Run plagiarism detection for each row in 'Content' and update the sheet.

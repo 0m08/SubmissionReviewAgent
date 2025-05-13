@@ -5,6 +5,8 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from langsmith import traceable
+import streamlit as st
 
 
 
@@ -226,7 +228,14 @@ Suggestion: Suggest using a light, conversational or idiomatic phrase only if it
 
 
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "AI Detection based Review and Revise Agents",
+        "function_name": "generate_humanlike_review",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_humanlike_review(course_name, target_audience, topic, subtopic, slide_type, slide_title, slide_content, llm="gemini_2_flash"):
     """
     Generate a human-likeness review for a slide content based on predefined review criteria.
@@ -608,7 +617,14 @@ In conclusion, keep in mind to:
 </examples>
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "AI Detection based Review and Revise Agents",
+        "function_name": "generate_humanlike_revise",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_humanlike_revise(course_name, target_audience, topic, subtopic, slide_type, slide_title, slide_content, failed_criteria, llm="gemini_2_flash"):
     """
     Generate a human-like revision for a slide content based on failed review criteria.
@@ -651,6 +667,14 @@ def generate_humanlike_revise(course_name, target_audience, topic, subtopic, sli
 
 
 
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "AI Detection based Review and Revise Agents",
+        "function_name": "process_slide",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def process_slide(index, row, course_name, target_audience, llm, max_iterations):
     """
     Process a single slide for AI Detection Review & Revise.
@@ -707,7 +731,15 @@ def process_slide(index, row, course_name, target_audience, llm, max_iterations)
         iteration += 1
 
     return slide_content, row["checklist_based_slide_title"]
-    
+
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "AI Detection based Review and Revise Agents",
+        "function_name": "run_ai_detection_review_revise",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)    
 def run_ai_detection_review_revise(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash", max_iterations=3):
     """
     Runs the AI Detection Review & Revise Workflow for all slides in the Google Sheet.

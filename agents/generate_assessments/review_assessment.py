@@ -1,5 +1,6 @@
 from agents.generate_assessments.chains import Chain
-
+from langsmith import traceable
+import streamlit as st
 
 review_assessment_prompt = """As an expert Review Agent, provide a review of the following assessment question for the course titled {course_name}, tailored to the {target_audience}. Below is the slide content on which the assessment question is based on:
 
@@ -56,6 +57,14 @@ Make sure to reply in the following output format:
 """
 
 # Function to review assessment question
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Review and Revise all Assessment Questions",
+        "function_name": "review_assessment",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def review_assessment(course_name, target_audience, assessment_question, slides, checklist_criteria, llm = 'gemini_2_flash'):
   """
   This function reviews an assessment question based on a checklist criterion.

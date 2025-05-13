@@ -1,4 +1,6 @@
 from modules.chain import Chain
+from langsmith import traceable
+import streamlit as st
 
 reviser_agent_prompt = """ You are a Graphics Definition Revision Agent. Your primary task is to generate a revised graphics definition by analyzing an existing graphic definition for the given slide, considering both AI-generated reviews and human reviews for this graphics definition to address identified issues and incorporate the insights from the AI and human reviews. Your overarching goal is to create a visual representation of the slide content that is clear, instructionally effective, and engaging, while carefully balancing simplicity, accuracy, and creative variation.
 
@@ -141,7 +143,14 @@ When generating the graphics definition for this slide:
     C) Ensure coherence across slides: Maintain a consistent visual style, color schemes, and conceptual flow across all slides, whether reusing or introducing new graphics.
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Generate Graphics Definition",
+        "function_name": "generate_reviser_output_for_slide",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_reviser_output_for_slide(course_name, target_audience, slide_title, slide_content, graphics_definition, complexity_review, missing_sentences_review, accuracy_review, reuse_previous_graphics_review, human_review, references, previous_graphics_definition = "", llm = "gemini_2_flash"):
     """
     Calls the Reviser Agent for a single slide, returning the revised graphics definition.

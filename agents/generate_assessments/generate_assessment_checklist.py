@@ -3,7 +3,9 @@ from services.sheets_service import get_sheet_data_and_df
 from agents.generate_assessments.chains import Chain
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 import streamlit as st
+
 
 
 generate_checklist_prompt = """You are a Checklist Evaluation Agent tasked with rigorously evaluating the quality of assessment questions using a predefined checklist. The course name for which the assessment questions are based on is {course_name}, tailored to {target_audience}. Below is the slide content on which the assessment questions are based:
@@ -140,7 +142,15 @@ def get_assessment_questions(sheet, worksheet_name):
 
 
 
-    # Function to evaluate a checklist task
+# Function to evaluate a checklist task
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Update Assessment Checklist",
+        "function_name": "generate_checklist",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_checklist(course_name, target_audience, task_name, evidence_list, slides, assessment_questions, llm):
     """
     This function evaluates a single checklist task using an LLM.
@@ -175,7 +185,14 @@ def generate_checklist(course_name, target_audience, task_name, evidence_list, s
     
     return response
 
-    
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Update Assessment Checklist",
+        "function_name": "run_generate_assessment_checklist",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)    
 def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
     """
     This function generates the assessment checklist for a given course.
@@ -290,3 +307,5 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
         print(f"Error updating Google Sheet: {e}")
         
     return checklist_df
+
+

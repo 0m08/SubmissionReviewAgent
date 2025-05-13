@@ -6,6 +6,8 @@ from services.sheets_service import get_sheet_data_and_df
 from gspread_dataframe import set_with_dataframe
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
+import streamlit as st 
 
 
 generate_learning_objectives_slide_prompt = """We are creating structured slide content for an e-learning course. You are an expert instructional designer and e-learning content creator, crafting educational materials with the fluency and adaptability of a world-class writer — producing content indistinguishable from human authorship. In this role, you are serving as a Learning Objectives Generator Agent, responsible for creating a structured Learning Objectives slide. Your task is to analyze all slide content for a given topic and generate a concise, well-structured list of learning objectives that accurately represent the key takeaways from the topic.
@@ -641,8 +643,14 @@ After completing this topic, you’ll be able to:
 </examples>
 """
 
-
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Generate Learning Objectives",
+        "function_name": "generate_learning_objectives_slide",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_learning_objectives_slide(course_name, target_audience, topic, slide_chunks, llm="gemini_2_flash"):
     """
     Generate a Learning Objectives slide for a given topic.
@@ -712,7 +720,14 @@ Slide Chunk Content: {row['Slide Chunk']}
     return "\n\n".join(formatted_chunks)
 
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Generate Learning Objectives",
+        "function_name": "process_topic",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def process_topic(topic, slide_chunks_df, course_name, target_audience, llm):
     """
     Process a single topic to generate learning objectives and update the DataFrame.
@@ -760,6 +775,14 @@ def process_topic(topic, slide_chunks_df, course_name, target_audience, llm):
 
     return topic, topic_df
 
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Generate Learning Objectives",
+        "function_name": "run_learning_objectives_agent",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_learning_objectives_agent(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
     """
     Runs the Learning Objectives Agent for each topic, updates slide_chunks_df, and writes back to Google Sheets.

@@ -4,7 +4,7 @@ import re
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from langsmith import traceable
 
 
 from agents.graphics_definition.define_graphics.generate_graphics_definition import generate_graphics_definition
@@ -29,6 +29,14 @@ def ensure_reference_description_column(sheet, worksheet_name):
     else:
         print("ℹ️ 'Reference Description' column already exists.")
 
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Generate Graphics Definition",
+        "function_name": "run_generate_graphics_definition",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_audience, progress, llm="gemini_2_flash"):
     # Read the sheet and df
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
@@ -114,6 +122,14 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
 
     return True
 
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Generate Graphics Definition",
+        "function_name": "run_revise_generated_graphics_definition",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name, target_audience, progress,  llm="gemini_2_flash"):
     """
     Process revised graphics definition for each row and generate graphics definition for the next row if needed.
@@ -200,7 +216,15 @@ def run_revise_generated_graphics_definition(sheet, worksheet_name, course_name,
     return True
 
 
-
+@traceable(
+    name="run_generate_and_revise_graphics",
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Generate Graphics Definition",
+        "function_name": "run_generate_and_revise_graphics",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_audience, skip_manual_step=False, llm="gemini_2_flash"):
     """
     Combined function to:
@@ -252,7 +276,7 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
         print(f"⏳ Generating Graphics Definition for Slide {index + 1}\n")
         run_generate_graphics_definition(sheet, worksheet_name, course_name, target_audience, progress, llm)
 
-# Show message and stop execution if manual review is needed
+        # Show message and stop execution if manual review is needed
         st.write(f"✔ Graphics Definition generated and revised for Slide {index + 1}. Please enter review comments before continuing.(Optional)")
 
         # Stop execution to allow user manual review unless skip_manual_step is True
