@@ -1,6 +1,8 @@
 # from modules import Chain
 import re
 from modules.chain import Chain
+from langsmith import traceable
+import streamlit as st
 
 
 generate_graphics_definition_prompt = """You are a Graphics Definition Agent. Your task is to create precise and structured graphics definition for a given slide, ensuring each sentence is visually represented in a clear, instructional, and engaging manner.
@@ -395,6 +397,14 @@ When generating the graphics definition for this slide:
     C) Ensure coherence across slides: Maintain a consistent visual style, color schemes, and conceptual flow across all slides, whether reusing or introducing new graphics.
 """
 
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Graphics Definition Generation",
+        "function_name": "generate_graphics_definition",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_graphics_definition(course_name, target_audience, slide_title, slide_content, previous_graphics_definition, references, llm = "gemini_2_flash"):
     """
     Generate graphics definition for a given slide.

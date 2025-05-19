@@ -8,9 +8,17 @@ from agents.generate_assessments.slide_models import MultiChoiceQuestion, TrueFa
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
 import streamlit as st
 
-
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Review and Revise all Assessment Questions",
+        "function_name": "review_and_revise_assessment_questions_with_agents",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def review_and_revise_assessment_questions_with_agents(course_name, topic_slides, target_audience, assessment_question, checklist_criteria, max_turns=5, llm='gemini_flash'):
     """
     This function reviews and revises an assessment question based on a checklist criterion.
@@ -121,6 +129,14 @@ def generate_structured_question(assessment_question, llm='gemini_2_flash'):
     print(response)
     return response
 
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Review and Revise all Assessment Questions",
+        "function_name": "run_review_and_revise_all_questions",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, target_audience, llm='gemini_2_flash'):
     """
     This function reviews and revises all assessment questions based on the checklist criteria.

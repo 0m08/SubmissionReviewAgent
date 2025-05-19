@@ -4,7 +4,8 @@ import pandas as pd
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from langsmith import traceable
+import streamlit as st
  
 
 generate_assessment_prompt = """As an expert Instructional Designer with extensive knowledge of the subject {course_name} and the topic {topic_name}, your task is to create tailored assessment questions for a self-paced e-learning course on {course_name}, specifically designed for {target_audience}. Please develop assessment questions based on the content provided in the following slides, which are delimited by XML tags.
@@ -104,6 +105,14 @@ Ensure you provide all the exact option texts and their corresponding correct ma
 """
 
 # Function to generate assessment question
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Generate Assessment Questions",
+        "function_name": "generate_assessment_question",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_assessment_question(course_name, target_audience, topic_name, slides, llm = 'gemini_2_flash'):
     """
     This function generates assessment questions for a given course.
@@ -130,7 +139,14 @@ def generate_assessment_question(course_name, target_audience, topic_name, slide
 
     return response['question']
 
-
+@traceable(
+    metadata={
+        "agent_name": "assessment",
+        "step_name": "Generate Assessment Questions",
+        "function_name": "run_generate_assessment_question",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_generate_assessment_question(sheet, worksheet_name, course_name, target_audience, llm = 'gemini_2_flash'):
     """
     This function generates assessment questions for a given course.
@@ -199,3 +215,4 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
     hide_worksheet_by_name(sheet, "Assessment questions")
 
     return questions_by_topic
+

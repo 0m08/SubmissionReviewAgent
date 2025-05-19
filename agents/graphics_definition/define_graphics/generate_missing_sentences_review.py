@@ -1,5 +1,7 @@
 from modules.chain import Chain
 from concurrent.futures import ThreadPoolExecutor
+from langsmith import traceable
+import streamlit as st
 
 generate_missing_sentences_review_prompt = """You are a Graphics Definition Review Agent. Your task is to analyze the provided graphics definition for a slide and evaluate whether all sentences from the slide content are fully represented in the visuals. The goal is to ensure that every sentence from the slide content is visually represented in the graphics definition, without any omissions.
 
@@ -77,7 +79,14 @@ If Fail, provide specific recommendations on how to incorporate the missing sent
 """
 
 
-
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Graphics Definition Generation",
+        "function_name": "generate_missing_sentences_review",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_missing_sentences_review(course_name, target_audience, slide_title, slide_content, graphics_definition, llm="gemini_2_flash"):
     """
     Generate missing sentences review for a given slide.

@@ -1,5 +1,6 @@
 from modules.chain import Chain
-
+from langsmith import traceable
+import streamlit as st
 
 # Initialize the checklist sheet using the provided link
 # checklist_sheet = gc.open_by_url(checklist_sheet_link)
@@ -70,6 +71,15 @@ Feedback: [Provide your explaination if your final verdict is "Fail". Omit this 
 </checklist_evaluation>
 """
 
+@traceable(
+    name="generate_checklist_evaluation",
+    metadata={
+        "agent_name": "graphics_definition",
+        "step_name": "Checklist Evaluation",
+        "function_name": "generate_checklist_evaluation",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def generate_checklist_evaluation(course_name, target_audience, slide_title, slide_content, graphics_definition, task_name, checklist_criteria, llm = "gemini_2_flash"):
     """
     Generate checklist evaluation for a given slide's graphics definition.

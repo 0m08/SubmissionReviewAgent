@@ -5,6 +5,8 @@ from agents.slide_chunks.format_inputs import Subtopic
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet
 from services.smart_progress_bar import SmartProgressBar
+from langsmith import traceable
+import streamlit as st 
 
 
 
@@ -30,7 +32,14 @@ extract_slide_info_prompt = """You are an expert in structuring and extracting s
     - Keep the original wording of slide content - do not rephrase or modify.
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Research Notes Parsing",
+        "function_name": "process_row",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def process_row(row, index):
     slide_chunks_data = []
     topic = row['Topic']
@@ -86,7 +95,14 @@ def process_row(row, index):
 
     return index, slide_chunks_data
 
-
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Research Notes Parsing",
+        "function_name": "run_research_notes_parsing",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_research_notes_parsing(sheet, worksheet_name):
     _, research_notes_df = get_sheet_data_and_df(sheet, worksheet_name)
 

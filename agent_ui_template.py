@@ -128,6 +128,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
             
             # Add "Run All Automated Steps" button
             if st.button("Run All Automated Steps", type="primary"):
+                st.session_state["automation_in_progress"] = True
                 run_all_automated_steps(pipeline_sections)
                 # st.rerun()
 
@@ -250,7 +251,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                                             log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
                                             st.success(f"{step['name']} completed!")
                                             
-                                            run_all_automated_steps(pipeline_sections)
+                                            # Only continue automation if it was explicitly triggered
+                                            if st.session_state.get("automation_in_progress", False):
+                                                run_all_automated_steps(pipeline_sections)
+                                                st.rerun()
                                             st.rerun()
                                         
                                         else:
@@ -459,6 +463,7 @@ def run_all_automated_steps(pipeline_sections):
                         st.error(f"Error auto-running Step {step_global_count}. {step['name']}: {e}")
                         st.text(traceback.format_exc())
                         return
+    st.session_state["automation_in_progress"] = False
 
 
 def log_completed_step(sheet, agent_name, step_name):
