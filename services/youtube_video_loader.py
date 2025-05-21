@@ -503,7 +503,7 @@ def get_text_for_each_chapter(timestamped_transcript, chapters):
             # Check if the transcript timestamp is within the chapter chunk
             if start_time - 1 <= transcript_timestamp_sec <= end_time + 1:   # -1 and +1 to add some buffer for rounding errors
                 # Append the transcript text to the chapter chunk
-                chapter_chunk += transcript_text + " "
+                chapter_chunk += str(transcript_text) + " "
 
         # Append the chapter chunk to the list
         chapter_chunks.append(
