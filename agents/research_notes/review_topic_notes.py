@@ -42,6 +42,8 @@ Output your response in the following format:
 <final_review>
 [Place your final review of the research notes with these tags.]
 </final_review>
+
+Remember: Do not suggest any additions to the research notes.
 """
 
 @traceable(metadata={

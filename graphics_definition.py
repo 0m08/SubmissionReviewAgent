@@ -2,6 +2,7 @@ from agent_ui_template import agent_ui
 
 from agents.graphics_definition.define_graphics.run_generate_revise_graphics_definition import run_generate_and_revise_graphics, ensure_reference_description_column
 from agents.graphics_definition.graphics_definition_checklist.checklist_reviser import run_checklist_evaluation_for_all_slides
+from agents.graphics_definition.short_grahphics_definition.generate_short_graphic_definitions import run_generate_short_graphic_definitions
 
 
 pipeline_sections = [
@@ -41,11 +42,8 @@ pipeline_sections = [
             },
       
         ],
-    },
-        
-            
-        
-        
+    },   
+
     {
         "section_name": "Section 2: Graphics Definition Checklist",
         "steps": [
@@ -63,6 +61,25 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Generates revised Graphics Definition based on the review of the generated graphics definitions on the checklist criteria. The final Graphics Definitions are populated in the `Graphics Definition` column.",
+            },
+        ],
+    },
+
+    {
+        "section_name": "Section 3: Short Graphics Definition",
+        "steps": [
+            {
+                "name": "Short Graphics Definition",
+                "func": run_generate_short_graphic_definitions,
+                "depends_on": ["Checklist Evaluation"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                    "llm": "gemini_2_flash"
+                },
+                "is_manual_step": False,
+                "estimated_time": "~ 5 - 10 minutes",
+                "description": "Generates short graphics definitions for each slide based on the revised graphics definitions.",
             },
         ],
     }
