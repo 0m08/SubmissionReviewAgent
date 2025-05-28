@@ -72,7 +72,7 @@ Feedback: [Provide your explaination if your final verdict is "Fail". Omit this 
 """
 
 @traceable(
-    name="generate_checklist_evaluation",
+    
     metadata={
         "agent_name": "graphics_definition",
         "step_name": "Checklist Evaluation",
