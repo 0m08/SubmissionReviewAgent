@@ -11,6 +11,7 @@ from datetime import datetime
 import os
 from langtrace_python_sdk import langtrace # Must precede any llm module imports
 import tempfile, json, base64
+from services.helper_functions import get_short_name
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict]):
@@ -97,6 +98,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                 st.session_state["course_background"] = course_info_df['Course Background'][0]
                 st.session_state["drive"] = drive
                 st.session_state["gc"] = gc
+                
+                # Set the langchain project name for langsmith
+                os.environ["LANGCHAIN_PROJECT"] = get_short_name(st.session_state["course_name"]) + " " + sheet.id
                 
                 # Load previously completed steps from Agent logs
                 load_completed_steps(sheet, step_name)

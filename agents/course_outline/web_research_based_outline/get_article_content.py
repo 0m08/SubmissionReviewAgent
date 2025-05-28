@@ -201,6 +201,10 @@ def run_fetch_article_content(sheet, worksheet_name):
     futures = []
     with ThreadPoolExecutor(max_workers=5) as executor:
         for index, row in preliminary_research_df.iterrows():
+            # Skip if already populated
+            if row['article_content_0'] != '':
+                continue
+            # Submit the task
             futures.append(executor.submit(fetch_and_process_article, index, row))
 
         # Collect the results as they complete

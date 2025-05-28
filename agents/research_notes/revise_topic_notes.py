@@ -17,7 +17,7 @@ Output in the following format:
 </planning>
 <proposed_framework>
 [Place your proposed framework here. This should include:
-- Main headings: Create 3–5 major sections or modules
+- Main headings: Create appropriate number of major sections or modules
 - Subheadings: Under each main heading, list specific topics, concepts, or skills.
 
 Hierarchy & Clarity: Ensure the top-level structure captures the main pillars of your topic, while subheadings handle finer details.
