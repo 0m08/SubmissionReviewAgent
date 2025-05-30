@@ -126,7 +126,7 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
         
         concepts_to_include = get_outline_with_los(df = rough_outline_df, include_learning_objectives = False, include_prefix = False)
         research_summary = '\n\n---\n\n'.join(rough_outline_df['Manual Extract'].to_list())
-        course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
+        course_objective_guidelines = '\n'.join(st.session_state['course_objective_guidelines']).strip()
 
         generate_outline_agent.add_message(
             role="system",
