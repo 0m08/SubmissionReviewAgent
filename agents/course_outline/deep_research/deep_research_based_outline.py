@@ -171,7 +171,7 @@ def propose_web_research_outline_with_agents(sheet, course_name, course_backgrou
     
     # Use the research column from Deep Research sheet
     research_summary = '\n\n---\n\n'.join(deep_research_df['research'].to_list())
-    course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
+    course_objective_guidelines = '\n'.join(st.session_state['course_objective_guidelines']).strip()
 
     # Fetch topic count from Course Info
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")

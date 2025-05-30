@@ -461,7 +461,7 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
     
     course_outline = get_outline_with_los(df = rough_outline_df, include_learning_objectives = False, include_prefix = False)
     # Collect User Comments
-    course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
+    course_objective_guidelines = '\n'.join(st.session_state['course_objective_guidelines']).strip()
     
     # print(course_objective_guidelines)
     
