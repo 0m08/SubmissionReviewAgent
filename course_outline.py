@@ -34,10 +34,15 @@ from agents.course_outline.enhance_outline.label_learning_objectives import run_
 from agents.course_outline.enhance_outline.review_revise_topic_outline import show_outline_diff, run_review_and_revise_topic_outline
 from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import map_original_outline_to_revised_outline_for_all_topics
 
+from agents.research_notes.load_references import load_references
+from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
+
 llm_model = st.session_state.get("llm_model", "gemini_2_flash") or "gemini_2_flash" # Or is set incase llm_model is None
 
 # Read value from Course Info sheet
-topic_deep_research_enabled = False  
+topic_deep_research_enabled = False 
+outline_finalized = False
+
 if "sheet" in st.session_state:
     _, course_info_df = get_sheet_data_and_df(st.session_state["sheet"], "Course info")
     flag_raw = course_info_df.loc[0, "Outline Topic Deep Research"]
@@ -46,6 +51,11 @@ if "sheet" in st.session_state:
         if pd.notna(flag_raw)
         else True
     )
+
+    # Check the status of the oultine
+    if "Outline Status" in course_info_df.columns:
+        status = course_info_df.loc[0, "Outline Status"]
+        outline_finalized = isinstance(status, str) and status.strip().lower() == "final outline"
 
 # --- 1) Define pipeline as sections, each with its own steps ---
 pipeline_sections = [
@@ -202,6 +212,7 @@ pipeline_sections = [
                     "target_audience": "target_audience",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Produces outlines from transcripts of videos manually confirmed as relevant."
             },
@@ -239,6 +250,7 @@ pipeline_sections = [
                     "NOTE: You must fill out the **consolidation_comments** column for **every row** that contains an outline. Leave it blank only if the row has no outline at all."
                 ],
                 "is_manual_step": True,
+                "hide_if_final_outline": True,
                 "estimated_time": "Manual step",
                 "description": "Provide detailed feedback to guide consolidation of individual video outlines into a unified course outline.",
                 "video_link": "https://drive.google.com/file/d/1vQttQADL78qwf_qQq5RVblt8RVUWfIOW/view?usp=drive_link",
@@ -254,6 +266,7 @@ pipeline_sections = [
                     "target_audience": "target_audience",
                     # "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 minutes",
                 "description": "Combines multiple individual outlines into four proposed consolidated outline variations in the `Outline Consolidation` sheet."
             },
@@ -273,6 +286,7 @@ pipeline_sections = [
                     "target_audience": "target_audience",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Creates outlines based on client-provided references listed in the `Client References` sheet.",
             },
@@ -309,6 +323,7 @@ pipeline_sections = [
                     "NOTE: Fill in the **consolidation_comments** column for **every row** that has an outline. Leave it blank only if the row does **not** have an outline."
                 ],
                 "is_manual_step": True,
+                "hide_if_final_outline": True,
                 "estimated_time": "Manual step",
                 "description": "Provide detailed comments to guide the consolidation of client reference-based outlines.",
                 "video_link": "https://drive.google.com/file/d/1Xm1ZCp92GiAyBXs_CAkv82JnInfGy02m/view?usp=drive_link",
@@ -324,6 +339,7 @@ pipeline_sections = [
                     "target_audience": "target_audience",
                     # "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 minutes",
                 "description": "Combines individual client reference outlines into four cohesive outline options stored in the `Outline Consolidation` sheet.",
             },
@@ -395,6 +411,7 @@ pipeline_sections = [
                     "course_name": "course_name",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Summarizes extracted information from web articles into concise, relevant summaries stored in the `Rough Outline` sheet.",
             },
@@ -431,6 +448,7 @@ pipeline_sections = [
                     "NOTE: Fill in the `Manual Extract` column for `every row` that has a `research_summary`. Leave it blank only if there's no research summary in that row.",
                 ],
                 "is_manual_step": True,
+                "hide_if_final_outline": True,
                 "estimated_time": "Manual step",
                 "description": "Review, edit, and confirm AI-generated summaries, ensuring accuracy and relevancy.",
                 "video_link": "https://drive.google.com/file/d/1Wjb6lO0zwKPV8577EcRyct9Tq6J6XDfG/view?usp=drive_link",
@@ -446,6 +464,7 @@ pipeline_sections = [
                     "course_background": "course_background",
                     # "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 4 minutes",
                 "description": "Creates a detailed course outline based on refined summaries, storing the output in the `Outline Consolidation` sheet.",
             },
@@ -479,6 +498,7 @@ pipeline_sections = [
                     "course_background": "course_background",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Generates a course outline based on the deep research findings and saves it to a `Outline Consolidation` sheet.",
             },
@@ -498,6 +518,7 @@ pipeline_sections = [
                     "target_audience": "target_audience",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 4 minutes",
                 "description": "Merges all previously created outlines from various sources into one comprehensive consolidated outline in the `Outline Review` sheet.",
                 "delete_func": delete_all_outlines_consolidated_and_review,
@@ -540,6 +561,7 @@ pipeline_sections = [
                     "NOTE: If `Rejected`, add clear notes in the `Manual Feedback` column on what should be changed."
                 ],
                 "is_manual_step": True,
+                "hide_if_final_outline": True,
                 "estimated_time": "~ Semi-Automated Step",
                 "description": "Review the AI outline in the `Outline Review` sheet. Add comments in the `Verdict` column (valid options are Approved / Rejected) and in the `Manual Feedback` column.",
                 "video_link":"https://drive.google.com/file/d/1c062MbZbwes69Oq64QNB7wA8JLiQfk-Z/view?usp=drive_link",
@@ -575,6 +597,7 @@ if topic_deep_research_enabled:
                 },
                 "instructions": [],
                 "is_manual_step": True,
+                "hide_if_final_outline": True,
                 "estimated_time": "~ Manual Step",
                 "description": "Create the `Topic Outline` sheet with following two columns: `Topic` and `Learning Objective`.",
                 "video_link": "https://drive.google.com/file/d/1csVwfr6Vhi5ZPJjw3WhKxxZWFs_XwJ24/view?usp=drive_link",
@@ -596,6 +619,7 @@ if topic_deep_research_enabled:
                     "target_audience": "target_audience",
                     "llm": "gemini_with_grounding",
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Performs deep research on each topic in the Topic Deep Research sheet and populates the research and sources columns.",
             },
@@ -610,6 +634,7 @@ if topic_deep_research_enabled:
                     "target_audience": "target_audience",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Generates learning objectives for each topic based on the research data and populates the learning objectives column in the Topic Deep Research sheet.",
             },
@@ -624,6 +649,7 @@ if topic_deep_research_enabled:
                     "target_audience": "target_audience",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Categorizes learning objectives for each topic in the `Topic Deep Research` sheet based on their relevance to the course outline.",
             },
@@ -638,6 +664,7 @@ if topic_deep_research_enabled:
                     "target_audience": "target_audience",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Labels learning objectives for each topic in the `Topic Deep Research` sheet based on their relevance to the course outline.",
             },
@@ -675,6 +702,7 @@ if topic_deep_research_enabled:
                     "NOTE: If `Rejected`, add clear notes in the `Manual Feedback` column on what should be changed."
                 ],
                 "is_manual_step": True,
+                "hide_if_final_outline": True,
                 "estimated_time": "~ Semi-Automated Step",
                 "description": "Review and revise the outline in the `Enhanced Outline Review` sheet.",
                 "video_link": "https://drive.google.com/file/d/1hwvyfFfRPvTnDLnQzfx7L1rmR7cS5g4q/view?usp=drive_link",
@@ -693,12 +721,45 @@ if topic_deep_research_enabled:
                     "worksheet_name": "Enhanced Outline with LOs",
                     "llm": llm_model,
                 },
+                "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Maps additional columns from the topic outline to the enhanced outline.",
             },
         ]
     })
 
-agent_ui(step_name="Course Outline", pipeline_sections=pipeline_sections)
+pipeline_sections.append({
+    "section_name": "Section: Subtopic Research",
+    "steps": [
+        {
+            "name": "Get relevant references for Learning Objectives",
+            "func": load_references,
+            "depends_on": [],
+            "args": {
+                "sheet": "sheet",
+            },
+            "estimated_time": "~ 2-5 minutes",
+            "description": "Loads all reference documents into the vectorstore for faster retrieval.",
+        },
+        {
+            "name": "Retrieve relevant references for Learning Objectives",
+            "func": run_retriever_agent_for_all_rows,
+            "depends_on": [],
+            "args": {
+                "root_folder_id": "root_folder_id",
+                "drive": "drive",
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+                "course_name": "course_name",
+                "target_audience": "target_audience",
+                "llm": llm_model,
+            },
+            "estimated_time": "~ 10 - 20 minutes",
+            "description": "Gathers relevant context needed for the research.",
+        },
+    ]
+})
+
+agent_ui(step_name="Course Outline", pipeline_sections=pipeline_sections, outline_finalized=outline_finalized)
 
 

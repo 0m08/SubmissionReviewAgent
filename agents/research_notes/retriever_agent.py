@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.llm_service import csv_list_parser
 from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, format_worksheet
 from tqdm import tqdm
 from services.helper_functions import create_and_populate_columns, get_outline_with_los
 import streamlit as st
@@ -198,7 +198,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                        course_name, target_audience, course_outline, llm):
     """
     Processes a single row: runs the retriever agent for each Learning Objective
-    and accumulates the context string. Returns (index, context_string, source_links, as_is_sources, content_sources).
+    and accumulates the context string. Returns (index, context_string, source_links, as_is_sources, content_sources, web_links, video_links)
     """
     # # If row is already populated, just return existing context
     # if row['context_0'] != '':
@@ -216,6 +216,8 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
     source_links = []  # List to store all source links
     as_is_sources = []  # List to store sources used as is
     content_sources = []  # List to store sources for content
+    web_links = []  # List to store web links
+    video_links = []  # List to store video links   
 
     for lo in learning_objectives:
         # Run the retriever agent
@@ -273,6 +275,12 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                             as_is_sources.append(formatted_source)
                         else:
                             content_sources.append(formatted_source)
+                        
+                        # Separate into video or web link
+                        if 'youtube.com' in source_link:
+                            video_links.append(source_link)
+                        else:
+                            web_links.append(source_link)
             else:
                 print(f'Skipping doc id {doc_id} as it is not an integer')
                 continue
@@ -281,8 +289,10 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
     source_links_text = '\n'.join(source_links)
     as_is_sources_text = '\n'.join(as_is_sources)
     content_sources_text = '\n'.join(content_sources)
+    web_links_text = '\n'.join(web_links)
+    video_links_text = '\n'.join(video_links)
     
-    return index, context, source_links_text, as_is_sources_text, content_sources_text
+    return index, context, source_links_text, as_is_sources_text, content_sources_text, web_links_text, video_links_text
 
 
 @traceable(metadata={
@@ -316,6 +326,10 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
         course_outline_with_lo_df['as_is_sources'] = ''
     if 'content_sources' not in course_outline_with_lo_df.columns:
         course_outline_with_lo_df['content_sources'] = ''
+    if 'web_links' not in course_outline_with_lo_df.columns:
+        course_outline_with_lo_df['web_links'] = ''
+    if 'video_links' not in course_outline_with_lo_df.columns:
+        course_outline_with_lo_df['video_links'] = ''
 
     # Check if this step is already done by checking the last row of 'context_0'
     if course_outline_with_lo_df.iloc[-1]['context_0'] != '':
@@ -371,7 +385,7 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
         for future in tqdm(as_completed(futures), total=total_tasks):
-            index, context, source_links, as_is_sources, content_sources = future.result()
+            index, context, source_links, as_is_sources, content_sources, web_links, video_links = future.result()
 
             # Update the row in the DataFrame
             course_outline_with_lo_df = create_and_populate_columns(
@@ -386,6 +400,8 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
             course_outline_with_lo_df.at[index, 'source_links'] = source_links
             course_outline_with_lo_df.at[index, 'as_is_sources'] = as_is_sources
             course_outline_with_lo_df.at[index, 'content_sources'] = content_sources
+            course_outline_with_lo_df.at[index, 'web_links'] = web_links
+            course_outline_with_lo_df.at[index, 'video_links'] = video_links
 
             # Update progress
             progress.update()
@@ -401,7 +417,9 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = course_outline_with_lo_sheet, df = course_outline_with_lo_df)
 
-    column_names = [column_name for column_name in course_outline_with_lo_df.columns if "context" in column_name]
+    format_worksheet(course_outline_with_lo_sheet)
+
+    column_names = [column_name for column_name in course_outline_with_lo_df.columns if ("context" in column_name or column_name in ["source_links", "as_is_sources", "content_sources"])]
 
     # Hide the columns
     hide_columns_by_name(worksheet = course_outline_with_lo_sheet, column_names = column_names, df = course_outline_with_lo_df)
