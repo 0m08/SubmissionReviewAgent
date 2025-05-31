@@ -276,6 +276,9 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                         else:
                             content_sources.append(formatted_source)
                         
+                        # Remove the doc ID prefix
+                        source_link = source_link.split('] ', 1)[1] if '] ' in source_link else source_link
+
                         # Separate into video or web link
                         if 'youtube.com' in source_link:
                             video_links.append(source_link)
@@ -395,13 +398,29 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                 col_base_name='context',
                 chunk_size=49000
             )
+
+            # Convert to list if string
+            if isinstance(web_links, str):
+                web_links = web_links.split('\n')
+            if isinstance(video_links, str):
+                video_links = video_links.split('\n')
+
+            # Normalize and deduplicate web and video links before joining
+            def clean_url(url):
+                return url.strip().split('?')[0].lower()
+            web_links = list({clean_url(link): link for link in web_links}.values())
+            video_links = list({clean_url(link): link for link in video_links}.values())
+
+            # Join the links
+            web_links_text = '\n'.join(web_links)
+            video_links_text = '\n'.join(video_links)
             
             # Update the source links columns
             course_outline_with_lo_df.at[index, 'source_links'] = source_links
             course_outline_with_lo_df.at[index, 'as_is_sources'] = as_is_sources
             course_outline_with_lo_df.at[index, 'content_sources'] = content_sources
-            course_outline_with_lo_df.at[index, 'web_links'] = web_links
-            course_outline_with_lo_df.at[index, 'video_links'] = video_links
+            course_outline_with_lo_df.at[index, 'web_links'] = web_links_text
+            course_outline_with_lo_df.at[index, 'video_links'] = video_links_text
 
             # Update progress
             progress.update()
