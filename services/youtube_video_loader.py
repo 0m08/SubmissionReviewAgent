@@ -840,8 +840,8 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestampe
 
         chapter_chunks.append(
             Document(
-                page_content=chapter_text,
-                metadata=chapter
+                page_content = chapter_text,
+                metadata = chapter
             )
         )
 
