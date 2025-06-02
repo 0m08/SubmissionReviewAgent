@@ -281,7 +281,22 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
 
                         # Separate into video or web link
                         if 'youtube.com' in source_link:
-                            video_links.append(source_link)
+                            # Check if start and end parameters exist in the URL
+                            if 'start=' in source_link and 'end=' in source_link:
+                                video_links.append(source_link)  # Keep the full URL with timestamps
+                            else:
+                                # If no timestamps in URL, check if they exist in metadata
+                                if hasattr(context_doc, 'metadata'):
+                                    start_time = context_doc.metadata.get('start_time')
+                                    end_time = context_doc.metadata.get('end_time')
+                                    if start_time is not None and end_time is not None:
+                                        # Add timestamps to the URL
+                                        separator = '&' if '?' in source_link else '?'
+                                        video_links.append(f"{source_link}{separator}start={start_time}&end={end_time}")
+                                    else:
+                                        video_links.append(source_link)
+                                else:
+                                    video_links.append(source_link)
                         else:
                             web_links.append(source_link)
             else:
@@ -407,7 +422,8 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
 
             # Normalize and deduplicate web and video links before joining
             def clean_url(url):
-                return url.strip().split('?')[0].lower()
+                return url.strip().lower()
+                
             web_links = list({clean_url(link): link for link in web_links}.values())
             video_links = list({clean_url(link): link for link in video_links}.values())
 
