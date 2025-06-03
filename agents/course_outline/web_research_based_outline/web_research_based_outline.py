@@ -99,7 +99,7 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
     use_agent_llm = True if llm is None else False
     proposer_responses = {}
     
-    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')
+    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
     _, agents_df = get_sheet_data_and_df(sheet, 'Agents')  # Get only the DataFrame
 
     proposer_agents, _ = get_proposer_and_aggregator_agents(agents_df)  # Unpack proposer_agents correctly
@@ -124,7 +124,7 @@ def propose_outline_with_agents(sheet, course_name, course_background, llm=None)
 
         generate_outline_agent = Chain(llm = llm, tags = ["course_outline"])
         
-        concepts_to_include = get_outline_with_los(df = rough_outline_df, include_learning_objectives = False, include_prefix = False)
+        concepts_to_include = get_outline_with_los(df = rough_outline_df, include_learning_objectives = True, include_prefix = False)
         research_summary = '\n\n---\n\n'.join(rough_outline_df['Manual Extract'].to_list())
         course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
 

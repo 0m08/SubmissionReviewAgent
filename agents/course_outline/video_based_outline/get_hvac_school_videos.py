@@ -15,7 +15,7 @@ from langsmith import traceable
 })
 def run_get_hvac_school_videos(sheet, worksheet_name):
     
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
 
     video_search_queries = []
     for query in rough_outline_df['video_search_queries'].to_list():

@@ -686,7 +686,7 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
     references_df = list_video_research_references(references_df, videos_research_df, video_chunks_df)
 
     # Add client reference references
-    references_df = list_client_references(references_df, videos_research_df, video_chunks_df, preliminary_research_df, client_reference_df)
+    # references_df = list_client_references(references_df, videos_research_df, video_chunks_df, preliminary_research_df, client_reference_df)
 
     # Add web research references
     references_df = list_web_research_references(references_df, preliminary_research_df)
@@ -734,14 +734,14 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
     print("Loading the sheets...")
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = video_research_sheet_name)
     video_chunks_sheet, video_chunks_df = get_sheet_data_and_df(sheet = sheet, sheet_name = video_chunk_sheet_name)
-    client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet = sheet, sheet_name = client_reference_sheet_name)
+    # client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet = sheet, sheet_name = client_reference_sheet_name)
     preliminary_research_sheet, preliminary_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = web_research_sheet_name)
     deep_research_sheet, deep_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = deep_research_sheet_name)
     topic_outline_sheet, topic_outline_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_outline_sheet_name)
     topic_deep_research_sheet, topic_deep_research_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_deep_research_sheet_name)
 
     # Enlist the sources from all sheets in a single sheet
-    references_sheet, references_df = list_references(sheet, videos_research_df, video_chunks_df, client_reference_df, preliminary_research_df, deep_research_df, topic_deep_research_df if not topic_deep_research_df.empty else pd.DataFrame(), topic_outline_df if not topic_outline_df.empty else pd.DataFrame())
+    references_sheet, references_df = list_references(sheet, videos_research_df, video_chunks_df, None, preliminary_research_df, deep_research_df, topic_deep_research_df if not topic_deep_research_df.empty else pd.DataFrame(), topic_outline_df if not topic_outline_df.empty else pd.DataFrame())
 
     print("Loading references to chunks...")
     # Prepare for parallel processing
@@ -971,3 +971,4 @@ def get_all_chunks_as_docs(sheet, worksheet_name = "All References"):
     #       len(topic_deep_research_doc_chunk_list) + len(topic_outline_doc_chunk_list))
 
     # return video_chunk_doc_list + client_reference_doc_chunk_list + web_research_doc_chunk_list + deep_research_doc_chunk_list + topic_deep_research_doc_chunk_list + topic_outline_doc_chunk_list
+

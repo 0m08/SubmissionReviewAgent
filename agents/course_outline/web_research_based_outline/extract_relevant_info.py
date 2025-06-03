@@ -183,7 +183,7 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
     """
 
     preliminary_research_sheet, preliminary_research_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     if 'summary' not in preliminary_research_df.columns:
         preliminary_research_df['summary'] = ''
@@ -217,7 +217,7 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Prepare for parallel processing

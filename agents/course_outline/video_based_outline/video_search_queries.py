@@ -89,7 +89,7 @@ def create_additional_video_search_queries(rough_outline_df):
     """
     Function to create additional search queries by combining topic - subtopic keywords
 
-    :param: rough_outline_df (pd.DataFrame): Rough outline dataframe
+    :param: rough_outline_df (pd.DataFrame): Base outline dataframe
     :returns: additional_video_search_queries (list): List of additional search queries
     """
 
@@ -110,7 +110,7 @@ def create_additional_video_search_queries(rough_outline_df):
     "function_name": "run_construct_video_search_queries",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def run_construct_video_search_queries(sheet, course_name, target_audience, worksheet_name = 'Rough Outline', llm = 'groq'):
+def run_construct_video_search_queries(sheet, course_name, target_audience, worksheet_name = 'Base Outline', llm = 'groq'):
     """
     This function creates a list of search queries to be used to search for HVAC school youtube videos.
 
@@ -149,7 +149,7 @@ def run_construct_video_search_queries(sheet, course_name, target_audience, work
         print('Column - video_search_queries already present. Skipping generate video search queries')
 
 
-def manual_input_review_video_search_queries(sheet, worksheet_name = 'Rough Outline'):
+def manual_input_review_video_search_queries(sheet, worksheet_name = 'Base Outline'):
     """
     Manual input to review video search queries.
     :param sheet: The sheet object.
