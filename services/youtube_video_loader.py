@@ -827,8 +827,17 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestampe
     for chapter in chapters:
         chapter_text = chapter.pop('text')
         chapter.update(additional_metadata)
-        # Add source to chapter metadata
-        chapter['source'] = f"https://www.youtube.com/watch?v={video_id}"
+
+        # Add timestamped source link
+        base_url = f"https://www.youtube.com/watch?v={video_id}"
+        start = int(chapter.get("start_time") or 0)
+        end = int(chapter.get("end_time") or 0)
+        if "?" in base_url:
+            full_url = f"{base_url}&start={start}&end={end}"
+        else:
+            full_url = f"{base_url}?start={start}&end={end}"
+        chapter["source"] = full_url
+
         chapter_chunks.append(
             Document(
                 page_content = chapter_text,
@@ -836,7 +845,5 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestampe
             )
         )
 
-    # Update the docs
     docs.extend(chapter_chunks)
-
     return docs
