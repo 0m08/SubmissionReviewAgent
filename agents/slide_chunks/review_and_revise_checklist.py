@@ -1,6 +1,6 @@
 from modules.chain import Chain
 from agents.slide_chunks.format_inputs import strip_roman_numerals, strip_section_prefix
-from services.sheets_service import get_sheet_data_and_df, format_worksheet, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, format_worksheet, save_to_sheet, hide_columns_by_name
 # from gspread_dataframe import set_with_dataframe
 from tqdm import tqdm
 import pandas as pd
@@ -291,7 +291,7 @@ def ensure_checklist_columns(sheet,worksheet_name):
 
     # Ensure 'checklist_based_review_output' exists in Slide Chunks Sheet
     if "checklist_based_review_output" not in slide_chunks_df.columns:
-        insert_at = list(slide_chunks_df.columns).index("checklist_based_slide_title")
+        insert_at = list(slide_chunks_df.columns).index("Title")
         slide_chunks_df.insert(insert_at, "checklist_based_review_output", "")
     
     
@@ -321,8 +321,8 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
     base_chunk = row["learning_objectives_added_slide_chunk"]
 
     # Start with revised version if available
-    current_title = row["checklist_based_slide_title"] or original_title
-    current_chunk = row["checklist_based_slide_content"] or base_chunk
+    current_title = row["Title"] or original_title
+    current_chunk = row["Content"] or base_chunk
 
     print(f"\n🚀 Processing Slide: {slide_index} | Title: {current_title}")
     print("-" * 100)
@@ -398,8 +398,8 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
                     print(f"❌ Could not match criterion to checklist sheet: {criterion}")
 
         # Always update current title/content at the end of each iteration
-        slide_chunks_df.at[index, "checklist_based_slide_title"] = current_title
-        slide_chunks_df.at[index, "checklist_based_slide_content"] = current_chunk
+        slide_chunks_df.at[index, "Title"] = current_title
+        slide_chunks_df.at[index, "Content"] = current_chunk
 
         if all_pass:
             slide_chunks_df.at[index, "checklist_based_review_output"] = "Pass"
@@ -425,8 +425,8 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
             current_title = revised_slide.split("Slide Title: ")[1].split("\n")[0].strip()
             current_chunk = revised_slide.split("Slide Content: ")[1].split("</revised_slide>")[0].strip()
 
-    slide_chunks_df.at[index, "checklist_based_slide_title"] = current_title
-    slide_chunks_df.at[index, "checklist_based_slide_content"] = current_chunk
+    slide_chunks_df.at[index, "Title"] = current_title
+    slide_chunks_df.at[index, "Content"] = current_chunk
 
 @traceable(
     metadata={
@@ -446,7 +446,7 @@ def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_a
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet,  "Slide Chunks Checklist")
 
-    required_columns = ["checklist_based_review_output", "checklist_based_slide_title", "checklist_based_slide_content"]
+    required_columns = ["checklist_based_review_output", "Title", "Content"]
     for col in required_columns:
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
@@ -511,8 +511,17 @@ def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_a
     # Replace the original DataFrame
     checklist_df = new_df
 
-    # Save the reordered DataFrame back to the sheet
-    save_to_sheet(checklist_sheet, checklist_df)
-
+    # Hide unnecessary columns
+    hide_columns_by_name(
+        worksheet = slide_chunks_sheet,
+        column_names = [    
+        "Slide Chunk Title", "Slide Chunk", "learning_objectives_added_slide_chunk",
+        "checklist_based_review_output", 
+        ],
+        df = slide_chunks_df
+    )
 
     print("\n✅ Checklist Review & Revise Process Completed 🚀")
+
+    # Save the reordered DataFrame back to the sheet
+    save_to_sheet(checklist_sheet, checklist_df)
