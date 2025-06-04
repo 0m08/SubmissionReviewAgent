@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.llm_service import csv_list_parser
 from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, format_worksheet, hide_worksheet_by_name
 from tqdm import tqdm
 from services.helper_functions import create_and_populate_columns, get_outline_with_los
 import streamlit as st
@@ -458,6 +458,30 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
 
     # Hide the columns
     hide_columns_by_name(worksheet = course_outline_with_lo_sheet, column_names = column_names, df = course_outline_with_lo_df)
+
+    # Hide specified sheets if they exist
+    sheets_to_hide = [
+        "Agents",
+        "Agent logs",
+        "Videos Research",
+        "Video Chunks",
+        "Outline Consolidation",
+        "Outline Review",
+        "Preliminary Research",
+        "Deep Research",
+        "Course Outline with LOs",
+        "Topic Outline",
+        "Topic Deep Research",
+        "Missing Learning Objectives",
+        "Revised Outline",
+        "Enhanced Outline Review",
+        "Enhanced Outline with LOs",
+        "Topic - Revised Outline Mapping",
+        "All References"
+    ]
+
+    for sheet_name in sheets_to_hide:
+        hide_worksheet_by_name(sheet, sheet_name)
 
     return
 

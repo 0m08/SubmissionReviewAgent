@@ -227,7 +227,7 @@ pipeline_sections = [
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "skip_manual_step": "skip_manual_step",
-                    "llm": llm_model,
+                    "llm": "gemini_2_5_flash",
                 },
                 "instructions": [
                     "- Open the **Videos Research** sheet.",
@@ -426,7 +426,7 @@ pipeline_sections = [
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "skip_manual_step": "skip_manual_step",
-                    "llm": llm_model,
+                    "llm": "gemini_2_5_flash",
                 },
                 "instructions": [
                     "Your task is to populate the `Manual Extract` column in the `Base Outline` sheet.",
