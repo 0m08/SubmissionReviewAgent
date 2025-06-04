@@ -2,6 +2,7 @@ from agent_ui_template import agent_ui
 import streamlit as st
 import pandas as pd
 from services.sheets_service import get_sheet_data_and_df
+from services.helper_functions import create_final_outline_sheet
 
 from agents.course_outline.video_based_outline.video_search_queries import run_construct_video_search_queries, manual_input_review_video_search_queries
 from agents.course_outline.video_based_outline.get_hvac_school_videos import run_get_hvac_school_videos
@@ -10,8 +11,8 @@ from agents.course_outline.video_based_outline.get_relevant_chunks import run_ge
 from agents.course_outline.video_based_outline.video_based_outlines import run_generate_video_based_outline, manual_input_video_outline_consolidation_comments
 from agents.course_outline.video_based_outline.consolidate_video_based_outline import run_propose_consolidated_video_outlines
 
-from agents.course_outline.client_reference_based_outline.client_reference_based_outlines import run_generate_outline_from_client_reference, manual_input_client_reference_consolidation_comments
-from agents.course_outline.client_reference_based_outline.consolidate_client_reference_based_outline import run_propose_consolidated_reference_outlines
+#from agents.course_outline.client_reference_based_outline.client_reference_based_outlines import run_generate_outline_from_client_reference, manual_input_client_reference_consolidation_comments
+#from agents.course_outline.client_reference_based_outline.consolidate_client_reference_based_outline import run_propose_consolidated_reference_outlines
 
 from agents.course_outline.web_research_based_outline.web_search_queries import run_construct_web_search_queries
 from agents.course_outline.web_research_based_outline.web_search_screening import run_web_search_screening
@@ -53,9 +54,9 @@ if "sheet" in st.session_state:
     )
 
     # Check the status of the oultine
-    if "Outline Status" in course_info_df.columns:
-        status = course_info_df.loc[0, "Outline Status"]
-        outline_finalized = isinstance(status, str) and status.strip().lower() == "final outline"
+    if "Outline Stage" in course_info_df.columns:
+        status = course_info_df.loc[0, "Outline Stage"]
+        outline_finalized = isinstance(status, str) and status.strip().lower() == "final"
 
 # --- 1) Define pipeline as sections, each with its own steps ---
 pipeline_sections = [
@@ -68,7 +69,7 @@ pipeline_sections = [
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Rough Outline",
+                    "worksheet_name": "Base Outline",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": llm_model,
@@ -82,11 +83,11 @@ pipeline_sections = [
                 "depends_on": ["Video Search Query Generator"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Rough Outline",
+                    "worksheet_name": "Base Outline",
                 },
                 "instructions": [
                     "**Instructions:**",
-                    "- Open the `Rough Outline` tab.",
+                    "- Open the `Base Outline` tab.",
                     "- Check the `video_search_queries` column.",
                     "- Review each query to see if it clearly matches the topic and would make sense to your intended audience",
                     "- You can:",
@@ -272,95 +273,95 @@ pipeline_sections = [
             },
         ],
     },
-    {
-        "section_name": "Section 2: Client References",
-        "steps": [
-            {
-                "name": "Generate Client Reference Based Outlines",
-                "func": run_generate_outline_from_client_reference,
-                "depends_on": ["Consolidate Video Based Outlines"],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Client References",
-                    "course_name": "course_name",
-                    "target_audience": "target_audience",
-                    "llm": llm_model,
-                },
-                "hide_if_final_outline": True,
-                "estimated_time": "~ 5 - 10 minutes",
-                "description": "Creates outlines based on client-provided references listed in the `Client References` sheet.",
-            },
-            {
-                "name": "Manual Review - Client References Outline Consolidation Comments",
-                "func": manual_input_client_reference_consolidation_comments,
-                "depends_on": ["Generate Client Reference Based Outlines"],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Client References",
-                    "course_name": "course_name",
-                    "target_audience": "target_audience",
-                    "skip_manual_step": "skip_manual_step",
-                    "llm": llm_model,
-                },
-                "instructions": [
-                    "- Open the **Client References** sheet.",
-                    "- Please review the client references based outlines generated by AI in the `Client References` sheet",
-                    "- For every row with an outline, write comments in the **consolidation_comments** column.",
-                    "- Your goal: guide the AI on how to turn all this info into one clear and cohesive outline.",
-                    "---",
-                    "**Best Practices**",
-                    "1. Suggest **what to keep**, **what to cut**, or **how to rewrite** parts of the outline.",
-                    "2. Flag any **off-topic**, **unclear**, or **repetitive** content.",
-                    "3. Recommend combining similar points or reorganizing ideas for flow.",
-                    "4. Call out **missing points** that should be included based on your judgment.",
-                    "---",
-                    "**Example:**",
-                    "- This point doesn't apply to our use case. Remove it.",
-                    "- Merge this with the previous idea. They're very similar.",
-                    "- This is too complex. Simplify the wording.",
-                    "- Missing reference to installation process. Please add.",
-                    "---",
-                    "NOTE: Fill in the **consolidation_comments** column for **every row** that has an outline. Leave it blank only if the row does **not** have an outline."
-                ],
-                "is_manual_step": True,
-                "hide_if_final_outline": True,
-                "estimated_time": "Manual step",
-                "description": "Provide detailed comments to guide the consolidation of client reference-based outlines.",
-                "video_link": "https://drive.google.com/file/d/1Xm1ZCp92GiAyBXs_CAkv82JnInfGy02m/view?usp=drive_link",
-            },
-            {
-                "name": "Consolidate Client Reference Based Outline",
-                "func": run_propose_consolidated_reference_outlines,
-                "depends_on": ["Manual Review - Client References Outline Consolidation Comments"],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Outline Consolidation",
-                    "course_name": "course_name",
-                    "target_audience": "target_audience",
-                    # "llm": llm_model,
-                },
-                "hide_if_final_outline": True,
-                "estimated_time": "~ 2 minutes",
-                "description": "Combines individual client reference outlines into four cohesive outline options stored in the `Outline Consolidation` sheet.",
-            },
-        ],
-    },
+    # {
+    #     "section_name": "Section 2: Client References",
+    #     "steps": [
+    #         {
+    #             "name": "Generate Client Reference Based Outlines",
+    #             "func": run_generate_outline_from_client_reference,
+    #             "depends_on": ["Consolidate Video Based Outlines"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Client References",
+    #                 "course_name": "course_name",
+    #                 "target_audience": "target_audience",
+    #                 "llm": llm_model,
+    #             },
+    #             "hide_if_final_outline": True,
+    #             "estimated_time": "~ 5 - 10 minutes",
+    #             "description": "Creates outlines based on client-provided references listed in the `Client References` sheet.",
+    #         },
+    #         {
+    #             "name": "Manual Review - Client References Outline Consolidation Comments",
+    #             "func": manual_input_client_reference_consolidation_comments,
+    #             "depends_on": ["Generate Client Reference Based Outlines"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Client References",
+    #                 "course_name": "course_name",
+    #                 "target_audience": "target_audience",
+    #                 "skip_manual_step": "skip_manual_step",
+    #                 "llm": llm_model,
+    #             },
+    #             "instructions": [
+    #                 "- Open the **Client References** sheet.",
+    #                 "- Please review the client references based outlines generated by AI in the `Client References` sheet",
+    #                 "- For every row with an outline, write comments in the **consolidation_comments** column.",
+    #                 "- Your goal: guide the AI on how to turn all this info into one clear and cohesive outline.",
+    #                 "---",
+    #                 "**Best Practices**",
+    #                 "1. Suggest **what to keep**, **what to cut**, or **how to rewrite** parts of the outline.",
+    #                 "2. Flag any **off-topic**, **unclear**, or **repetitive** content.",
+    #                 "3. Recommend combining similar points or reorganizing ideas for flow.",
+    #                 "4. Call out **missing points** that should be included based on your judgment.",
+    #                 "---",
+    #                 "**Example:**",
+    #                 "- This point doesn't apply to our use case. Remove it.",
+    #                 "- Merge this with the previous idea. They're very similar.",
+    #                 "- This is too complex. Simplify the wording.",
+    #                 "- Missing reference to installation process. Please add.",
+    #                 "---",
+    #                 "NOTE: Fill in the **consolidation_comments** column for **every row** that has an outline. Leave it blank only if the row does **not** have an outline."
+    #             ],
+    #             "is_manual_step": True,
+    #             "hide_if_final_outline": True,
+    #             "estimated_time": "Manual step",
+    #             "description": "Provide detailed comments to guide the consolidation of client reference-based outlines.",
+    #             "video_link": "https://drive.google.com/file/d/1Xm1ZCp92GiAyBXs_CAkv82JnInfGy02m/view?usp=drive_link",
+    #         },
+    #         {
+    #             "name": "Consolidate Client Reference Based Outline",
+    #             "func": run_propose_consolidated_reference_outlines,
+    #             "depends_on": ["Manual Review - Client References Outline Consolidation Comments"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Outline Consolidation",
+    #                 "course_name": "course_name",
+    #                 "target_audience": "target_audience",
+    #                 # "llm": llm_model,
+    #             },
+    #             "hide_if_final_outline": True,
+    #             "estimated_time": "~ 2 minutes",
+    #             "description": "Combines individual client reference outlines into four cohesive outline options stored in the `Outline Consolidation` sheet.",
+    #         },
+    #     ],
+    # },
     {
         "section_name": "Section 3: Web Research",
         "steps": [
             {
                 "name": "Web Search Queries Generator",
                 "func": run_construct_web_search_queries,
-                "depends_on": ["Consolidate Client Reference Based Outline"],
+                "depends_on": ["Manual Review - Mark relevant videos"] if outline_finalized else ["Consolidate Video Based Outlines"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Rough Outline",
+                    "worksheet_name": "Base Outline",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "llm": llm_model,
                 },
                 "estimated_time": "~ 2 minutes",
-                "description": "Generates web search queries in the `Rough Outline` sheet to use for searching the web.",
+                "description": "Generates web search queries in the `Base Outline` sheet to use for searching the web.",
             },
             {
                 "name": "Obtain Web Article Links",
@@ -407,13 +408,13 @@ pipeline_sections = [
                 "depends_on": ["Extract Relevant Information from Articles"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Rough Outline",
+                    "worksheet_name": "Base Outline",
                     "course_name": "course_name",
                     "llm": llm_model,
                 },
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
-                "description": "Summarizes extracted information from web articles into concise, relevant summaries stored in the `Rough Outline` sheet.",
+                "description": "Summarizes extracted information from web articles into concise, relevant summaries stored in the `Base Outline` sheet.",
             },
             {
                 "name": "Manual Review - Web Research Summary",
@@ -421,15 +422,15 @@ pipeline_sections = [
                 "depends_on": ["Generate Research Summaries"],
                 "args": {
                     "sheet": "sheet",
-                    "worksheet_name": "Rough Outline",
+                    "worksheet_name": "Base Outline",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
                     "skip_manual_step": "skip_manual_step",
                     "llm": llm_model,
                 },
                 "instructions": [
-                    "Your task is to populate the `Manual Extract` column in the `Rough Outline` sheet.",
-                    "- Open the `Rough Outline` sheet.",
+                    "Your task is to populate the `Manual Extract` column in the `Base Outline` sheet.",
+                    "- Open the `Base Outline` sheet.",
                     "- Look at the `research_summary` column.",
                     "- Copy the summary from **research_summary** into the **Manual Extract** column.",
                     "- Edit the text as needed—add, remove, or rephrase parts to make the summary more accurate and useful.",
@@ -476,7 +477,7 @@ pipeline_sections = [
             {
                 "name": "Deep Research",
                 "func": run_deep_research,
-                "depends_on": ["Generate Web Research Based Outline"],
+                "depends_on": ["Extract Relevant Information from Articles"] if outline_finalized else ["Generate Web Research Based Outline"],
                 "args": {
                     "sheet": "sheet",
                     "worksheet_name": "Deep Research",
@@ -485,7 +486,7 @@ pipeline_sections = [
                     "llm": "gemini_with_grounding",
                 },
                 "estimated_time": "~ 5 - 10 minutes",
-                "description": "Creates a new sheet `Deep Research`, performs agentic deep research on the rough outline subtopics and pastes the research into the sheet.",
+                "description": "Creates a new sheet `Deep Research`, performs agentic deep research on the Base outline subtopics and pastes the research into the sheet.",
             },
             {
                 "name": "Generate Deep Research Based Outline",
@@ -729,12 +730,28 @@ if topic_deep_research_enabled:
     })
 
 pipeline_sections.append({
-    "section_name": "Section: Subtopic Research",
+    "section_name": "Section: Final Outline Sheet Creation",
+    "steps": [
+        {
+            "name": "Create the Final Outline Sheet",
+            "func": create_final_outline_sheet,
+            "depends_on": ["Map Topic Outline to Enhanced Outline"] if topic_deep_research_enabled and not outline_finalized else ["Deep Research"] if outline_finalized else ["Review and Revise Outline"],
+            "args": {
+                "sheet": "sheet",
+            },
+            "estimated_time": "~ 1 minute",
+            "description": "Creates the 'Final Outline' sheet by flattening multiple LOs into one-per-row format.",
+        }
+    ]
+})
+
+pipeline_sections.append({
+    "section_name": "Section: Get References for the Final Outline",
     "steps": [
         {
             "name": "Get relevant references for Learning Objectives",
             "func": load_references,
-            "depends_on": [],
+            "depends_on": ["Create the Final Outline Sheet"],
             "args": {
                 "sheet": "sheet",
             },
@@ -744,7 +761,7 @@ pipeline_sections.append({
         {
             "name": "Retrieve relevant references for Learning Objectives",
             "func": run_retriever_agent_for_all_rows,
-            "depends_on": [],
+            "depends_on": ["Get relevant references for Learning Objectives"],
             "args": {
                 "root_folder_id": "root_folder_id",
                 "drive": "drive",

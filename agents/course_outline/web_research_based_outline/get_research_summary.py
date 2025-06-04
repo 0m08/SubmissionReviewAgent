@@ -115,7 +115,7 @@ def summarize_info(course_name, info_to_summarize, llm = 'gemini_2_flash'):
 
 def run_get_research_summary(sheet, worksheet_name, course_name, llm='gemini_2_flash'):
     """
-    Generates a research summary for each search query in the rough outline.
+    Generates a research summary for each search query in the base outline.
 
     :param sheet (object): Google Sheets object.
     :param worksheet_name (str): Name of the worksheet.
@@ -124,7 +124,7 @@ def run_get_research_summary(sheet, worksheet_name, course_name, llm='gemini_2_f
     :returns: None
     """
 
-    # Load rough outline and preliminary research data
+    # Load base outline and preliminary research data
     rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, worksheet_name)
     _, preliminary_research_df = get_sheet_data_and_df(sheet, "Preliminary Research")
 
@@ -246,7 +246,7 @@ def review_research_summary(course_name, target_audience, course_outline, resear
 })
 def run_review_research_summary_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm = "gemini_2_flash"):
     """
-    Runs the review of research summary for all search query rows in the rough outline.
+    Runs the review of research summary for all search query rows in the base outline.
 
     :param sheet (object): Google Sheets object.
     :param worksheet_name (str): Name of the worksheet.
@@ -256,13 +256,13 @@ def run_review_research_summary_for_all_rows(sheet, worksheet_name, course_name,
     :returns: None
     """
 
-    # Load rough outline and preliminary research data
+    # Load base outline and preliminary research data
     rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, worksheet_name)
 
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Prepare for parallel processing

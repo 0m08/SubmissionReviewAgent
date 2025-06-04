@@ -457,17 +457,17 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
     revise_outline_prompt = """Output the revised course outline within <revised_outline> tags."""
 
 
-    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')
+    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
     
-    course_outline = get_outline_with_los(df = rough_outline_df, include_learning_objectives = False, include_prefix = False)
+    course_outline = get_outline_with_los(df = rough_outline_df, include_learning_objectives = True, include_prefix = False)
     # Collect User Comments
     course_objective_guidelines = '\n'.join(st.session_state['course_objective_guidelines']).strip()
     
     # print(course_objective_guidelines)
     
-    _, client_reference_df = get_sheet_data_and_df(sheet, 'Client References')
-    client_reference_comments = '\n'.join(comment for comment in client_reference_df['consolidation_comments'].to_list() if comment)
-    client_comments = '\n'.join(comment for comment in client_reference_df['Client comments'].to_list() if comment)
+    # _, client_reference_df = get_sheet_data_and_df(sheet, 'Client References')
+    # client_reference_comments = '\n'.join(comment for comment in client_reference_df['consolidation_comments'].to_list() if comment)
+    # client_comments = '\n'.join(comment for comment in client_reference_df['Client comments'].to_list() if comment)
 
     _, videos_research_df = get_sheet_data_and_df(sheet, 'Videos Research')
     videos_research_comments = '\n'.join(comment for comment in videos_research_df['consolidation_comments'].to_list() if comment)
@@ -475,15 +475,15 @@ def run_review_and_revise_outline(sheet, course_name, target_audience, llm='gemi
     all_user_comments = f"""Comments made by user on course objective guidelines:
 {course_objective_guidelines}
 
----
-
-Comments made by client while sharing references:
-{client_comments}
-
----
-
-Comments made by user on client references:
-{client_reference_comments}
+# ---
+# 
+# Comments made by client while sharing references:
+# {client_comments}
+# 
+# ---
+# 
+# Comments made by user on client references:
+# {client_reference_comments}
 
 ---
 

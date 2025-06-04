@@ -159,7 +159,7 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
 
     # Get sheet data and dataframe
     _, videos_research_df = get_sheet_data_and_df(sheet, 'Videos Research')
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     # Check if the Outline Consolidation sheet already contains the video-based outline
     outline_consolidation_sheet, outline_consolidation_df = create_or_read_worksheet(sheet, worksheet_name)
@@ -196,7 +196,7 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
     
     # Fetch topic count from Course Info

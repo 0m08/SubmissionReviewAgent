@@ -220,7 +220,7 @@ def run_construct_web_search_queries(sheet, worksheet_name, course_name, target_
 
     rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, worksheet_name)
 
-    course_outline = get_outline_with_los(rough_outline_df, False)
+    course_outline = get_outline_with_los(rough_outline_df, True)
 
     # Check if the column exists
     if 'search_queries' in rough_outline_df.columns and rough_outline_df['search_queries'][0] != '':

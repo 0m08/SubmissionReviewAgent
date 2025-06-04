@@ -236,7 +236,7 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
 
     # Read the sheet and df
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     if 'outline_contemplator' not in videos_research_df.columns:
         videos_research_df['outline_contemplator'] = ''
@@ -253,7 +253,7 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Get video_transcript column count
@@ -417,12 +417,12 @@ def run_generate_video_outline_consolidation_comments(sheet, worksheet_name, cou
 
     # Get the sheet and DataFrame
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Prepare for parallel processing

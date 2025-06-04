@@ -128,7 +128,7 @@ def run_propose_consolidated_reference_outlines(sheet, worksheet_name, course_na
     
     _, client_reference_df = get_sheet_data_and_df(sheet, 'Client References')
     outline_consolidation_sheet, outline_consolidation_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     if 'Client reference based outline' in outline_consolidation_df['Source'].values:
         print("Client reference based outline already present in source column")

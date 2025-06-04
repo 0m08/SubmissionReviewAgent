@@ -150,7 +150,7 @@ def outline_consolidation(course_name, target_audience, course_outline, generate
 })
 def run_all_outlines_consolidated_and_review(sheet, worksheet_name, course_name, target_audience, llm='gemini_2_flash'):
     
-    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')
+    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
 
     # Fetch Required Topic Count
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
@@ -169,7 +169,7 @@ def run_all_outlines_consolidated_and_review(sheet, worksheet_name, course_name,
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     print('Generating consolidated outlines...')

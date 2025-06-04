@@ -333,7 +333,7 @@ def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm 
 
     # Read the sheet and df
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     if 'video_analysis' not in videos_research_df.columns:
         videos_research_df['video_analysis'] = ''
@@ -347,7 +347,7 @@ def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm 
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Get video_transcript column count

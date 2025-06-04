@@ -160,14 +160,14 @@ def propose_web_research_outline_with_agents(sheet, course_name, course_backgrou
     use_agent_llm = True if llm is None else False
     proposer_responses = {}
     
-    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')
+    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
     _, deep_research_df = get_sheet_data_and_df(sheet, 'Deep Research')  # Get the Deep Research DataFrame
     _, agents_df = get_sheet_data_and_df(sheet, 'Agents')  # Get only the DataFrame
 
     proposer_agents, _ = get_proposer_and_aggregator_agents(agents_df)  # Unpack proposer_agents correctly
 
 
-    concepts_to_include = get_outline_with_los(df=rough_outline_df, include_learning_objectives=False, include_prefix=False)
+    concepts_to_include = get_outline_with_los(df=rough_outline_df, include_learning_objectives=True, include_prefix=False)
     
     # Use the research column from Deep Research sheet
     research_summary = '\n\n---\n\n'.join(deep_research_df['research'].to_list())

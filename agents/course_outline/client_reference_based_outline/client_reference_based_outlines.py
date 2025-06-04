@@ -232,7 +232,7 @@ def run_generate_outline_from_client_reference(sheet, worksheet_name, course_nam
 
     # Read the sheet and df
     client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     for col in ['outline_contemplator', 'outline', 'consolidation_comments']:
         if col not in client_reference_df.columns:
@@ -380,7 +380,7 @@ def run_generate_client_reference_outline_consolidation_comments(sheet, workshee
 
     # Get the sheet and DataFrame
     client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     # Get the course outline
     course_outline = get_outline_with_los(

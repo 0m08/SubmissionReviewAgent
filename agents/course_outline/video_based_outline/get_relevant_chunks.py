@@ -301,12 +301,12 @@ def run_get_relevant_chunks(sheet, worksheet_name, course_name, target_audience,
     """
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
     video_chunks_sheet, video_chunks_df = get_sheet_data_and_df(sheet, 'Video Chunks')
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     if 'chapter_summaries' not in videos_research_df.columns:
