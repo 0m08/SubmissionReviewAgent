@@ -342,7 +342,21 @@ def download_folder_from_drive(folder_id, local_path, drive):
             item.GetContentFile(local_item_path)
 
 
-def load_central_chroma_db(embedding_function, drive, central_folder_id):
+def download_image_from_drive(file_id, drive):
+
+
+    file = drive.CreateFile({'id': file_id})
+    file.FetchMetadata(fields='title, mimeType')
+
+    # Download to a temporary file
+    temp_file = 'temp_image'
+    file.GetContentFile(temp_file)
+    with open(temp_file, 'rb') as f:
+        img = Image.open(BytesIO(f.read()))
+    return img
+
+
+def load_central_chroma_db(drive, central_folder_id):
     """
     Load the single central Chroma DB stored in Google Drive (in 'chroma_graphics_db' inside the central_folder_id).
 
@@ -354,7 +368,16 @@ def load_central_chroma_db(embedding_function, drive, central_folder_id):
     Returns:
     - chroma_db: The loaded Chroma DB.
     """
-    # Check for the 'vectorstore files' folder inside the central folder
+    
+    embedding_function = get_embedding_model()
+
+    # Check embedding model
+    embedding_fn = get_embedding_model()
+    print("🔧 Testing embedding...")
+    _ = embedding_fn.embed_query("wire shieling")
+    print("✅ Embedding works.")
+
+        # Check for the 'vectorstore files' folder inside the central folder
     vectorstore_files_list = drive.ListFile({
         'q': f"title='vectorstore files' and '{central_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
@@ -389,43 +412,34 @@ def load_central_chroma_db(embedding_function, drive, central_folder_id):
         download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
         print(f"✅ Downloaded 'chroma_graphics_db' to: {local_chroma_path}")
 
-    # Initialize Chroma DB from the local folder
-    chroma_db = Chroma(
-        embedding_function=embedding_function,
-        collection_name="text_embeddings",
-        persist_directory=local_chroma_path
-    )
+    try:
+
+        # Initialize Chroma DB from the local folder
+        chroma_db = Chroma(
+            embedding_function=embedding_function,
+            collection_name="text_embeddings",
+            persist_directory=local_chroma_path
+        )
+    except Exception as e:
+        raise Exception(f"❌ Error loading Chroma DB: {e}")
 
     print("✅ Chroma DB loaded from the central folder.")
     return chroma_db
-
-
-def download_image_from_drive(file_id, drive):
-
-
-    file = drive.CreateFile({'id': file_id})
-    file.FetchMetadata(fields='title, mimeType')
-
-    # Download to a temporary file
-    temp_file = 'temp_image'
-    file.GetContentFile(temp_file)
-    with open(temp_file, 'rb') as f:
-        img = Image.open(BytesIO(f.read()))
-    return img
-
 
 def search_similar_images_across_all(query_text, k=5, filters=None):
     """
     Search for similar images across the central Chroma DB with optional metadata filters (in-memory).
     """
-    print("Loading central Chroma DB...")
-    embedding_function = get_embedding_model()
+    print("🔍 Loading central Chroma DB...")
+
     central_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'  # Replace with your actual central folder ID
-    chroma_db = load_central_chroma_db(embedding_function, drive, central_folder_id)
+    chroma_db = load_central_chroma_db(drive, central_folder_id)
+    print("Document count:", chroma_db._collection.count())
 
     # Initial similarity search (broad pool)
-    print("Performing similarity search...")
-    results_docs = chroma_db.similarity_search_with_score(query_text, k=50)
+    print("🔎 Performing similarity search...")
+    results_docs = chroma_db.similarity_search_with_score(query_text, k=5)
+    print(f"✅ Retrieved {len(results_docs)} results.")
 
     # In-memory filtering
     filtered_results = []
@@ -448,11 +462,9 @@ def search_similar_images_across_all(query_text, k=5, filters=None):
             "folder_id": metadata['folder_id'],
         })
 
-    # Sort by similarity
     filtered_results.sort(key=lambda x: x['similarity'])
-
-    # Return top k results
     return filtered_results[:k]
+
 
 
     
