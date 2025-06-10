@@ -21,7 +21,7 @@ Course name: {course_name}
 Target audience: {target_audience}
 </course_information>
 
-Here is the specific part of the course outline to review:
+Here is the course outline to review:
 
 <outline_entry>
 {outline_entry}
