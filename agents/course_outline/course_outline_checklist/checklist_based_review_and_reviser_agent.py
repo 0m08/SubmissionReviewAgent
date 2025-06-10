@@ -23,9 +23,9 @@ Target audience: {target_audience}
 
 Here is the course outline to review:
 
-<outline_entry>
+<course_outline>
 {outline_entry}
-</outline_entry>
+</course_outline>
 
 Here is the checklist task and its corresponding review criteria you need to use for evaluation:
 
