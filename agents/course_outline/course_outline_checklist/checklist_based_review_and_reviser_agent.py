@@ -37,13 +37,10 @@ A) Scope-based checklist application guidelines
 
 Each review criterion has its own scope which indicates whether you will be reviewing topics, subtopics, the entire outline or learning objectives. Here is how to apply the checklist task and its review criterion based on the scope of evaluation:
 
-- Outline: Apply the checklist across the entire course outline. Review multiple topics, subtopics, or learning objectives together as needed.
-
-- Topic: In each entry, evaluate only the Topic line. You may refer to its associated subtopics and learning objectives for context, but apply the checklist only to the topic line.
-
-- Subtopic: In each entry, evaluate only the Subtopic line. You may refer to the parent topic and related learning objectives for context, but apply the checklist only to the subtopic line.
-
-- Learning Objective: In each entry, evaluate only the Learning Objective line. You may refer to the associated topic and subtopic for context, but apply the checklist only to the learning objective line.
+- Outline: Apply the checklist across the entire course outline. Review all the topics, subtopics, and learning objectives together as needed.
+- Topic: Review all topics in the outline together. For each topic, examine all blocks where it appears to understand its full context and usage. Apply the checklist criteria by comparing topics against each other and their associated subtopics and learning objectives.
+- Subtopic: Review all subtopics in the outline together. For each subtopic, examine all blocks where it appears to understand its full context and usage. Apply the checklist criteria by comparing subtopics against each other and their parent topics and learning objectives.
+- Learning Objective: Review all learning objectives in the outline together. For each learning objective, examine its block to understand its context. Apply the checklist criteria by comparing learning objectives against each other and their associated topics and subtopics.
 
 B) Multiple review criteria under a single checklist task
 
@@ -242,9 +239,9 @@ A) Scope-Based Revision Guidelines
 Each review criterion has its own scope which indicates whether you will be revising topics, subtopics, the entire outline or learning objectives. Here is how to apply the revision based on the scope of evaluation:
 
 - Outline: Revise one or more entries from the course outline as needed. These may include multiple Topic, Subtopic, and Learning Objective line(s). Apply revisions wherever necessary based on the feedback.
-- Topic: Revise only the Topic line(s). You may refer to the associated Subtopics and Learning Objectives for context, but your edits should be made only to the Topic line(s).
-- Subtopic: Revise only the Subtopic line(s). You may use the parent Topic and related Learning Objectives for context, but modify only the Subtopic line(s).
-- Learning Objective: Revise only the Learning Objective line(s). You may use the Topic and Subtopic for context, but make changes only to the Learning Objective line(s).
+- Topic: Review all topics in the outline together and revise as needed. When revising a topic, examine all blocks where it appears to understand its full context and usage. Make revisions by comparing topics against each other and their associated subtopics and learning objectives.
+- Subtopic: Review all subtopics in the outline together and revise as needed. When revising a subtopic, examine all blocks where it appears to understand its full context and usage. Make revisions by comparing subtopics against each other and their parent topics and learning objectives.
+- Learning Objective: Review all learning objectives in the outline together and revise as needed. When revising a learning objective, examine its block to understand its context. Make revisions by comparing learning objectives against each other and their associated topics and subtopics.
 
 B) Operation Guidelines
 
