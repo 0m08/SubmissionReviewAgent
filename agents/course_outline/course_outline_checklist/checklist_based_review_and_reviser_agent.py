@@ -158,6 +158,14 @@ Feedback: [This field should appear only if the verdict is "Fail". Briefly expla
 </output>
 """
 
+@traceable(
+    metadata={
+        "agent_name": "course_outline",
+        "step_name": "Checklist Based Review and Revise Agents",
+        "function_name": "run_outline_checklist_review",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_outline_checklist_review(course_name, target_audience, outline_entry, checklist_criteria, llm="gemini_2_flash"):
     """
     Run the Outline Checklist Review Agent on the course outline.
@@ -343,6 +351,14 @@ Learning Objective: ...
 </output>
 """
 
+@traceable(
+    metadata={
+        "agent_name": "course_outline",
+        "step_name": "Checklist Based Review and Revise Agents",
+        "function_name": "run_outline_checklist_reviser",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_outline_checklist_reviser(course_name, target_audience, original_outline, task_name, review_criteria, llm="gemini_2_flash"):
     """
     Run the Outline Checklist Reviser Agent on the course outline using reviewer feedback.
@@ -392,7 +408,14 @@ def run_outline_checklist_reviser(course_name, target_audience, original_outline
     # Return output from the LLM
     return response["output"]
 
-
+@traceable(
+    metadata={
+        "agent_name": "course_outline",
+        "step_name": "Checklist Based Review and Revise Agents",
+        "function_name": "run_outline_checklist_review_and_revise",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def run_outline_checklist_review_and_revise(sheet, worksheet_name, llm="gemini_2_flash"):
     """
     Run a review-and-revise loop on a course outline using checklist tasks.

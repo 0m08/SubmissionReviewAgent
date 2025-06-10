@@ -5,7 +5,7 @@ import difflib
 import streamlit as st
 import re
 from services.sheets_service import create_or_read_worksheet, save_to_sheet, format_worksheet
-
+from langsmith import traceable
 
 # Get outline as text with topic, subtopic and los (if present)
 def get_outline_with_los(df, include_learning_objectives = False, include_prefix = True):
@@ -537,7 +537,14 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
     # Display the HTML
     st.markdown(html_output, unsafe_allow_html=True)
 
-
+@traceable(
+    metadata={
+        "agent_name": "course_outline",
+        "step_name": "Create the Final Outline Sheet",
+        "function_name": "create_final_outline_sheet",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def create_final_outline_sheet(sheet):
     """
     Creates a 'Final Outline' sheet by reading from one of the source sheets depending on the Outline Stage and splits multiple LOs into separate rows.
