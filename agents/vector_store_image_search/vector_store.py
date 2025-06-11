@@ -12,9 +12,7 @@ from dotenv import load_dotenv
 from services.drive_service import login_with_service_account
 from pydrive2.drive import GoogleDrive
 from services.sheets_service import save_to_sheet
-from services.drive_service import upload_folder_to_drive
-from agents.research_notes.vector_store import download_folder_from_drive
-from agents.research_notes.retriever import load_vector_db_retriever
+from services.drive_service import upload_folder_to_drive, download_folder_from_drive
 import gspread
 import streamlit as st
 from modules.chain import Chain
@@ -34,6 +32,7 @@ gc = gspread.service_account_from_dict(sa_dict)
 
 st.session_state["drive"] = drive
 st.session_state["gc"] = gc
+
 sheet = st.session_state.get("sheet")
 
 
@@ -253,7 +252,7 @@ def update_vectorstore(spreadsheet, drive):
         for i in range(0, len(new_texts), BATCH_SIZE):
             batch_texts = new_texts[i:i + BATCH_SIZE]
             batch_metadatas = new_metadatas[i:i + BATCH_SIZE]
-            print(f"➕ Adding batch {i//BATCH_SIZE + 1} ({len(batch_texts)} items)...")
+            print(f"Adding batch {i//BATCH_SIZE + 1} ({len(batch_texts)} items)...")
             chroma_db.add_texts(texts=batch_texts, metadatas=batch_metadatas)
 
         # Mark vectorized rows in the sheet
@@ -262,22 +261,17 @@ def update_vectorstore(spreadsheet, drive):
         df.loc[mask_to_vectorize, 'embedding_ts'] = now
 
         save_to_sheet(sheet, df)
-        print(f"✅ Sheet '{folder_id}' updated with vectorization status.\n")
+        print(f"Sheet '{folder_id}' updated with vectorization status.\n")
 
     # Persist and upload the updated DB
     chroma_db.persist()
     print("💾 Chroma DB updated and persisted locally.")
 
     # Upload back to Drive
-    print("☁️ Uploading updated 'chroma_research_db' to Google Drive...")
+    print("Uploading updated 'chroma_research_db' to Google Drive...")
     upload_folder_to_drive(local_chroma_path, parent_folder_id, drive)
-    print("✅ Update complete. Vectorstore is now synced with spreadsheet.\n")
+    print("Update complete. Vectorstore is now synced with spreadsheet.\n")
 
-
-def sanitize_filename(filename):
-    # Remove or replace problematic characters
-    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    return filename.strip()
 
 
 def chroma_db_exists(drive, parent_folder_id):
@@ -315,12 +309,56 @@ def download_image_from_drive(file_id, drive):
     return img
 
 
-def graphics_retriever(
-    query: str,
-    drive,
-    k: int = 10,
-    filters: dict = None
-) -> list[dict]:
+def load_central_chroma_db(embedding_function, drive, central_folder_id):
+    """
+    Load the single central Chroma DB stored in Google Drive (in 'chroma_research_db' inside the central_folder_id).
+
+    Parameters:
+    - embedding_function: Function to generate embeddings.
+    - drive: Authenticated Google Drive instance.
+    - central_folder_id (str): ID of the parent folder containing the single Chroma DB.
+
+    Returns:
+    - chroma_db: The loaded Chroma DB.
+    """
+    # Check for the 'chroma_research_db' folder inside the central folder
+    file_list = drive.ListFile({
+        'q': f"title='chroma_research_db' and '{central_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    }).GetList()
+
+    if not file_list:
+        raise FileNotFoundError("❌ 'chroma_research_db' folder not found in the central folder.")
+
+    chroma_folder_id = file_list[0]['id']
+    print(f"✅ Found 'chroma_research_db' folder in central folder (id: {chroma_folder_id}).")
+
+    # Download the Chroma DB folder to a local directory
+    local_chroma_root = "/tmp/central_chroma_folder"
+    local_chroma_path = os.path.join(local_chroma_root, "chroma_research_db")
+    os.makedirs(local_chroma_root, exist_ok=True)
+    sqlite_db_path = os.path.join(local_chroma_path, "chroma.sqlite3")
+
+    # 1. Check local existence
+    if os.path.exists(local_chroma_path) and os.path.exists(sqlite_db_path):
+        print("Database already exists locally. Skipping download.")
+    else:
+        print("Database not found locally. Checking / creating Drive folders...")
+        
+        download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
+        print(f"✅ Downloaded 'chroma_research_db' to: {local_chroma_path}")
+
+    # Initialize Chroma DB from the local folder
+    chroma_db = Chroma(
+        embedding_function=embedding_function,
+        collection_name="text_embeddings",
+        persist_directory=local_chroma_path
+    )
+
+    print("✅ Chroma DB loaded from the central folder.")
+    return chroma_db
+
+
+def graphics_retriever(query, k=5, filters=None):
     """
     Search for similar images using a text query and download them from Drive.
     :param text_query: The text query for similarity search.
@@ -331,22 +369,19 @@ def graphics_retriever(
     :return: List of dictionaries with image metadata and downloaded PIL image.
     """
     
-    retriever, _ = load_vector_db_retriever(
-        course_name="text embeddings",
-        course_drive_folder_id="1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH",
-        drive=drive,
-        sheet=sheet
-        )
+    print("🔍 Loading central Chroma DB...")
+    embedding_function = get_embedding_model()
+    central_folder_id = '1ujM1OkJRUcQlg2_ZhRIE-kOZa1m-Qgnc'  
+    chroma_db = load_central_chroma_db(embedding_function, drive, central_folder_id)
 
-    results_docs = retriever.invoke(query, k=k)
-    print(f"🔎 Found {len(results_docs)} results for query: '{query}'")
-    
-    final_results = []
+    # Initial similarity search (broad pool)
+    print("🔎 Performing similarity search...")
+    results_docs = chroma_db.similarity_search_with_score(query, k=50)
 
+    # In-memory filtering
+    filtered_results = []
     for doc, score in results_docs:
         metadata = doc.metadata
-
-        # Apply filters
         if filters:
             if filters.get("mime_type") and metadata.get("mime_type") not in filters["mime_type"]:
                 continue
@@ -355,31 +390,20 @@ def graphics_retriever(
             if filters.get("image_type") and filters["image_type"].lower() not in metadata.get("image_type", "").lower():
                 continue
 
-        # Extract fields for UI display
-        result_entry = {
-            "score": score,
-            "name": metadata.get("name", "N/A"),
-            "description": metadata.get("description", "N/A"),
-            "folder_id": metadata.get("folder_id", "N/A"),
-            "drive_url": metadata.get("drive_url", "N/A"),
-            "image_id": metadata.get("image_id", None),
-            "image": None
-        }
+        filtered_results.append({
+            "similarity": score,
+            "image_id": metadata['image_id'],
+            "name": metadata['name'],
+            "drive_url": metadata['drive_url'],
+            "description": metadata['description'],
+            "folder_id": metadata['folder_id'],
+        })
 
-        # Attempt to download the image
-        try:
-            if result_entry["image_id"]:
-                result_entry["image"] = download_image_from_drive(result_entry["image_id"], drive)
-        except Exception as e:
-            print(f"⚠️ Could not download image {result_entry['image_id']}: {e}")
-            result_entry["image"] = None
+    # Sort by similarity
+    filtered_results.sort(key=lambda x: x['similarity'])
 
-        final_results.append(result_entry)
-
-    # Sort by score
-    final_results.sort(key=lambda x: x["score"])
-
-    return final_results[:k]
+    # Return top k results
+    return filtered_results[:k]
 
 
 graphics_retriever_agent_prompt = """
@@ -403,7 +427,7 @@ What you are expected do do is:
    - Consider the title, description, and similarity score.
    - Decide if any of the results clearly match the visual idea of the slide description.
 
-2. If 1–2 good images are found:
+2. If 1-2 good images are found:
    - Select the most visually relevant 1 or 2 image URLs.
    - End the process by setting the verdict to "TERMINATE".
 
