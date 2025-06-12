@@ -5,7 +5,7 @@ import streamlit as st
 #from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
 from agents.research_notes.generate_notes import run_research_notes_agent_for_all_rows
 from agents.research_notes.review_subtopic_notes import run_reviewer_agent_for_all_rows, manual_input_review_research_notes
-from agents.research_notes.revise_subtopic_notes import run_reviser_agent_for_all_rows
+from agents.research_notes.revise_subtopic_notes import run_reviser_agent_for_all_rows, manual_input_review_revised_research_notes
 from agents.research_notes.create_research_notes_sheet import create_research_notes_sheet
 from agents.research_notes.review_topic_notes import run_review_topic_notes_agent_for_all_rows, manual_input_review_topic_notes
 from agents.research_notes.revise_topic_notes import run_revise_topic_notes_for_all_rows
@@ -130,6 +130,26 @@ pipeline_sections = [
                 "description": "AI-driven revision of the subtopic research notes based on your manual inputs."
                 
             },
+            {
+                "name": "Manual Review Revised Notes",
+                "func": manual_input_review_revised_research_notes,
+                "depends_on": ["Reviser"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "skip_manual_step": "skip_manual_step",
+                },
+                "instructions": [
+                    "Review the `revised_research_notes` column within the `Final Outline` sheet.",
+                    "Make any edits—such as deleting specific or extra information—directly in that column.",
+                    "Once finished, proceed to the next step.",
+                ],
+                "is_manual_step": True,
+                "estimated_time": "Manual step",
+                "description": "Manually refine the revised research notes before continuing.",
+            },
         ],
     },
     {
@@ -138,7 +158,7 @@ pipeline_sections = [
             {
                 "name": "Create Research Notes Sheet",
                 "func": create_research_notes_sheet,
-                "depends_on": ["Reviser"],
+                "depends_on": ["Manual Review Revised Notes"],
                 "args": {
                     "sheet": "sheet",
                     "source_worksheet_name": "Final Outline",
