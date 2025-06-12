@@ -33,14 +33,12 @@ Here is the checklist task and its corresponding review criteria you need to use
 {checklist_criteria}
 </checklist_criteria>
 
-A) Scope-based checklist application guidelines
+A) Scope-based checklist criteria application guidelines
 
-Each review criterion has its own scope which indicates whether you will be reviewing topics, subtopics, the entire outline or learning objectives. Here is how to apply the checklist task and its review criterion based on the scope of evaluation:
+Each review criterion has its own scope which indicates whether you will be reviewing individual topics or the entire outline. Apply the checklist task and its review criteria based on the specified scope:
 
-- Outline: Apply the checklist across the entire course outline. Review all the topics, subtopics, and learning objectives together as needed.
-- Topic: Review all topics in the outline together. For each topic, examine all blocks where it appears to understand its full context and usage. Apply the checklist criteria by comparing topics against each other and their associated subtopics and learning objectives.
-- Subtopic: Review all subtopics in the outline together. For each subtopic, examine all blocks where it appears to understand its full context and usage. Apply the checklist criteria by comparing subtopics against each other and their parent topics and learning objectives.
-- Learning Objective: Review all learning objectives in the outline together. For each learning objective, examine its block to understand its context. Apply the checklist criteria by comparing learning objectives against each other and their associated topics and subtopics.
+- Outline: Apply all checklist criteria across the entire course outline. Review all topics, subtopics, and learning objectives together to determine whether the overall content meets the review criteria.
+- Topic: Apply the checklist criteria to the topic block provided, which includes the topic, subtopics, and associated learning objectives. Evaluate the relevant parts of this block based on each review criterion.
 
 B) Multiple review criteria under a single checklist task
 
@@ -55,7 +53,7 @@ C) How to assign verdicts and recommend operations
 - Evaluate the course outline content against each criterion separately.
 - For every review criterion, assign a verdict of either "Pass" or "Fail" and provide a brief justification for your verdict.
 
-If the criterion fails, use the predefined operation already provided for that review criterion. Do not invent or suggest a new operation. The possible predefined operations are:
+If the criterion fails, suggest the predefined operation already provided for that review criterion. Do not invent or suggest a new operation. The possible predefined operations are:
 
 a) delete → for removing unnecessary, out-of-scope, or redundant content
 
@@ -153,6 +151,8 @@ Feedback: [This field should appear only if the verdict is "Fail". Briefly expla
 </final_output>
 
 </output>
+
+Note: Strictly remember to always enclose your entire output inside the <output> .... </output> tags.
 """
 
 @traceable(
@@ -236,12 +236,10 @@ Follow the below instructions carefully while doing the revision:
 
 A) Scope-Based Revision Guidelines
 
-Each review criterion has its own scope which indicates whether you will be revising topics, subtopics, the entire outline or learning objectives. Here is how to apply the revision based on the scope of evaluation:
+Each review criterion has its own scope, which indicates whether you will be revising the entire outline or only a specific topic and its related content. Apply the revision based on the given scope:
 
-- Outline: Revise one or more entries from the course outline as needed. These may include multiple Topic, Subtopic, and Learning Objective line(s). Apply revisions wherever necessary based on the feedback.
-- Topic: Review all topics in the outline together and revise as needed. When revising a topic, examine all blocks where it appears to understand its full context and usage. Make revisions by comparing topics against each other and their associated subtopics and learning objectives.
-- Subtopic: Review all subtopics in the outline together and revise as needed. When revising a subtopic, examine all blocks where it appears to understand its full context and usage. Make revisions by comparing subtopics against each other and their parent topics and learning objectives.
-- Learning Objective: Review all learning objectives in the outline together and revise as needed. When revising a learning objective, examine its block to understand its context. Make revisions by comparing learning objectives against each other and their associated topics and subtopics.
+- Outline: Revise one or more entries from the course outline as needed. These may include multiple Topic, Subtopic, and Learning Objective lines. Apply the feedback across the full outline wherever necessary.
+- Topic: Revise the provided topic block, which includes the topic, its associated subtopics, and learning objectives. Apply the feedback to revise whichever parts of the block are mentioned. 
 
 B) Operation Guidelines
 
@@ -346,6 +344,8 @@ Learning Objective: ...
 </final_outline>
 
 </output>
+
+Note: Strictly remember to always enclose your entire output inside the <output> .... </output> tags.
 """
 
 @traceable(
@@ -416,38 +416,43 @@ def run_outline_checklist_reviser(course_name, target_audience, original_outline
 def run_outline_checklist_review_and_revise(sheet, worksheet_name, llm="gemini_2_flash"):
     """
     Run a review-and-revise loop on a course outline using checklist tasks.
-    For each unique checklist task, this function:
-      - Reviews the outline based on scope and checklist criteria
-      - Revises it based on failed verdicts
-      - Saves updated revised values back to the sheet after each task
 
     :param sheet: Main Google Sheet object
     :param worksheet_name: Name of the worksheet containing the course outline
     :param llm: Language model to use for both agents
     """
+
+    # Load outline and course info data
     outline_sheet, outline_df = get_sheet_data_and_df(sheet, worksheet_name)
     course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
+    # Load checklist sheet from link
     checklist_sheet_link = course_info_df['Checklist Link'][0]
     gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, 'Course Outline Checklist')
 
+    # Extract course-level metadata
     course_name = course_info_df['Course Name'][0]
     target_audience = course_info_df['Target Audience & Industry'][0]
 
-    for col in ['Revised Topic', 'Revised Subtopic', 'Revised Learning Objectives']:
+    # Ensure columns exist
+    for col in ['Topic', 'Subtopic', 'Learning Objectives']:
         if col not in outline_df.columns:
             outline_df[col] = ""
 
-    unique_tasks = checklist_df['Task'].unique()
+    # Decide whether to use original or revised columns as source input
+    use_revised_input = outline_df[['Topic', 'Subtopic', 'Learning Objectives']].replace("", pd.NA).dropna(how='all').shape[0] > 0
+    input_cols = ['Topic', 'Subtopic', 'Learning Objectives'] if use_revised_input else ['Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']
 
-    # Initialize the progress tracker
+    unique_tasks = checklist_df['Task'].unique()
     progress = SmartProgressBar(total_tasks=len(unique_tasks), description="Percent complete", save_interval=1)
 
     for task in unique_tasks:
         task_criteria_df = checklist_df[checklist_df['Task'] == task]
+        scope = task_criteria_df['Scope'].iloc[0].strip().lower()
 
+        # Format checklist criteria block
         checklist_criteria = ""
         for _, row in task_criteria_df.iterrows():
             checklist_criteria += (
@@ -457,99 +462,126 @@ def run_outline_checklist_review_and_revise(sheet, worksheet_name, llm="gemini_2
                 f"Operation: {row['Operation']}\n\n"
             )
 
-        outline_entry = ""
-        for i, row in outline_df.iterrows():
-            topic = row['Revised Topic'] if row['Revised Topic'] else row['Topic']
-            subtopic = row['Revised Subtopic'] if row['Revised Subtopic'] else row['Subtopic']
-            lo = row['Revised Learning Objectives'] if row['Revised Learning Objectives'] else row['Learning Objectives']
-            outline_entry += f"Topic: {topic}\nSubtopic: {subtopic}\nLearning Objective: {lo}\n\n"
+        revised_rows = []  # Store revised entries across topic/outline scope
 
-        review_output = run_outline_checklist_review(
-            course_name=course_name,
-            target_audience=target_audience,
-            outline_entry=outline_entry,
-            checklist_criteria=checklist_criteria,
-            llm=llm
-        )
+        # OUTLINE-level processing
+        if scope == "outline":
+            # Build single full outline entry for review
+            outline_entry = ""
+            for _, row in outline_df.iterrows():
+                t, s, lo = row[input_cols[0]], row[input_cols[1]], row[input_cols[2]]
+                outline_entry += f"Topic: {t}\nSubtopic: {s}\nLearning Objective: {lo}\n\n"
 
-        failed_criteria_blocks = re.findall(r"<criterion_\d+>(.*?)</criterion_\d+>", review_output, re.DOTALL)
-        failed_criteria_info = []
+            # Run review agent
+            review_output = run_outline_checklist_review(course_name, target_audience, outline_entry, checklist_criteria, llm)
 
-        for block in failed_criteria_blocks:
-            if re.search(r"Verdict:\s*Fail", block):
-                task_name = re.search(r"Task:\s*(.*)", block).group(1).strip()
-                review_criterion_match = re.search(r"(?:Review )?Criterion(?:\s+\d+)?:\s*(.*)", block)
-                if not review_criterion_match:
-                    print(f"⚠️ Could not find Review Criterion in block: {block}")
+            # Check if any review criteria failed
+            failed_criteria_blocks = re.findall(r"<criterion_\d+>(.*?)</criterion_\d+>", review_output, re.DOTALL)
+            failed_criteria_info = []
+            for block in failed_criteria_blocks:
+                if "Verdict: Fail" in block:
+                    task_name = re.search(r"Task:\s*(.*)", block).group(1).strip()
+                    review_criterion = re.search(r"(?:Review )?Criterion(?:\s+\d+)?:\s*(.*)", block).group(1).strip()
+                    feedback = re.search(r"Feedback:\s*(.*)", block, re.DOTALL).group(1).strip()
+                    operation = re.search(r"Operation:\s*(.*)", block).group(1).strip()
+                    failed_criteria_info.append({
+                        "task_name": task_name,
+                        "review_criteria": review_criterion,
+                        "operation": operation,
+                        "feedback": feedback
+                    })
+
+            if failed_criteria_info:
+                # Run reviser if any failure occurred
+                formatted_failed_criteria = ""
+                for i, crit in enumerate(failed_criteria_info, 1):
+                    scope = task_criteria_df[task_criteria_df['Review Criteria'] == crit['review_criteria']].iloc[0]['Scope']
+                    operation = crit["operation"]
+                    formatted_failed_criteria += f"<criterion_{i}>\nTask: {crit['task_name']}\nReview Criterion {i}: {crit['review_criteria']}\nFeedback: {crit['feedback']}\nScope: {scope}\nOperation: {operation}\n</criterion_{i}>\n\n"
+
+                reviser_output = run_outline_checklist_reviser(course_name, target_audience, outline_entry, task, formatted_failed_criteria, llm)
+                final_outline_match = re.search(r"<final_outline>(.*?)</final_outline>", reviser_output, re.DOTALL)
+                if final_outline_match:
+                    revised_blocks = re.findall(r"<block_\d+>(.*?)</block_\d+>", final_outline_match.group(1), re.DOTALL)
+                    for block in revised_blocks:
+                        t = re.search(r"Topic:\s*(.*)", block).group(1).strip()
+                        s = re.search(r"Subtopic:\s*(.*)", block).group(1).strip()
+                        lo = re.search(r"Learning Objective:\s*(.*)", block).group(1).strip()
+                        revised_rows.append((t, s, lo))
+                else:
+                    print(f"⚠️ No <final_outline> found in reviser output for task: {task}")
+            else:
+                # No failure: just copy existing content
+                for _, row in outline_df.iterrows():
+                    revised_rows.append((row[input_cols[0]], row[input_cols[1]], row[input_cols[2]]))
+
+        # TOPIC-level processing
+        elif scope == "topic":
+            unique_topics = outline_df[input_cols[0]].unique()
+            for topic in unique_topics:
+                topic_df = outline_df[outline_df[input_cols[0]] == topic]
+                if topic_df.empty:
                     continue
-                review_criterion = review_criterion_match.group(1).strip()
-                feedback = re.search(r"Feedback:\s*(.*)", block, re.DOTALL).group(1).strip()
-                operation = re.search(r"Operation:\s*(.*)", block).group(1).strip()
-                failed_criteria_info.append({
-                    "task_name": task_name,
-                    "review_criteria": review_criterion,
-                    "operation": operation,
-                    "feedback": feedback
-                })
 
-        if not failed_criteria_info:
-            print(f"✅ All criteria passed for task: {task}")
-            continue
+                outline_entry = ""
+                for _, row in topic_df.iterrows():
+                    outline_entry += f"Topic: {row[input_cols[0]]}\nSubtopic: {row[input_cols[1]]}\nLearning Objective: {row[input_cols[2]]}\n\n"
 
-        # Store the outline_entry that was used for review before clearing revised columns
-        reviser_input = outline_entry
+                review_output = run_outline_checklist_review(course_name, target_audience, outline_entry, checklist_criteria, llm)
+                failed_criteria_blocks = re.findall(r"<criterion_\d+>(.*?)</criterion_\d+>", review_output, re.DOTALL)
+                failed_criteria_info = []
+                for block in failed_criteria_blocks:
+                    if "Verdict: Fail" in block:
+                        task_name = re.search(r"Task:\s*(.*)", block).group(1).strip()
+                        review_criterion = re.search(r"(?:Review )?Criterion(?:\s+\d+)?:\s*(.*)", block).group(1).strip()
+                        feedback = re.search(r"Feedback:\s*(.*)", block, re.DOTALL).group(1).strip()
+                        operation = re.search(r"Operation:\s*(.*)", block).group(1).strip()
+                        failed_criteria_info.append({
+                            "task_name": task_name,
+                            "review_criteria": review_criterion,
+                            "operation": operation,
+                            "feedback": feedback
+                        })
 
-        # Clear revised columns before processing reviser output since we have failed criteria
-        for i in range(len(outline_df)):
-            outline_df.at[i, 'Revised Topic'] = ""
-            outline_df.at[i, 'Revised Subtopic'] = ""
-            outline_df.at[i, 'Revised Learning Objectives'] = ""
+                if failed_criteria_info:
+                    formatted_failed_criteria = ""
+                    for i, crit in enumerate(failed_criteria_info, 1):
+                        scope = task_criteria_df[task_criteria_df['Review Criteria'] == crit['review_criteria']].iloc[0]['Scope']
+                        operation = crit["operation"]
+                        formatted_failed_criteria += f"<criterion_{i}>\nTask: {crit['task_name']}\nReview Criterion {i}: {crit['review_criteria']}\nFeedback: {crit['feedback']}\nScope: {scope}\nOperation: {operation}\n</criterion_{i}>\n\n"
 
-        formatted_failed_criteria = ""
-        for i, crit in enumerate(failed_criteria_info, 1):
-            matching_row = task_criteria_df[task_criteria_df['Review Criteria'] == crit['review_criteria']].iloc[0]
-            scope = matching_row['Scope']
-            operation = matching_row['Operation']
+                    reviser_output = run_outline_checklist_reviser(course_name, target_audience, outline_entry, task, formatted_failed_criteria, llm)
+                    final_outline_match = re.search(r"<final_outline>(.*?)</final_outline>", reviser_output, re.DOTALL)
+                    if final_outline_match:
+                        revised_blocks = re.findall(r"<block_\d+>(.*?)</block_\d+>", final_outline_match.group(1), re.DOTALL)
+                        for block in revised_blocks:
+                            t = re.search(r"Topic:\s*(.*)", block).group(1).strip()
+                            s = re.search(r"Subtopic:\s*(.*)", block).group(1).strip()
+                            lo = re.search(r"Learning Objective:\s*(.*)", block).group(1).strip()
+                            revised_rows.append((t, s, lo))
+                    else:
+                        print(f"⚠️ No <final_outline> found in reviser output for topic: {topic}")
+                else:
+                    for _, row in topic_df.iterrows():
+                        revised_rows.append((row[input_cols[0]], row[input_cols[1]], row[input_cols[2]]))
 
-            formatted_failed_criteria += f"<criterion_{i}>\n"
-            formatted_failed_criteria += f"Task: {crit['task_name']}\n"
-            formatted_failed_criteria += f"Review Criterion {i}: {crit['review_criteria']}\n"
-            formatted_failed_criteria += f"Feedback: {crit['feedback']}\n"
-            formatted_failed_criteria += f"Scope: {scope}\n"
-            formatted_failed_criteria += f"Operation: {operation}\n"
-            formatted_failed_criteria += f"</criterion_{i}>\n\n"
+        # Write final revised values to DataFrame
+        revised_df = pd.DataFrame(revised_rows, columns=['Topic', 'Subtopic', 'Learning Objectives'])
+        for col in ['Topic', 'Subtopic', 'Learning Objectives']:
+            outline_df[col] = ""
 
-        reviser_output = run_outline_checklist_reviser(
-            course_name=course_name,
-            target_audience=target_audience,
-            original_outline=reviser_input,  # Use the stored input that was used for review
-            task_name=task,
-            review_criteria=formatted_failed_criteria,
-            llm=llm
-        )
-
-        final_outline_match = re.search(r"<final_outline>(.*?)</final_outline>", reviser_output, re.DOTALL)
-        if not final_outline_match:
-            print(f"⚠️ No final outline found for task: {task}")
-            continue
-
-        final_outline_text = final_outline_match.group(1)
-        revised_blocks = re.findall(r"<block_\d+>(.*?)</block_\d+>", final_outline_text, re.DOTALL)
-
-        revised_entries = []
-        for block in revised_blocks:
-            topic = re.search(r"Topic:\s*(.*)", block).group(1).strip()
-            subtopic = re.search(r"Subtopic:\s*(.*)", block).group(1).strip()
-            lo = re.search(r"Learning Objective:\s*(.*)", block).group(1).strip()
-            revised_entries.append((topic, subtopic, lo))
-
-        for i, (topic, subtopic, lo) in enumerate(revised_entries):
-            outline_df.at[i, 'Revised Topic'] = topic
-            outline_df.at[i, 'Revised Subtopic'] = subtopic
-            outline_df.at[i, 'Revised Learning Objectives'] = lo
-
+        for i in range(len(revised_df)):
+            for col in revised_df.columns:
+                outline_df.at[i, col] = revised_df.at[i, col]
+        
+        for col in ['Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']:
+            if col in outline_df.columns:
+                outline_df[col] = outline_df[col].fillna("")
+                
         save_to_sheet(outline_sheet, outline_df)
         print(f"✅ Revisions applied and saved for task: {task}")
-        
-        # Update progress after each task
         progress.update()
+
+    # Hide the original columns after all tasks are completed
+    columns_to_hide = ['Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']
+    hide_columns_by_name(worksheet=outline_sheet, column_names=columns_to_hide, df=outline_df)
