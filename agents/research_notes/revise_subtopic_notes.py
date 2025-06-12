@@ -338,4 +338,173 @@ def run_reviser_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
     return
 
 
+# ---------------------------------------------------------------------------
+# Manual Review Revised Notes - AI powered cleanup when skipping manual step
+# ---------------------------------------------------------------------------
+
+cleanup_revised_notes_prompt = """You are tasked with refining a set of revised research notes for a course subtopic.
+
+<course_info>
+Course name: {course_name}
+Target audience: {target_audience}
+</course_info>
+
+<learning_objectives>
+{learning_objectives}
+</learning_objectives>
+
+You are also provided with surrounding research notes for additional context on what is covered in related sections.
+
+<surrounding_notes>
+{surrounding_notes}
+</surrounding_notes>
+
+Here are the current revised notes for this subtopic:
+
+<current_notes>
+{current_notes}
+</current_notes>
+
+Guidelines:
+- Review the surrounding notes to understand what is already covered elsewhere.
+- Focus on the learning objectives and keep only information that directly supports them.
+- Remove redundant, off-topic or excessively detailed content.
+- Do not add new information that isn't already present in the notes.
+
+Before writing the final notes, explain your reasoning about what to keep and what to remove.
+
+<analysis>
+[Place your reasoning here.]
+</analysis>
+
+<clean_notes>
+[Place your cleaned notes here.]
+</clean_notes>
+"""
+
+
+def _gather_surrounding_research_notes(df, topic, subtopic, current_index, max_total=5):
+    """Gather research notes from nearby rows for additional context."""
+    notes = []
+
+    # Collect from same subtopic first
+    subtopic_rows = df[(df["Subtopic"] == subtopic) & (df.index != current_index)]
+    for _, r in subtopic_rows.iterrows():
+        note = r.get("revised_research_notes") or r.get("research_notes")
+        if isinstance(note, str) and note.strip():
+            notes.append(
+                f"Topic: {r['Topic']}\nSubtopic: {r['Subtopic']}\nLO: {r['Learning Objectives']}\nResearch notes: {note}"
+            )
+        if len(notes) >= max_total - 1:
+            break
+
+    if len(notes) < max_total - 1:
+        topic_rows = df[(df["Topic"] == topic) & (df["Subtopic"] != subtopic)]
+        for _, r in topic_rows.iterrows():
+            note = r.get("revised_research_notes") or r.get("research_notes")
+            if isinstance(note, str) and note.strip():
+                notes.append(
+                    f"Topic: {r['Topic']}\nSubtopic: {r['Subtopic']}\nLO: {r['Learning Objectives']}\nResearch notes: {note}"
+                )
+            if len(notes) >= max_total - 1:
+                break
+
+    return "\n\n---\n\n".join(notes)
+
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Manual Review Revised Notes",
+    "function_name": "ai_cleanup_revised_research_notes",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def ai_cleanup_revised_research_notes(course_name, target_audience, learning_objectives, current_notes, surrounding_notes, llm="groq"):
+    """Uses an LLM to clean the revised research notes."""
+
+    cleanup_chain = Chain(llm=llm, tags=["analysis", "clean_notes"])
+    cleanup_chain.add_message(
+        role="user",
+        content=cleanup_revised_notes_prompt.format(
+            course_name=course_name,
+            target_audience=target_audience,
+            learning_objectives=learning_objectives,
+            current_notes=current_notes,
+            surrounding_notes=surrounding_notes,
+        ),
+    )
+
+    response = cleanup_chain.run()
+    return response["clean_notes"]
+
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Manual Review Revised Notes",
+    "function_name": "run_ai_cleanup_revised_notes_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def run_ai_cleanup_revised_notes_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm="groq"):
+    """Automatically clean revised research notes for all rows using the LLM."""
+
+    outline_sheet, outline_df = get_sheet_data_and_df(sheet=sheet, sheet_name=worksheet_name)
+
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for index, row in outline_df.iterrows():
+            if row.get("revised_research_notes", "") == "":
+                continue
+
+            surrounding_notes = _gather_surrounding_research_notes(
+                outline_df, row["Topic"], row["Subtopic"], index
+            )
+
+            future = executor.submit(
+                ai_cleanup_revised_research_notes,
+                course_name,
+                target_audience,
+                row["Learning Objectives"],
+                row["revised_research_notes"],
+                surrounding_notes,
+                llm,
+            )
+
+            futures_map[future] = index
+
+        total_tasks = len(futures_map)
+        save_interval = 5
+        progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=save_interval)
+
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            index = futures_map[future]
+            cleaned_notes = future.result()
+            outline_df.loc[index, "revised_research_notes"] = cleaned_notes
+
+            progress.update()
+
+            if progress.should_save():
+                print(f"Saving partial progress to sheet after {progress.completed_count} tasks completed.")
+                save_to_sheet(worksheet=outline_sheet, df=outline_df)
+
+    print("All rows processed. Saving final DataFrame to sheet.")
+    save_to_sheet(worksheet=outline_sheet, df=outline_df)
+
+    return
+
+
+def manual_input_review_revised_research_notes(sheet, worksheet_name, course_name, target_audience, skip_manual_step=False, llm="gemini_2_flash"):
+    """Allows manual review of revised research notes or runs AI cleanup when skipped."""
+
+    if skip_manual_step:
+        run_ai_cleanup_revised_notes_for_all_rows(
+            sheet=sheet,
+            worksheet_name=worksheet_name,
+            course_name=course_name,
+            target_audience=target_audience,
+            llm=llm,
+        )
+        return True
+
+    return True
+
+
 
