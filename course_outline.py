@@ -16,6 +16,8 @@ from agents.course_outline.video_based_outline.get_relevant_chunks import run_ge
 from agents.course_outline.video_based_outline.video_based_outlines import run_generate_video_based_outline, manual_input_video_outline_consolidation_comments
 from agents.course_outline.video_based_outline.consolidate_video_based_outline import run_propose_consolidated_video_outlines
 
+from agents.course_outline.course_outline_checklist.checklist_based_review_and_reviser_agent import run_outline_checklist_review_and_revise
+
 #from agents.course_outline.client_reference_based_outline.client_reference_based_outlines import run_generate_outline_from_client_reference, manual_input_client_reference_consolidation_comments
 #from agents.course_outline.client_reference_based_outline.consolidate_client_reference_based_outline import run_propose_consolidated_reference_outlines
 
@@ -927,12 +929,31 @@ pipeline_sections.append({
 })
 
 pipeline_sections.append({
+    "section_name": "Section: Checklist based Review-Revise Agents",
+    "steps": [
+        {
+            "name": "Checklist Based Review and Revise Agents",
+            "func": run_outline_checklist_review_and_revise,
+            "depends_on": ["Create the Final Outline Sheet"],
+            "args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+                "llm": llm_model,
+            },
+            "hide_if_final_outline": True,
+            "estimated_time": "~ 5 - 10 minutes",
+            "description": "Reviews and Revises the Final Outline based on predefined checklist criteria, ensuring quality and consistency.",
+        }
+    ]
+})
+
+pipeline_sections.append({
     "section_name": "Section: Get References for the Final Outline",
     "steps": [
         {
             "name": "Get relevant references for Learning Objectives",
             "func": load_references,
-            "depends_on": ["Create the Final Outline Sheet"],
+            "depends_on": ["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
             "args": {
                 "sheet": "sheet",
             },

@@ -4,8 +4,9 @@ from typing import List, Optional
 import difflib
 import streamlit as st
 import re
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, delete_worksheet
+from langsmith import traceable
 
+from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, delete_worksheet
 
 # Get outline as text with topic, subtopic and los (if present)
 def get_outline_with_los(df, include_learning_objectives = False, include_prefix = True):
@@ -537,12 +538,19 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
     # Display the HTML
     st.markdown(html_output, unsafe_allow_html=True)
 
-
+@traceable(
+    metadata={
+        "agent_name": "course_outline",
+        "step_name": "Create the Final Outline Sheet",
+        "function_name": "create_final_outline_sheet",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def create_final_outline_sheet(sheet):
     """
     Creates a 'Final Outline' sheet by reading from one of the source sheets depending on the Outline Stage and splits multiple LOs into separate rows.
-    - If Outline Stage is 'Final' - use 'Base Outline' sheet.
-    - If Outline Stage is 'Initial' - use 'Enhanced Outline with LOs' or fallback to 'Course Outline with LOs'.
+    - If Outline Stage is 'Final' - use 'Base Outline' sheet and use standard column names.
+    - If Outline Stage is 'Initial' - use 'Enhanced Outline with LOs' or fallback to 'Course Outline with LOs', and use column names with 'before checklist step'.
     """
     # Step 1: Check Outline Stage
     try:
@@ -562,7 +570,7 @@ def create_final_outline_sheet(sheet):
         print(" Using 'Base Outline' as source since Outline Stage is 'Final'")
     else:
         try:
-            sheet.worksheet("Enhanced Outline with LOs") 
+            sheet.worksheet("Enhanced Outline with LOs")
             source_sheet_name = "Enhanced Outline with LOs"
             print(" Using 'Enhanced Outline with LOs' as source since Outline Stage is 'Initial'")
         except:
@@ -581,7 +589,17 @@ def create_final_outline_sheet(sheet):
     if not all(col in df.columns for col in ["Topic", "Subtopic", "Learning Objectives"]):
         raise ValueError(f" Required columns missing in '{source_sheet_name}': 'Topic', 'Subtopic', 'Learning Objectives'.")
 
-    # Step 4: Split LOs into individual rows
+    # Step 4: Determine final column names
+    if outline_stage == "final":
+        topic_col = "Topic"
+        subtopic_col = "Subtopic"
+        lo_col = "Learning Objectives"
+    else:
+        topic_col = "Topic before checklist step"
+        subtopic_col = "Subtopic before checklist step"
+        lo_col = "Learning Objectives before checklist step"
+
+    # Step 5: Split LOs into individual rows
     final_rows = []
     for _, row in df.iterrows():
         topic = row["Topic"]
@@ -592,12 +610,12 @@ def create_final_outline_sheet(sheet):
         los = [lo.strip() for lo in str(los_raw).split("\n") if lo.strip()]
         for lo in los:
             final_rows.append({
-                "Topic": topic,
-                "Subtopic": subtopic,
-                "Learning Objectives": lo
+                topic_col: topic,
+                subtopic_col: subtopic,
+                lo_col: lo
             })
 
-    # Step 5: Write output
+    # Step 6: Write output
     final_df = pd.DataFrame(final_rows)
     final_ws, _ = create_or_read_worksheet(sheet, "Final Outline")
     save_to_sheet(worksheet=final_ws, df=final_df)
