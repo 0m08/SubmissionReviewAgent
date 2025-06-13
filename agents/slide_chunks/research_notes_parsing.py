@@ -3,7 +3,13 @@ from modules.chain import Chain
 from tqdm import tqdm
 from agents.slide_chunks.format_inputs import Subtopic
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    create_or_read_worksheet,
+    save_to_sheet,
+    format_worksheet,
+    delete_worksheet,
+)
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
 import streamlit as st 
@@ -168,3 +174,8 @@ def run_research_notes_parsing(sheet, worksheet_name):
     format_worksheet(slide_chunks_sheet)
     print(f"✅ Successfully updated the '{slide_chunks_sheet}' tab with {len(slide_chunks_df)} rows.")
     return slide_chunks_df
+
+
+def delete_slide_chunks_sheet(sheet, worksheet_name="Slide Chunks"):
+    """Delete the Slide Chunks worksheet if present."""
+    delete_worksheet(sheet, worksheet_name)

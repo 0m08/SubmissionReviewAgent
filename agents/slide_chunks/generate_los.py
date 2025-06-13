@@ -2,7 +2,11 @@ import pandas as pd
 from modules.chain import Chain
 from tqdm import tqdm
 from agents.slide_chunks.format_inputs import strip_section_prefix
-from services.sheets_service import get_sheet_data_and_df
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from gspread_dataframe import set_with_dataframe
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -836,3 +840,12 @@ def run_learning_objectives_agent(sheet, worksheet_name, course_name, target_aud
         # Write once to Google Sheets after all processing
         set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
         print("\n✅ All Topics Processed and Updated in Google Sheets 🚀\n")
+
+
+def delete_learning_objectives_slide_chunks(sheet, worksheet_name="Slide Chunks"):
+    """Remove the learning objectives column from the Slide Chunks sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "learning_objectives_added_slide_chunk" in df.columns:
+        df = df.drop(columns=["learning_objectives_added_slide_chunk"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)

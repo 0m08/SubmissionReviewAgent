@@ -1,6 +1,12 @@
 from modules.chain import Chain
 from agents.slide_chunks.format_inputs import strip_roman_numerals, strip_section_prefix
-from services.sheets_service import get_sheet_data_and_df, format_worksheet, save_to_sheet, hide_columns_by_name
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    format_worksheet,
+    save_to_sheet,
+    hide_columns_by_name,
+    clear_worksheet,
+)
 # from gspread_dataframe import set_with_dataframe
 from tqdm import tqdm
 import pandas as pd
@@ -525,3 +531,26 @@ def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_a
 
     # Save the reordered DataFrame back to the sheet
     save_to_sheet(checklist_sheet, checklist_df)
+
+
+def delete_checklist_review_and_revise(sheet, worksheet_name="Slide Chunks"):
+    """Remove checklist review columns from the Slide Chunks and Checklist sheets."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["checklist_based_review_output", "Title", "Content"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+    # Also remove slide columns from the linked "Slide Chunks Checklist" sheet
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    checklist_sheet_link = course_info_df["Checklist Link"][0]
+    gc = st.session_state["gc"]
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
+    checklist_ws, checklist_df = get_sheet_data_and_df(checklist_sheet, "Slide Chunks Checklist")
+    slide_cols = [c for c in checklist_df.columns if c.startswith("Slide ")]
+    if slide_cols:
+        checklist_df = checklist_df.drop(columns=slide_cols)
+        clear_worksheet(checklist_ws)
+        save_to_sheet(checklist_ws, checklist_df)
