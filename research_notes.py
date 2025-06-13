@@ -30,6 +30,7 @@ from agents.research_notes.review_topic_notes import (
     run_review_topic_notes_agent_for_all_rows,
     manual_input_review_topic_notes,
     delete_review_topic_notes,
+    delete_manual_review_topic_notes,
 )
 from agents.research_notes.revise_topic_notes import (
     run_revise_topic_notes_for_all_rows,
@@ -257,8 +258,11 @@ pipeline_sections = [
                 "estimated_time": "Manual step",
                 "description": "Manually verify and refine AI's review for each topic-level note.",
                 "video_link": "https://drive.google.com/file/d/1IwSqwFzI3vxNHTsmfpQUw62hyTzjyUPx/view?usp=drive_link",
-                "delete_func": noop,
-
+                "delete_func": delete_manual_review_topic_notes,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Research Notes",
+                }
             },
             {
                 "name": "Revise Topic Notes",

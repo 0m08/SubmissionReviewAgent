@@ -229,3 +229,12 @@ def delete_review_topic_notes(sheet, worksheet_name="Research Notes"):
         clear_worksheet(ws)
         save_to_sheet(ws, df)
 
+
+def delete_manual_review_topic_notes(sheet, worksheet_name="Research Notes"):
+    """Remove manual comments column from the Research Notes worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Manual Comments" in df.columns:
+        df = df.drop(columns=["Manual Comments"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
