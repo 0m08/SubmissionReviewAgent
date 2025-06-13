@@ -1,5 +1,9 @@
 from modules.chain import Chain
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from tqdm import tqdm
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -358,5 +362,24 @@ def manual_input_review_research_summary(sheet, worksheet_name, course_name, tar
     )
 
     return True
+
+
+def delete_research_summaries(sheet, worksheet_name="Base Outline"):
+    """Remove research summary related columns from Base Outline sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["research_summary", "Manual Extract"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+def clear_manual_extract(sheet, worksheet_name="Base Outline"):
+    """Clear Manual Extract column without dropping it."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Manual Extract" in df.columns:
+        df["Manual Extract"] = ""
+        save_to_sheet(ws, df)
 
 

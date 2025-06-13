@@ -2,7 +2,11 @@ from services.llm_service import extract_csv_lines
 from modules.chain import Chain
 import pandas as pd
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from services.helper_functions import get_outline_with_los, add_list_as_new_column, find_blank_followed_by_filled_indices
 from langsmith import traceable
 ### Construct Video Search Queries
@@ -163,4 +167,14 @@ def manual_input_review_video_search_queries(sheet, worksheet_name = 'Base Outli
         column_name = "video_search_queries",
         blank_value = ""
     )
+
+
+def delete_video_search_queries(sheet, worksheet_name="Base Outline"):
+    """Remove the video search query column from the Base Outline sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "video_search_queries" in df.columns:
+        df = df.drop(columns=["video_search_queries"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
 
