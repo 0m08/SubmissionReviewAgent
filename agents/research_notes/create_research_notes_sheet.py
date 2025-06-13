@@ -1,4 +1,11 @@
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, resize_column_by_name, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    create_or_read_worksheet,
+    format_worksheet,
+    resize_column_by_name,
+    save_to_sheet,
+    delete_worksheet,
+)
 import pandas as pd
 from services.sheets_service import format_worksheet
 from services.helper_functions import create_and_populate_columns
@@ -73,4 +80,9 @@ def create_research_notes_sheet(sheet, source_worksheet_name, target_worksheet_n
     resize_column_by_name(worksheet = research_notes_sheet, column_name = 'Learning Objectives', pixel_size = 300)
 
     return
+
+
+def delete_research_notes_sheet(sheet, worksheet_name="Research Notes"):
+    """Delete the Research Notes worksheet if present."""
+    delete_worksheet(sheet, worksheet_name)
 

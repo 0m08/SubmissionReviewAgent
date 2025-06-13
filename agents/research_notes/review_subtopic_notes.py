@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -244,7 +244,23 @@ def manual_input_review_research_notes(sheet, worksheet_name):
     #     # raise Exception("Please make the manual edits and press the button to continue")
     #     st.info("Please make the manual edits and press the button to continue")
     #     return False
-    
 
 
+def delete_subtopic_review(sheet, worksheet_name="Final Outline"):
+    """Remove reviewer analysis columns from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [
+        "analysis",
+        "not_covered_at_all",
+        "not_covered_enough",
+        "perfectly_covered",
+        "covered_too_much",
+        "verdict",
+        "Manual Comments",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 

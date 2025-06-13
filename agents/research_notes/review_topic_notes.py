@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 import streamlit as st
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -217,4 +217,24 @@ def manual_input_review_topic_notes(sheet, worksheet_name):
     # if st.button("Done with Edits? Click to continue"):
     #     return
     return True
+
+
+def delete_review_topic_notes(sheet, worksheet_name="Research Notes"):
+    """Remove final review columns from the Research Notes worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["final_review", "Manual Comments"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+def delete_manual_review_topic_notes(sheet, worksheet_name="Research Notes"):
+    """Remove manual comments column from the Research Notes worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Manual Comments" in df.columns:
+        df = df.drop(columns=["Manual Comments"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
