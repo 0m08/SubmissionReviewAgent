@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name
 from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
 from agents.research_notes.retriever_agent import retrieve_relevant_docs
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -334,6 +334,23 @@ def run_reviser_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_name,
     # Final save to sheet after all tasks
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = course_outline_with_lo_sheet, df = course_outline_with_lo_df)
+
+    hide_columns_by_name(
+        worksheet = course_outline_with_lo_sheet,
+        column_names = [
+            'web_links',
+            'video_links',
+            'research_notes',
+            'analysis',
+            'not_covered_at_all',
+            'not_covered_enough',
+            'perfectly_covered',
+            'covered_too_much',
+            'verdict',
+            'Manual Comments'
+        ],
+        df = course_outline_with_lo_df
+    )
 
     return
 
