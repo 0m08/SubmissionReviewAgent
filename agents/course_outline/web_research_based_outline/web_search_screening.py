@@ -1,5 +1,11 @@
 from services.web_search import web_search_screening
-from services.sheets_service import create_or_read_worksheet, get_sheet_data_and_df, save_to_sheet, format_worksheet
+from services.sheets_service import (
+    create_or_read_worksheet,
+    get_sheet_data_and_df,
+    save_to_sheet,
+    format_worksheet,
+    delete_worksheet,
+)
 import pandas as pd
 import streamlit as st
 from tqdm import tqdm
@@ -92,4 +98,9 @@ def run_web_search_screening(sheet, worksheet_name, course_name, llm='gemini_2_f
     format_worksheet(worksheet = preliminary_research_sheet)
 
     return
+
+
+def delete_preliminary_research_sheet(sheet, worksheet_name="Preliminary Research"):
+    """Delete the Preliminary Research worksheet."""
+    delete_worksheet(sheet, worksheet_name)
 

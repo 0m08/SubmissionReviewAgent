@@ -1,6 +1,12 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, filter_non_blank_column
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    filter_non_blank_column,
+    clear_worksheet,
+    delete_worksheet,
+)
 import json
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -428,4 +434,30 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
     )
 
     return True
+
+
+def delete_relevant_chunks(sheet, worksheet_name="Videos Research"):
+    """Remove columns related to relevant chunk identification."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [
+        "video_scratchpad",
+        "video_relevance",
+        "proposed_chapters_to_include",
+        "Manual Review",
+        "Used for",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+def delete_mark_relevant_videos(sheet, worksheet_name="Videos Research"):
+    """Clear manual review columns without dropping them."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    for col in ["Manual Review", "Used for"]:
+        if col in df.columns:
+            df[col] = ""
+    save_to_sheet(ws, df)
 

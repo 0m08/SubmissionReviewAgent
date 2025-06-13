@@ -1,7 +1,11 @@
 from modules.chain import Chain
 from tqdm import tqdm
 import pandas as pd
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.helper_functions import validate_column_values, get_outline_with_los
@@ -289,4 +293,22 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
     save_to_sheet(worksheet = preliminary_research_sheet, df = preliminary_research_df)
 
     return
+
+
+def delete_relevant_info(sheet, worksheet_name="Preliminary Research"):
+    """Remove columns generated during relevant info extraction."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [
+        "summary",
+        "analysis_breakdown",
+        "content_evaluation",
+        "objective_brainstorm",
+        "final_verdict",
+        "learning_objectives",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 

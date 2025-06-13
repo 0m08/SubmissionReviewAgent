@@ -1,7 +1,11 @@
 from modules.chain import Chain
 from tqdm import tqdm
 from services.youtube_video_loader import get_transcript
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import get_outline_with_los, validate_column_values
 import json
@@ -518,4 +522,23 @@ def manual_input_video_outline_consolidation_comments(sheet, worksheet_name, cou
     )
 
     return True
+
+
+def delete_video_based_outlines(sheet, worksheet_name="Videos Research"):
+    """Remove columns created during video outline generation."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["outline_contemplator", "outline", "consolidation_comments"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+def clear_video_outline_comments(sheet, worksheet_name="Videos Research"):
+    """Clear consolidation_comments column without dropping it."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "consolidation_comments" in df.columns:
+        df["consolidation_comments"] = ""
+        save_to_sheet(ws, df)
 

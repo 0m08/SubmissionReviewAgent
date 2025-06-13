@@ -4,6 +4,11 @@ import pandas as pd
 from services.sheets_service import get_sheet_data_and_df
 from services.helper_functions import create_final_outline_sheet
 
+
+def noop(*args, **kwargs):
+    """Placeholder delete function for manual steps."""
+    return
+
 from agents.course_outline.video_based_outline.video_search_queries import run_construct_video_search_queries, manual_input_review_video_search_queries
 from agents.course_outline.video_based_outline.get_hvac_school_videos import run_get_hvac_school_videos
 from agents.course_outline.video_based_outline.classify_and_chunk_videos import run_get_transcripts, run_classify_video, run_chunk_videos
@@ -33,6 +38,43 @@ from agents.course_outline.enhance_outline.generate_learning_objectives import r
 from agents.course_outline.enhance_outline.categorize_learning_objectives import run_categorize_learning_objectives
 from agents.course_outline.enhance_outline.label_learning_objectives import run_label_learning_objectives
 from agents.course_outline.enhance_outline.review_revise_topic_outline import show_outline_diff, run_review_and_revise_topic_outline
+from agents.course_outline.video_based_outline.video_search_queries import delete_video_search_queries
+from agents.course_outline.video_based_outline.get_hvac_school_videos import delete_videos_research_sheet
+from agents.course_outline.video_based_outline.classify_and_chunk_videos import (
+    delete_video_transcripts,
+    delete_video_relevance,
+    delete_video_chunks,
+)
+from agents.course_outline.video_based_outline.get_relevant_chunks import (
+    delete_relevant_chunks,
+    delete_mark_relevant_videos,
+)
+from agents.course_outline.video_based_outline.video_based_outlines import (
+    delete_video_based_outlines,
+    clear_video_outline_comments,
+)
+from agents.course_outline.video_based_outline.consolidate_video_based_outline import delete_video_outline_consolidation
+from agents.course_outline.web_research_based_outline.web_search_queries import delete_web_search_queries
+from agents.course_outline.web_research_based_outline.web_search_screening import delete_preliminary_research_sheet
+from agents.course_outline.web_research_based_outline.get_article_content import delete_article_content
+from agents.course_outline.web_research_based_outline.extract_relevant_info import delete_relevant_info
+from agents.course_outline.web_research_based_outline.get_research_summary import (
+    delete_research_summaries,
+    clear_manual_extract,
+)
+from agents.course_outline.web_research_based_outline.web_research_based_outline import delete_web_research_outline
+from agents.course_outline.deep_research.deep_research import delete_deep_research_sheet
+from agents.course_outline.deep_research.deep_research_based_outline import delete_deep_research_outline
+from agents.course_outline.enhance_outline.create_input_sheets import delete_create_topic_outline
+from agents.course_outline.enhance_outline.topic_deep_research import delete_topic_deep_research
+from agents.course_outline.enhance_outline.generate_learning_objectives import delete_learning_objectives
+from agents.course_outline.enhance_outline.categorize_learning_objectives import delete_lo_categorization
+from agents.course_outline.enhance_outline.label_learning_objectives import delete_label_learning_objectives
+from agents.course_outline.enhance_outline.review_revise_topic_outline import delete_review_and_revise_topic_outline
+from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import delete_topic_outline_mapping
+from services.helper_functions import delete_final_outline
+from agents.research_notes.load_references import delete_all_references
+from agents.research_notes.retriever_agent import delete_retriever_context
 from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import map_original_outline_to_revised_outline_for_all_topics
 
 from agents.research_notes.load_references import load_references
@@ -76,6 +118,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 1 minute",
                 "description": "Generates search queries to identify relevant HVAC school videos on YouTube.",
+                "delete_func": delete_video_search_queries,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Base Outline",
+                }
             },
             {
                 "name": "Manual Review - Video Search Queries",
@@ -109,6 +156,7 @@ pipeline_sections = [
                 "estimated_time": "Manual step",
                 "description": "Review and adjust the AI-generated video search queries as needed.",
                 "video_link": "https://drive.google.com/file/d/1A4AILmEAXkKCKUQY_GgZoXmCPjtnnOfz/view?usp=sharing",
+                "delete_func": noop,
             },
             {
                 "name": "Retrieve HVAC School Videos",
@@ -119,7 +167,12 @@ pipeline_sections = [
                     "worksheet_name": "Videos Research",
                 },
                 "estimated_time": "~ 1 minute",
-                "description": "Fetches relevant HVAC school YouTube videos based on the approved search queries and lists them in the `Videos Research` sheet."
+                "description": "Fetches relevant HVAC school YouTube videos based on the approved search queries and lists them in the `Videos Research` sheet.",
+                "delete_func": delete_videos_research_sheet,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Videos Research",
+                }
             },
             {
                 "name": "Retrieve Video Transcripts",
@@ -130,7 +183,12 @@ pipeline_sections = [
                     "worksheet": "Videos Research",
                 },
                 "estimated_time": "~ 10 - 20 minutes",
-                "description": "Fetches the complete transcripts for the listed videos and stores them in the `Videos Research` sheet."
+                "description": "Fetches the complete transcripts for the listed videos and stores them in the `Videos Research` sheet.",
+                "delete_func": delete_video_transcripts,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Videos Research",
+                }
             },
             {
                 "name": "Check Video Relevance",
@@ -144,7 +202,12 @@ pipeline_sections = [
                     "llm": llm_model,
                 },
                 "estimated_time": "~ 10 - 20 minutes",
-                "description": "Evaluates each video transcript to classify videos as either relevant or irrelevant based on the course context and audience."
+                "description": "Evaluates each video transcript to classify videos as either relevant or irrelevant based on the course context and audience.",
+                "delete_func": delete_video_relevance,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Videos Research",
+                }
             },
             {
                 "name": "Chunk Videos",
@@ -157,7 +220,13 @@ pipeline_sections = [
                     "llm": llm_model,
                 },
                 "estimated_time": "~ 10 - 20 minutes",
-                "description": "Segments transcripts of all videos marked as relevant into meaningful chunks and stores them in the `Video Chunks` sheet."
+                "description": "Segments transcripts of all videos marked as relevant into meaningful chunks and stores them in the `Video Chunks` sheet.",
+                "delete_func": delete_video_chunks,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "videos_research_worksheet": "Videos Research",
+                    "video_chunks_worksheet": "Video Chunks",
+                }
             },
             {
                 "name": "Identify Relevant Chunks",
@@ -171,7 +240,12 @@ pipeline_sections = [
                     "llm": llm_model,
                 },
                 "estimated_time": "~ 10 - 20 minutes",
-                "description": "Analyzes segmented chunks from the previous step and identifies the most relevant ones based on course content and audience criteria."
+                "description": "Analyzes segmented chunks from the previous step and identifies the most relevant ones based on course content and audience criteria.",
+                "delete_func": delete_relevant_chunks,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Videos Research",
+                }
             },
             {
                 "name": "Manual Review - Mark relevant videos",
@@ -201,6 +275,11 @@ pipeline_sections = [
                 "estimated_time": "Manual step",
                 "description": "Verify and confirm the relevance classification suggested by AI for videos.",
                 "video_link": "https://drive.google.com/file/d/1JckbG8T34Baa2vZc5Gc6RXFZ-3sgRdff/view?usp=drive_link",
+                "delete_func": delete_mark_relevant_videos,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Videos Research",
+                }
             },
             {
                 "name": "Generate Video Based Outlines",
@@ -215,7 +294,12 @@ pipeline_sections = [
                 },
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
-                "description": "Produces outlines from transcripts of videos manually confirmed as relevant."
+                "description": "Produces outlines from transcripts of videos manually confirmed as relevant.",
+                "delete_func": delete_video_based_outlines,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Videos Research",
+                }
             },
             {
                 "name": "Manual Review - Video Outline Consolidation Comments",
@@ -255,6 +339,11 @@ pipeline_sections = [
                 "estimated_time": "Manual step",
                 "description": "Provide detailed feedback to guide consolidation of individual video outlines into a unified course outline.",
                 "video_link": "https://drive.google.com/file/d/1vQttQADL78qwf_qQq5RVblt8RVUWfIOW/view?usp=drive_link",
+                "delete_func": clear_video_outline_comments,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Videos Research",
+                }
             },
             {
                 "name": "Consolidate Video Based Outlines",
@@ -269,7 +358,12 @@ pipeline_sections = [
                 },
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 2 minutes",
-                "description": "Combines multiple individual outlines into four proposed consolidated outline variations in the `Outline Consolidation` sheet."
+                "description": "Combines multiple individual outlines into four proposed consolidated outline variations in the `Outline Consolidation` sheet.",
+                "delete_func": delete_video_outline_consolidation,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Outline Consolidation"
+                }
             },
         ],
     },
@@ -362,6 +456,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 2 minutes",
                 "description": "Generates web search queries in the `Base Outline` sheet to use for searching the web.",
+                "delete_func": delete_web_search_queries,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Base Outline",
+                }
             },
             {
                 "name": "Obtain Web Article Links",
@@ -375,6 +474,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Executes web searches using generated queries and lists relevant article links in the `Preliminary Research` sheet.",
+                "delete_func": delete_preliminary_research_sheet,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Preliminary Research",
+                }
             },
             {
                 "name": "Fetch Web Article Content",
@@ -386,6 +490,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 10 - 20 minutes",
                 "description": "Retrieves full content of web articles listed in the Preliminary Research sheet.",
+                "delete_func": delete_article_content,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Preliminary Research",
+                }
             },
             {
                 "name": "Extract Relevant Information from Articles",
@@ -401,6 +510,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 40 - 60 minutes",
                 "description": "Identifies and extracts pertinent content from each article to align with course context and audience.",
+                "delete_func": delete_relevant_info,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Preliminary Research",
+                }
             },
             {
                 "name": "Generate Research Summaries",
@@ -415,6 +529,11 @@ pipeline_sections = [
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Summarizes extracted information from web articles into concise, relevant summaries stored in the `Base Outline` sheet.",
+                "delete_func": delete_research_summaries,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Base Outline",
+                }
             },
             {
                 "name": "Manual Review - Web Research Summary",
@@ -453,6 +572,11 @@ pipeline_sections = [
                 "estimated_time": "Manual step",
                 "description": "Review, edit, and confirm AI-generated summaries, ensuring accuracy and relevancy.",
                 "video_link": "https://drive.google.com/file/d/1Wjb6lO0zwKPV8577EcRyct9Tq6J6XDfG/view?usp=drive_link",
+                "delete_func": clear_manual_extract,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Base Outline",
+                }
             },
             {
                 "name": "Generate Web Research Based Outline",
@@ -468,6 +592,11 @@ pipeline_sections = [
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 4 minutes",
                 "description": "Creates a detailed course outline based on refined summaries, storing the output in the `Outline Consolidation` sheet.",
+                "delete_func": delete_web_research_outline,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Outline Consolidation",
+                }
             },
         ],
     },
@@ -487,6 +616,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Creates a new sheet `Deep Research`, performs agentic deep research on the Base outline subtopics and pastes the research into the sheet.",
+                "delete_func": delete_deep_research_sheet,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Deep Research",
+                }
             },
             {
                 "name": "Generate Deep Research Based Outline",
@@ -502,6 +636,11 @@ pipeline_sections = [
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Generates a course outline based on the deep research findings and saves it to a `Outline Consolidation` sheet.",
+                "delete_func": delete_deep_research_outline,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Outline Consolidation",
+                }
             },
         ],
     },
@@ -608,6 +747,12 @@ if topic_deep_research_enabled:
                     "sheet": "sheet",
                     "worksheet_name": "Topic Outline",
                 },
+                "delete_func": delete_create_topic_outline,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "topic_outline_ws": "Topic Outline",
+                    "topic_deep_research_ws": "Topic Deep Research",
+                }
             },
             {
                 "name": "Topic Deep Research",
@@ -623,6 +768,11 @@ if topic_deep_research_enabled:
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Performs deep research on each topic in the Topic Deep Research sheet and populates the research and sources columns.",
+                "delete_func": delete_topic_deep_research,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Deep Research",
+                }
             },
             {
                 "name": "Generate Learning Objectives",
@@ -638,6 +788,11 @@ if topic_deep_research_enabled:
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Generates learning objectives for each topic based on the research data and populates the learning objectives column in the Topic Deep Research sheet.",
+                "delete_func": delete_learning_objectives,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Deep Research",
+                }
             },
             {
                 "name": "Categorize Learning Objectives",
@@ -653,6 +808,11 @@ if topic_deep_research_enabled:
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Categorizes learning objectives for each topic in the `Topic Deep Research` sheet based on their relevance to the course outline.",
+                "delete_func": delete_lo_categorization,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Topic Deep Research",
+                }
             },
             {
                 "name": "Label Learning Objectives",
@@ -668,6 +828,11 @@ if topic_deep_research_enabled:
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Labels learning objectives for each topic in the `Topic Deep Research` sheet based on their relevance to the course outline.",
+                "delete_func": delete_label_learning_objectives,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "topic_deep_research_ws": "Topic Deep Research",
+                }
             },
             {
                 "name": "Review and Revise Topic Outline",
@@ -712,6 +877,10 @@ if topic_deep_research_enabled:
                 "pre_exec_args": {
                     "sheet": "sheet",
                 },
+                "delete_func": delete_review_and_revise_topic_outline,
+                "delete_args": {
+                    "sheet": "sheet",
+                }
             },
             {
                 "name": "Map Topic Outline to Enhanced Outline",
@@ -725,6 +894,13 @@ if topic_deep_research_enabled:
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 2 - 5 minutes",
                 "description": "Maps additional columns from the topic outline to the enhanced outline.",
+                "delete_func": delete_topic_outline_mapping,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "mapping_ws": "Topic - Revised Outline Mapping",
+                    "topic_outline_ws": "Topic Outline",
+                    "enhanced_outline_ws": "Enhanced Outline with LOs",
+                }
             },
         ]
     })
@@ -741,6 +917,11 @@ pipeline_sections.append({
             },
             "estimated_time": "~ 1 minute",
             "description": "Creates the 'Final Outline' sheet by flattening multiple LOs into one-per-row format.",
+            "delete_func": delete_final_outline,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+            }
         }
     ]
 })
@@ -757,6 +938,11 @@ pipeline_sections.append({
             },
             "estimated_time": "~ 2-5 minutes",
             "description": "Loads all reference documents into the vectorstore for faster retrieval.",
+            "delete_func": delete_all_references,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "All References",
+            }
         },
         {
             "name": "Retrieve relevant references for Learning Objectives",
@@ -773,6 +959,11 @@ pipeline_sections.append({
             },
             "estimated_time": "~ 10 - 20 minutes",
             "description": "Gathers relevant context needed for the research.",
+            "delete_func": delete_retriever_context,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+            }
         },
     ]
 })

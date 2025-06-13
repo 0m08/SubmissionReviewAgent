@@ -1,7 +1,11 @@
 from modules.proposer_agents import get_proposer_and_aggregator_agents
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 import pandas as pd
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
@@ -204,6 +208,15 @@ def run_generate_web_research_outline(sheet, worksheet_name, course_name, course
     # Save to sheet
     print('Saved to sheet')
     save_to_sheet(worksheet = outline_consolidation_sheet, df = outline_consolidation_df)
-    
+
     return
+
+
+def delete_web_research_outline(sheet, worksheet_name="Outline Consolidation"):
+    """Remove rows for the web research based outline."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Source" in df.columns:
+        df = df[df["Source"] != "Web research based outline"]
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
