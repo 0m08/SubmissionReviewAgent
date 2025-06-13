@@ -1,4 +1,10 @@
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    create_or_read_worksheet,
+    format_worksheet,
+    save_to_sheet,
+    delete_worksheet,
+)
 from tqdm import tqdm
 import pandas as pd
 import streamlit as st
@@ -96,4 +102,9 @@ def run_get_hvac_school_videos(sheet, worksheet_name):
 
     # return videos_research_df, query_list, video_search_queries
     return
+
+
+def delete_videos_research_sheet(sheet, worksheet_name="Videos Research"):
+    """Delete the Videos Research worksheet if present."""
+    delete_worksheet(sheet, worksheet_name)
 

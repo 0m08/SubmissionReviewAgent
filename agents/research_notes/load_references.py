@@ -5,7 +5,13 @@ from services.web_page_loaders import get_docs_from_url, extract_image_links_fro
 from services.youtube_video_loader import get_video_id_from_url, get_yt_chapters_chunks_as_docs
 from services.chunking_service import general_chunker
 from services.helper_functions import create_and_populate_columns
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    create_or_read_worksheet,
+    save_to_sheet,
+    format_worksheet,
+    delete_worksheet,
+)
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 import pandas as pd
@@ -971,4 +977,9 @@ def get_all_chunks_as_docs(sheet, worksheet_name = "All References"):
     #       len(topic_deep_research_doc_chunk_list) + len(topic_outline_doc_chunk_list))
 
     # return video_chunk_doc_list + client_reference_doc_chunk_list + web_research_doc_chunk_list + deep_research_doc_chunk_list + topic_deep_research_doc_chunk_list + topic_outline_doc_chunk_list
+
+
+def delete_all_references(sheet, worksheet_name="All References"):
+    """Delete the All References worksheet."""
+    delete_worksheet(sheet, worksheet_name)
 

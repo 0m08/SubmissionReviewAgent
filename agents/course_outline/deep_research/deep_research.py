@@ -194,5 +194,10 @@ def run_deep_research(sheet, worksheet_name, course_name, target_audience, llm =
     # Final save to sheet after all tasks
     print('All subtopics processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = deep_research_sheet, df = deep_research_df)
-    
+
     return
+
+
+def delete_deep_research_sheet(sheet, worksheet_name="Deep Research"):
+    """Delete the Deep Research worksheet."""
+    delete_worksheet(sheet, worksheet_name)

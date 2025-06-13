@@ -2,7 +2,15 @@ from modules.chain import Chain
 from typing import List, Union, Literal
 from pydantic import BaseModel, Field
 import pandas as pd
-from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, resize_column_by_name, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    create_or_read_worksheet,
+    format_worksheet,
+    resize_column_by_name,
+    save_to_sheet,
+    clear_worksheet,
+    delete_worksheet,
+)
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import get_outline_in_table_format
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -472,4 +480,25 @@ def map_original_outline_to_revised_outline_for_all_topics(sheet, worksheet_name
     map_additional_columns_to_enhanced_outline(sheet)
 
     return
+
+
+def delete_topic_outline_mapping(
+    sheet,
+    mapping_ws="Topic - Revised Outline Mapping",
+    topic_outline_ws="Topic Outline",
+    enhanced_outline_ws="Enhanced Outline with LOs",
+):
+    """Delete the mapping sheet and extra columns added during mapping."""
+    delete_worksheet(sheet, mapping_ws)
+    ws_topic, df_topic = get_sheet_data_and_df(sheet, topic_outline_ws)
+    if "mapping" in df_topic.columns:
+        df_topic = df_topic.drop(columns=["mapping"])
+        clear_worksheet(ws_topic)
+        save_to_sheet(ws_topic, df_topic)
+    ws_enhanced, df_enhanced = get_sheet_data_and_df(sheet, enhanced_outline_ws)
+    extra_cols = [c for c in df_enhanced.columns if c not in ["Topic", "Learning Objectives"]]
+    if extra_cols:
+        df_enhanced = df_enhanced.drop(columns=extra_cols)
+        clear_worksheet(ws_enhanced)
+        save_to_sheet(ws_enhanced, df_enhanced)
 

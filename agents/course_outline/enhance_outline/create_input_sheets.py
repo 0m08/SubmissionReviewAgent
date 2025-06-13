@@ -1,7 +1,15 @@
 import streamlit as st
 import re
 import pandas as pd
-from services.sheets_service import create_or_read_worksheet, get_worksheet_names, get_sheet_data_and_df, save_to_sheet, format_worksheet, resize_column_by_name
+from services.sheets_service import (
+    create_or_read_worksheet,
+    get_worksheet_names,
+    get_sheet_data_and_df,
+    save_to_sheet,
+    format_worksheet,
+    resize_column_by_name,
+    delete_worksheet,
+)
 
 
 def pre_topic_deep_research(sheet, worksheet_name):
@@ -280,3 +288,9 @@ def create_topic_deep_research_sheet(sheet, topic_outline_df=None, worksheet_nam
         
     except Exception as e:
         raise Exception(f"Error creating '{worksheet_name}' sheet: {str(e)}")
+
+
+def delete_create_topic_outline(sheet, topic_outline_ws="Topic Outline", topic_deep_research_ws="Topic Deep Research"):
+    """Delete the Topic Outline and Topic Deep Research worksheets."""
+    delete_worksheet(sheet, topic_outline_ws)
+    delete_worksheet(sheet, topic_deep_research_ws)

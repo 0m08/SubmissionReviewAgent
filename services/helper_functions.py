@@ -605,3 +605,8 @@ def create_final_outline_sheet(sheet):
 
     print(" Final Outline sheet created successfully.")
     return True
+
+
+def delete_final_outline(sheet, worksheet_name="Final Outline"):
+    """Delete the Final Outline worksheet."""
+    delete_worksheet(sheet, worksheet_name)

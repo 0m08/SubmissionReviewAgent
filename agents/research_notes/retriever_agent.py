@@ -1,7 +1,15 @@
 from modules.chain import Chain
 from services.llm_service import csv_list_parser
 from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, format_worksheet, hide_worksheet_by_name
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    hide_columns_by_name,
+    format_worksheet,
+    hide_worksheet_by_name,
+    clear_worksheet,
+    delete_worksheet,
+)
 from tqdm import tqdm
 from services.helper_functions import create_and_populate_columns, get_outline_with_los
 import streamlit as st
@@ -506,4 +514,14 @@ def manual_input_review_context(sheet, worksheet_name):
     else:
         print("Context is reviewed")
         return True
+
+
+def delete_retriever_context(sheet, worksheet_name="Final Outline"):
+    """Remove context columns and reference links from Final Outline sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [c for c in df.columns if c.startswith("context_") or c in ["source_links", "as_is_sources", "content_sources", "web_links", "video_links"]]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 

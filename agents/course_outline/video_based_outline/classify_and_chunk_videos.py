@@ -8,7 +8,15 @@ import streamlit as st
 import json
 from services.helper_functions import create_and_populate_columns, get_outline_with_los
 from services.smart_progress_bar import SmartProgressBar
-from services.sheets_service import get_sheet_data_and_df, format_worksheet, create_or_read_worksheet, save_to_sheet, hide_columns_by_name
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    format_worksheet,
+    create_or_read_worksheet,
+    save_to_sheet,
+    hide_columns_by_name,
+    clear_worksheet,
+    delete_worksheet,
+)
 from langsmith import traceable
 
 
@@ -543,5 +551,36 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
     format_worksheet(video_chunks_sheet)
 
     return
+
+
+def delete_video_transcripts(sheet, worksheet_name="Videos Research"):
+    """Remove video transcript columns from the Videos Research sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [c for c in df.columns if c.startswith("video_transcript")]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+def delete_video_relevance(sheet, worksheet_name="Videos Research"):
+    """Remove analysis and verdict columns from the Videos Research sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [c for c in df.columns if c in ["video_analysis", "video_verdict"]]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+def delete_video_chunks(sheet, videos_research_worksheet="Videos Research", video_chunks_worksheet="Video Chunks"):
+    """Remove chapter summaries and delete the Video Chunks sheet."""
+    ws, df = get_sheet_data_and_df(sheet, videos_research_worksheet)
+    cols = [c for c in df.columns if c.startswith("chapter_summaries")]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+    delete_worksheet(sheet, video_chunks_worksheet)
 
 

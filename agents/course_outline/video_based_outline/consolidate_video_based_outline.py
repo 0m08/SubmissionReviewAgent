@@ -1,7 +1,12 @@
 from modules.chain import Chain
 import pandas as pd
-from services.sheets_service import get_sheet_data_and_df
-from services.sheets_service import create_or_read_worksheet, save_to_sheet, format_worksheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    create_or_read_worksheet,
+    save_to_sheet,
+    format_worksheet,
+    clear_worksheet,
+)
 from modules.proposer_agents import get_proposer_and_aggregator_agents
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
@@ -241,4 +246,13 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
     format_worksheet(worksheet = outline_consolidation_sheet)
 
     return
+
+
+def delete_video_outline_consolidation(sheet, worksheet_name="Outline Consolidation"):
+    """Remove rows added by consolidated video outlines step."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Source" in df.columns:
+        df = df[df["Source"] != "Video based outline"]
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 

@@ -1,6 +1,15 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet, resize_column_by_name, get_worksheet_names
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    create_or_read_worksheet,
+    format_worksheet,
+    resize_column_by_name,
+    get_worksheet_names,
+    clear_worksheet,
+    delete_worksheet,
+)
 import pandas as pd
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -489,4 +498,21 @@ def run_label_learning_objectives(sheet, worksheet_name, course_name, target_aud
         print("Enhanced Outline Review sheet already exists and is not empty. Skipping creation.")
 
     return
+
+
+def delete_label_learning_objectives(
+    sheet,
+    missing_lo_ws="Missing Learning Objectives",
+    revised_outline_ws="Revised Outline",
+    outline_review_ws="Enhanced Outline Review",
+    topic_deep_research_ws="Topic Deep Research",
+):
+    """Clean up worksheets and labeled column from Topic Deep Research."""
+    delete_worksheet(sheet, missing_lo_ws)
+    delete_worksheet(sheet, revised_outline_ws)
+    delete_worksheet(sheet, outline_review_ws)
+    ws, df = get_sheet_data_and_df(sheet, topic_deep_research_ws)
+    if "labeled" in df.columns:
+        df["labeled"] = ""
+        save_to_sheet(ws, df)
 
