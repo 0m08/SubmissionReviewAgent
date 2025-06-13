@@ -1,7 +1,12 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    hide_columns_by_name,
+    clear_worksheet,
+)
 from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
 from agents.research_notes.retriever_agent import retrieve_relevant_docs
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -523,5 +528,14 @@ def manual_input_review_revised_research_notes(sheet, worksheet_name, course_nam
 
     return True
 
+
+
+def delete_revised_research_notes(sheet, worksheet_name="Final Outline"):
+    """Remove the revised_research_notes column from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "revised_research_notes" in df.columns:
+        df = df.drop(columns=["revised_research_notes"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
 
