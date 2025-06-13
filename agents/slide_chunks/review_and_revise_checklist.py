@@ -549,7 +549,7 @@ def delete_checklist_review_and_revise(sheet, worksheet_name="Slide Chunks"):
     gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_ws, checklist_df = get_sheet_data_and_df(checklist_sheet, "Slide Chunks Checklist")
-    slide_cols = [c for c in checklist_df.columns if c.startswith("Slide ")]
+    slide_cols = [c for c in checklist_df.columns if re.match(r'^Slide \d+$', c)]
     if slide_cols:
         checklist_df = checklist_df.drop(columns=slide_cols)
         clear_worksheet(checklist_ws)
