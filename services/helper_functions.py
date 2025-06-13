@@ -4,6 +4,7 @@ from typing import List, Optional
 import difflib
 import streamlit as st
 import re
+from langsmith import traceable
 
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, delete_worksheet
 
