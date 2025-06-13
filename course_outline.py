@@ -358,7 +358,12 @@ pipeline_sections = [
                 },
                 "hide_if_final_outline": True,
                 "estimated_time": "~ 2 minutes",
-                "description": "Combines multiple individual outlines into four proposed consolidated outline variations in the `Outline Consolidation` sheet."
+                "description": "Combines multiple individual outlines into four proposed consolidated outline variations in the `Outline Consolidation` sheet.",
+                "delete_func": delete_video_outline_consolidation,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Outline Consolidation"
+                }
             },
         ],
     },

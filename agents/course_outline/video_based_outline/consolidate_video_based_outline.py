@@ -6,6 +6,7 @@ from services.sheets_service import (
     save_to_sheet,
     format_worksheet,
     clear_worksheet,
+    delete_worksheet,
 )
 from modules.proposer_agents import get_proposer_and_aggregator_agents
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -249,10 +250,6 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
 
 
 def delete_video_outline_consolidation(sheet, worksheet_name="Outline Consolidation"):
-    """Remove rows added by consolidated video outlines step."""
-    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
-    if "Source" in df.columns:
-        df = df[df["Source"] != "Video based outline"]
-        clear_worksheet(ws)
-        save_to_sheet(ws, df)
+    """Delete the Outline Consolidation worksheet."""
+    delete_worksheet(sheet, worksheet_name)
 

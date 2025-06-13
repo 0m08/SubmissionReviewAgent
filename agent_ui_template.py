@@ -343,6 +343,7 @@ def get_dependent_steps(pipeline_sections, step_name):
     Find all steps that depend on the given step (directly or indirectly).
     Returns a list of step names including the starting step.
     Only includes steps that are marked as done in the session state.
+    Steps are returned in reverse dependency order (most dependent first).
     """
     all_steps = {}
     # First, build a dictionary of all steps and their dependencies
@@ -351,18 +352,21 @@ def get_dependent_steps(pipeline_sections, step_name):
             all_steps[step["name"]] = step["depends_on"]
     
     # Initialize with the starting step
-    dependent_steps = [step_name]
+    dependent_steps = []
     
     # Function to recursively find dependent steps
     def find_dependents(step_to_check):
         for current_step, dependencies in all_steps.items():
             # Only include steps that are marked as done
             if step_to_check in dependencies and current_step not in dependent_steps and st.session_state.get(f"{current_step}_done", False):
-                dependent_steps.append(current_step)
                 find_dependents(current_step)
+                dependent_steps.append(current_step)
     
     # Start the recursive search
     find_dependents(step_name)
+    
+    # Add the starting step at the end
+    dependent_steps.append(step_name)
     
     return dependent_steps
 

@@ -4,7 +4,7 @@ from typing import List, Optional
 import difflib
 import streamlit as st
 import re
-from services.sheets_service import create_or_read_worksheet, save_to_sheet, format_worksheet
+from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, delete_worksheet
 
 
 # Get outline as text with topic, subtopic and los (if present)
