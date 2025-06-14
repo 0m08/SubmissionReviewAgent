@@ -1,9 +1,18 @@
 from agent_ui_template import agent_ui
 
-from agents.graphics_definition.define_graphics.run_generate_revise_graphics_definition import run_generate_and_revise_graphics, ensure_reference_description_column
-from agents.graphics_definition.graphics_definition_checklist.checklist_reviser import run_checklist_evaluation_for_all_slides
-from agents.graphics_definition.short_grahphics_definition.generate_short_graphic_definitions import run_generate_short_graphic_definitions
-
+from agents.graphics_definition.define_graphics.run_generate_revise_graphics_definition import (
+    run_generate_and_revise_graphics,
+    ensure_reference_description_column,
+    delete_graphics_definition_generation,
+)
+from agents.graphics_definition.graphics_definition_checklist.checklist_reviser import (
+    run_checklist_evaluation_for_all_slides,
+    delete_graphics_definition_checklist,
+)
+from agents.graphics_definition.short_grahphics_definition.generate_short_graphic_definitions import (
+    run_generate_short_graphic_definitions,
+    delete_short_graphic_definitions,
+)
 
 pipeline_sections = [
     {
@@ -38,7 +47,12 @@ pipeline_sections = [
                 "is_manual_step": True,
                 "estimated_time": "~ Semi-Automated Step",
                 "description": "Review the generated graphics definition in the `graphics_definition` column of the `Slide Chunks` sheet. Add comments in the human_review column (Optional)",
-                "video_link": "https://drive.google.com/file/d/14pis5XLbK30_u23Amyek-uLw5bFr8Cm4/view?usp=sharing"
+                "video_link": "https://drive.google.com/file/d/14pis5XLbK30_u23Amyek-uLw5bFr8Cm4/view?usp=sharing",
+                "delete_func": delete_graphics_definition_generation,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                }
             },
       
         ],
@@ -61,6 +75,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Generates revised Graphics Definition based on the review of the generated graphics definitions on the checklist criteria. The final Graphics Definitions are populated in the `Graphics Definition` column.",
+                "delete_func": delete_graphics_definition_checklist,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                },
             },
         ],
     },
@@ -80,6 +99,11 @@ pipeline_sections = [
                 "is_manual_step": False,
                 "estimated_time": "~ 5 - 10 minutes",
                 "description": "Generates short graphics definitions for each slide based on the revised graphics definitions.",
+                "delete_func": delete_short_graphic_definitions,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                },
             },
         ],
     }
