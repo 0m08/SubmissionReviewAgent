@@ -1,8 +1,9 @@
 import pandas as pd
 import gspread
+import re
 from services.sheets_service import get_sheet_data_and_df
 from agents.generate_assessments.chains import Chain
-from services.sheets_service import save_to_sheet, format_worksheet
+from services.sheets_service import save_to_sheet, format_worksheet, clear_worksheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
@@ -322,3 +323,19 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
 
     print("Review Agent Checklist updated successfully!")
     return updated_checklist_df
+
+
+def delete_review_agent_checklist(sheet, worksheet_name="Review Agent Checklist"):
+    """Remove question columns from the Review Agent Checklist sheet."""
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    checklist_sheet_link = course_info_df["Checklist Link"][0]
+    gc = st.session_state["gc"]
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
+    checklist_ws, checklist_df = get_sheet_data_and_df(checklist_sheet, worksheet_name)
+    pattern = re.compile(r"^question\s*\d+", re.IGNORECASE)
+    question_cols = [c for c in checklist_df.columns if pattern.match(c)]
+    if question_cols:
+        checklist_df = checklist_df.drop(columns=question_cols)
+        clear_worksheet(checklist_ws)
+        save_to_sheet(checklist_ws, checklist_df)
+

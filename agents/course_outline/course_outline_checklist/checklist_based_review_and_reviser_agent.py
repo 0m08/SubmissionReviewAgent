@@ -1,5 +1,11 @@
 from modules.chain import Chain
-from services.sheets_service import get_sheet_data_and_df, format_worksheet, save_to_sheet, hide_columns_by_name
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    format_worksheet,
+    save_to_sheet,
+    hide_columns_by_name,
+    clear_worksheet,
+)
 # from gspread_dataframe import set_with_dataframe
 from tqdm import tqdm
 import pandas as pd
@@ -585,3 +591,14 @@ def run_outline_checklist_review_and_revise(sheet, worksheet_name, llm="gemini_2
     # Hide the original columns after all tasks are completed
     columns_to_hide = ['Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']
     hide_columns_by_name(worksheet=outline_sheet, column_names=columns_to_hide, df=outline_df)
+
+
+def delete_outline_checklist_review_and_revise(sheet, worksheet_name="Final Outline"):
+    """Remove revised columns from the Final Outline sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["Topic", "Subtopic", "Learning Objectives"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)

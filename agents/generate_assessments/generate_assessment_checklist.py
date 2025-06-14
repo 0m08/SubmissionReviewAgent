@@ -1,5 +1,9 @@
 import pandas as pd
-from services.sheets_service import get_sheet_data_and_df
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    clear_worksheet,
+    save_to_sheet,
+)
 from agents.generate_assessments.chains import Chain
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -305,7 +309,20 @@ def run_generate_assessment_checklist(sheet, worksheet_name, course_name, target
         print("'LLM Based Output' column updated successfully in the Assessment Checklist Sheet!")
     except Exception as e:
         print(f"Error updating Google Sheet: {e}")
-        
+
     return checklist_df
+
+
+def delete_assessment_checklist(sheet, worksheet_name="Assessment Checklist"):
+    """Remove the LLM Based Output column from the Assessment Checklist sheet."""
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    checklist_sheet_link = course_info_df["Checklist Link"][0]
+    gc = st.session_state["gc"]
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
+    checklist_ws, checklist_df = get_sheet_data_and_df(checklist_sheet, worksheet_name)
+    if "LLM Based Output" in checklist_df.columns:
+        checklist_df = checklist_df.drop(columns=["LLM Based Output"])
+        clear_worksheet(checklist_ws)
+        save_to_sheet(checklist_ws, checklist_df)
 
 

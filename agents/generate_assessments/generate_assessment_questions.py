@@ -1,5 +1,12 @@
 from agents.generate_assessments.chains import Chain
-from services.sheets_service import get_sheet_data_and_df, hide_worksheet_by_name, format_worksheet,create_or_read_worksheet, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    hide_worksheet_by_name,
+    format_worksheet,
+    create_or_read_worksheet,
+    save_to_sheet,
+    delete_worksheet,
+)
 import pandas as pd
 from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
@@ -215,4 +222,9 @@ def run_generate_assessment_question(sheet, worksheet_name, course_name, target_
     hide_worksheet_by_name(sheet, "Assessment questions")
 
     return questions_by_topic
+
+
+def delete_assessment_questions(sheet, worksheet_name="Assessment questions"):
+    """Delete the Assessment questions worksheet."""
+    delete_worksheet(sheet, worksheet_name)
 
