@@ -1,6 +1,6 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -308,4 +308,14 @@ def run_generate_short_graphic_definitions(sheet, worksheet_name, llm = 'gemini_
     save_to_sheet(worksheet = slide_chunks_sheet, df = slide_chunks_df)
 
     return
+
+
+def delete_short_graphic_definitions(sheet, worksheet_name="Slide Chunks"):
+    """Remove the short_graphics_definitions column from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "short_graphics_definitions" in df.columns:
+        df = df.drop(columns=["short_graphics_definitions"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
 
