@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
@@ -234,8 +234,17 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
     # Final save to sheet after all tasks
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = course_outline_with_lo_sheet, df = course_outline_with_lo_df)
-    
+
     return
+
+
+def delete_research_notes(sheet, worksheet_name="Final Outline"):
+    """Remove the research_notes column from the specified worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "research_notes" in df.columns:
+        df = df.drop(columns=["research_notes"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
 
 

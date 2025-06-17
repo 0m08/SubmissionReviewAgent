@@ -1,4 +1,11 @@
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, resize_column_by_name, format_worksheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    hide_columns_by_name,
+    resize_column_by_name,
+    format_worksheet,
+    clear_worksheet,
+)
 from tqdm import tqdm
 from agents.graphics_definition.graphics_definition_checklist.checklist_generation import generate_checklist_evaluation
 import re
@@ -264,3 +271,24 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     hide_columns_by_name(slide_chunks_sheet, column_names, slide_chunks_df)
 
     return True
+
+
+def delete_graphics_definition_checklist(sheet, worksheet_name="Slide Chunks"):
+    """Remove Graphics Definition column and checklist results."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Graphics Definition" in df.columns:
+        df = df.drop(columns=["Graphics Definition"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    checklist_sheet_link = course_info_df["Checklist Link"][0]
+    gc = st.session_state["gc"]
+    checklist_sheet = gc.open_by_url(checklist_sheet_link)
+    checklist_ws, checklist_df = get_sheet_data_and_df(checklist_sheet, "Graphics Definition Checklist")
+    slide_cols = [c for c in checklist_df.columns if re.match(r'^Slide \d+$', c)]
+    if slide_cols:
+        checklist_df = checklist_df.drop(columns=slide_cols)
+        clear_worksheet(checklist_ws)
+        save_to_sheet(checklist_ws, checklist_df)
+

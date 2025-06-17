@@ -1,6 +1,10 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 import pandas as pd
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
@@ -147,5 +151,16 @@ def run_topic_deep_research(sheet, worksheet_name, course_name, target_audience,
     # Final save to sheet after all tasks
     print('All topics processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet=deep_research_sheet, df=deep_research_df)
-    
+
     return
+
+
+def delete_topic_deep_research(sheet, worksheet_name="Topic Deep Research"):
+    """Remove research and source columns from Topic Deep Research sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["research", "source"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)

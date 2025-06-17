@@ -15,6 +15,10 @@ class SmartProgressBar:
             self.progress_bar.empty()
     
     def update(self, increment=1):
+        if self.total_tasks == 0:
+            # Avoid division by zero when there are no tasks
+            return
+
         self.completed_count += increment
         current_time = time.time()
         elapsed_seconds = current_time - self.start_time
@@ -42,4 +46,6 @@ class SmartProgressBar:
             self.progress_bar.progress(fraction_complete, text=f"{self.description}: {int(fraction_complete * 100)}% | Just started...")
     
     def should_save(self):
+        if self.save_interval <= 0:
+            return False
         return self.completed_count % self.save_interval == 0

@@ -1,6 +1,10 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 import pandas as pd
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
@@ -184,6 +188,15 @@ def run_generate_learning_objectives(sheet, worksheet_name, course_name, target_
     # Final save to sheet after all tasks
     print('All topics processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet=deep_research_sheet, df=deep_research_df)
-    
+
     return
+
+
+def delete_learning_objectives(sheet, worksheet_name="Topic Deep Research"):
+    """Remove learning objectives column from the Topic Deep Research sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "learning_objectives" in df.columns:
+        df = df.drop(columns=["learning_objectives"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 

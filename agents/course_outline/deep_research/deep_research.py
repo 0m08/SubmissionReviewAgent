@@ -68,7 +68,7 @@ def deep_research_subtopic(course_name, target_audience, subtopic, llm="gemini_w
 })
 def create_deep_research_sheet(sheet, worksheet_name):
     """
-    Creates the Deep Research sheet and populates it with subtopic_queries from the Rough Outline sheet.
+    Creates the Deep Research sheet and populates it with subtopic_queries from the Base Outline sheet.
     
     :param sheet (object): Google Sheets object
     :param worksheet_name (str): Name of the worksheet to create or read
@@ -84,10 +84,10 @@ def create_deep_research_sheet(sheet, worksheet_name):
             print("Deep Research sheet already populated. Skipping creation.")
             return deep_research_sheet, deep_research_df
 
-    # Read the Rough Outline sheet to get topics and subtopics
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, "Rough Outline")    
+    # Read the Base Outline sheet to get topics and subtopics
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, "Base Outline")    
     
-    # Extract subtopics from the Rough Outline
+    # Extract subtopics from the Base Outline
     subtopics_list = []
     
     # Combine Topic and Subtopic for each row
@@ -194,5 +194,10 @@ def run_deep_research(sheet, worksheet_name, course_name, target_audience, llm =
     # Final save to sheet after all tasks
     print('All subtopics processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = deep_research_sheet, df = deep_research_df)
-    
+
     return
+
+
+def delete_deep_research_sheet(sheet, worksheet_name="Deep Research"):
+    """Delete the Deep Research worksheet."""
+    delete_worksheet(sheet, worksheet_name)

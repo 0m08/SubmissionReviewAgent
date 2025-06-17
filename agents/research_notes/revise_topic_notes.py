@@ -1,7 +1,7 @@
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
 from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 from agents.research_notes.review_topic_notes import review_topic_notes_prompt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
@@ -238,5 +238,16 @@ def run_revise_topic_notes_for_all_rows(sheet, worksheet_name, course_name, targ
     save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
 
     return
+
+
+def delete_revised_topic_notes(sheet, worksheet_name="Research Notes"):
+    """Remove framework and section_notes columns from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["framework", "section_notes"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
 

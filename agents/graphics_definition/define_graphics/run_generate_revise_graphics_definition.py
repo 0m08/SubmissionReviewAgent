@@ -1,4 +1,9 @@
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    format_worksheet,
+    clear_worksheet,
+)
 from tqdm import tqdm
 import re
 import streamlit as st
@@ -290,3 +295,23 @@ def run_generate_and_revise_graphics(sheet, worksheet_name, course_name, target_
     
     print('All slides processed.')
     return True
+
+
+def delete_graphics_definition_generation(sheet, worksheet_name="Slide Chunks"):
+    """Remove graphics definition related columns from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [
+        "graphics_definition",
+        "complexity_review",
+        "missing_sentences_review",
+        "accuracy_review",
+        "reuse_previous_graphics_review",
+        "human_review",
+        "revised_graphics_definition",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+

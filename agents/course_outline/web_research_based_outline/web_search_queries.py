@@ -1,6 +1,10 @@
 from modules.chain import Chain
 from services.llm_service import extract_csv_lines
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from services.helper_functions import get_outline_with_los, add_list_as_new_column
 from services.smart_progress_bar import SmartProgressBar
 import streamlit as st
@@ -220,7 +224,7 @@ def run_construct_web_search_queries(sheet, worksheet_name, course_name, target_
 
     rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet, worksheet_name)
 
-    course_outline = get_outline_with_los(rough_outline_df, False)
+    course_outline = get_outline_with_los(rough_outline_df, True)
 
     # Check if the column exists
     if 'search_queries' in rough_outline_df.columns and rough_outline_df['search_queries'][0] != '':
@@ -260,4 +264,13 @@ def run_construct_web_search_queries(sheet, worksheet_name, course_name, target_
     save_to_sheet(worksheet = rough_outline_sheet, df = rough_outline_df)
 
     return
+
+
+def delete_web_search_queries(sheet, worksheet_name="Base Outline"):
+    """Remove search_queries column from the Base Outline sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "search_queries" in df.columns:
+        df = df.drop(columns=["search_queries"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 

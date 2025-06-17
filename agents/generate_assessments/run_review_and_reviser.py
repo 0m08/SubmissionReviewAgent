@@ -1,6 +1,12 @@
 import pandas as pd
 from agents.generate_assessments.chains import Chain, extract_text_in_tags
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, create_or_read_worksheet, format_worksheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    create_or_read_worksheet,
+    format_worksheet,
+    delete_worksheet,
+)
 from agents.generate_assessments.revise_assessment import revise_assessment, detect_question_type, get_question_format
 from agents.generate_assessments.review_assessment import review_assessment
 from tqdm import tqdm
@@ -327,3 +333,8 @@ def run_review_and_revise_all_questions(sheet, worksheet_name, course_name, targ
     format_worksheet(final_assessement_sheet)
 
     print("Final Assessment Tab updated successfully!")
+
+
+def delete_final_assessment(sheet, worksheet_name="Final Assessment"):
+    """Delete the Final Assessment worksheet."""
+    delete_worksheet(sheet, worksheet_name)

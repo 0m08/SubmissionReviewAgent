@@ -1,5 +1,11 @@
 from services.web_search import web_search_screening
-from services.sheets_service import create_or_read_worksheet, get_sheet_data_and_df, save_to_sheet, format_worksheet
+from services.sheets_service import (
+    create_or_read_worksheet,
+    get_sheet_data_and_df,
+    save_to_sheet,
+    format_worksheet,
+    delete_worksheet,
+)
 import pandas as pd
 import streamlit as st
 from tqdm import tqdm
@@ -27,7 +33,7 @@ def run_web_search_screening(sheet, worksheet_name, course_name, llm='gemini_2_f
 
     # Read the sheets and df
     preliminary_research_sheet, preliminary_research_df = create_or_read_worksheet(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     # Create the column if not present
     if 'query' not in preliminary_research_df.columns:
@@ -56,7 +62,7 @@ def run_web_search_screening(sheet, worksheet_name, course_name, llm='gemini_2_f
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Initialize the progress tracker
@@ -92,4 +98,9 @@ def run_web_search_screening(sheet, worksheet_name, course_name, llm='gemini_2_f
     format_worksheet(worksheet = preliminary_research_sheet)
 
     return
+
+
+def delete_preliminary_research_sheet(sheet, worksheet_name="Preliminary Research"):
+    """Delete the Preliminary Research worksheet."""
+    delete_worksheet(sheet, worksheet_name)
 

@@ -1,5 +1,9 @@
 # from tqdm import tqdm
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 # from concurrent.futures import ThreadPoolExecutor, as_completed
 # from services.web_page_loaders import get_docs_from_url
 from services.smart_progress_bar import SmartProgressBar
@@ -354,6 +358,16 @@ def run_fetch_article_content(sheet, worksheet_name):
 #     # hide_columns_by_name(worksheet = preliminary_research_sheet, column_names = column_names, df = preliminary_research_df)
 
 #     return
+
+
+def delete_article_content(sheet, worksheet_name="Preliminary Research"):
+    """Remove article_content columns from the Preliminary Research sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [c for c in df.columns if c.startswith("article_content")]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
 
 

@@ -1,7 +1,11 @@
 from modules.proposer_agents import get_proposer_and_aggregator_agents
 from modules.chain import Chain
 from services.helper_functions import get_outline_with_los
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 import pandas as pd
 from services.smart_progress_bar import SmartProgressBar
 from tqdm import tqdm
@@ -160,18 +164,18 @@ def propose_web_research_outline_with_agents(sheet, course_name, course_backgrou
     use_agent_llm = True if llm is None else False
     proposer_responses = {}
     
-    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Rough Outline')
+    _, rough_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
     _, deep_research_df = get_sheet_data_and_df(sheet, 'Deep Research')  # Get the Deep Research DataFrame
     _, agents_df = get_sheet_data_and_df(sheet, 'Agents')  # Get only the DataFrame
 
     proposer_agents, _ = get_proposer_and_aggregator_agents(agents_df)  # Unpack proposer_agents correctly
 
 
-    concepts_to_include = get_outline_with_los(df=rough_outline_df, include_learning_objectives=False, include_prefix=False)
+    concepts_to_include = get_outline_with_los(df=rough_outline_df, include_learning_objectives=True, include_prefix=False)
     
     # Use the research column from Deep Research sheet
     research_summary = '\n\n---\n\n'.join(deep_research_df['research'].to_list())
-    course_objective_guidelines = '\n'.join(rough_outline_df['Course Objective Guidelines']).strip()
+    course_objective_guidelines = '\n'.join(st.session_state['course_objective_guidelines']).strip()
 
     # Fetch topic count from Course Info
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
@@ -265,5 +269,14 @@ def run_generate_deep_research_outline(sheet, worksheet_name, course_name, cours
     # Save to sheet
     print('Saved to sheet')
     save_to_sheet(worksheet=outline_consolidation_sheet, df=outline_consolidation_df)
-    
+
     return
+
+
+def delete_deep_research_outline(sheet, worksheet_name="Outline Consolidation"):
+    """Remove rows for the deep research based outline."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "Source" in df.columns:
+        df = df[df["Source"] != "Deep research based outline"]
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)

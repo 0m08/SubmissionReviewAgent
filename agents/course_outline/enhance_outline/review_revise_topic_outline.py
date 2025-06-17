@@ -604,3 +604,16 @@ def delete_review_and_revise_outline(sheet):
     # Delete the Course Outline with LOs sheet if present
     delete_worksheet(sheet = sheet, worksheet_name = 'Course Outline with LOs')
 
+
+def delete_review_and_revise_topic_outline(sheet, outline_review_ws="Enhanced Outline Review"):
+    """Reset the Enhanced Outline Review sheet and delete Enhanced Outline with LOs."""
+    sheet_names = get_worksheet_names(sheet)
+    if outline_review_ws in sheet_names:
+        ws, df = get_sheet_data_and_df(sheet, outline_review_ws)
+        first_row = {col: "" for col in df.columns}
+        first_row["Turn"] = df["Turn"].iloc[0]
+        new_df = pd.DataFrame([first_row])
+        clear_worksheet(ws)
+        save_to_sheet(ws, new_df)
+    delete_worksheet(sheet, "Enhanced Outline with LOs")
+

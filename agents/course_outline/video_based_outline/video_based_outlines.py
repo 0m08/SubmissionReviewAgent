@@ -1,7 +1,11 @@
 from modules.chain import Chain
 from tqdm import tqdm
 from services.youtube_video_loader import get_transcript
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import get_outline_with_los, validate_column_values
 import json
@@ -236,7 +240,7 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
 
     # Read the sheet and df
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     if 'outline_contemplator' not in videos_research_df.columns:
         videos_research_df['outline_contemplator'] = ''
@@ -253,7 +257,7 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Get video_transcript column count
@@ -417,12 +421,12 @@ def run_generate_video_outline_consolidation_comments(sheet, worksheet_name, cou
 
     # Get the sheet and DataFrame
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, worksheet_name)
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
 
     # Prepare for parallel processing
@@ -518,4 +522,23 @@ def manual_input_video_outline_consolidation_comments(sheet, worksheet_name, cou
     )
 
     return True
+
+
+def delete_video_based_outlines(sheet, worksheet_name="Videos Research"):
+    """Remove columns created during video outline generation."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = ["outline_contemplator", "outline", "consolidation_comments"]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+def clear_video_outline_comments(sheet, worksheet_name="Videos Research"):
+    """Clear consolidation_comments column without dropping it."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "consolidation_comments" in df.columns:
+        df["consolidation_comments"] = ""
+        save_to_sheet(ws, df)
 

@@ -14,7 +14,8 @@ import tempfile, json, base64
 from services.helper_functions import get_short_name
 
 
-def agent_ui(step_name: str, pipeline_sections: list[dict]):
+def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False):
+    st.session_state["outline_finalized"] = outline_finalized
     st.title(f"{step_name} Agent")
 
     if "agent_name" not in st.session_state:
@@ -96,6 +97,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
                 st.session_state["course_name"] = course_info_df['Course Name'][0]
                 st.session_state["target_audience"] = course_info_df['Target Audience & Industry'][0]
                 st.session_state["course_background"] = course_info_df['Course Background'][0]
+                st.session_state['course_objective_guidelines'] = course_info_df['Course Objective Guidelines'][0]
                 st.session_state["drive"] = drive
                 st.session_state["gc"] = gc
                 
@@ -139,17 +141,43 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
     # --- 4) Display pipeline steps in nested sections ---
     if "sheet" in st.session_state:
         step_global_count = 1  # So we can label steps 1,2,3 across sections
-        for section_idx, section in enumerate(pipeline_sections, start=1):
+
+        # Filter sections that have at least one visible step
+        visible_sections = [
+            section for section in pipeline_sections
+            if any(
+                not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
+                for step in section["steps"]
+            )
+        ]
+
+        # Use only visible sections for correct numbering
+        for section_idx, section in enumerate(visible_sections, start=1):
+
+            # Filter out steps that should be hidden
+            visible_steps = [
+                step for step in section["steps"]
+                if not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
+            ]
+
+            # Skip section if no visible steps remain
+            if not visible_steps:
+                continue
+
             with st.container(border=True):
-                st.header(section["section_name"], divider = True)
-                for step in section["steps"]:
+                st.header(f"Section {section_idx}: {section['section_name'].split(':', 1)[1].strip() if ':' in section['section_name'] else section['section_name']}", divider=True)
+                for step in visible_steps:
                     step_key = f"{step['name']}_done"
                     
                     # Check if dependencies are satisfied
                     dependencies_satisfied = all(
-                        st.session_state.get(f"{dep}_done", False)
+                        st.session_state.get(f"{dep}_done", False) or (
+                            st.session_state.get("outline_finalized", False) and
+                            any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
+                        )
                         for dep in step["depends_on"]
                     )
+                    
 
                     # # Code to hide if step not ready.
                     # if not dependencies_satisfied:
@@ -297,8 +325,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict]):
 
                             # If this is the very last step in the entire pipeline, celebrate
                             if (
-                                section_idx == len(pipeline_sections)
-                                and step == section["steps"][-1]
+                                section_idx == len(visible_sections)
+                                and step == visible_steps[-1]
                             ):
                                 st.balloons()
                                 st.toast(
@@ -315,6 +343,7 @@ def get_dependent_steps(pipeline_sections, step_name):
     Find all steps that depend on the given step (directly or indirectly).
     Returns a list of step names including the starting step.
     Only includes steps that are marked as done in the session state.
+    Steps are returned in reverse dependency order (most dependent first).
     """
     all_steps = {}
     # First, build a dictionary of all steps and their dependencies
@@ -323,18 +352,21 @@ def get_dependent_steps(pipeline_sections, step_name):
             all_steps[step["name"]] = step["depends_on"]
     
     # Initialize with the starting step
-    dependent_steps = [step_name]
+    dependent_steps = []
     
     # Function to recursively find dependent steps
     def find_dependents(step_to_check):
         for current_step, dependencies in all_steps.items():
             # Only include steps that are marked as done
             if step_to_check in dependencies and current_step not in dependent_steps and st.session_state.get(f"{current_step}_done", False):
-                dependent_steps.append(current_step)
                 find_dependents(current_step)
+                dependent_steps.append(current_step)
     
     # Start the recursive search
     find_dependents(step_name)
+    
+    # Add the starting step at the end
+    dependent_steps.append(step_name)
     
     return dependent_steps
 
@@ -415,6 +447,11 @@ def run_all_automated_steps(pipeline_sections):
         # Go through all steps in all sections
         for section in pipeline_sections:
             for step in section["steps"]:
+
+                #Skip step if it's hidden due to finalized outline
+                if st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
+                    continue
+
                 step_key = f"{step['name']}_done"
                 step_global_count += 1
 
@@ -424,10 +461,13 @@ def run_all_automated_steps(pipeline_sections):
 
                 # Check if dependencies are satisfied
                 dependencies_satisfied = all(
-                    st.session_state.get(f"{dep}_done", False)
+                    st.session_state.get(f"{dep}_done", False) or (
+                        st.session_state.get("outline_finalized", False) and
+                        any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
+                    )
                     for dep in step["depends_on"]
-                )
-
+                )                    
+            
                 if not dependencies_satisfied:
                     continue
 

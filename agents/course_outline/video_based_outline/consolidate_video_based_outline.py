@@ -1,7 +1,13 @@
 from modules.chain import Chain
 import pandas as pd
-from services.sheets_service import get_sheet_data_and_df
-from services.sheets_service import create_or_read_worksheet, save_to_sheet, format_worksheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    create_or_read_worksheet,
+    save_to_sheet,
+    format_worksheet,
+    clear_worksheet,
+    delete_worksheet,
+)
 from modules.proposer_agents import get_proposer_and_aggregator_agents
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
@@ -159,7 +165,7 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
 
     # Get sheet data and dataframe
     _, videos_research_df = get_sheet_data_and_df(sheet, 'Videos Research')
-    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Rough Outline")
+    rough_outline_sheet, rough_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
 
     # Check if the Outline Consolidation sheet already contains the video-based outline
     outline_consolidation_sheet, outline_consolidation_df = create_or_read_worksheet(sheet, worksheet_name)
@@ -196,7 +202,7 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
     # Get the course outline
     course_outline = get_outline_with_los(
         df = rough_outline_df,
-        include_learning_objectives = False
+        include_learning_objectives = True
     )
     
     # Fetch topic count from Course Info
@@ -241,4 +247,9 @@ def run_propose_consolidated_video_outlines(sheet, worksheet_name, course_name, 
     format_worksheet(worksheet = outline_consolidation_sheet)
 
     return
+
+
+def delete_video_outline_consolidation(sheet, worksheet_name="Outline Consolidation"):
+    """Delete the Outline Consolidation worksheet."""
+    delete_worksheet(sheet, worksheet_name)
 

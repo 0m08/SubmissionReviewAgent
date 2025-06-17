@@ -2,7 +2,11 @@ from services.llm_service import extract_csv_lines
 from modules.chain import Chain
 import pandas as pd
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import (
+    get_sheet_data_and_df,
+    save_to_sheet,
+    clear_worksheet,
+)
 from services.helper_functions import get_outline_with_los, add_list_as_new_column, find_blank_followed_by_filled_indices
 from langsmith import traceable
 ### Construct Video Search Queries
@@ -89,7 +93,7 @@ def create_additional_video_search_queries(rough_outline_df):
     """
     Function to create additional search queries by combining topic - subtopic keywords
 
-    :param: rough_outline_df (pd.DataFrame): Rough outline dataframe
+    :param: rough_outline_df (pd.DataFrame): Base outline dataframe
     :returns: additional_video_search_queries (list): List of additional search queries
     """
 
@@ -110,7 +114,7 @@ def create_additional_video_search_queries(rough_outline_df):
     "function_name": "run_construct_video_search_queries",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def run_construct_video_search_queries(sheet, course_name, target_audience, worksheet_name = 'Rough Outline', llm = 'groq'):
+def run_construct_video_search_queries(sheet, course_name, target_audience, worksheet_name = 'Base Outline', llm = 'groq'):
     """
     This function creates a list of search queries to be used to search for HVAC school youtube videos.
 
@@ -149,7 +153,7 @@ def run_construct_video_search_queries(sheet, course_name, target_audience, work
         print('Column - video_search_queries already present. Skipping generate video search queries')
 
 
-def manual_input_review_video_search_queries(sheet, worksheet_name = 'Rough Outline'):
+def manual_input_review_video_search_queries(sheet, worksheet_name = 'Base Outline'):
     """
     Manual input to review video search queries.
     :param sheet: The sheet object.
@@ -163,4 +167,14 @@ def manual_input_review_video_search_queries(sheet, worksheet_name = 'Rough Outl
         column_name = "video_search_queries",
         blank_value = ""
     )
+
+
+def delete_video_search_queries(sheet, worksheet_name="Base Outline"):
+    """Remove the video search query column from the Base Outline sheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "video_search_queries" in df.columns:
+        df = df.drop(columns=["video_search_queries"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
 
