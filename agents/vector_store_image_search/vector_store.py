@@ -358,52 +358,94 @@ def load_central_chroma_db(embedding_function, drive, central_folder_id):
     return chroma_db
 
 
-def graphics_retriever(query, k=5, filters=None):
+def graphics_retriever(query, drive, k=5, filters=None):
     """
     Search for similar images using a text query and download them from Drive.
-    :param text_query: The text query for similarity search.
-    :param retriever: The vector database retriever.
-    :param drive: An authenticated PyDrive GoogleDrive object.
-    :param k: Number of top results to return.
-    :param filters: Optional metadata filters.
-    :return: List of dictionaries with image metadata and downloaded PIL image.
     """
-    
     print("🔍 Loading central Chroma DB...")
     embedding_function = get_embedding_model()
     central_folder_id = '1ujM1OkJRUcQlg2_ZhRIE-kOZa1m-Qgnc'  
-    chroma_db = load_central_chroma_db(embedding_function, drive, central_folder_id)
+    
+    try:
+        # Load DB with verification
+        chroma_db = load_central_chroma_db(embedding_function, drive, central_folder_id)
+        
+        # Verify DB is loaded and accessible
+        count = chroma_db._collection.count()
+        print(f"✓ DB loaded with {count} items")
+        
+        # Verify query is valid
+        if not query or not isinstance(query, str):
+            print("⚠️ Invalid query")
+            return []
+            
+        print(f"🔎 Starting similarity search for: '{query}'")
+        
+        # Perform similarity search with explicit verification
+        try:
+            # First try a small search to verify functionality
+            test_results = chroma_db.similarity_search_with_score(query, k=1)
+            print("✓ Search functionality verified")
+            
+            # If test passes, do full search
+            print(f"🔍 Performing full search (k={k})")
+            results_docs = chroma_db.similarity_search_with_score(query, k=50)
+            
+            if not results_docs:
+                print("ℹ️ No results found")
+                return []
+                
+            print(f"✓ Found {len(results_docs)} initial results")
+            
+            # Filter results
+            filtered_results = []
+            print("🔍 Applying filters...")
+            
+            for doc, score in results_docs:
+                metadata = doc.metadata
+                
+                # Verify metadata structure
+                if not all(key in metadata for key in ['image_id', 'name', 'drive_url', 'description', 'folder_id']):
+                    print(f"⚠️ Skipping result with incomplete metadata")
+                    continue
+                    
+                if filters:
+                    if filters.get("mime_type") and metadata.get("mime_type") not in filters["mime_type"]:
+                        continue
+                    if filters.get("image_title") and filters["image_title"].lower() not in metadata.get("image_title", "").lower():
+                        continue
+                    if filters.get("image_type") and filters["image_type"].lower() not in metadata.get("image_type", "").lower():
+                        continue
 
-    # Initial similarity search (broad pool)
-    print("🔎 Performing similarity search...")
-    results_docs = chroma_db.similarity_search_with_score(query, k=50)
-
-    # In-memory filtering
-    filtered_results = []
-    for doc, score in results_docs:
-        metadata = doc.metadata
-        if filters:
-            if filters.get("mime_type") and metadata.get("mime_type") not in filters["mime_type"]:
-                continue
-            if filters.get("image_title") and filters["image_title"].lower() not in metadata.get("image_title", "").lower():
-                continue
-            if filters.get("image_type") and filters["image_type"].lower() not in metadata.get("image_type", "").lower():
-                continue
-
-        filtered_results.append({
-            "similarity": score,
-            "image_id": metadata['image_id'],
-            "name": metadata['name'],
-            "drive_url": metadata['drive_url'],
-            "description": metadata['description'],
-            "folder_id": metadata['folder_id'],
-        })
-
-    # Sort by similarity
-    filtered_results.sort(key=lambda x: x['similarity'])
-
-    # Return top k results
-    return filtered_results[:k]
+                filtered_results.append({
+                    "similarity": score,
+                    "image_id": metadata['image_id'],
+                    "name": metadata['name'],
+                    "drive_url": metadata['drive_url'],
+                    "description": metadata['description'],
+                    "folder_id": metadata['folder_id'],
+                })
+            
+            print(f"✓ Filtering complete - {len(filtered_results)} results remain")
+            
+            # Sort and return results
+            filtered_results.sort(key=lambda x: x['similarity'])
+            final_results = filtered_results[:k]
+            
+            print(f"✓ Returning top {len(final_results)} results")
+            return final_results
+            
+        except Exception as e:
+            print(f"❌ Search error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return []
+            
+    except Exception as e:
+        print(f"❌ DB error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return []
 
 
 graphics_retriever_agent_prompt = """

@@ -113,7 +113,7 @@ elif task == "Search Images":
         if image_type_keyword:
             filters["image_type"] = image_type_keyword
 
-        similar_images = graphics_retriever(query_text, k=k, filters=filters)
+        similar_images = graphics_retriever(query_text, drive = drive, k=k, filters=filters)
 
         if similar_images:
             st.subheader(f"Top {len(similar_images)} Similar Images")
