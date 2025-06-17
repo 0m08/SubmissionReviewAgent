@@ -290,7 +290,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 4: Checklist Review and Revise",
+        "section_name": "Section 4: Checklist based Review-Revise Agents",
         "steps": [
             {
                 "name": "Checklist Based Review and Revise Agents",
