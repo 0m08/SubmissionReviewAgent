@@ -36,6 +36,10 @@ from agents.research_notes.revise_topic_notes import (
     run_revise_topic_notes_for_all_rows,
     delete_revised_topic_notes,
 )
+from agents.research_notes.checklist_review_and_revise import (
+    run_research_review_revise_checklist,
+    delete_research_checklist_review_revise,
+)
 #from agents.research_notes.load_references import load_references  # New import
 
 # Determine which outline sheet to use
@@ -278,6 +282,28 @@ pipeline_sections = [
                 "estimated_time": "~ 4 minutes",
                 "description": "AI-driven revision of the topic-level notes, completing the pipeline.",
                 "delete_func": delete_revised_topic_notes,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Research Notes",
+                }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 4: Checklist Review and Revise",
+        "steps": [
+            {
+                "name": "Checklist Based Review and Revise Agents",
+                "func": run_research_review_revise_checklist,
+                "depends_on": ["Revise Topic Notes"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Research Notes",
+                    "llm": "gemini_2_flash",
+                },
+                "estimated_time": "~ 5 minutes",
+                "description": "Runs checklist-based review and revision on the final research notes.",
+                "delete_func": delete_research_checklist_review_revise,
                 "delete_args": {
                     "sheet": "sheet",
                     "worksheet_name": "Research Notes",
