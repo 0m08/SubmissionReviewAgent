@@ -843,9 +843,17 @@ def run_learning_objectives_agent(sheet, worksheet_name, course_name, target_aud
 
 
 def delete_learning_objectives_slide_chunks(sheet, worksheet_name="Slide Chunks"):
-    """Remove the learning objectives column from the Slide Chunks sheet."""
+    """Remove the learning objectives column and Learning Objectives rows from the Slide Chunks sheet."""
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    
+    # Remove Learning Objectives rows
+    df = df[~((df["Slide Type"] == "Learning Objectives Slide") & 
+              (df["Slide Chunk Title"] == "Learning Objectives") & 
+              (df["Subtopic"] == ""))]
+    
+    # Remove the learning objectives column
     if "learning_objectives_added_slide_chunk" in df.columns:
         df = df.drop(columns=["learning_objectives_added_slide_chunk"])
-        clear_worksheet(ws)
-        save_to_sheet(ws, df)
+    
+    clear_worksheet(ws)
+    save_to_sheet(ws, df)

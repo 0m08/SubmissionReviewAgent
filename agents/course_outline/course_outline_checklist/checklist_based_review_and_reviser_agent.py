@@ -18,7 +18,7 @@ from langsmith import traceable
 import streamlit as st
 
 outline_checklist_review_prompt = """ You are a checklist-based review agent. A course outline for an E-learning course was created. Your task is to review the topics, subtopics, and learning objectives from this generated course outline using the predefined review criteria provided.
-For each checklist task and its review criterion, determine whether the outline content satisfies the requirement. If any issue is found, you will mark it as a failure and apply the predefined operation specified for that criterion — such as deleting, modifying, splitting, or merging content. Do not invent or suggest a different operation. Your goal is to ensure that the course outline remains clear, relevant, and instructionally sound.
+For the given checklist task and its review criterion, determine whether the outline content satisfies the requirement. If any issue is found, you will mark it as a failure and apply the predefined operation specified for that criterion — such as deleting, modifying, splitting, or merging content. Do not invent or suggest a different operation. Your goal is to ensure that the course outline remains clear, relevant, and instructionally sound.
 
 Below is the course information for which the outline was generated:
 
@@ -48,14 +48,14 @@ Each review criterion has its own scope which indicates whether you will be revi
 
 B) Multiple review criteria under a single checklist task
 
-- Each checklist task may contain one or more review criteria.
+- The checklist task may contain one or more review criteria.
 - Evaluate the outline content against each criterion individually.
 - Do not treat the group of criteria as a single combined statement—assess each one on its own.
 - Strictly preserve the wording of the task name and each review criterion. Do not rephrase, paraphrase, or alter them in any way.
 
 C) How to assign verdicts and recommend operations
 
-- Each checklist task contains multiple individual review criteria.
+- The checklist task contains multiple individual review criteria.
 - Evaluate the course outline content against each criterion separately.
 - For every review criterion, assign a verdict of either "Pass" or "Fail" and provide a brief justification for your verdict.
 
@@ -238,7 +238,7 @@ Review Criteria:
 {review_criteria}
 </checklist_task>
 
-Follow the below instructions carefully while doing the revision:
+Follow the below instructions carefully while doing the revisions:
 
 A) Scope-Based Revision Guidelines
 
