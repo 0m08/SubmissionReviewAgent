@@ -70,7 +70,6 @@ Each scene should contain the following fields:
 """
 
 @traceable(
-    name="generate_checklist_evaluation",
     metadata={
         "agent_name": "graphics_definition",
         "step_name": "Checklist Evaluation",
@@ -116,7 +115,6 @@ def generated_checklist_revised_graphics_definition(course_name, target_audience
 
 
 @traceable(
-    name="generate_checklist_evaluation",
     metadata={
         "agent_name": "graphics_definition",
         "step_name": "Checklist Evaluation",
