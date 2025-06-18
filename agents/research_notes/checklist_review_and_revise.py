@@ -3,6 +3,7 @@ from services.sheets_service import (
     get_sheet_data_and_df,
     save_to_sheet,
     clear_worksheet,
+    hide_columns_by_name,
 )
 from services.smart_progress_bar import SmartProgressBar
 import streamlit as st
@@ -83,8 +84,8 @@ D) Assigning Verdicts and Giving Feedback:
   
   - Avoids suggesting major overhauls or unrelated additions — the improvement should stay within the scope and purpose of the original content.
   - Feedback should be specific and aligned directly with the failed criterion. Avoid vague, overly general, or speculative suggestions.
-  - Ensure that your feedback is practicable and actionable — it should offer clear, specific guidance that can realistically be implemented to improve the content.
-
+  - Ensure that your feedback is practicable and actionable — it should offer clear, specific guidance that can realistically be implemented to improve the content. Ensure that while giving the feedback, the unique identifiers for each section should never include 0 in either the topic or subtopic indices (e.g., t_0_s_2 or t_2_s_0 are invalid).
+  
 E) Evaluation Breakdown Section (Internal Reasoning and Analysis):
 
 Use this section to evaluate the research-based content step by step before producing your final output. This is your internal workspace for interpreting the checklist criteria, analyzing the content, and documenting your reasoning.
@@ -332,7 +333,8 @@ D) Revision Guidelines
   - Avoid adding unrelated information, extra examples, or off-topic elaboration unless the feedback directly asks for it.
   - If a revision affects structure (e.g., merging or splitting slide content), ensure that the resulting section still fits the format of: <transition_slide>, <content_slides>, <summary_slide>, with proper “Slide Title” and “Slide Content” fields inside each.
   - If the feedback is unclear or vague, follow the most direct and literal interpretation. Do not infer new changes beyond what is written.
- 
+  - Ensure that the unique identifiers for each section never include 0 in either the topic or subtopic indices (e.g., t_0_s_2 or t_2_s_0 are invalid). 
+
 E) Output Format:
 
   - Your final output must include only the revised subtopic sections that were explicitly mentioned in the feedback.
@@ -599,7 +601,7 @@ def build_topic_input(index, row, notes):
 
     :param index: 1-based topic index (used to generate section IDs like t_1_s_1)
     :param row: A single row from the research notes DataFrame containing 'Topic', 'Subtopic', and 'Learning Objectives'
-    :param notes: Full section_notes or checklist_revised_section_notes for this topic
+    :param notes: Full before_checklist_step_section_notes or section_notes for this topic
 
     :return: 
         - sub_blocks: List of individual subtopic section strings (split by divider)
@@ -618,9 +620,9 @@ def build_topic_input(index, row, notes):
     # Construct the full topic input with metadata and formatted sections
     formatted_input = (
         f"<topic>\n"
-        f"<topic_title>{row['Topic']}</topic_title>\n"
-        f"<subtopics>{row['Subtopic']}</subtopics>\n"
-        f"<learning_objectives>{row['Learning Objectives']}</learning_objectives>\n"
+        f"<topic_title>\n{row['Topic']}\n</topic_title>\n"
+        f"<subtopics>\n{row['Subtopic']}\n</subtopics>\n"
+        f"<learning_objectives>\n{row['Learning Objectives']}\n</learning_objectives>\n\n"
         + "\n\n---\n\n".join(sections) +
         "\n</topic>"
     )
@@ -632,7 +634,7 @@ def build_course_input(df):
     Build the full course-level input string for the review/revision agent.
 
     :param df: DataFrame containing all research notes (one row per topic), 
-               including 'section_notes' and optionally 'checklist_revised_section_notes'.
+               including 'before_checklist_step_section_notes' and optionally 'section_notes'.
 
     :return: 
         - course_text: Full structured input for the course (with all topics and sections).
@@ -646,7 +648,7 @@ def build_course_input(df):
 
     for idx, row in df.iterrows():
         # Prefer revised content if present, else fall back to original
-        notes = row['checklist_revised_section_notes'] or row['section_notes']
+        notes = row['section_notes'] or row['before_checklist_step_section_notes']
 
         # Split section notes into individual subtopics using the divider
         sub_blocks = [b.strip() for b in notes.split("\n\n---\n\n")]
@@ -671,7 +673,7 @@ def build_course_input(df):
             f"<subtopics>{row['Subtopic']}</subtopics>\n"
             f"<learning_objectives>{row['Learning Objectives']}</learning_objectives>\n"
             + "\n\n---\n\n".join(blocks) +
-            f"\n</topic_{idx+1}>\n"
+            f"\n</topic_{idx+1}>\n\n"
         )
 
     return course_text, id_to_block, counts
@@ -707,9 +709,9 @@ def run_research_review_revise_checklist(sheet, worksheet_name, llm="gemini_2_fl
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, "Research Notes Checklist")
 
-    # If revised section notes column doesn't exist, initialize it with original section notes
-    if 'checklist_revised_section_notes' not in research_notes_df.columns:
-        research_notes_df['checklist_revised_section_notes'] = research_notes_df['section_notes']
+    # If section_notes column doesn't exist, initialize it with original section notes
+    if 'section_notes' not in research_notes_df.columns:
+        research_notes_df['section_notes'] = research_notes_df['before_checklist_step_section_notes']
 
     # Identify unique tasks from the checklist sheet
     unique_tasks = checklist_df['Task'].dropna().unique()
@@ -734,7 +736,7 @@ def run_research_review_revise_checklist(sheet, worksheet_name, llm="gemini_2_fl
         # Handle topic-level scoped evaluation
         if scope == 'topic':
             for idx, row in research_notes_df.iterrows():
-                notes = research_notes_df.at[idx, 'checklist_revised_section_notes']
+                notes = research_notes_df.at[idx, 'section_notes']
 
                  # Build formatted input for current topic (with section IDs)
                 blocks, formatted_input = build_topic_input(idx+1, row, notes)
@@ -764,10 +766,10 @@ def run_research_review_revise_checklist(sheet, worksheet_name, llm="gemini_2_fl
                         new_blocks.append(id_map.get(sec_id, block))
                     
                     # Save the final merged blocks into the revised column
-                    research_notes_df.at[idx, 'checklist_revised_section_notes'] = "\n\n---\n\n".join(new_blocks)
+                    research_notes_df.at[idx, 'section_notes'] = "\n\n---\n\n".join(new_blocks)
                 else:
                     # If nothing failed, keep the original content
-                    research_notes_df.at[idx, 'checklist_revised_section_notes'] = notes
+                    research_notes_df.at[idx, 'section_notes'] = notes
         
         # Handle course-level scoped evaluation (all topics at once)
         else:
@@ -802,7 +804,7 @@ def run_research_review_revise_checklist(sheet, worksheet_name, llm="gemini_2_fl
                     blocks.append(id_map.get(sec_id, id_to_block[sec_id]))
                 
                 # Save the combined result to the revised notes column
-                research_notes_df.at[idx, 'checklist_revised_section_notes'] = "\n\n---\n\n".join(blocks)
+                research_notes_df.at[idx, 'section_notes'] = "\n\n---\n\n".join(blocks)
         
         save_to_sheet(research_notes_sheet, research_notes_df)
         progress.update()
@@ -810,11 +812,14 @@ def run_research_review_revise_checklist(sheet, worksheet_name, llm="gemini_2_fl
     # Final save to sheet after all tasks are completed
     print("\n✅ Checklist Review & Revise Process Completed 🚀")
     save_to_sheet(research_notes_sheet, research_notes_df)
+    
+    # Hide the before_checklist_step_section_notes column
+    hide_columns_by_name(worksheet=research_notes_sheet, column_names=['before_checklist_step_section_notes'], df=research_notes_df)
 
 
 def delete_research_checklist_review_revise(sheet, worksheet_name="Research Notes"):
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
-    cols = ["checklist_revised_section_notes"]
+    cols = ["section_notes"]
     cols = [c for c in cols if c in df.columns]
     if cols:
         df = df.drop(columns=cols)
