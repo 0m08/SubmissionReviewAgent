@@ -1,5 +1,8 @@
 import streamlit as st
-from agents.vector_store_image_search.vector_store import graphics_retriever, build_vectorstore_and_upload, update_vectorstore, download_image_from_drive, chroma_db_exists, is_valid_folderid, graphics_retriever
+from agents.vector_store_image_search.graphics_retriever import graphics_retriever
+from agents.vector_store_image_search.graphics_retriever_agent import graphics_retriever_agent
+from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, chroma_db_exists, load_central_chroma_db, is_valid_folderid
+from services.embedding_service import get_embedding_model
 from services.drive_service import login_with_service_account
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
@@ -18,22 +21,79 @@ sa_dict = json.loads(sa_json)
 gauth = login_with_service_account(json_str=sa_json)
 gauth.ServiceAuth()
 drive = GoogleDrive(gauth)
-
+drive = GoogleDrive(gauth)
+gc = gspread.service_account_from_dict(sa_dict)
 # ----------------- Streamlit App ----------------- #
 
-# ----------------- Streamlit App ----------------- #
-st.title("🔎 Image Search")
+st.session_state["drive"] = drive
+st.session_state["gc"] = gc
 
-# Task selector
-st.subheader("Select Task")
-task = st.radio("Choose an action:", ["Create Chroma DB", "Update Chroma DB", "Search Images"])
+sheet = st.session_state.get("sheet")
 
-import gspread
+# Define task visibility by role
+st.markdown("## Image Search Tool")
+st.markdown("Use this tool to search and retrieve relevant images based on text queries.")
+
+
+# # Task selector
+# st.markdown("#### Select Task")
+
+
+# --- Define task visibility by role ---
+authenticated_roles = {
+    "Editor": "Editor",
+    "Admin": "Admin",
+    "Content Head": "ch", 
+    "Instructional Designer": "id", 
+    "Visual Designer": "vd",
+}
+
+# Initialize session state for role if not already set
+if "role" not in st.session_state:
+    st.session_state.role = None
+
+role = st.session_state.role
+
+# Determine tasks based on role
+task_options = []
+
+if role in ["Editor", "Admin"]:
+    task_options = ["Create Chroma DB", "Update Chroma DB", "Search Images"]
+elif role == "Content Head":  # Content Head
+    task_options = ["Update Chroma DB", "Search Images"]
+elif role in ["Instructional Designer", "Visual Designer"]:  # Instructional or Visual Designer
+    task_options = ["Search Images"]
+
+
+else:
+    st.warning("Your role does not have access to any tasks.")
+
+task = None
+if task_options:
+    task = st.selectbox("Choose a task:", task_options)
+
+
+
+central_folder_id = '1BACIAhOG-c2659kl2d_gJuzulopNGIrP'
+embedding_function = get_embedding_model()
+dbs = load_central_chroma_db(embedding_function, drive, central_folder_id)
+chroma_db = dbs["text"]
+all_docs = chroma_db.get()
+metadata_list = all_docs['metadatas']
+# Extract unique image types
+image_types_set = set()
+for metadata in metadata_list:
+    image_type_field = metadata.get("image_type", "")
+    types = [t.strip() for t in image_type_field.split(",") if t.strip()]
+    image_types_set.update(types)
+
+# Convert to sorted list
+unique_image_types = sorted(image_types_set)
 
 # Only require Google Sheet for Step 1 and Step 2
 sheet = None
 if task in ["Create Chroma DB", "Update Chroma DB"]:
-    st.subheader("Step 0: Provide Google Sheet")
+    st.subheader("Provide Google Sheet")
     sheet_url = st.text_input("Enter your Google Sheet URL:")
 
     if sheet_url:
@@ -41,32 +101,50 @@ if task in ["Create Chroma DB", "Update Chroma DB"]:
             gc = gspread.service_account_from_dict(sa_dict)
             sheet = gc.open_by_url(sheet_url)
             st.session_state["sheet"] = sheet
-            st.success("✅ Sheet loaded successfully.")
+            st.success("Sheet loaded successfully.")
         except Exception as e:
-            st.error(f"❌ Failed to load sheet: {e}")
+            st.error(f"Failed to load sheet: {e}")
 
     sheet = st.session_state.get("sheet")
 
-central_folder_id = '1ujM1OkJRUcQlg2_ZhRIE-kOZa1m-Qgnc'
+central_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
+
+# import shutil
+# import os
+
+# def delete_local_chroma_db(chroma_path):
+#     """
+#     Deletes the local Chroma DB folder and all its contents.
+    
+#     Args:
+#         chroma_path (str): Path to the Chroma persist directory.
+#     """
+#     if os.path.exists(chroma_path):
+#         shutil.rmtree(chroma_path)
+#         print(f"✅ Deleted local Chroma DB at: {chroma_path}")
+#     else:
+#         print(f"⚠️ No Chroma DB found at: {chroma_path}")
+
 
 # -------------------- Task: Create Chroma DB -------------------- #
 if task == "Create Chroma DB":
     if not sheet:
-        st.info("📄 Load a Google Sheet above to continue.")
+        st.info("Load a Google Sheet above to continue.")
     else:
         db_exists = chroma_db_exists(drive, central_folder_id)
         if db_exists:
-            st.success("✅ Chroma DB already exists in Drive.")
+            st.success("Chroma DB already exists in Drive.")
         else:
             if st.button("Create Chroma DB"):
-                build_vectorstore_and_upload(sheet, drive)
-                st.success("✅ Chroma DB built and uploaded.")
+                with st.spinner("⏳ Building and uploading Chroma DB..."):
+                    build_vectorstore_and_upload(sheet, drive)
+                st.success("✅ Chroma DB built and uploaded successfully!")
                 st.session_state["chroma_created"] = True
 
 # -------------------- Task: Update Chroma DB -------------------- #
 elif task == "Update Chroma DB":
     if not sheet:
-        st.info("📄 Load a Google Sheet above to continue.")
+        st.info("Load a Google Sheet above to continue.")
     else:
         if st.button("Check and Update Chroma DB"):
             worksheet_names = get_worksheet_names(sheet)
@@ -93,45 +171,92 @@ elif task == "Update Chroma DB":
 
 # -------------------- Task: Search Images -------------------- #
 elif task == "Search Images":
-    query_text = st.text_input("Enter your search query:", placeholder="Search images...")
 
-    st.markdown("### Filter Options")
+    # User inputs
+    st.markdown("#### Enter Search Query")
+    query = st.text_input("What are you looking for?(Press enter to continue)", placeholder="e.g., ventilation duct")
 
-    mime_type_options = ["image/gif", "image/png", "image/jpeg", "image/webp"]
-    selected_mime_types = st.multiselect("Select Mimetypes:", mime_type_options)
+    st.markdown("#### Number of images to retrieve")
+    k = st.number_input("How many images?", min_value=1, max_value=20, value=5, step=1)
 
-    image_title_keyword = st.text_input("Filter by Image Title (contains):", "")
-    image_type_keyword = st.text_input("Filter by Image Type (contains):", "")
-    k = st.number_input("Number of top results:", min_value=1, max_value=10, value=5, step=1)
+    # Filters in expandable section
+    with st.expander("Apply Filters (Optional)", expanded=False):
+        st.caption("Narrow your search by file type, title, or visual category.")
 
-    if st.button("Search"):
-        filters = {}
-        if selected_mime_types:
-            filters["mime_type"] = selected_mime_types
-        if image_title_keyword:
-            filters["image_title"] = image_title_keyword
-        if image_type_keyword:
-            filters["image_type"] = image_type_keyword
+        selected_mime_types = st.multiselect(
+            "Mime type",
+            options=["image/png", "image/jpeg", "image/webp", "image/gif"],
+            help="Filter by file format (e.g. PNG or JPEG)"
+        )
 
-        similar_images = graphics_retriever(query_text, drive = drive, k=k, filters=filters)
+        image_title_keyword = st.text_input(
+            "Image Title Keyword",
+            help="Only include images whose *title* contains this keyword"
+        )
 
-        if similar_images:
-            st.subheader(f"Top {len(similar_images)} Similar Images")
+        selected_image_types = st.multiselect(
+            "Image Type",
+            options=unique_image_types,
+            help="Select one or more image types (e.g., Diagram, Icon, Logo)"
+        )
 
+
+    # Assemble filters
+    filters = {}
+    if selected_mime_types:
+        filters["mime_type"] = selected_mime_types
+    if image_title_keyword:
+        filters["image_title"] = image_title_keyword
+    if selected_image_types:
+        filters["image_type"] = selected_image_types
+
+    # Toggle to choose search mode
+    use_agent = st.toggle("Use Graphics Search Agent", value=False)
+
+    # Run search
+    if query:
+        with st.spinner(f"Searching images using {'Graphics Search Agent' if use_agent else 'Graphics Retriever'}..."):
+            if use_agent:
+                results = graphics_retriever_agent(
+                    query=query,
+                    drive=drive,
+                    llm="gemini_2_flash",
+                    k=k,
+                    max_turns=3,
+                    filters=filters,
+                    verbose=False
+                )
+            else:
+                results = graphics_retriever(
+                    query=query,
+                    drive=drive,
+                    k=k,
+                    filters=filters
+                )
+
+        # Display results
+        if results:
+            st.subheader(f"Top {len(results)} Results")
             cols = st.columns(2)
-            for idx, img_data in enumerate(similar_images):
-                col = cols[idx % 2]
-                with col:
-                    st.markdown(f"**Name:** {img_data['name']}")
-                    st.markdown(f"**Description:** {img_data['description']}")
-                    st.markdown(f"**Folder ID:** {img_data['folder_id']}")
+            for idx, img_data in enumerate(results):
+                with cols[idx % 2]:
+                    image = img_data["image"]
+                    metadata = img_data["metadata"]
 
-                    try:
-                        pil_image = download_image_from_drive(img_data['image_id'], drive)
-                        st.image(pil_image, width=300)
-                    except Exception as e:
-                        st.warning(f"Could not display image: {e}")
-                    st.markdown(f"[View in Drive]({img_data['drive_url']})")
-                    st.markdown("---")
+                    name = metadata.get("name", f"Image {idx+1}")
+                    url = metadata.get("drive_url", "#")
+                    short_name = name if len(name) <= 60 else name[:57] + "..."
+
+                    st.image(image, use_container_width=True)
+                    st.markdown(
+                        f"""
+                        <div style='text-align: center; margin-top: 10px; margin-bottom: 30px;'>
+                            <a href='{url}' target='_blank' style='text-decoration: none; font-size: 18px; font-weight: bold; color: #1a73e8;'>
+                                {idx + 1}. {short_name}
+                            </a>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
         else:
-            st.warning("No similar images found.")
+            st.warning("No images found.")
