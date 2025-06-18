@@ -194,7 +194,13 @@ Feedback: [Only include if verdict is “Fail”; clearly mention the unique ide
 Note: Strictly remember to always enclose your entire output inside the <output> .... </output> tags.
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "research_notes",
+        "step_name": "Checklist Based Review and Revise Agents",
+        "function_name": "run_research_checklist_review",
+        "user_id": st.session_state.get("role", "anonymous")
+})
 def run_research_checklist_review(course_name, target_audience, scope, section_notes, checklist_criteria, llm="gemini_2_flash"):
     """
     Run the Research-Based Content Checklist Review Agent.
@@ -453,7 +459,13 @@ Slide Content: (Enter the original or revised summary slide content — revise o
 Note: Strictly remember to always enclose your entire output inside the <output> .... </output> tags.
 """
 
-
+@traceable(
+    metadata={
+        "agent_name": "research_notes",
+        "step_name": "Checklist Based Review and Revise Agents",
+        "function_name": "run_research_checklist_revise",
+        "user_id": st.session_state.get("role", "anonymous")
+})
 def run_research_checklist_revise(course_name, target_audience, scope, original_section_notes, checklist_task, llm="gemini_2_flash"):
     """
     Run the Research-Based Content Revision Agent using checklist review feedback.
