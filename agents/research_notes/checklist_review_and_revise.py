@@ -665,32 +665,52 @@ def build_course_input(df):
     return course_text, id_to_block, counts
 
 
-@traceable(metadata={
-    "agent_name": "research_notes",
-    "step_name": "Checklist Based Review and Revise Agents",
-    "function_name": "run_research_review_revise_checklist",
-    "user_id": st.session_state.get("role", "anonymous")
+@traceable(
+    metadata={
+        "agent_name": "research_notes",
+        "step_name": "Checklist Based Review and Revise Agents",
+        "function_name": "run_research_review_revise_checklist",
+        "user_id": st.session_state.get("role", "anonymous")
 })
 def run_research_review_revise_checklist(sheet, worksheet_name, llm="gemini_2_flash"):
+    """    
+    Runs the full checklist-based review and revision cycle on research notes, applying topic- or course-level criteria and updating revised content accordingly.
+
+    :param sheet: Main Google Sheet object
+    :param worksheet_name: Name of the worksheet containing the Research Notes.
+    :param llm: The language model used for review and revise agents (default is "gemini_2_flash").
+    """
+    
+    # Load research notes sheet and DataFrame
     research_notes_sheet, research_notes_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+    # Load course info
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = course_info_df['Course Name'][0]
     target_audience = course_info_df['Target Audience & Industry'][0]
     checklist_sheet_link = course_info_df['Checklist Link'][0]
+
+    # Open the checklist sheet from the link and load the "Research Notes Checklist" tab
     gc = st.session_state["gc"]
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_sheet, checklist_df = get_sheet_data_and_df(checklist_sheet, "Research Notes Checklist")
 
+    # If revised section notes column doesn't exist, initialize it with original section notes
     if 'checklist_revised_section_notes' not in research_notes_df.columns:
         research_notes_df['checklist_revised_section_notes'] = research_notes_df['section_notes']
 
+    # Identify unique tasks from the checklist sheet
     unique_tasks = checklist_df['Task'].dropna().unique()
     progress = SmartProgressBar(total_tasks=len(unique_tasks), description="Percent complete", save_interval=1)
 
+    # Loop through each unique checklist task
     for task in unique_tasks:
         task_df = checklist_df[checklist_df['Task'] == task]
-        scope = task_df['Scope'].iloc[0].strip().lower()
 
+        # Get the scope ("topic" or "course")
+        scope = task_df['Scope'].iloc[0].strip().lower()
+        
+        # Construct the full checklist_criteria block to be passed to the review agent
         checklist_criteria = ""
         for _, r in task_df.iterrows():
             checklist_criteria += (
@@ -698,47 +718,84 @@ def run_research_review_revise_checklist(sheet, worksheet_name, llm="gemini_2_fl
                 f"Review Criterion: {r['Review Criteria']}\n"
                 f"Scope: {r['Scope']}\n\n"
             )
-
+        
+        # Handle topic-level scoped evaluation
         if scope == 'topic':
             for idx, row in research_notes_df.iterrows():
                 notes = research_notes_df.at[idx, 'checklist_revised_section_notes']
+
+                 # Build formatted input for current topic (with section IDs)
                 blocks, formatted_input = build_topic_input(idx+1, row, notes)
+
+                # Run the review agent on the topic
                 review_output = run_research_checklist_review(course_name, target_audience, 'topic', formatted_input, checklist_criteria, llm)
+                
+                # Parse review output to extract failed criteria
                 failed = parse_review_output(review_output)
-                if failed:
+
+                if failed:                   
+                    # Format only the failed criteria blocks for the reviser
                     failed_block = ""
                     for i, f in enumerate(failed, 1):
                         failed_block += f"<criterion_{i}>\nTask: {f['task_name']}\nReview Criterion {i}: {f['review_criteria']}\nFeedback: {f['feedback']}\n</criterion_{i}>\n\n"
+                    
+                    # Run the revise agent using the failed block
                     reviser_output = run_research_checklist_revise(course_name, target_audience, 'topic', formatted_input, failed_block, llm)
+                    
+                    # Parse revised section blocks returned by the reviser
                     id_map = parse_reviser_output(reviser_output)
+                    
+                    # Merge revised and untouched blocks based on section ID
                     new_blocks = []
                     for i, block in enumerate(blocks, 1):
                         sec_id = f"t_{idx+1}_s_{i}"
                         new_blocks.append(id_map.get(sec_id, block))
+                    
+                    # Save the final merged blocks into the revised column
                     research_notes_df.at[idx, 'checklist_revised_section_notes'] = "\n\n---\n\n".join(new_blocks)
                 else:
+                    # If nothing failed, keep the original content
                     research_notes_df.at[idx, 'checklist_revised_section_notes'] = notes
+        
+        # Handle course-level scoped evaluation (all topics at once)
         else:
+            
+            # Build the full course-level input and track section ID mapping
             course_input, id_to_block, counts = build_course_input(research_notes_df)
+            
+            # Run the review agent on the full course input
             review_output = run_research_checklist_review(course_name, target_audience, 'course', course_input, checklist_criteria, llm)
+            
+            # Extract failed criteria
             failed = parse_review_output(review_output)
             id_map = {}
             if failed:
+                
+                # Build input for revise agent only with failed criteria
                 failed_block = ""
                 for i, f in enumerate(failed, 1):
                     failed_block += f"<criterion_{i}>\nTask: {f['task_name']}\nReview Criterion {i}: {f['review_criteria']}\nFeedback: {f['feedback']}\n</criterion_{i}>\n\n"
+                
+                # Run the revise agent using the failed block
                 reviser_output = run_research_checklist_revise(course_name, target_audience, 'course', course_input, failed_block, llm)
+                
+                # Extract revised section blocks from the output
                 id_map = parse_reviser_output(reviser_output)
+            
+            # Merge revised and untouched blocks by topic
             for idx, row in research_notes_df.iterrows():
                 blocks = []
                 for i in range(1, counts[idx]+1):
                     sec_id = f"t_{idx+1}_s_{i}"
                     blocks.append(id_map.get(sec_id, id_to_block[sec_id]))
+                
+                # Save the combined result to the revised notes column
                 research_notes_df.at[idx, 'checklist_revised_section_notes'] = "\n\n---\n\n".join(blocks)
-
+        
         save_to_sheet(research_notes_sheet, research_notes_df)
         progress.update()
-
+    
+    # Final save to sheet after all tasks are completed
     print("\n✅ Checklist Review & Revise Process Completed 🚀")
     save_to_sheet(research_notes_sheet, research_notes_df)
 
