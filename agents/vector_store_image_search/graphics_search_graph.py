@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TypedDict
 
-from langgraph.graph import Graph, END
+from langgraph.graph import StateGraph, END
 
 from modules.chain import Chain
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
