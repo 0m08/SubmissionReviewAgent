@@ -12,23 +12,33 @@ from agents.vector_store_image_search.graphics_retriever_agent import (
 )
 
 
+# --- Define state type schema ---
+class SearchState(TypedDict, total=False):
+    query: str
+    drive: Any
+    k: int
+    llm: str
+    filters: Dict[str, Any]
+    results: List[Dict[str, Any]]
+    images: List[Dict[str, Any]]
+    verdict: str
+    turn: int
+
+
+# --- Helper to parse index strings ---
 def parse_selected_indexes(index_string: str) -> List[int]:
-    """Safely parse a comma-separated list of indexes."""
     try:
         return [int(i.strip()) for i in index_string.split(",") if i.strip().isdigit()]
     except Exception:
         return []
 
 
-# --- Graph Nodes ---
-
-def query_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Entry node – simply return the state."""
+# --- Nodes ---
+def start_node(state: SearchState) -> SearchState:
     return state
 
 
-def retriever_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Retrieve images using the current query."""
+def retriever_node(state: SearchState) -> SearchState:
     results = graphics_retriever(
         query=state["query"],
         drive=state["drive"],
@@ -39,8 +49,7 @@ def retriever_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 
-def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Evaluate retrieved images and optionally refine the query."""
+def agent_node(state: SearchState) -> SearchState:
     query = state["query"]
     results = state.get("results", [])
     llm = state.get("llm", "gemini_2_flash")
@@ -82,27 +91,31 @@ def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 
-def decision_node(state: Dict[str, Any]) -> str:
-    """Decide whether to end or continue searching."""
+def decision_node(state: SearchState) -> str:
     if state.get("verdict") == "TERMINATE" or state.get("turn", 1) >= state.get("max_turns", 3):
         return "end"
     state["turn"] = state.get("turn", 1) + 1
     return "continue"
 
 
-# --- Graph Runner ---
+# --- Build LangGraph ---
+from langchain_core.runnables import RunnableLambda
+from langgraph.graph import StateGraph, END
 
-def build_graph() -> Graph:
-    """Construct the LangGraph pipeline."""
-    graph = Graph()
-    graph.add_node("query", query_node)
-    graph.add_node("retriever", retriever_node)
-    graph.add_node("agent", agent_node)
-    graph.add_node("decision", decision_node)
+def build_graph():
+    graph = StateGraph(SearchState)
 
-    graph.add_edge("query", "retriever")
+    # Add nodes with Runnables
+    graph.add_node("start", RunnableLambda(start_node))
+    graph.add_node("retriever", RunnableLambda(retriever_node))
+    graph.add_node("agent", RunnableLambda(agent_node))
+    graph.add_node("decision", RunnableLambda(decision_node))
+
+    # Define edges using node names (strings) now that nodes are registered
+    graph.add_edge("start", "retriever")
     graph.add_edge("retriever", "agent")
     graph.add_edge("agent", "decision")
+
     graph.add_conditional_edges(
         "decision",
         {
@@ -110,11 +123,13 @@ def build_graph() -> Graph:
             "end": END,
         },
     )
-    graph.set_entry_point("query")
 
+    graph.set_entry_point("start")
     return graph.compile()
 
 
+
+# --- Run the graph ---
 def run_graphics_search_graph(
     query: str,
     drive: Any,
@@ -124,8 +139,8 @@ def run_graphics_search_graph(
     max_turns: int = 3,
     filters: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
-    """Execute the graphics search graph and return selected images."""
     app = build_graph()
+
     final_state = app.invoke({
         "query": query,
         "drive": drive,
@@ -135,4 +150,5 @@ def run_graphics_search_graph(
         "max_turns": max_turns,
         "turn": 1,
     })
+
     return final_state.get("images", [])
