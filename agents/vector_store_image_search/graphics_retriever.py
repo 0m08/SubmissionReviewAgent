@@ -6,6 +6,7 @@ from agents.vector_store_image_search.create_vectorstore import download_image_f
 import os
 from langchain_chroma import Chroma
 from services.drive_service import download_folder_from_drive
+from typing import List, Set, Dict
 
 def load_central_chroma_db(embedding_function, drive, central_folder_id):
     """
@@ -85,21 +86,25 @@ def graphics_retriever(query, drive, k=5, filters=None):
     Search for similar images using a text query and return them as visually unique PIL images.
     """
 
-    print("🔍 Loading central Chroma DB...")
+    print("Loading central Chroma DB...")
     embedding_function = get_embedding_model()
     central_folder_id = '1BACIAhOG-c2659kl2d_gJuzulopNGIrP'
     dbs = load_central_chroma_db(embedding_function, drive, central_folder_id)
 
-    print(f"🔤 Performing text similarity search: '{query}'")
+    print(f"Performing text similarity search: '{query}'")
     chroma_db = dbs["text"]
     all_docs = chroma_db.get()
     num_docs = len(all_docs['documents'])
+    metadata_list = all_docs.get("metadatas", [])
+    
+    image_types_set: Set[str] = set()
+    for metadata in metadata_list:
+        image_type_field = metadata.get("image_type", "")
+        types = [t.strip() for t in image_type_field.split(",") if t.strip()]
+        image_types_set.update(types)
 
-    if num_docs == 0:
-        print("⚠️ Chroma DB is empty. No documents found.")
-        return []
 
-    print(f"✅ Text Chroma DB loaded with {num_docs} documents.")
+    print(f"Text Chroma DB loaded with {num_docs} documents.")
     results_docs = chroma_db.similarity_search_with_score(query, k=50)
 
     # 🔍 In-memory filtering and image download
@@ -108,14 +113,14 @@ def graphics_retriever(query, drive, k=5, filters=None):
 
     for doc, score in results_docs:
         if len(filtered_results) >= k:
-            break  # ✅ Stop once top k visually unique images are collected
+            break  #  Stop once top k visually unique images are collected
 
         metadata = doc['metadata'] if isinstance(doc, dict) else doc.metadata
 
         if 'image_id' not in metadata:
             continue
 
-        # ⚠️ Skip visually duplicate images
+        # Skip visually duplicate images
         phash = metadata.get("phash")
         if phash and phash in seen_phashes:
             print(f"🌀 Skipping visually duplicate image with pHash: {phash}")
@@ -123,7 +128,7 @@ def graphics_retriever(query, drive, k=5, filters=None):
         if phash:
             seen_phashes.add(phash)
 
-        # 🧪 Apply filters
+        # Apply filters
         if filters:
             # Mime type filter
             if filters.get("mime_type") and metadata.get("mime_type") not in filters["mime_type"]:
@@ -144,21 +149,21 @@ def graphics_retriever(query, drive, k=5, filters=None):
 
         try:
             image_file_id = metadata['image_id']
-            print(f"⬇️ Attempting to download image: {image_file_id}")
+            print(f"Attempting to download image: {image_file_id}")
             import time
 
             try:
                 start_time = time.time()
                 pil_image = download_image_from_drive(drive, image_file_id)
-                print("✅ Image downloaded:", image_file_id)
+                print("Image downloaded:", image_file_id)
 
                 if not pil_image:
-                    print(f"⚠️ Image {image_file_id} download returned None.")
+                    print(f"Image {image_file_id} download returned None.")
                     continue
 
                 elapsed = time.time() - start_time
                 if elapsed > 10:
-                    print(f"⏱️ Warning: Downloading image {image_file_id} took {elapsed:.2f} seconds.")
+                    print(f"⏱Warning: Downloading image {image_file_id} took {elapsed:.2f} seconds.")
 
                 filtered_results.append({
                     "similarity": score,
@@ -167,14 +172,15 @@ def graphics_retriever(query, drive, k=5, filters=None):
                 })
 
             except Exception as e:
-                print(f"❌ Error downloading image {image_file_id}: {e}")
+                print(f"Error downloading image {image_file_id}: {e}")
 
         except Exception as e:
-            print(f"❌ Error downloading or processing image ID {metadata.get('image_id', 'N/A')}: {e}")
+            print(f"Error downloading or processing image ID {metadata.get('image_id', 'N/A')}: {e}")
 
     if not filtered_results:
-        print("⚠️ No results returned after filtering or downloading.")
+        print("No results returned after filtering or downloading.")
 
     filtered_results.sort(key=lambda x: x['similarity'])
-    print(f"✅ Returning {len(filtered_results)} visually unique images.")
-    return filtered_results[:k]
+    print(f"Returning {len(filtered_results)} visually unique images.")
+    
+    return filtered_results[:k], sorted(image_types_set)

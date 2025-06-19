@@ -1,9 +1,8 @@
 import streamlit as st
-from agents.vector_store_image_search.graphics_retriever import load_central_chroma_db, graphics_retriever
+from agents.vector_store_image_search.graphics_retriever import graphics_retriever
 from agents.vector_store_image_search.graphics_retriever_agent import graphics_retriever_agent
 from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists
 from agents.vector_store_image_search.graphics_search_graph import run_graphics_search_graph
-from services.embedding_service import get_embedding_model
 from services.drive_service import login_with_service_account
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
@@ -12,7 +11,6 @@ import gspread
 import base64
 import os
 import json
-
 
 # Load Google Service Account credentials
 load_dotenv()
@@ -24,6 +22,8 @@ gauth.ServiceAuth()
 drive = GoogleDrive(gauth)
 drive = GoogleDrive(gauth)
 gc = gspread.service_account_from_dict(sa_dict)
+
+
 # ----------------- Streamlit App ----------------- #
 
 st.session_state["drive"] = drive
@@ -32,12 +32,8 @@ st.session_state["gc"] = gc
 sheet = st.session_state.get("sheet")
 
 # Define task visibility by role
-st.markdown("## Image Search Tool")
+st.markdown("## Graphics Retriever")
 st.markdown("Use this tool to search and retrieve relevant images based on text queries.")
-
-
-# # Task selector
-# st.markdown("#### Select Task")
 
 
 # --- Define task visibility by role ---
@@ -74,23 +70,6 @@ if task_options:
     task = st.selectbox("Choose a task:", task_options)
 
 
-
-central_folder_id = '1BACIAhOG-c2659kl2d_gJuzulopNGIrP'
-embedding_function = get_embedding_model()
-dbs = load_central_chroma_db(embedding_function, drive, central_folder_id)
-chroma_db = dbs["text"]
-all_docs = chroma_db.get()
-metadata_list = all_docs['metadatas']
-# Extract unique image types
-image_types_set = set()
-for metadata in metadata_list:
-    image_type_field = metadata.get("image_type", "")
-    types = [t.strip() for t in image_type_field.split(",") if t.strip()]
-    image_types_set.update(types)
-
-# Convert to sorted list
-unique_image_types = sorted(image_types_set)
-
 # Only require Google Sheet for Step 1 and Step 2
 sheet = None
 if task in ["Create Chroma DB", "Update Chroma DB"]:
@@ -109,22 +88,6 @@ if task in ["Create Chroma DB", "Update Chroma DB"]:
     sheet = st.session_state.get("sheet")
 
 central_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
-
-# import shutil
-# import os
-
-# def delete_local_chroma_db(chroma_path):
-#     """
-#     Deletes the local Chroma DB folder and all its contents.
-    
-#     Args:
-#         chroma_path (str): Path to the Chroma persist directory.
-#     """
-#     if os.path.exists(chroma_path):
-#         shutil.rmtree(chroma_path)
-#         print(f"✅ Deleted local Chroma DB at: {chroma_path}")
-#     else:
-#         print(f"⚠️ No Chroma DB found at: {chroma_path}")
 
 
 # -------------------- Task: Create Chroma DB -------------------- #
@@ -172,6 +135,7 @@ elif task == "Update Chroma DB":
 
 # -------------------- Task: Search Images -------------------- #
 elif task == "Search Images":
+    
 
     # User inputs
     st.markdown("#### Enter Search Query")
@@ -181,6 +145,12 @@ elif task == "Search Images":
     k = st.number_input("How many images?", min_value=1, max_value=20, value=5, step=1)
 
     # Filters in expandable section
+    filters = {}
+    selected_mime_types = []
+    image_title_keyword = ""
+    selected_image_types = []
+    unique_image_types = []
+
     with st.expander("Apply Filters (Optional)", expanded=False):
         st.caption("Narrow your search by file type, title, or visual category.")
 
@@ -192,18 +162,16 @@ elif task == "Search Images":
 
         image_title_keyword = st.text_input(
             "Image Title Keyword",
-            help="Only include images whose *title* contains this keyword"
+            help="Enter a word or phrase that appears in the image's *title* — the descriptive name assigned to an image, like 'Electrical Tools' or 'High Voltage Sign'. This helps narrow results by topic or concept."
         )
 
+        # unique_image_types will be set after first search, so keep it empty for now
         selected_image_types = st.multiselect(
             "Image Type",
             options=unique_image_types,
             help="Select one or more image types (e.g., Diagram, Icon, Logo)"
         )
 
-
-    # Assemble filters
-    filters = {}
     if selected_mime_types:
         filters["mime_type"] = selected_mime_types
     if image_title_keyword:
@@ -211,43 +179,52 @@ elif task == "Search Images":
     if selected_image_types:
         filters["image_type"] = selected_image_types
 
+    results, image_types = graphics_retriever(query, drive, k, filters)
+    unique_image_types = sorted(set(image_types)) if image_types else []
+
     # Toggle to choose search mode
     use_agent = st.toggle("Use Graphics Search Agent", value=False)
     use_graph = st.toggle("Use LangGraph Search", value=False)
 
-    # Run search
-    if query:
-        mode = (
-            'LangGraph Search' if use_graph else
-            ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
-        )
-        with st.spinner(f"Searching images using {mode}..."):
-            if use_graph:
-                results = run_graphics_search_graph(
-                    query=query,
-                    drive=drive,
-                    k=k,
-                    llm="gemini_2_flash",
-                    max_turns=3,
-                    filters=filters,
-                )
-            elif use_agent:
-                results = graphics_retriever_agent(
-                    query=query,
-                    drive=drive,
-                    llm="gemini_2_flash",
-                    k=k,
-                    max_turns=3,
-                    filters=filters,
-                    verbose=False
-                )
-            else:
-                results = graphics_retriever(
-                    query=query,
-                    drive=drive,
-                    k=k,
-                    filters=filters
-                )
+    # Button to execute search
+    run_search = st.button("Run Search")
+
+    results = None
+    if run_search:
+        if not query:
+            st.warning("Please enter a search query.")
+        else:
+            mode = (
+                'LangGraph Search' if use_graph else
+                ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
+            )
+            with st.spinner(f"Searching images using {mode}..."):
+                if use_graph:
+                    results = run_graphics_search_graph(
+                        query=query,
+                        drive=drive,
+                        k=k,
+                        llm="gemini_2_flash",
+                        max_turns=3,
+                        filters=filters,
+                    )
+                elif use_agent:
+                    results = graphics_retriever_agent(
+                        query=query,
+                        drive=drive,
+                        llm="gemini_2_flash",
+                        k=k,
+                        max_turns=3,
+                        filters=filters,
+                        verbose=False
+                    )
+                else:
+                    results = graphics_retriever(
+           query=query,
+                        drive=drive,
+                        k=k,
+                        filters=filters
+                    )
 
         # Display results
         if results:
