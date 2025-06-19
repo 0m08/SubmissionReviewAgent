@@ -82,12 +82,7 @@ def get_text_embedding_clip(text: str):
 
 def graphics_retriever(query, drive, k=5, filters=None):
     """
-    Search for similar images using a text query and return them as PIL images.
-    :param query: Text query to search for.
-    :param drive: Google Drive instance for image retrieval.
-    :param k: Number of top results to return.
-    :param filters: Optional filters to apply on the results.
-    :return: List of dictionaries with "image", "similarity", and "metadata".
+    Search for similar images using a text query and return them as visually unique PIL images.
     """
 
     print("🔍 Loading central Chroma DB...")
@@ -99,7 +94,6 @@ def graphics_retriever(query, drive, k=5, filters=None):
     chroma_db = dbs["text"]
     all_docs = chroma_db.get()
     num_docs = len(all_docs['documents'])
-    metadata_list = all_docs['metadatas']
 
     if num_docs == 0:
         print("⚠️ Chroma DB is empty. No documents found.")
@@ -110,23 +104,43 @@ def graphics_retriever(query, drive, k=5, filters=None):
 
     # 🔍 In-memory filtering and image download
     filtered_results = []
+    seen_phashes = set()  # For visual deduplication
+
     for doc, score in results_docs:
         if len(filtered_results) >= k:
-            break  # ✅ Stop once top k images are collected
+            break  # ✅ Stop once top k visually unique images are collected
 
         metadata = doc['metadata'] if isinstance(doc, dict) else doc.metadata
 
         if 'image_id' not in metadata:
             continue
 
+        # ⚠️ Skip visually duplicate images
+        phash = metadata.get("phash")
+        if phash and phash in seen_phashes:
+            print(f"🌀 Skipping visually duplicate image with pHash: {phash}")
+            continue
+        if phash:
+            seen_phashes.add(phash)
+
         # 🧪 Apply filters
         if filters:
+            # Mime type filter
             if filters.get("mime_type") and metadata.get("mime_type") not in filters["mime_type"]:
                 continue
-            if filters.get("image_title") and metadata.get("image_title") and filters["image_title"].lower() not in metadata["image_title"].lower():
+
+            # Image title keyword filter
+            if filters.get("image_title") and metadata.get("image_title") and \
+               filters["image_title"].lower() not in metadata["image_title"].lower():
                 continue
-            if filters.get("image_type") and metadata.get("image_type") and filters["image_type"].lower() not in metadata["image_type"].lower():
-                continue
+
+            # Image type multiselect filter
+            if filters.get("image_type") and metadata.get("image_type"):
+                metadata_types = [t.strip().lower() for t in metadata["image_type"].split(",")]
+                selected_types = [t.lower() for t in filters["image_type"]]
+
+                if not any(sel_type in metadata_types for sel_type in selected_types):
+                    continue
 
         try:
             image_file_id = metadata['image_id']
@@ -162,5 +176,5 @@ def graphics_retriever(query, drive, k=5, filters=None):
         print("⚠️ No results returned after filtering or downloading.")
 
     filtered_results.sort(key=lambda x: x['similarity'])
-    print(f"✅ Returning {len(filtered_results)} images.")
-    return filtered_results[:k]  # List of dicts with "image", "similarity", etc.
+    print(f"✅ Returning {len(filtered_results)} visually unique images.")
+    return filtered_results[:k]

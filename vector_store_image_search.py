@@ -1,7 +1,8 @@
 import streamlit as st
-from agents.vector_store_image_search.graphics_retriever import graphics_retriever
+from agents.vector_store_image_search.graphics_retriever import load_central_chroma_db, graphics_retriever
 from agents.vector_store_image_search.graphics_retriever_agent import graphics_retriever_agent
-from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, chroma_db_exists, load_central_chroma_db, is_valid_folderid
+from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists
+from agents.vector_store_image_search.graphics_search_graph import run_graphics_search_graph
 from services.embedding_service import get_embedding_model
 from services.drive_service import login_with_service_account
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
@@ -212,11 +213,25 @@ elif task == "Search Images":
 
     # Toggle to choose search mode
     use_agent = st.toggle("Use Graphics Search Agent", value=False)
+    use_graph = st.toggle("Use LangGraph Search", value=False)
 
     # Run search
     if query:
-        with st.spinner(f"Searching images using {'Graphics Search Agent' if use_agent else 'Graphics Retriever'}..."):
-            if use_agent:
+        mode = (
+            'LangGraph Search' if use_graph else
+            ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
+        )
+        with st.spinner(f"Searching images using {mode}..."):
+            if use_graph:
+                results = run_graphics_search_graph(
+                    query=query,
+                    drive=drive,
+                    k=k,
+                    llm="gemini_2_flash",
+                    max_turns=3,
+                    filters=filters,
+                )
+            elif use_agent:
                 results = graphics_retriever_agent(
                     query=query,
                     drive=drive,
