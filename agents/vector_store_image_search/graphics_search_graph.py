@@ -167,9 +167,3 @@ def run_graphics_search_graph(
     })
 
     return final_state.get("images", [])
-
-
-def visualize_graph():
-    app = build_graph()
-    app.draw("graphics_search_graph", format="png")  # Creates graphics_search_graph.png
-    print("✅ Graph drawn to graphics_search_graph.png")
