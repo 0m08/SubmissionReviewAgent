@@ -20,7 +20,6 @@ sa_dict = json.loads(sa_json)
 gauth = login_with_service_account(json_str=sa_json)
 gauth.ServiceAuth()
 drive = GoogleDrive(gauth)
-drive = GoogleDrive(gauth)
 gc = gspread.service_account_from_dict(sa_dict)
 
 
