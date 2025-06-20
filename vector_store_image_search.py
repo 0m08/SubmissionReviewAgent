@@ -31,7 +31,7 @@ st.session_state["gc"] = gc
 sheet = st.session_state.get("sheet")
 
 # Define task visibility by role
-st.markdown("## Graphics Retriever")
+st.markdown("## Image Search Tool")
 st.markdown("Use this tool to search and retrieve relevant images based on text queries.")
 
 
@@ -54,9 +54,9 @@ role = st.session_state.role
 task_options = []
 
 if role in ["Editor", "Admin"]:
-    task_options = ["Create Chroma DB", "Update Chroma DB", "Search Images"]
+    task_options = ["Create Vectorstore", "Update Vectorstore", "Search Images"]
 elif role == "Content Head":  # Content Head
-    task_options = ["Update Chroma DB", "Search Images"]
+    task_options = ["Update Vectorstore", "Search Images"]
 elif role in ["Instructional Designer", "Visual Designer"]:  # Instructional or Visual Designer
     task_options = ["Search Images"]
 
@@ -71,7 +71,7 @@ if task_options:
 
 # Only require Google Sheet for Step 1 and Step 2
 sheet = None
-if task in ["Create Chroma DB", "Update Chroma DB"]:
+if task in ["Create Vectorstore", "Update Vectorstore"]:
     st.subheader("Provide Google Sheet")
     sheet_url = st.text_input("Enter your Google Sheet URL:")
 
@@ -89,27 +89,27 @@ if task in ["Create Chroma DB", "Update Chroma DB"]:
 central_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
 
 
-# -------------------- Task: Create Chroma DB -------------------- #
-if task == "Create Chroma DB":
+# -------------------- Task: Create Vectorstore -------------------- #
+if task == "Create Vectorstore":
     if not sheet:
         st.info("Load a Google Sheet above to continue.")
     else:
         db_exists = chroma_db_exists(drive, central_folder_id)
         if db_exists:
-            st.success("Chroma DB already exists in Drive.")
+            st.success("Vectorstore already exists in Drive.")
         else:
-            if st.button("Create Chroma DB"):
-                with st.spinner("⏳ Building and uploading Chroma DB..."):
+            if st.button("Create Vectorstore"):
+                with st.spinner("⏳ Building and uploading Vectorstore..."):
                     build_vectorstore_and_upload(sheet, drive)
-                st.success("✅ Chroma DB built and uploaded successfully!")
+                st.success("✅ Vectorstore built and uploaded successfully!")
                 st.session_state["chroma_created"] = True
 
-# -------------------- Task: Update Chroma DB -------------------- #
-elif task == "Update Chroma DB":
+# -------------------- Task: Update Vectorstore -------------------- #
+elif task == "Update Vectorstore":
     if not sheet:
         st.info("Load a Google Sheet above to continue.")
     else:
-        if st.button("Check and Update Chroma DB"):
+        if st.button("Check and Update Vectorstore"):
             worksheet_names = get_worksheet_names(sheet)
             update_required = False
             for name in worksheet_names:
@@ -128,9 +128,9 @@ elif task == "Update Chroma DB":
 
             if update_required:
                 update_vectorstore(sheet, drive)
-                st.success("Chroma DB updated.")
+                st.success("Vectorstore updated.")
             else:
-                st.info("No updates needed. Chroma DB is up to date.")
+                st.info("No updates needed. Vectorstore is up to date.")
 
 # -------------------- Task: Search Images -------------------- #
 elif task == "Search Images":
@@ -147,8 +147,8 @@ elif task == "Search Images":
     filters = {}
     selected_mime_types = []
     image_title_keyword = ""
-    selected_image_types = []
-    unique_image_types = []
+    # selected_image_types = []
+    # unique_image_types = []
 
     with st.expander("Apply Filters (Optional)", expanded=False):
         st.caption("Narrow your search by file type, title, or visual category.")
@@ -165,65 +165,60 @@ elif task == "Search Images":
         )
 
         # unique_image_types will be set after first search, so keep it empty for now
-        selected_image_types = st.multiselect(
-            "Image Type",
-            options=unique_image_types,
-            help="Select one or more image types (e.g., Diagram, Icon, Logo)"
-        )
+        # selected_image_types = st.multiselect(
+        #     "Image Type",
+        #     options=unique_image_types,
+        #     help="Select one or more image types (e.g., Diagram, Icon, Logo)"
+        # )
 
     if selected_mime_types:
         filters["mime_type"] = selected_mime_types
     if image_title_keyword:
         filters["image_title"] = image_title_keyword
-    if selected_image_types:
-        filters["image_type"] = selected_image_types
+    # if selected_image_types:
+    #     filters["image_type"] = selected_image_types
 
-    results, image_types = graphics_retriever(query, drive, k, filters)
-    unique_image_types = sorted(set(image_types)) if image_types else []
+    # results, image_types = graphics_retriever(query, drive, k, filters)
+    # unique_image_types = sorted(set(image_types)) if image_types else []
 
     # Toggle to choose search mode
-    use_agent = st.toggle("Use Graphics Search Agent", value=False)
-    use_graph = st.toggle("Use LangGraph Search", value=False)
+    # use_agent = st.toggle("Use Graphics Search Agent", value=False)
+    # use_graph = st.toggle("Use LangGraph Search", value=False)
 
     # Button to execute search
     run_search = st.button("Run Search")
 
     results = None
     if run_search:
-        if not query:
-            st.warning("Please enter a search query.")
-        else:
-            mode = (
-                'LangGraph Search' if use_graph else
-                ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
-            )
-            with st.spinner(f"Searching images using {mode}..."):
-                if use_graph:
-                    results = run_graphics_search_graph(
-                        query=query,
-                        drive=drive,
-                        k=k,
-                        llm="gemini_2_flash",
-                        max_turns=3,
-                        filters=filters,
-                    )
-                elif use_agent:
-                    results = graphics_retriever_agent(
-                        query=query,
-                        drive=drive,
-                        llm="gemini_2_flash",
-                        k=k,
-                        max_turns=3,
-                        filters=filters,
-                        verbose=False
-                    )
-                else:
-                    results = graphics_retriever(
-           query=query,
-                        drive=drive,
-                        k=k,
-                        filters=filters
-                    )
+    #     if not query:
+    #         st.warning("Please enter a search query.")
+    #     else:
+    #         mode = (
+    #             'LangGraph Search' if use_graph else
+    #             ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
+    #         )
+    #         with st.spinner(f"Searching images using {mode}..."):
+    #             if use_graph:
+    #                 results = run_graphics_search_graph(
+    #                     query=query,
+    #                     drive=drive,
+    #                     k=k,
+    #                     llm="gemini_2_flash",
+    #                     max_turns=3,
+    #                     filters=filters,
+    #                 )
+    #             elif use_agent:
+    #                 results = graphics_retriever_agent(
+    #                     query=query,
+    #                     drive=drive,
+    #                     llm="gemini_2_flash",
+    #                     k=k,
+    #                     max_turns=3,
+    #                     filters=filters,
+    #                     verbose=False
+    #                 )
+    #             else:
+        results = graphics_retriever(query=query, drive=drive, k=k, filters=filters)
 
         # Display results
         if results:

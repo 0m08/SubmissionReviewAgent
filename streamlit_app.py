@@ -126,7 +126,7 @@ graphics_search_page = st.Page(
 
 vectorstore_page = st.Page(
     "vector_store_image_search.py",              # path to the page script
-    title="Vector Store",          # label shown in the sidebar
+    title="Image Search",          # label shown in the sidebar
     icon=":material/storage:",     # use a material or emoji icon
     # Optional: default=True or role-based logic
 )

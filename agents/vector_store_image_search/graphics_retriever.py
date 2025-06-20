@@ -6,7 +6,7 @@ from agents.vector_store_image_search.create_vectorstore import download_image_f
 import os
 from langchain_chroma import Chroma
 from services.drive_service import download_folder_from_drive
-from typing import List, Set, Dict
+# from typing import List, Set, Dict
 
 def load_central_chroma_db(embedding_function, drive, central_folder_id):
     """
@@ -84,6 +84,11 @@ def get_text_embedding_clip(text: str):
 def graphics_retriever(query, drive, k=5, filters=None):
     """
     Search for similar images using a text query and return them as visually unique PIL images.
+    :param query: Text query to search for.
+    :param drive: Google Drive instance for downloading images.
+    :param k: Number of top results to return.
+    :param filters: Optional filters to apply on the results.
+    :return: List of dictionaries with 'similarity', 'image' (PIL), and 'metadata'.
     """
 
     print("Loading central Chroma DB...")
@@ -95,13 +100,13 @@ def graphics_retriever(query, drive, k=5, filters=None):
     chroma_db = dbs["text"]
     all_docs = chroma_db.get()
     num_docs = len(all_docs['documents'])
-    metadata_list = all_docs.get("metadatas", [])
+    # metadata_list = all_docs.get("metadatas", [])
     
-    image_types_set: Set[str] = set()
-    for metadata in metadata_list:
-        image_type_field = metadata.get("image_type", "")
-        types = [t.strip() for t in image_type_field.split(",") if t.strip()]
-        image_types_set.update(types)
+    # image_types_set: Set[str] = set()
+    # for metadata in metadata_list:
+    #     image_type_field = metadata.get("image_type", "")
+    #     types = [t.strip() for t in image_type_field.split(",") if t.strip()]
+    #     image_types_set.update(types)
 
 
     print(f"Text Chroma DB loaded with {num_docs} documents.")
@@ -183,4 +188,4 @@ def graphics_retriever(query, drive, k=5, filters=None):
     filtered_results.sort(key=lambda x: x['similarity'])
     print(f"Returning {len(filtered_results)} visually unique images.")
     
-    return filtered_results[:k], sorted(image_types_set)
+    return filtered_results[:k]
