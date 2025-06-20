@@ -447,14 +447,15 @@ def run_outline_checklist_review_and_revise(sheet, worksheet_name, llm="gemini_2
         if col not in outline_df.columns:
             outline_df[col] = ""
 
-    # Decide whether to use original or revised columns as source input
-    use_revised_input = outline_df[['Topic', 'Subtopic', 'Learning Objectives']].replace("", pd.NA).dropna(how='all').shape[0] > 0
-    input_cols = ['Topic', 'Subtopic', 'Learning Objectives'] if use_revised_input else ['Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']
-
     unique_tasks = checklist_df['Task'].unique()
     progress = SmartProgressBar(total_tasks=len(unique_tasks), description="Percent complete", save_interval=1)
 
     for task in unique_tasks:
+        # Recompute input_cols at the start of each task to always use the latest revised columns if available
+        use_revised_input = outline_df[['Topic', 'Subtopic', 'Learning Objectives']].replace("", pd.NA).dropna(how='all').shape[0] > 0
+        input_cols = ['Topic', 'Subtopic', 'Learning Objectives'] if use_revised_input else [
+            'Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']
+
         task_criteria_df = checklist_df[checklist_df['Task'] == task]
         scope = task_criteria_df['Scope'].iloc[0].strip().lower()
 
