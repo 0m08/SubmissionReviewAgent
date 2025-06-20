@@ -124,6 +124,12 @@ graphics_search_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
+vectorstore_page = st.Page(
+    "vector_store_image_search.py",              # path to the page script
+    title="Image Search",          # label shown in the sidebar
+    icon=":material/storage:",     # use a material or emoji icon
+    # Optional: default=True or role-based logic
+)
 
 
 #######################
@@ -143,11 +149,11 @@ graphics_search_page = st.Page(
 
 
 role_based_page_access_dict = {
-    "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page],
-    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page],
+    "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page],
+    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page],
     "Content Head": [course_outline_page, research_notes_page],
-    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page],
-    "Visual Designer": [graphics_definition_page],
+    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page],
+    "Visual Designer": [graphics_definition_page, vectorstore_page],
 }
 
 
