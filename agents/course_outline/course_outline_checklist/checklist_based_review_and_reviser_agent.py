@@ -184,18 +184,18 @@ def run_outline_checklist_review(course_name, target_audience, outline_entry, ch
     # Initialize the Review Agent
     review_agent = Chain(llm=llm, tags=["output"])
 
-    # Format the prompt for debugging (printing)
-    formatted_prompt = outline_checklist_review_prompt.format(
-        course_name=course_name,
-        target_audience=target_audience,
-        outline_entry=outline_entry,
-        checklist_criteria=checklist_criteria
-    )
+    # # Format the prompt for debugging (printing)
+    # formatted_prompt = outline_checklist_review_prompt.format(
+    #     course_name=course_name,
+    #     target_audience=target_audience,
+    #     outline_entry=outline_entry,
+    #     checklist_criteria=checklist_criteria
+    # )
 
-    # Print the formatted prompt for debugging
-    print("\n🔍 OUTLINE CHECKLIST REVIEW PROMPT BEING SENT TO LLM:\n")
-    print(formatted_prompt)
-    print("\n" + "=" * 100 + "\n")
+    # # Print the formatted prompt for debugging
+    # print("\n🔍 OUTLINE CHECKLIST REVIEW PROMPT BEING SENT TO LLM:\n")
+    # print(formatted_prompt)
+    # print("\n" + "=" * 100 + "\n")
 
     # Add the user message
     review_agent.add_message(
@@ -379,19 +379,19 @@ def run_outline_checklist_reviser(course_name, target_audience, original_outline
     # Initialize the Reviser Agent
     reviser_agent = Chain(llm=llm, tags=["output"])
 
-    # Format the prompt for debugging (printing)
-    formatted_prompt = outline_checklist_reviser_prompt.format(
-        course_name=course_name,
-        target_audience=target_audience,
-        original_outline=original_outline,
-        task_name=task_name,
-        review_criteria=review_criteria
-    )
+    # # Format the prompt for debugging (printing)
+    # formatted_prompt = outline_checklist_reviser_prompt.format(
+    #     course_name=course_name,
+    #     target_audience=target_audience,
+    #     original_outline=original_outline,
+    #     task_name=task_name,
+    #     review_criteria=review_criteria
+    # )
 
-    # Print the formatted prompt for debugging
-    print("\n🛠️ OUTLINE CHECKLIST REVISION PROMPT BEING SENT TO LLM:\n")
-    print(formatted_prompt)
-    print("\n" + "=" * 100 + "\n")
+    # # Print the formatted prompt for debugging
+    # print("\n🛠️ OUTLINE CHECKLIST REVISION PROMPT BEING SENT TO LLM:\n")
+    # print(formatted_prompt)
+    # print("\n" + "=" * 100 + "\n")
 
     # Add the user message
     reviser_agent.add_message(
