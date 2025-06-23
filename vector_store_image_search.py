@@ -182,43 +182,43 @@ elif task == "Search Images":
     # unique_image_types = sorted(set(image_types)) if image_types else []
 
     # Toggle to choose search mode
-    # use_agent = st.toggle("Use Graphics Search Agent", value=False)
-    # use_graph = st.toggle("Use LangGraph Search", value=False)
+    use_agent = st.toggle("Use Graphics Search Agent", value=False)
+    use_graph = st.toggle("Use LangGraph Search", value=False)
 
     # Button to execute search
     run_search = st.button("Run Search")
 
     results = None
     if run_search:
-    #     if not query:
-    #         st.warning("Please enter a search query.")
-    #     else:
-    #         mode = (
-    #             'LangGraph Search' if use_graph else
-    #             ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
-    #         )
-    #         with st.spinner(f"Searching images using {mode}..."):
-    #             if use_graph:
-    #                 results = run_graphics_search_graph(
-    #                     query=query,
-    #                     drive=drive,
-    #                     k=k,
-    #                     llm="gemini_2_flash",
-    #                     max_turns=3,
-    #                     filters=filters,
-    #                 )
-    #             elif use_agent:
-    #                 results = graphics_retriever_agent(
-    #                     query=query,
-    #                     drive=drive,
-    #                     llm="gemini_2_flash",
-    #                     k=k,
-    #                     max_turns=3,
-    #                     filters=filters,
-    #                     verbose=False
-    #                 )
-    #             else:
-        results = graphics_retriever(query=query, drive=drive, k=k, filters=filters)
+        if not query:
+            st.warning("Please enter a search query.")
+        else:
+            mode = (
+                'LangGraph Search' if use_graph else
+                ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
+            )
+            with st.spinner(f"Searching images using {mode}..."):
+                if use_graph:
+                    results = run_graphics_search_graph(
+                        query=query,
+                        drive=drive,
+                        k=k,
+                        llm="gemini_2_flash",
+                        max_turns=3,
+                        filters=filters,
+                    )
+                elif use_agent:
+                    results = graphics_retriever_agent(
+                        query=query,
+                        drive=drive,
+                        llm="gemini_2_flash",
+                        k=k,
+                        max_turns=3,
+                        filters=filters,
+                        verbose=False
+                    )
+                else:
+                    results = graphics_retriever(query=query, drive=drive, k=k, filters=filters)
 
         # Display results
         if results:

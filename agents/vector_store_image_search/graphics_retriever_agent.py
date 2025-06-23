@@ -8,7 +8,7 @@ from agents.vector_store_image_search.graphics_retriever import graphics_retriev
 graphics_retriever_agent_prompt = """
 You are an expert in visual content evaluation, tasked with selecting the most visually relevant image(s) to match a given query. You have access to a vector database that returns both image metadata and the actual image content.
 
-Your goal is to select up to k image(s) requested by the user, that best match the query based on visual alignment — not just text. If no good images are found, you may refine the query and re-search up to 3 times. If nothing fits after all attempts, return "NONE".
+Your goal is to select exactly k image(s) requested by the user. If fewer than k strong visual matches are found, refine the query and re-search. Do not return fewer than k unless no relevant images exist after 3 attempts.
 
 For each search turn, you will receive:
 - The search query used to retrieve results.
@@ -21,7 +21,7 @@ Your responsibilities are as follows:
 1. VISUAL INSPECTION
 
 - Carefully examine the actual images.
-- Use visual reasoning to understand what is shown (e.g., objects, diagrams, environments, actions).
+- Pay close attention to distinguishing features when terms may be visually similar but semantically different. Do not select images that contradict the core terms in the query.
 - Use metadata (title, description) only to support what you *see*.
 - Ignore high similarity scores if the visuals don't match the intent.
 
@@ -31,7 +31,7 @@ Your responsibilities are as follows:
 
 - If k strong visual matches are found, return those.
 - Set the verdict to "TERMINATE".
-- Output the selected image(s) as rendered images (optional), and return their indexes.
+- Output the selected image(s) as rendered images, and return their indexes.
 
 ---
 
@@ -121,19 +121,6 @@ Refined query if verdict is CONTINUE. Leave empty if verdict is TERMINATE.
 """)
 
 
-
-def pil_to_base64(img):
-    """
-    Converts a PIL image to a base64-encoded data URI.
-    :param img: PIL image.
-    :return: Base64-encoded data URI.
-    """
-    buffered = BytesIO()
-    img.save(buffered, format="JPEG")
-    encoded = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{encoded}"
-
-
 def pil_to_base64_data_uri(image: PILImageType) -> str:
     
     """
@@ -152,33 +139,32 @@ def prepare_images_for_llm(
     formatted_prompt: str
 ) -> List[Dict[str, Any]]:
     """
-    Prepares prompt content for visualization.
-    :param images: List of image objects.
-    :param formatted_prompt: Prompt template.
-    :return: List of prompt parts.
+    Prepares prompt content for vision LLM. 
+    Only sends images and the core prompt — no metadata or captions.
+    
+    :param images: List of image dictionaries with PIL images under 'image' key.
+    :param formatted_prompt: Main prompt string to be shown before the images.
+    :return: List of prompt parts with 'text' and 'image_url' elements.
     """
     parts = []
 
-    # Add the prompt text
+    # Add the prompt instruction as text
     parts.append({
         "type": "text",
         "text": formatted_prompt.strip()
     })
 
-    # Add images
-    for i, item in enumerate(images):
+    # Add each image (no metadata or captions)
+    for item in images:
         img = item.get("image")
         if isinstance(img, PILImageType):
             parts.append({
                 "type": "image_url",
                 "image_url": pil_to_base64_data_uri(img)
             })
-            parts.append({
-                "type": "text",
-                "text": f"Image {i+1} — Similarity: {item.get('similarity', 0.0):.4f}"
-            })
 
     return parts
+
 
 
 def parse_selected_indexes(index_string):
@@ -236,20 +222,15 @@ def graphics_retriever_agent(
         # Step 2: Format prompt from template
         formatted_prompt = image_relevance_prompt.format(query=query)
 
-        # (base64 + "image_url" part type)
-        content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
+
 
         if verbose:
             print(f"Sending {len(results)} images to LLM for evaluation...")
 
         # Step 4: Add to chain and call LLM
         # Flatten all parts into a single string prompt
-        flat_prompt = formatted_prompt + "\n\n"
-        for i, item in enumerate(results):
-            img_meta = item.get("metadata", {})
-            flat_prompt += f"Image {i}: {img_meta.get('image_title', 'Untitled')} — {img_meta.get('description', '')}\n"
-
-        chain.add_message(role="user", content=flat_prompt)
+        content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
+        chain.add_message(role="user", content=content_parts)
 
         llm_raw = chain.run()
 
