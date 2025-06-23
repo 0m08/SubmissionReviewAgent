@@ -931,29 +931,29 @@ pipeline_sections.append({
     ]
 })
 
-pipeline_sections.append({
-    "section_name": "Section: Checklist based Review-Revise Agents",
-    "steps": [
-        {
-            "name": "Checklist Based Review and Revise Agents",
-            "func": run_outline_checklist_review_and_revise,
-            "depends_on": ["Create the Final Outline Sheet"],
-            "args": {
-                "sheet": "sheet",
-                "worksheet_name": "Final Outline",
-                "llm": llm_model,
-            },
-            "delete_func": delete_outline_checklist_review_and_revise,
-            "delete_args": {
-                "sheet": "sheet",
-                "worksheet_name": "Final Outline",
-            },
-            "hide_if_final_outline": True,
-            "estimated_time": "~ 5 - 10 minutes",
-            "description": "Reviews and Revises the Final Outline based on predefined checklist criteria, ensuring quality and consistency.",
-        }
-    ]
-})
+# pipeline_sections.append({
+#     "section_name": "Section: Checklist based Review-Revise Agents",
+#     "steps": [
+#         {
+#             "name": "Checklist Based Review and Revise Agents",
+#             "func": run_outline_checklist_review_and_revise,
+#             "depends_on": ["Create the Final Outline Sheet"],
+#             "args": {
+#                 "sheet": "sheet",
+#                 "worksheet_name": "Final Outline",
+#                 "llm": llm_model,
+#             },
+#             "delete_func": delete_outline_checklist_review_and_revise,
+#             "delete_args": {
+#                 "sheet": "sheet",
+#                 "worksheet_name": "Final Outline",
+#             },
+#             "hide_if_final_outline": True,
+#             "estimated_time": "~ 5 - 10 minutes",
+#             "description": "Reviews and Revises the Final Outline based on predefined checklist criteria, ensuring quality and consistency.",
+#         }
+#     ]
+# })
 
 pipeline_sections.append({
     "section_name": "Section: Get References for the Final Outline",
