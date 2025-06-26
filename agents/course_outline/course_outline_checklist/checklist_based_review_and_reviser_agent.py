@@ -18,7 +18,7 @@ from langsmith import traceable
 import streamlit as st
 
 outline_checklist_review_prompt = """ You are a checklist-based review agent. A course outline for an E-learning course was created. Your task is to review the topics, subtopics, and learning objectives from this generated course outline using the predefined review criteria provided.
-For each checklist task and its review criterion, determine whether the outline content satisfies the requirement. If any issue is found, you will mark it as a failure and apply the predefined operation specified for that criterion — such as deleting, modifying, splitting, or merging content. Do not invent or suggest a different operation. Your goal is to ensure that the course outline remains clear, relevant, and instructionally sound.
+For the given checklist task and its review criterion, determine whether the outline content satisfies the requirement. If any issue is found, you will mark it as a failure and apply the predefined operation specified for that criterion — such as deleting, modifying, splitting, or merging content. Do not invent or suggest a different operation. Your goal is to ensure that the course outline remains clear, relevant, and instructionally sound.
 
 Below is the course information for which the outline was generated:
 
@@ -48,14 +48,14 @@ Each review criterion has its own scope which indicates whether you will be revi
 
 B) Multiple review criteria under a single checklist task
 
-- Each checklist task may contain one or more review criteria.
+- The checklist task may contain one or more review criteria.
 - Evaluate the outline content against each criterion individually.
 - Do not treat the group of criteria as a single combined statement—assess each one on its own.
 - Strictly preserve the wording of the task name and each review criterion. Do not rephrase, paraphrase, or alter them in any way.
 
 C) How to assign verdicts and recommend operations
 
-- Each checklist task contains multiple individual review criteria.
+- The checklist task contains multiple individual review criteria.
 - Evaluate the course outline content against each criterion separately.
 - For every review criterion, assign a verdict of either "Pass" or "Fail" and provide a brief justification for your verdict.
 
@@ -184,18 +184,18 @@ def run_outline_checklist_review(course_name, target_audience, outline_entry, ch
     # Initialize the Review Agent
     review_agent = Chain(llm=llm, tags=["output"])
 
-    # Format the prompt for debugging (printing)
-    formatted_prompt = outline_checklist_review_prompt.format(
-        course_name=course_name,
-        target_audience=target_audience,
-        outline_entry=outline_entry,
-        checklist_criteria=checklist_criteria
-    )
+    # # Format the prompt for debugging (printing)
+    # formatted_prompt = outline_checklist_review_prompt.format(
+    #     course_name=course_name,
+    #     target_audience=target_audience,
+    #     outline_entry=outline_entry,
+    #     checklist_criteria=checklist_criteria
+    # )
 
-    # Print the formatted prompt for debugging
-    print("\n🔍 OUTLINE CHECKLIST REVIEW PROMPT BEING SENT TO LLM:\n")
-    print(formatted_prompt)
-    print("\n" + "=" * 100 + "\n")
+    # # Print the formatted prompt for debugging
+    # print("\n🔍 OUTLINE CHECKLIST REVIEW PROMPT BEING SENT TO LLM:\n")
+    # print(formatted_prompt)
+    # print("\n" + "=" * 100 + "\n")
 
     # Add the user message
     review_agent.add_message(
@@ -238,7 +238,7 @@ Review Criteria:
 {review_criteria}
 </checklist_task>
 
-Follow the below instructions carefully while doing the revision:
+Follow the below instructions carefully while doing the revisions:
 
 A) Scope-Based Revision Guidelines
 
@@ -379,19 +379,19 @@ def run_outline_checklist_reviser(course_name, target_audience, original_outline
     # Initialize the Reviser Agent
     reviser_agent = Chain(llm=llm, tags=["output"])
 
-    # Format the prompt for debugging (printing)
-    formatted_prompt = outline_checklist_reviser_prompt.format(
-        course_name=course_name,
-        target_audience=target_audience,
-        original_outline=original_outline,
-        task_name=task_name,
-        review_criteria=review_criteria
-    )
+    # # Format the prompt for debugging (printing)
+    # formatted_prompt = outline_checklist_reviser_prompt.format(
+    #     course_name=course_name,
+    #     target_audience=target_audience,
+    #     original_outline=original_outline,
+    #     task_name=task_name,
+    #     review_criteria=review_criteria
+    # )
 
-    # Print the formatted prompt for debugging
-    print("\n🛠️ OUTLINE CHECKLIST REVISION PROMPT BEING SENT TO LLM:\n")
-    print(formatted_prompt)
-    print("\n" + "=" * 100 + "\n")
+    # # Print the formatted prompt for debugging
+    # print("\n🛠️ OUTLINE CHECKLIST REVISION PROMPT BEING SENT TO LLM:\n")
+    # print(formatted_prompt)
+    # print("\n" + "=" * 100 + "\n")
 
     # Add the user message
     reviser_agent.add_message(
@@ -447,14 +447,15 @@ def run_outline_checklist_review_and_revise(sheet, worksheet_name, llm="gemini_2
         if col not in outline_df.columns:
             outline_df[col] = ""
 
-    # Decide whether to use original or revised columns as source input
-    use_revised_input = outline_df[['Topic', 'Subtopic', 'Learning Objectives']].replace("", pd.NA).dropna(how='all').shape[0] > 0
-    input_cols = ['Topic', 'Subtopic', 'Learning Objectives'] if use_revised_input else ['Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']
-
     unique_tasks = checklist_df['Task'].unique()
     progress = SmartProgressBar(total_tasks=len(unique_tasks), description="Percent complete", save_interval=1)
 
     for task in unique_tasks:
+        # Recompute input_cols at the start of each task to always use the latest revised columns if available
+        use_revised_input = outline_df[['Topic', 'Subtopic', 'Learning Objectives']].replace("", pd.NA).dropna(how='all').shape[0] > 0
+        input_cols = ['Topic', 'Subtopic', 'Learning Objectives'] if use_revised_input else [
+            'Topic before checklist step', 'Subtopic before checklist step', 'Learning Objectives before checklist step']
+
         task_criteria_df = checklist_df[checklist_df['Task'] == task]
         scope = task_criteria_df['Scope'].iloc[0].strip().lower()
 

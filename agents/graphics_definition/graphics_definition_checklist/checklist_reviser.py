@@ -174,7 +174,7 @@ def process_slide_checklist_evaluation(slide_index, row, unique_tasks, checklist
     return checklist_results, revised_graphics_definition or row["revised_graphics_definition"].strip()
 
 @traceable(
-    name="generate_checklist_evaluation",
+    
     metadata={
         "agent_name": "graphics_definition",
         "step_name": "Checklist Evaluation",
