@@ -163,7 +163,7 @@ def run_revise_topic_notes_for_all_rows(sheet, worksheet_name, course_name, targ
     # Create framework col if not already present
     if 'framework' not in research_notes_df.columns:
         research_notes_df['framework'] = ''
-        research_notes_df['section_notes'] = ''
+        research_notes_df['before_checklist_step_section_notes'] = ''
 
     # Check if this step is already done by checking last row of final_review column
     if research_notes_df.iloc[-1]['framework'] != '':
@@ -223,7 +223,7 @@ def run_revise_topic_notes_for_all_rows(sheet, worksheet_name, course_name, targ
 
             # Update the df row
             research_notes_df.loc[index, 'framework'] = framework
-            research_notes_df.loc[index, 'section_notes'] = section_notes
+            research_notes_df.loc[index, 'before_checklist_step_section_notes'] = section_notes
 
             # Update progress
             progress.update()
@@ -241,9 +241,9 @@ def run_revise_topic_notes_for_all_rows(sheet, worksheet_name, course_name, targ
 
 
 def delete_revised_topic_notes(sheet, worksheet_name="Research Notes"):
-    """Remove framework and section_notes columns from the worksheet."""
+    """Remove framework and before_checklist_step_section_notes columns from the worksheet."""
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
-    cols = ["framework", "section_notes"]
+    cols = ["framework", "before_checklist_step_section_notes"]
     cols = [c for c in cols if c in df.columns]
     if cols:
         df = df.drop(columns=cols)
