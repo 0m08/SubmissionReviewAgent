@@ -66,22 +66,47 @@ def compute_phash_from_drive_url(url):
         print(f"⚠️ Could not compute pHash for {url}: {e}")
         return None
 
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+# clip_model, preprocess = clip.load("ViT-B/32", device=device)  # ← BAD: runs on import
+# clip_model.eval()
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-clip_model, preprocess = clip.load("ViT-B/32", device=device)
-clip_model.eval()
+_clip_model = None
+_preprocess = None
+
+def get_clip_model_and_preprocess():
+    global _clip_model, _preprocess
+    if _clip_model is None or _preprocess is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _clip_model, _preprocess = clip.load("ViT-B/32", device=device)
+        _clip_model.eval()
+    return _clip_model, _preprocess
+
+
 
 def get_image_embedding_from_pil(image: Image.Image):
     """
     Get image embedding from a PIL image using CLIP.
-    :param image: PIL Image object.
-    :return: Normalized image embedding as a list.
     """
+    model, preprocess = get_clip_model_and_preprocess()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     image_tensor = preprocess(image).unsqueeze(0).to(device)
     with torch.no_grad():
-        image_features = clip_model.encode_image(image_tensor)
+        image_features = model.encode_image(image_tensor)
         image_features /= image_features.norm(dim=-1, keepdim=True)
     return image_features[0].cpu().numpy().tolist()
+
+
+# def get_image_embedding_from_pil(image: Image.Image):
+#     """
+#     Get image embedding from a PIL image using CLIP.
+#     :param image: PIL Image object.
+#     :return: Normalized image embedding as a list.
+#     """
+#     image_tensor = preprocess(image).unsqueeze(0).to(device)
+#     with torch.no_grad():
+#         image_features = clip_model.encode_image(image_tensor)
+#         image_features /= image_features.norm(dim=-1, keepdim=True)
+#     return image_features[0].cpu().numpy().tolist()
 
 
 def download_image_from_drive(drive, file_id):
@@ -281,7 +306,7 @@ def update_vectorstore(sheet, drive):
     parent_folder_id = '1X1diTz61mltI5usZWeyk7980KeaE82kT'
     local_chroma_root = "/tmp/temp_chroma_folder"
     local_chroma_path_text = os.path.join(local_chroma_root, "chroma_graphics_db")
-    local_chroma_path_image = os.path.join(local_chroma_root, "chroma_graphics_db")
+    # local_chroma_path_image = os.path.join(local_chroma_root, "chroma_graphics_db")
     os.makedirs(local_chroma_root, exist_ok=True)
 
     # ---------- TEXT EMBEDDINGS DB ----------

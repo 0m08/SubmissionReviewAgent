@@ -9,7 +9,7 @@ from agents.vector_store_image_search.graphics_retriever import graphics_retriev
 graphics_retriever_agent_prompt = """
 You are an expert in visual content evaluation, tasked with selecting the most visually relevant image(s) to match a given query.
 
-Your goal is to select exactly k image(s) requested by the user. If fewer than k strong visual matches are found, refine the query and re-search. Do not return fewer than k unless no relevant images exist after 3 progressively refined attempts.
+Your goal is to identify images that best match the intent of the search query based on visual content, not just metadata or similarity scores.
 
 For each search turn, you will receive:
 - The search query used to retrieve results.
@@ -30,9 +30,8 @@ Your responsibilities are as follows:
 
 2. IF RELEVANT IMAGES ARE FOUND
 
-- If k strong visual matches are found, return those.
-- Set the verdict to "TERMINATE".
-- Output the selected image(s) as rendered images, and return their indexes.
+If you found any clearly relevant and visually matching images, mark them and set verdict = TERMINATE.
+Do not suggest refinements if a usable set of results has already been found.
 
 ---
 
@@ -51,7 +50,6 @@ Your responsibilities are as follows:
   - Clarify function, setting, or visual type (e.g., "training diagram", "schematic", "photo of used fuses")
   - Preserve the **intent and scope** of the original query.
 
-- Only introduce a technical or domain-specific refinement (e.g., engineering, HVAC) if the original query contains terms clearly pointing to such a domain.
 
 - If multiple vague queries fail, fallback to a **context-respecting structured query**:
   - Use visual scene interpretation for general queries.
@@ -113,19 +111,20 @@ image_relevance_prompt = ("""
 You are an expert in evaluating images for relevance to a search query.
 
 You will be shown:
-- A search query
+- The original search query: {query}
 - A set of top-k candidate images
 
 Your job is to:
 1. Visually inspect each image.
 2. Comment on whether the image matches the query intent.
 3. Choose the best matching images by their index (starting from 0).
-4. If none fit well, suggest a better query.
+4. If none fit well, suggest a better query — but **preserve the context and avoid switching domains**.
+
 
 Respond in this exact XML format:
 
 <observations>
-<Your reasoning for each image, e.g., "Image 0 shows HVAC equipment, relevant to 'air conditioner'">
+<Your reasoning for each image.">
 </observations>
 
 <verdict>
@@ -224,13 +223,15 @@ def graphics_retriever_agent(
     :param filters: Optional filters for image metadata (e.g., mime_type, image_title).
     :return: List of selected images with metadata, or empty if none found.
     """
-
+    
     # Initialize custom chain for vision reasoning
     chain = Chain(
         llm=llm,
         tags=["observations", "verdict", "selected_indexes", "action", "query"],
         use_xml_checker=True
     )
+    original_query = query
+    
     chain.add_message(role="system", content=graphics_retriever_agent_prompt)
 
     for turn in range(max_turns):
@@ -245,7 +246,7 @@ def graphics_retriever_agent(
             return []
 
         # Step 2: Format prompt from template
-        formatted_prompt = image_relevance_prompt.format(query=query)
+        formatted_prompt = image_relevance_prompt.format(query=original_query)
 
 
 

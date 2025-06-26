@@ -2,7 +2,9 @@ import streamlit as st
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
 from agents.vector_store_image_search.graphics_retriever_agent import graphics_retriever_agent
 from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists
-from agents.vector_store_image_search.graphics_search_graph import run_graphics_search_graph
+# from agents.vector_store_image_search.graphics_search_graph import run_graphics_search_graph
+# from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
+from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
 from services.drive_service import login_with_service_account
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
@@ -205,7 +207,7 @@ elif task == "Search Images":
                         k=k,
                         llm="gemini_2_flash",
                         max_turns=3,
-                        filters=filters,
+                        filters=filters
                     )
                 elif use_agent:
                     results = graphics_retriever_agent(
@@ -218,7 +220,7 @@ elif task == "Search Images":
                         verbose=False
                     )
                 else:
-                    results = graphics_retriever(query=query, drive=drive, k=k, filters=filters)
+                    results = graphics_retriever(query, drive=drive, k=k, filters=filters)
 
         # Display results
         if results:
