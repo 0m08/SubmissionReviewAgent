@@ -16,6 +16,9 @@ import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
+import pandas as pd
+from services.web_page_loaders import get_docs_from_url
+from services.youtube_video_loader import get_yt_chapters_chunks_as_docs, get_video_id_from_url, convert_time, get_transcript_with_fallback
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
@@ -208,9 +211,55 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
     Processes a single row: runs the retriever agent for each Learning Objective
     and accumulates the context string. Returns (index, context_string, source_links, as_is_sources, content_sources, web_links, video_links)
     """
-    # # If row is already populated, just return existing context
-    # if row['context_0'] != '':
-    #     return index, row['context_0']
+
+    required_cols = ["References", "Reference type", "Reference usage"]
+    if all(col in row.index for col in required_cols):
+        ref = str(row["References"]).strip()
+        ref_type = str(row["Reference type"]).strip()
+        ref_usage = str(row["Reference usage"]).strip()
+        if ref and ref_type in ["Web Article", "Youtube video"] and ref_usage:
+            context_chunks = []
+            # Use Web Loader
+            if ref_type == "Web Article":
+                try:
+                    docs = get_docs_from_url(ref, query="")
+                    for doc in docs:
+                        # If chunk is too large, further split
+                        if len(doc.page_content) > 49000:
+                            # Use create_and_populate_columns on a temp df
+                            temp_df = pd.DataFrame({"dummy": [""]})
+                            temp_df = create_and_populate_columns(temp_df, doc.page_content, 0, "context", 49000)
+                            for col in temp_df.columns:
+                                if col.startswith("context_"):
+                                    context_chunks.append(temp_df.at[0, col])
+                        else:
+                            context_chunks.append(doc.page_content)
+                except Exception as e:
+                    print(f"Error using web loader for row {index}: {e}")
+            # Use YouTube Loader
+            elif ref_type == "Youtube video":
+                try:
+                    video_id = get_video_id_from_url(ref)
+                    transcript = get_transcript_with_fallback(video_id, return_text_only=False)
+                    
+                    if not transcript:
+                        print(f"No transcript returned for video {video_id}")
+                    
+                    # Format each segment as "- '{timestamp}': {text}"
+                    lines = [f"- '{item['timestamp']}': {item['text']}" for item in transcript]
+                    transcript_text = '\n'.join(lines)
+                    # Split and fill context_n columns
+                    
+                    temp_df = pd.DataFrame({"dummy": [""]})
+                    temp_df = create_and_populate_columns(temp_df, transcript_text, 0, "context", 49000)
+                    for col in temp_df.columns:
+                        if col.startswith("context_"):
+                            context_chunks.append(temp_df.at[0, col])
+                except Exception as e:
+                    print(f"Error using YouTube loader for row {index}: {e}")
+
+            context_combined = "\n\n".join(context_chunks)
+            return index, context_combined, "", "", "", "", ""
 
     # Get the LOs for this row / subtopic
     # If row is blank, search by subtopic

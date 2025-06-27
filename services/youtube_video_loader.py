@@ -12,6 +12,7 @@ import requests
 import csv
 import streamlit as st
 import json
+import subprocess
 from langsmith import traceable
 
 
@@ -232,6 +233,127 @@ def get_transcript_backup(video_id: str, return_text_only=False):
     except Exception as e:
         raise Exception(f"Error fetching transcript via fallback method: {e}")
 
+@try_n_times(3)
+def get_transcript_assemblyai(video_id):
+    """
+    Retrieve a sentence-level timestamped transcript for a YouTube video using AssemblyAI.
+    This is used as a final fallback method when all other transcript sources fail.
+
+    Args:
+        video_id (str): The YouTube video ID.
+
+    Returns:
+        list[dict]: A list of dictionaries, each containing:
+            - 'timestamp': str — start time of the sentence (HH:MM:SS)
+            - 'text': str — the sentence text
+    """
+    api_key = os.getenv("ASSEMBLYAI_API_KEY")
+    if not api_key:
+        raise Exception("AssemblyAI API key not found")
+
+    # Step 1: Download audio from YouTube using yt_dlp (skip if already downloaded)
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    audio_file = f"{video_id}.mp3"
+    if not os.path.exists(audio_file):
+        subprocess.run(["yt-dlp", "-x", "--audio-format", "mp3", "-o", audio_file, url], check=True)
+
+    # Step 2: Upload audio to AssemblyAI
+    def upload_audio(file_path):
+        headers = {'authorization': api_key}
+        with open(file_path, 'rb') as f:
+            response = requests.post("https://api.assemblyai.com/v2/upload", headers=headers, files={"file": f})
+        return response.json()["upload_url"]
+
+    upload_url = upload_audio(audio_file)
+
+    # Step 3: Submit transcript request
+    transcript_request = {
+        "audio_url": upload_url
+    }
+    headers = {
+        "authorization": api_key,
+        "content-type": "application/json"
+    }
+    transcript_response = requests.post("https://api.assemblyai.com/v2/transcript", json=transcript_request, headers=headers)
+
+    # ✅ Safely parse JSON and validate response
+    try:
+        transcript_json = transcript_response.json()
+    except Exception as parse_error:
+        raise Exception(f"Failed to parse AssemblyAI response: {transcript_response.text}") from parse_error
+
+    if "error" in transcript_json:
+        raise Exception(f"AssemblyAI API error: {transcript_json['error']}")
+
+    if "id" not in transcript_json:
+        raise Exception(f"AssemblyAI did not return a transcript ID. Response: {transcript_json}")
+
+    transcript_id = transcript_json["id"]
+
+    # Step 4: Poll until transcript is ready
+    status = "queued"
+    while status not in ("completed", "error"):
+        poll = requests.get(f"https://api.assemblyai.com/v2/transcript/{transcript_id}", headers=headers).json()
+        status = poll["status"]
+        time.sleep(3)
+
+    if status == "error":
+        raise Exception(f"AssemblyAI transcription failed: {poll.get('error')}")
+
+    # After polling is complete, get total duration
+    duration_sec = poll.get("audio_duration", 0)
+    if duration_sec >= 3600:
+        time_format = 'HH:MM:SS'
+    else:
+        time_format = 'MM:SS'
+
+    sentences = poll.get("sentences", [])
+    if sentences:
+        formatted_transcript = [
+            {
+                "timestamp": convert_time(s["start"] / 1000, format=time_format),
+                "text": s["text"]
+            }
+            for s in sentences
+        ]
+    elif poll.get("words"):
+        words = poll["words"]
+        formatted_transcript = []
+        current_line = []
+        current_start = words[0]["start"] if words else 0
+        for w in words:
+            current_line.append(w["text"])
+            # Group by punctuation or every 10 seconds
+            if w["text"].endswith((".", "!", "?")) or (w["end"] - current_start > 10000):
+                timestamp = convert_time(current_start / 1000, format=time_format)
+                formatted_transcript.append({
+                    "timestamp": timestamp,
+                    "text": " ".join(current_line)
+                })
+                current_line = []
+                current_start = w["end"]
+        if current_line:
+            timestamp = convert_time(current_start / 1000, format=time_format)
+            formatted_transcript.append({
+                "timestamp": timestamp,
+                "text": " ".join(current_line)
+            })
+    elif poll.get("text"):
+        formatted_transcript = [{
+            "timestamp": "00:00:00",
+            "text": poll["text"]
+        }]
+    else:
+        formatted_transcript = []
+
+    # Step 6: Clean up temporary audio file
+    if os.path.exists(audio_file):
+        os.remove(audio_file)
+
+    print("Using transcript from AssemblyAI fallback")  # ✅ For logging
+
+    return formatted_transcript
+
 
 @st.cache_data
 def load_transcripts_from_csv():
@@ -260,15 +382,25 @@ def load_transcripts_from_csv():
 @traceable
 def get_transcript_with_fallback(video_id: str, return_text_only=False):
     """
-    1. Uses st.cache_data to load all transcripts from CSV into memory.
-    2. Checks if 'video_id' is in the cached dict. If so, returns it immediately.
-    3. Otherwise, fetches via the normal transcript or backup function,
-       saves to CSV, and updates the cache by calling st.cache_data.clear().
+    Attempts to retrieve a transcript for the given YouTube video using a 4-step fallback process:
+    
+    1. Loads transcript from CSV cache (if available).
+    2. Tries the official YouTubeTranscriptApi.
+    3. Falls back to a RapidAPI-based transcript fetch.
+    4. As a last resort, downloads audio and transcribes it using AssemblyAI.
+
+    Args:
+        video_id (str): The YouTube video ID.
+        return_text_only (bool): Whether to return plain text or timestamped format (ignored for AssemblyAI).
+
+    Returns:
+        list[dict] or str: Transcript data in structured or plain text form.
     """
 
+    # Load from cached CSV first
     transcripts_cache = load_transcripts_from_csv()
-    
-    # 1) Check in-memory cache
+
+    # Step 1: Check if transcript is in cache
     if video_id in transcripts_cache:
         print(f"Video id {video_id} found in cached CSV.")
         cached_transcript = transcripts_cache[video_id]
@@ -278,16 +410,25 @@ def get_transcript_with_fallback(video_id: str, return_text_only=False):
             print("Loaded Cached Transcript from the CSV")
             return cached_transcript
         else:
-            pass
+            print("Cached transcript found but too short or invalid.")
 
+    # Step 2: Try official YouTubeTranscriptApi
     try:
-        # First attempt: official YT Transcript API
         return get_transcript(video_id, return_text_only=return_text_only)
+
     except Exception as e:
-        # If we got here, it failed even after retries in @try_n_times
-        print(f"Primary transcript fetch failed: {e}. Attempting fallback...")
-        # Fallback:
-        return get_transcript_backup(video_id, return_text_only=return_text_only)
+        print(f"Primary transcript fetch failed: {e}. Attempting RapidAPI fallback...")
+
+        # Step 3: Fallback to RapidAPI
+        try:
+            return get_transcript_backup(video_id, return_text_only=return_text_only)
+
+        except Exception as e2:
+            print(f"RapidAPI fallback failed: {e2}. Attempting AssemblyAI fallback...")
+
+            # Step 4: Final fallback using AssemblyAI (sentence-level timestamped transcript)
+            print("Using transcript from AssemblyAI fallback")
+            return get_transcript_assemblyai(video_id)
 
 
 ##### Agents to get YT Chapters

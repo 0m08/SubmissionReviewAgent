@@ -538,14 +538,101 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
     # Display the HTML
     st.markdown(html_output, unsafe_allow_html=True)
 
-@traceable(
-    metadata={
-        "agent_name": "course_outline",
-        "step_name": "Create the Final Outline Sheet",
-        "function_name": "create_final_outline_sheet",
-        "user_id": st.session_state.get("role", "anonymous")
-    }
-)
+# @traceable(
+#     metadata={
+#         "agent_name": "course_outline",
+#         "step_name": "Create the Final Outline Sheet",
+#         "function_name": "create_final_outline_sheet",
+#         "user_id": st.session_state.get("role", "anonymous")
+#     }
+# )
+# def create_final_outline_sheet(sheet):
+#     """
+#     Creates a 'Final Outline' sheet by reading from one of the source sheets depending on the Outline Stage and splits multiple LOs into separate rows.
+#     - If Outline Stage is 'Final' - use 'Base Outline' sheet and use standard column names.
+#     - If Outline Stage is 'Initial' - use 'Enhanced Outline with LOs' or fallback to 'Course Outline with LOs', and use column names with 'before checklist step'.
+#     """
+#     # Step 1: Check Outline Stage
+#     try:
+#         course_info_ws = sheet.worksheet("Course info")
+#         course_info_df = pd.DataFrame(course_info_ws.get_all_records())
+#         course_info_df.columns = [col.strip() for col in course_info_df.columns]
+
+#         # Use the first non-empty Outline Stage value
+#         outline_stage = course_info_df["Outline Stage"].dropna().astype(str).str.strip().str.lower().iloc[0]
+#     except Exception as e:
+#         raise ValueError(f" Failed to read 'Outline Stage' from 'Course Info' sheet: {e}")
+
+#     # Step 2: Choose source worksheet
+#     source_sheet_name = None
+#     if outline_stage == "final":
+#         source_sheet_name = "Base Outline"
+#         print(" Using 'Base Outline' as source since Outline Stage is 'Final'")
+#     else:
+#         try:
+#             sheet.worksheet("Enhanced Outline with LOs")
+#             source_sheet_name = "Enhanced Outline with LOs"
+#             print(" Using 'Enhanced Outline with LOs' as source since Outline Stage is 'Initial'")
+#         except:
+#             try:
+#                 sheet.worksheet("Course Outline with LOs")
+#                 source_sheet_name = "Course Outline with LOs"
+#                 print(" Using 'Course Outline with LOs' as source since Outline Stage is 'Initial'")
+#             except:
+#                 raise ValueError(" No valid source outline sheet found.")
+
+#     # Step 3: Load and normalize
+#     worksheet = sheet.worksheet(source_sheet_name)
+#     df = pd.DataFrame(worksheet.get_all_records())
+#     df.columns = [col.strip() for col in df.columns]
+
+#     if not all(col in df.columns for col in ["Topic", "Subtopic", "Learning Objectives"]):
+#         raise ValueError(f" Required columns missing in '{source_sheet_name}': 'Topic', 'Subtopic', 'Learning Objectives'.")
+
+#     # Step 4: Determine final column names
+#     if outline_stage == "final":
+#         topic_col = "Topic"
+#         subtopic_col = "Subtopic"
+#         lo_col = "Learning Objectives"
+#     else:
+#         topic_col = "Topic before checklist step"
+#         subtopic_col = "Subtopic before checklist step"
+#         lo_col = "Learning Objectives before checklist step"
+
+#     # Step 5: Split LOs into individual rows
+#     final_rows = []
+#     for _, row in df.iterrows():
+#         topic = row["Topic"]
+#         subtopic = row["Subtopic"]
+#         los_raw = row["Learning Objectives"]
+#         if pd.isna(los_raw):
+#             continue
+#         los = [lo.strip() for lo in str(los_raw).split("\n") if lo.strip()]
+#         for lo in los:
+#             final_rows.append({
+#                 topic_col: topic,
+#                 subtopic_col: subtopic,
+#                 lo_col: lo
+#             })
+
+#     # Step 6: Write output
+#     final_df = pd.DataFrame(final_rows)
+#     final_ws, _ = create_or_read_worksheet(sheet, "Final Outline")
+#     save_to_sheet(worksheet=final_ws, df=final_df)
+#     format_worksheet(final_ws)
+
+#     print(" Final Outline sheet created successfully.")
+#     return True
+
+# @traceable(
+#     metadata={
+#         "agent_name": "course_outline",
+#         "step_name": "Create the Final Outline Sheet",
+#         "function_name": "create_final_outline_sheet",
+#         "user_id": st.session_state.get("role", "anonymous")
+#     }
+# )
+
 def create_final_outline_sheet(sheet):
     """
     Creates a 'Final Outline' sheet by reading from one of the source sheets depending on the Outline Stage and splits multiple LOs into separate rows.
@@ -589,6 +676,10 @@ def create_final_outline_sheet(sheet):
     if not all(col in df.columns for col in ["Topic", "Subtopic", "Learning Objectives"]):
         raise ValueError(f" Required columns missing in '{source_sheet_name}': 'Topic', 'Subtopic', 'Learning Objectives'.")
 
+    # Check for extra columns to copy if present
+    extra_cols = ["References", "Reference type", "Reference usage"]
+    present_extra_cols = [col for col in extra_cols if col in df.columns]
+
     # Step 4: Split LOs into individual rows
     final_rows = []
     for _, row in df.iterrows():
@@ -599,11 +690,15 @@ def create_final_outline_sheet(sheet):
             continue
         los = [lo.strip() for lo in str(los_raw).split("\n") if lo.strip()]
         for lo in los:
-            final_rows.append({
+            new_row = {
                 "Topic": topic,
                 "Subtopic": subtopic,
                 "Learning Objectives": lo
-            })
+            }
+            # Copy extra columns if present
+            for col in present_extra_cols:
+                new_row[col] = row[col]
+            final_rows.append(new_row)
 
     # Step 5: Write output
     final_df = pd.DataFrame(final_rows)
@@ -613,7 +708,6 @@ def create_final_outline_sheet(sheet):
 
     print(" Final Outline sheet created successfully.")
     return True
-
 
 def delete_final_outline(sheet, worksheet_name="Final Outline"):
     """Delete the Final Outline worksheet."""
