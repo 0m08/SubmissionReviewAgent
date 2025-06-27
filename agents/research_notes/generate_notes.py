@@ -11,10 +11,10 @@ generate_research_notes_prompt = """You are an expert educational content develo
 
 Before we begin, please review the following course information:
 
-Relevant Documents:
-<relevant_documents>
+Relevant Documents/Transcripts:
+<relevant_documents_or_transcripts>
 {relevant_documents}
-</relevant_documents>
+</relevant_documents_or_transcripts>
 
 Course Name:
 <course_name>
@@ -38,6 +38,14 @@ Subtopic and Learning Objectives to Focus On:
 
 Now, follow these steps to generate the research notes. For each step, wrap your work inside the specified XML tags (i.e - objective_analysis, examine_documents, determine_information, propose_framework, create_notes, and review_and_refine) to show your work:
 
+Note:
+   - The input under <relevant_documents_or_transcripts> may consist of either:
+     a) Traditional documents (e.g., articles, manuals, textbook excerpts), or
+     b) Timestamped transcripts (e.g., from video or audio sources).
+   - If transcripts are provided, ignore the timestamps and treat the text as a normal source of information.
+   - Analyze transcript content just like any other document to extract relevant insights for the learning objectives.
+   - Regardless of the format, follow the same structured approach for all steps below and maintain the same output format.
+
 1. <objective_analysis>
    - Carefully review the learning objectives for the specific subtopic.
    - List each learning objective and break it down into key concepts and skills students should master.
@@ -45,7 +53,7 @@ Now, follow these steps to generate the research notes. For each step, wrap your
 </objective_analysis>
 
 2. <examine_documents>
-   - Thoroughly read and analyze the provided relevant documents.
+   - Thoroughly read and analyze the provided relevant documents or transcripts. If working with transcripts, ignore the timestamps and treat the content as a standard document.
    - Quote key passages that directly support the learning objectives (in case of too many docs, very large quotes, too many quotes, it is okay to present summarized versions.)
    - Explain the significance of each quoted passage in relation to the learning objectives.
    - Note any examples, definitions, or explanations that could enhance understanding.
