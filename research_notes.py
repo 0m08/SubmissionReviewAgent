@@ -2,6 +2,8 @@ from agent_ui_template import agent_ui
 import streamlit as st
 #from services.sheets_service import get_worksheet_names
 
+# Add import at the top
+from agents.research_notes.subtopic_context_aware_review_and_revise_notes import run_subtopic_context_aware_review_and_revise_for_all_rows
 
 def noop(*args, **kwargs):
     """Placeholder delete function for manual steps."""
@@ -99,6 +101,18 @@ pipeline_sections = [
                     "worksheet_name": "Final Outline",
                 }
             },
+            {
+                "name": "Subtopic Context-Aware Review and Revise",
+                "func": run_subtopic_context_aware_review_and_revise_for_all_rows,
+                "depends_on": ["Researcher"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                    "llm": "gemini_2_flash",
+                },
+                "estimated_time": "~ 10 minutes",
+                "description": "Runs a subtopic context-aware review and revision of each research note at the subtopic level, producing reviewed and revised research notes for every row.",
+            },
         ],
     },
     {
@@ -107,7 +121,7 @@ pipeline_sections = [
             {
                 "name": "Reviewer",
                 "func": run_reviewer_agent_for_all_rows,
-                "depends_on": ["Researcher"],
+                "depends_on": ["Subtopic Context-Aware Review and Revise"],
                 "args": {
                     "sheet": "sheet",
                     "worksheet_name": "Final Outline",

@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
+from services.youtube_video_loader import convert_time_to_sec, get_video_id_from_url
+import re
 
 generate_research_notes_prompt = """You are an expert educational content developer tasked with creating comprehensive research notes for a specific subtopic within a larger course. Your goal is to produce well-structured, engaging, and educational notes that align precisely with the given learning objectives while considering the overall course structure and target audience.
 
@@ -145,6 +147,116 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
     return response['create_notes'] if len(response['create_notes']) < 50000 else response['create_notes'][:49990]
 
 
+generate_transcript_chunk_extraction_prompt = """You are an expert educational content developer tasked with analyzing a timestamped transcript to extract the most relevant segment for a specific learning objective within a subtopic of an E-learning course. Your goal is to identify and return the exact transcript chunk that best supports the given learning objective.
+
+Before we begin, please review the following course information:
+
+Timestamped Transcript:
+<timestamped_transcript>
+{relevant_documents}
+</timestamped_transcript>
+
+Course Name:
+<course_name>
+{course_name}
+</course_name>
+
+Target Audience:
+<target_audience>
+{target_audience}
+</target_audience>
+
+Full Course Outline with Learning Objectives:
+<full_course_outline>
+{full_course_outline}
+</full_course_outline>
+
+Subtopic and Learning Objective to Focus On:
+<subtopic_and_los>
+{subtopic_and_los}
+</subtopic_and_los>
+
+Now, follow these steps to identify and extract the relevant chunk from the given timestamped transcript. For each step, wrap your reasoning and internal analysis inside the specified XML tags to show your thinking process:
+
+1. <objective_analysis>
+   - Break down the learning objective into key ideas or skills the learner should understand and master.
+   - Clarify what kind of transcript content would fulfill this objective.
+</objective_analysis>
+
+2. <examine_transcript>
+   - Carefully read the transcript and identify the one segment that most directly supports the learning objective.
+   - Do not summarize or rephrase the transcript — just locate the most relevant portion.
+</examine_transcript>
+
+3. <extract_relevant_chunk>
+   - Extract the most relevant chunk of transcript.
+   - Format your output as follows:
+
+       Start: (insert start timestamp in seconds)
+       End: (insert end timestamp in seconds)
+       Transcript:
+         - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+         - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+
+         - ...
+         - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+
+   - Formatting rules:
+     • Use exactly 2 spaces before each transcript line
+     • Use single quotes around each timestamp
+     • Do not add any commentary, notes, or tags in the output
+</extract_relevant_chunk>
+
+<output>
+Paste your final result here using the format shown above. Only one chunk should be returned for the single learning objective. Do not include anything else outside the output.
+</output>
+
+Note: Strictly remember to always enclose your final output of timestamped transcript chunk inside the <output> .... </output> tags as shown above.
+
+Important Rules and Constraints:
+
+- Do not paraphrase, rephrase, or summarize the transcript in the output.  
+- Do not generate new sentences or explanations — all output must be copied directly from the provided transcript lines.
+- Only include the single most relevant chunk that clearly and directly supports the learning objective.
+- Do not include loosely related or general content — the match must be tight and objective-specific.
+- Do not include any unrelated lines before or after the chunk — trim precisely to the relevant start and end.
+- Do NOT include any commentary, explanations, labels, or metadata outside the format shown.
+- The value you provide for "Start" must match the timestamp of the first transcript line you return.
+- The value you provide for "End" must represent when the last transcript line ends — not just its timestamp. For example, if the final transcript line starts at '621' and continues until 625, then End should be 625.
+- There is no constraint on the length of the chunk — it may be as short or as long as needed to fully satisfy the given learning objective.
+- Format exactly as shown in the output example: start/end timestamps and indented line-by-line transcript with single quotes and exact spacing.
+"""
+
+def generate_transcript_chunks(course_name, target_audience, course_outline, subtopic_and_los, relevant_documents, llm='groq'):
+    """
+    This function extracts relevant transcript chunks aligned with each learning objective.
+
+    :param course_name: The name of the course.
+    :param target_audience: The target audience of the course.
+    :param course_outline: The outline of the course.
+    :param subtopic_and_los: The subtopic and learning objectives to focus on.
+    :param relevant_documents: The timestamped transcript as input.
+    :param llm: The language model to use.
+    :return: Extracted transcript chunks.
+    """
+
+    generate_transcript_chunks_agent = Chain(llm = llm, tags = ['output'])
+
+    generate_transcript_chunks_agent.add_message(
+        role ='user',
+        content = generate_transcript_chunk_extraction_prompt.format(
+            course_name = course_name,
+            target_audience = target_audience,
+            full_course_outline = course_outline,
+            subtopic_and_los = subtopic_and_los,
+            relevant_documents = relevant_documents
+        )
+    )
+
+    response = generate_transcript_chunks_agent.run()
+    return response['output']
+
+
 @traceable(metadata={
     "agent_name": "research_notes",
     "step_name": "Researcher",
@@ -202,16 +314,66 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                 [row[f'context_{i}'] for i in range(context_col_count)]
             )
 
-            # Submit the task
-            future = executor.submit(
-                generate_research_notes,
-                course_name=course_name,
-                target_audience=target_audience,
-                course_outline=course_outline_with_lo,
-                subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-                relevant_documents=context,
-                llm=llm,
-            )
+            # Check if the three reference columns exist and have values
+            required_cols = ["References", "Reference type", "Reference usage"]
+            if all(col in row.index for col in required_cols):
+                ref = str(row["References"]).strip()
+                ref_type = str(row["Reference type"]).strip()
+                ref_usage = str(row["Reference usage"]).strip()
+                
+                # Check if the columns have values
+                if ref and ref_type and ref_usage:
+                    # Case: YouTube video + Video usage - use transcript chunk extraction
+                    if ref_type == "Youtube video" and ref_usage == "Video":
+                        # Convert transcript format from MM:SS to seconds for generate_transcript_chunks
+                        # Regular expression to match timestamp pattern: - 'MM:SS' or 'HH:MM:SS': text
+                        pattern = r"- '(\d{1,2}:\d{2}(?::\d{2})?)': (.+)"
+                        
+                        # Replace MM:SS format to seconds format
+                        converted_context = re.sub(pattern, lambda match: f"- {convert_time_to_sec(match.group(1))}: {match.group(2)}", context)
+                        
+                        future = executor.submit(
+                            generate_transcript_chunks,
+                            course_name=course_name,
+                            target_audience=target_audience,
+                            course_outline=course_outline_with_lo,
+                            subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
+                            relevant_documents=converted_context,
+                            llm=llm
+                        )
+                    else:
+                        # For all other cases, use the existing workflow
+                        future = executor.submit(
+                            generate_research_notes,
+                            course_name=course_name,
+                            target_audience=target_audience,
+                            course_outline=course_outline_with_lo,
+                            subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
+                            relevant_documents=context,
+                            llm=llm,
+                        )
+                else:
+                    # Reference columns exist but are empty, use existing workflow
+                    future = executor.submit(
+                        generate_research_notes,
+                        course_name=course_name,
+                        target_audience=target_audience,
+                        course_outline=course_outline_with_lo,
+                        subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
+                        relevant_documents=context,
+                        llm=llm,
+                    )
+            else:
+                # Reference columns don't exist, use existing workflow
+                future = executor.submit(
+                    generate_research_notes,
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    course_outline=course_outline_with_lo,
+                    subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
+                    relevant_documents=context,
+                    llm=llm,
+                )
 
             # Map the Future to the index
             futures_map[future] = index
@@ -226,6 +388,34 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
         for future in tqdm(as_completed(futures_map), total=total_tasks):
             index = futures_map[future]
             research_notes = future.result()
+
+            # Check if this row used transcript chunk extraction (YouTube video + Video usage)
+            row = course_outline_with_lo_df.iloc[index]
+            required_cols = ["References", "Reference type", "Reference usage"]
+            if all(col in row.index for col in required_cols):
+                ref = str(row["References"]).strip()
+                ref_type = str(row["Reference type"]).strip()
+                ref_usage = str(row["Reference usage"]).strip()
+                
+                if ref and ref_type and ref_usage and ref_type == "Youtube video" and ref_usage == "Video":
+                    # Extract video ID from the URL
+                    video_id = get_video_id_from_url(ref)
+                    
+                    # Parse the research notes to get Start and End values
+                    start_match = re.search(r'Start: (\d+)', research_notes)
+                    end_match = re.search(r'End: (\d+)', research_notes)
+                    
+                    if start_match and end_match:
+                        start_time = start_match.group(1)
+                        end_time = end_match.group(1)
+                        
+                        # Construct the Link with start and end parameters
+                        # Check if URL already has parameters
+                        separator = '&' if '?' in ref else '?'
+                        link_with_params = f"{ref}{separator}start={start_time}&end={end_time}"
+                        
+                        # Prepend Link and Video_Id to the research notes
+                        research_notes = f"Link: {link_with_params}\nVideo_Id: {video_id}\n{research_notes}"
 
             # Update the df row with research notes
             course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
