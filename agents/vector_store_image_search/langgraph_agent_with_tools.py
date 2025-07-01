@@ -13,6 +13,7 @@ from modules.chain import Chain
 
 
 # --- Define state ---
+# --- Define state ---
 class SearchState(TypedDict, total=False):
     query: str
     drive: Any
@@ -55,7 +56,7 @@ def custom_tool_node(state: SearchState) -> SearchState:
         tool_input = {"query": state["query"], "k": state["k"]}
         state["used_web_search"] = True
     else:
-        return state  
+        return state
 
     # Execute the selected tool
     tools = {"run_vector_tool": run_vector_tool, "run_web_tool": run_web_tool}
@@ -90,7 +91,7 @@ def agent_node(state: SearchState) -> SearchState:
         if not results:
             state["verdict"] = "TERMINATE"
             return state
-        
+
         chain = Chain(
             llm=state.get("llm", "gemini_2_flash"),
             tags=["observations", "verdict", "selected_indexes", "action", "query"],
@@ -148,12 +149,12 @@ def should_continue(state: SearchState) -> str:
 # --- Build Graph ---
 def build_graph():
     graph = StateGraph(SearchState)
-    
+
     # Add nodes
     graph.add_node("agent", RunnableLambda(agent_node))
     graph.add_node("decision", RunnableLambda(decision_node))
     graph.add_node("tools", RunnableLambda(custom_tool_node))  # Use custom tool node
-    
+
     graph.set_entry_point("agent")
     graph.add_edge("agent", "decision")
     graph.add_conditional_edges("decision", should_continue, {
@@ -161,7 +162,7 @@ def build_graph():
         "end": END
     })
     graph.add_edge("tools", "agent")
-    
+
     return graph.compile()
 
 

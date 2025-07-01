@@ -303,27 +303,27 @@ def update_vectorstore(sheet, drive):
     """
 
 
-    parent_folder_id = '1X1diTz61mltI5usZWeyk7980KeaE82kT'
+    parent_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
     local_chroma_root = "/tmp/temp_chroma_folder"
-    local_chroma_path_text = os.path.join(local_chroma_root, "chroma_graphics_db")
-    # local_chroma_path_image = os.path.join(local_chroma_root, "chroma_graphics_db")
+    local_chroma_path = os.path.join(local_chroma_root, "chroma_graphics_db")
     os.makedirs(local_chroma_root, exist_ok=True)
+    print("Local Chroma DB path:", local_chroma_path)
 
     # ---------- TEXT EMBEDDINGS DB ----------
-    print("Downloading existing 'chroma_graphics_db' (text)...")
+    print("Downloading existing 'chroma_graphics_db'...")
     file_list_text = drive.ListFile({
         'q': f"title='chroma_graphics_db' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
 
     if not file_list_text:
         raise FileNotFoundError("'chroma_graphics_db' (text) not found in Drive.")
-    chroma_folder_id_text = file_list_text[0]['id']
-    download_folder_from_drive(chroma_folder_id_text, local_chroma_path_text, drive)
+    chroma_folder_id = file_list_text[0]['id']
+    download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
 
     chroma_db = Chroma(
         embedding_function=get_embedding_model(),
         collection_name="text_embeddings",
-        persist_directory=local_chroma_path_text
+        persist_directory=local_chroma_path
     )
 
     # # ---------- IMAGE EMBEDDINGS DB ----------
@@ -496,11 +496,11 @@ def update_vectorstore(sheet, drive):
     print("Both DBs persisted locally.\n")
 
     print("removing old DB folders from Drive...")
-    drive.CreateFile({'id': chroma_folder_id_text}).Delete()
+    drive.CreateFile({'id': chroma_folder_id}).Delete()
     # drive.CreateFile({'id': chroma_folder_id_img}).Delete()
 
     print("Uploading updated DBs...")
-    upload_folder_to_drive(local_chroma_path_text, parent_folder_id, drive)
+    upload_folder_to_drive(local_chroma_path, parent_folder_id, drive)
     # upload_folder_to_drive(local_chroma_path_image, parent_folder_id, drive)
 
     print("Update complete. Both vectorstores are synced.")

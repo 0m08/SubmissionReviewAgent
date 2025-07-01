@@ -123,7 +123,7 @@ def graphics_retriever(query, drive, k=5, filters=None):
     all_docs = chroma_db.get()
     num_docs = len(all_docs['documents'])
     # metadata_list = all_docs.get("metadatas", [])
-    
+
     # image_types_set: Set[str] = set()
     # for metadata in metadata_list:
     #     image_type_field = metadata.get("image_type", "")
@@ -209,5 +209,5 @@ def graphics_retriever(query, drive, k=5, filters=None):
 
     filtered_results.sort(key=lambda x: x['similarity'])
     print(f"Returning {len(filtered_results)} visually unique images.")
-    
+
     return filtered_results[:k]

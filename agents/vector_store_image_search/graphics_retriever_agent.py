@@ -223,7 +223,7 @@ def graphics_retriever_agent(
     :param filters: Optional filters for image metadata (e.g., mime_type, image_title).
     :return: List of selected images with metadata, or empty if none found.
     """
-    
+
     # Initialize custom chain for vision reasoning
     chain = Chain(
         llm=llm,
@@ -231,7 +231,7 @@ def graphics_retriever_agent(
         use_xml_checker=True
     )
     original_query = query
-    
+
     chain.add_message(role="system", content=graphics_retriever_agent_prompt)
 
     for turn in range(max_turns):
@@ -296,13 +296,15 @@ def graphics_retriever_agent(
         if verdict == "TERMINATE":
             selected_indexes = parse_selected_indexes(llm_response.get("selected_indexes", ""))
             # Filter only the image and its metadata
-            final_images_with_metadata = [
-                {
-                    "image": results[i]["image"],
-                    "metadata": results[i].get("metadata", {})
-                }
-                for i in selected_indexes if 0 <= i < len(results)
-            ]
+            final_images_with_metadata = []
+            for i in selected_indexes:
+                if 0 <= i < len(results):
+                    metadata = results[i].get("metadata", {})
+                    final_images_with_metadata.append({
+                        "image": results[i]["image"],
+                        "metadata": metadata,
+                        "url": metadata.get("url", "")  # Optional: promote URL to top level
+                    })
 
             return final_images_with_metadata if final_images_with_metadata else []
 
