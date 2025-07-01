@@ -3,7 +3,7 @@ import streamlit as st
 #from services.sheets_service import get_worksheet_names
 
 # Add import at the top
-from agents.research_notes.subtopic_context_aware_review_and_revise_notes import run_subtopic_context_aware_review_and_revise_for_all_rows
+from agents.research_notes.subtopic_context_aware_review_and_revise_notes import run_subtopic_context_aware_review_and_revise_for_all_rows, delete_subtopic_context_aware_review_and_revise
 
 def noop(*args, **kwargs):
     """Placeholder delete function for manual steps."""
@@ -112,6 +112,11 @@ pipeline_sections = [
                 },
                 "estimated_time": "~ 10 minutes",
                 "description": "Runs a subtopic context-aware review and revision of each research note at the subtopic level, producing reviewed and revised research notes for every row.",
+                "delete_func": delete_subtopic_context_aware_review_and_revise,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                }
             },
         ],
     },

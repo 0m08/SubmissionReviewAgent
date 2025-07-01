@@ -148,6 +148,13 @@ Note: Strictly remember to always enclose your entire output inside the <output>
 """
 
 
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Subtopic Context-Aware Review and Revise",
+    "function_name": "run_subtopic_context_aware_review",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_subtopic_context_aware_review(course_name, target_audience, topic, subtopic, learning_objective, all_research_notes, research_note, llm="gemini_2_flash"):
     """
     Run the Subtopic Context-Aware Review Agent on the given research note.
@@ -321,6 +328,12 @@ Note: Strictly remember to always enclose your entire output inside the <output>
 """
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Subtopic Context-Aware Review and Revise",
+    "function_name": "run_subtopic_context_aware_reviser",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_subtopic_context_aware_reviser( course_name, target_audience, topic, subtopic, learning_objective, all_research_notes, research_note, failed_criteria_block, llm="gemini_2_flash"):
     """
     Run the Subtopic-Level Context-Aware Reviser agent on the given research note.
@@ -362,6 +375,12 @@ def run_subtopic_context_aware_reviser( course_name, target_audience, topic, sub
     return response["revised_research_note"]
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Subtopic Context-Aware Review and Revise",
+    "function_name": "run_subtopic_context_aware_review_and_revise_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_subtopic_context_aware_review_and_revise_for_all_rows(sheet, worksheet_name, llm="gemini_2_flash", max_workers=5):
     """
     Runs the subtopic-context-aware review and revise workflow for all rows in the Final Outline sheet.es the sheet in-place. Uses parallelization and a Streamlit progress bar.
@@ -459,4 +478,18 @@ def run_subtopic_context_aware_review_and_revise_for_all_rows(sheet, worksheet_n
     print("All rows processed. Saving final DataFrame to sheet.")
     save_to_sheet(worksheet, df)
     print("Sheet update complete.")
+
+
+def delete_subtopic_context_aware_review_and_revise(sheet, worksheet_name="Final Outline"):
+    """Remove subtopic context-aware review and revise columns from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [
+        "subtopic_context_aware_review",
+        "revised_research_notes",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
