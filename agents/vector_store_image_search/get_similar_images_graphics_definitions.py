@@ -12,6 +12,7 @@ import os
 from services.drive_service import login_with_service_account
 from pydrive2.drive import GoogleDrive
 from dotenv import load_dotenv
+from services.smart_progress_bar import SmartProgressBar
 
 sheet = st.session_state.get("sheet")
 drive = st.session_state.get("drive")
@@ -88,12 +89,12 @@ def generate_queries_from_definition_text(definition_text: str, llm: str):
     return clean_queries
 
 
+
 def run_generate_queries_from_definition(sheet, sheet_name, llm: str) -> list:
-    
     """
     Run the generation of queries from graphics definitions in the Slide Chunks sheet.
     :param sheet: The Google Sheets spreadsheet object.
-    :param worksheet_name: The name of the worksheet to process.
+    :param sheet_name: The name of the worksheet to process.
     :param llm: The LLM to use for generating queries.
     :return: A list of generated queries for each row in the Slide Chunks sheet.
     """
@@ -110,30 +111,42 @@ def run_generate_queries_from_definition(sheet, sheet_name, llm: str) -> list:
     graphics_definitions = slide_chunks_df["checklist_revised_graphics_definition"].fillna("").tolist()
     all_clean_queries = [None] * len(graphics_definitions)
 
-    # Processing function
+    # Define the processing function
     def process_definition(index, definition_text):
         if not definition_text.strip():
             return index, []
         clean_queries = generate_queries_from_definition_text(definition_text, llm=llm)
         return index, clean_queries
 
-    # Parallel execution
-    with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(process_definition, idx, text) for idx, text in enumerate(graphics_definitions)]
+    # Submit tasks and track futures
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for idx, definition_text in enumerate(graphics_definitions):
+            future = executor.submit(process_definition, idx, definition_text)
+            futures_map[future] = idx
+    
+        total_tasks = len(futures_map)
+        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete:")
+    
 
-        for future in as_completed(futures):
-            idx, result = future.result()
-            all_clean_queries[idx] = result
-            print(f"✅ Processed row {idx + 1} with {len(result)} queries.")
+        # Collect results
+        for future in as_completed(futures_map):
+            try:
+                idx, result = future.result()
+                all_clean_queries[idx] = result
+                print(f"Processed row {idx + 1} with {len(result)} queries.")
+            except Exception as e:
+                print(f"Error processing row {futures_map[future]}: {e}")
+            progress.update()
 
     # Add queries to the DataFrame
     slide_chunks_df[queries_column] = [json.dumps(qs) for qs in all_clean_queries]
-
 
     # Save back to sheet
     save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
     return all_clean_queries
+
 
 
 def load_queries_from_sheet(sheet, sheet_name, queries_column="generated_graphics_queries"):
@@ -154,7 +167,7 @@ def load_queries_from_sheet(sheet, sheet_name, queries_column="generated_graphic
 
 
 
-def search_images_for_query_list(queries: List[str], llm: str = "gemini_2_flash", max_workers: int = 5) -> List[str]:
+def search_images_for_query_list(queries: List[str], progress, llm: str = "gemini_2_flash", max_workers: int = 5) -> List[str]:
     """
     Search for images based on a list of queries using parallel processing.
     
@@ -195,6 +208,7 @@ def search_images_for_query_list(queries: List[str], llm: str = "gemini_2_flash"
         for future in as_completed(future_to_index):
             idx = future_to_index[future]
             image_links[idx] = future.result()
+            progress.update()
 
     return image_links
 
@@ -216,14 +230,17 @@ def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
 
     all_clean_queries = load_queries_from_sheet(sheet, sheet_name)
+    
+    total_tasks = len(all_clean_queries)
+    progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
 
     for row_index, query_list in enumerate(all_clean_queries):
         if not isinstance(query_list, list):
-            print(f"❌ Row {row_index+1} is not a list! Got: {type(query_list)} - {query_list}")
+            print(f"Row {row_index+1} is not a list! Got: {type(query_list)} - {query_list}")
             continue
 
-        print(f"⚡ Processing row {row_index+1} with {len(query_list)} queries in parallel...")
-        image_links = search_images_for_query_list(query_list, llm=llm)
+        print(f"Processing row {row_index+1} with {len(query_list)} queries in parallel...")
+        image_links = search_images_for_query_list(query_list, progress, llm=llm)
         all_image_links_per_row.append("; ".join(image_links))
 
     slide_chunks_df["image_urls"] = all_image_links_per_row
