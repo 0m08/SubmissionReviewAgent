@@ -227,7 +227,7 @@ Important Rules and Constraints:
 - Format exactly as shown in the output example: start/end timestamps and indented line-by-line transcript with single quotes and exact spacing.
 """
 
-def generate_transcript_chunks(course_name, target_audience, course_outline, subtopic_and_los, relevant_documents, llm='groq'):
+def generate_transcript_chunks(course_name, target_audience, course_outline, subtopic_and_los, relevant_documents, llm='gemini_2_flash'):
     """
     This function extracts relevant transcript chunks aligned with each learning objective.
 
@@ -323,10 +323,9 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                 
                 # Check if the columns have values
                 if ref and ref_type and ref_usage:
-                    # Case: YouTube video + Video usage - use transcript chunk extraction
-                    if ref_type == "Youtube video" and ref_usage == "Video":
+                    # Case: Youtube video or Google Drive Video + Video usage - use transcript chunk extraction
+                    if (ref_type == "Youtube video" or ref_type == "Google Drive Video") and ref_usage == "Video":
                         # Convert transcript format from MM:SS to seconds for generate_transcript_chunks
-                        # Regular expression to match timestamp pattern: - 'MM:SS' or 'HH:MM:SS': text
                         pattern = r"- '(\d{1,2}:\d{2}(?::\d{2})?)': (.+)"
                         
                         # Replace MM:SS format to seconds format
@@ -397,25 +396,22 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                 ref_type = str(row["Reference type"]).strip()
                 ref_usage = str(row["Reference usage"]).strip()
                 
-                if ref and ref_type and ref_usage and ref_type == "Youtube video" and ref_usage == "Video":
-                    # Extract video ID from the URL
-                    video_id = get_video_id_from_url(ref)
-                    
-                    # Parse the research notes to get Start and End values
-                    start_match = re.search(r'Start: (\d+)', research_notes)
-                    end_match = re.search(r'End: (\d+)', research_notes)
-                    
-                    if start_match and end_match:
-                        start_time = start_match.group(1)
-                        end_time = end_match.group(1)
-                        
-                        # Construct the Link with start and end parameters
-                        # Check if URL already has parameters
-                        separator = '&' if '?' in ref else '?'
-                        link_with_params = f"{ref}{separator}start={start_time}&end={end_time}"
-                        
-                        # Prepend Link and Video_Id to the research notes
-                        research_notes = f"Link: {link_with_params}\nVideo_Id: {video_id}\n{research_notes}"
+                if ref and ref_type and ref_usage and (ref_type == "Youtube video" or ref_type == "Google Drive Video") and ref_usage == "Video":
+                    # Extract video ID from the URL or file ID from Google Drive link
+                    if ref_type == "Youtube video":
+                        video_id = get_video_id_from_url(ref)
+                        start_match = re.search(r'Start: (\d+)', research_notes)
+                        end_match = re.search(r'End: (\d+)', research_notes)
+                        if start_match and end_match:
+                            start_time = start_match.group(1)
+                            end_time = end_match.group(1)
+                            separator = '&' if '?' in ref else '?'
+                            link_with_params = f"{ref}{separator}start={start_time}&end={end_time}"
+                            research_notes = f"Link: {link_with_params}\nVideo_Id: {video_id}\n{research_notes}"
+                    elif ref_type == "Google Drive Video":
+                        match = re.search(r'/d/([\w-]+)', ref)
+                        file_id = match.group(1) if match else ''
+                        research_notes = f"Link: {ref}\nVideo_ID: {file_id}\n{research_notes}"
 
             # Update the df row with research notes
             course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes

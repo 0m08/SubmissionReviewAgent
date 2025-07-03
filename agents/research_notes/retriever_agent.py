@@ -9,6 +9,7 @@ from services.sheets_service import (
     hide_worksheet_by_name,
     clear_worksheet,
     delete_worksheet,
+    get_worksheet_names,
 )
 from tqdm import tqdm
 from services.helper_functions import create_and_populate_columns, get_outline_with_los
@@ -18,7 +19,13 @@ from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
 import pandas as pd
 from services.web_page_loaders import get_docs_from_url
-from services.youtube_video_loader import get_yt_chapters_chunks_as_docs, get_video_id_from_url, convert_time, get_transcript_with_fallback
+from services.youtube_video_loader import get_yt_chapters_chunks_as_docs, get_video_id_from_url, convert_time, get_transcript_with_fallback, get_transcript_assemblyai_drive
+import json
+import tempfile
+import os
+import subprocess
+import gspread
+import base64
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
@@ -199,6 +206,26 @@ def retrieve_relevant_docs(compression_retriever, web_search_retriever, course_n
 
     return selected_doc_ids, all_docs
 
+# Helper to format transcript segments into 6-word groups with timestamps
+def format_transcript_segments(transcript_json, group_size=6):
+    segments = json.loads(transcript_json) if isinstance(transcript_json, str) else transcript_json
+    lines = []
+    group = []
+    group_start = None
+    for i, word in enumerate(segments):
+        if not group:
+            group_start = word['start']
+        group.append(word['text'])
+        if len(group) == group_size:
+            timestamp = convert_time(group_start, format='HH:MM:SS' if group_start >= 3600 else 'MM:SS')
+            lines.append(f"- '{timestamp}': {' '.join(group)}")
+            group = []
+    if group:
+        timestamp = convert_time(group_start, format='HH:MM:SS' if group_start >= 3600 else 'MM:SS')
+        lines.append(f"- '{timestamp}': {' '.join(group)}")
+    return '\n'.join(lines)
+
+
 @traceable(metadata={
     "agent_name": "research_notes",
     "step_name": "Retriever",
@@ -260,6 +287,58 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
 
             context_combined = "\n\n".join(context_chunks)
             return index, context_combined, "", "", "", "", ""
+        # --- Google Drive Video logic ---
+        if ref and ref_type == "Google Drive Video" and ref_usage:
+            context_chunks = []
+            # 1. Try to fetch transcript from MAIN GRIT VIDEOS sheet
+            try:
+                # --- Use service account credentials from env ---
+                sa_json = os.environ.get("GDRIVE_SA_JSON")
+                if not sa_json:
+                    sa_b64 = os.environ.get("GDRIVE_SA_B64")
+                    if sa_b64:
+                        sa_json = base64.b64decode(sa_b64).decode()
+                if not sa_json:
+                    raise Exception("No service account credentials found in environment variables.")
+                sa_dict = json.loads(sa_json)
+                gc = gspread.service_account_from_dict(sa_dict)
+                grit_sheet = gc.open("MAIN GRIT VIDEOS")
+                worksheet_names = get_worksheet_names(grit_sheet)
+                found = False
+                for ws_name in worksheet_names:
+                    ws, df = get_sheet_data_and_df(grit_sheet, ws_name)
+                    # Make matching robust by stripping whitespace
+                    df['File Link'] = df['File Link'].astype(str).str.strip()
+                    ref_clean = ref.strip()
+                    match = df[df["File Link"] == ref_clean]
+                    if not match.empty:
+                        print(f"Match found for '{ref_clean}' in worksheet '{ws_name}'")
+                        found = True
+                        for col in match.columns:
+                            if col.startswith("Transcript ") and col[len("Transcript ") :].strip().isdigit():
+                                transcript_json = match.iloc[0][col]
+                                if transcript_json and transcript_json != 'nan':
+                                    print(f"Fetched transcript from MAIN GRIT VIDEOS for {ref_clean} in worksheet {ws_name}, column {col}")
+                                    formatted = format_transcript_segments(transcript_json, group_size=6)
+                                    context_chunks.append(formatted)
+                        break
+                    else:
+                        print(f"No match found for '{ref_clean}' in worksheet '{ws_name}'")
+                if found and context_chunks:
+                    context_combined = "\n\n".join(context_chunks)
+                    return index, context_combined, "", "", "", "", ""
+            except Exception as e:
+                print(f"Error fetching from MAIN GRIT VIDEOS: {e}")
+            # 2. Fallback: Download from Drive, transcribe with AssemblyAI
+            try:
+                # Assume ref is a Google Drive file link or ID
+                transcript = get_transcript_assemblyai_drive(ref)
+                # transcript is already formatted for context_n columns
+                context_combined = '\n'.join([f"- '{item['timestamp']}': {item['text']}" for item in transcript])
+                return index, context_combined, "", "", "", "", ""
+            except Exception as e:
+                print(f"AssemblyAI fallback failed for Drive video: {e}")
+                return index, '', '', '', '', '', ''
 
     # Get the LOs for this row / subtopic
     # If row is blank, search by subtopic

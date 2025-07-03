@@ -13,7 +13,15 @@ import csv
 import streamlit as st
 import json
 import subprocess
+import requests
+import tempfile
+import re
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 from langsmith import traceable
+import base64
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
 
 ### YT video link loader
@@ -988,3 +996,139 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestampe
 
     docs.extend(chapter_chunks)
     return docs
+
+
+def get_transcript_assemblyai_drive(file_link_or_id, drive=None):
+    """
+    Download a video from Google Drive, extract audio, upload to AssemblyAI, and return transcript.
+    Args:
+        file_link_or_id (str): Google Drive file link or file ID.
+        drive: Authenticated GoogleDrive instance (optional, will auth if not provided).
+    Returns:
+        list[dict]: [{'timestamp': str, 'text': str}, ...]
+    """
+
+    api_key = os.getenv("ASSEMBLYAI_API_KEY")
+    if not api_key:
+        raise Exception("AssemblyAI API key not found")
+    # Extract file ID from link if needed
+    match = re.search(r'/d/([\w-]+)', file_link_or_id)
+    file_id = match.group(1) if match else file_link_or_id
+    # Auth if needed
+    if drive is None:
+        sa_json = os.environ.get("GDRIVE_SA_JSON")
+        if sa_json:
+            sa_dict = json.loads(sa_json) if isinstance(sa_json, str) else sa_json
+        
+            # Write the service account JSON to a temp file
+            with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.json') as tmp:
+                json.dump(sa_dict, tmp)
+                tmp_path = tmp.name
+            settings = {
+                "client_config_backend": "service",
+                "service_config": {
+                    "client_json_file_path": tmp_path,
+                }
+            }
+            gauth = GoogleAuth(settings=settings)
+            gauth.ServiceAuth()
+            drive = GoogleDrive(gauth)
+            os.remove(tmp_path)
+        else:
+            sa_b64 = os.environ.get("GDRIVE_SA_B64")
+            if sa_b64:
+                sa_dict = json.loads(base64.b64decode(sa_b64).decode())
+                
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.json') as tmp:
+                    json.dump(sa_dict, tmp)
+                    tmp_path = tmp.name
+                settings = {
+                    "client_config_backend": "service",
+                    "service_config": {
+                        "client_json_file_path": tmp_path,
+                    }
+                }
+                gauth = GoogleAuth(settings=settings)
+                gauth.ServiceAuth()
+                drive = GoogleDrive(gauth)
+                os.remove(tmp_path)
+            else:
+                raise Exception("No service account credentials found in environment variables.")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        local_video_path = os.path.join(temp_dir, "video.mp4")
+        local_audio_path = os.path.join(temp_dir, "audio.wav")
+        # Download from Drive
+        file = drive.CreateFile({'id': file_id})
+        file.GetContentFile(local_video_path)
+        # Extract audio
+        subprocess.run(["ffmpeg", "-y", "-i", local_video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", local_audio_path], check=True)
+        # Upload audio to AssemblyAI
+        with open(local_audio_path, 'rb') as f:
+            upload_response = requests.post(
+                "https://api.assemblyai.com/v2/upload",
+                headers={"authorization": api_key, "content-type": "application/octet-stream"},
+                data=f
+            )
+        upload_response.raise_for_status()
+        audio_url = upload_response.json()["upload_url"]
+        # Submit transcript request
+        transcript_request = {"audio_url": audio_url}
+        headers = {"authorization": api_key, "content-type": "application/json"}
+        transcript_response = requests.post("https://api.assemblyai.com/v2/transcript", json=transcript_request, headers=headers)
+        transcript_json = transcript_response.json()
+        if "error" in transcript_json:
+            raise Exception(f"AssemblyAI API error: {transcript_json['error']}")
+        if "id" not in transcript_json:
+            raise Exception(f"AssemblyAI did not return a transcript ID. Response: {transcript_json}")
+        transcript_id = transcript_json["id"]
+        # Poll until transcript is ready
+        status = "queued"
+        while status not in ("completed", "error"):
+            poll = requests.get(f"https://api.assemblyai.com/v2/transcript/{transcript_id}", headers=headers).json()
+            status = poll["status"]
+            time.sleep(3)
+        if status == "error":
+            raise Exception(f"AssemblyAI transcription failed: {poll.get('error')}")
+        duration_sec = poll.get("audio_duration", 0)
+        if duration_sec >= 3600:
+            time_format = 'HH:MM:SS'
+        else:
+            time_format = 'MM:SS'
+        sentences = poll.get("sentences", [])
+        if sentences:
+            formatted_transcript = [
+                {
+                    "timestamp": convert_time(s["start"] / 1000, format=time_format),
+                    "text": s["text"]
+                }
+                for s in sentences
+            ]
+        elif poll.get("words"):
+            words = poll["words"]
+            formatted_transcript = []
+            current_line = []
+            current_start = words[0]["start"] if words else 0
+            for w in words:
+                current_line.append(w["text"])
+                if w["text"].endswith((".", "!", "?")) or (w["end"] - current_start > 10000):
+                    timestamp = convert_time(current_start / 1000, format=time_format)
+                    formatted_transcript.append({
+                        "timestamp": timestamp,
+                        "text": " ".join(current_line)
+                    })
+                    current_line = []
+                    current_start = w["end"]
+            if current_line:
+                timestamp = convert_time(current_start / 1000, format=time_format)
+                formatted_transcript.append({
+                    "timestamp": timestamp,
+                    "text": " ".join(current_line)
+                })
+        elif poll.get("text"):
+            formatted_transcript = [{
+                "timestamp": "00:00:00",
+                "text": poll["text"]
+            }]
+        else:
+            formatted_transcript = []
+        return formatted_transcript
