@@ -381,3 +381,16 @@ def hide_worksheet_by_name(sheet, worksheet_name):
     # Apply the request
     sheet.batch_update({'requests': [request]})
     print(f" Worksheet '{worksheet_name}' has been successfully hidden.")
+
+@try_n_times(n = 5, wait = 2, backoff = 'exponential')
+def clear_all_filters(worksheet):
+    """
+    Removes all filters from the worksheet (clears any basic filter view).
+    """
+    request = {
+        'clearBasicFilter': {
+            'sheetId': worksheet.id
+        }
+    }
+    worksheet.spreadsheet.batch_update({'requests': [request]})
+    print(f"All filters cleared from worksheet '{worksheet.title}'")

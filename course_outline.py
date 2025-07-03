@@ -961,7 +961,7 @@ pipeline_sections.append({
         {
             "name": "Get relevant references for Learning Objectives",
             "func": load_references,
-            "depends_on": ["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
+            "depends_on": ["Create the Final Outline Sheet"], #["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
             "args": {
                 "sheet": "sheet",
             },

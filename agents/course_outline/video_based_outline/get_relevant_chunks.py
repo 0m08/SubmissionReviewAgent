@@ -6,6 +6,7 @@ from services.sheets_service import (
     filter_non_blank_column,
     clear_worksheet,
     delete_worksheet,
+    clear_all_filters,
 )
 import json
 import streamlit as st
@@ -437,8 +438,10 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
 
 
 def delete_relevant_chunks(sheet, worksheet_name="Videos Research"):
-    """Remove columns related to relevant chunk identification."""
+    """Remove columns related to relevant chunk identification and clear filters."""
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    # Clear all filters before modifying columns
+    clear_all_filters(ws)
     cols = [
         "video_scratchpad",
         "video_relevance",
