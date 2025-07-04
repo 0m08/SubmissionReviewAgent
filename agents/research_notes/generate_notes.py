@@ -323,8 +323,8 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                 
                 # Check if the columns have values
                 if ref and ref_type and ref_usage:
-                    # Case: Youtube video or Google Drive Video + Video usage - use transcript chunk extraction
-                    if (ref_type == "Youtube video" or ref_type == "Google Drive Video") and ref_usage == "Video":
+                    # Case: Youtube Video or Google Drive Video + Video usage - use transcript chunk extraction
+                    if (ref_type == "Youtube Video" or ref_type == "Google Drive Video") and ref_usage == "Video":
                         # Convert transcript format from MM:SS to seconds for generate_transcript_chunks
                         pattern = r"- '(\d{1,2}:\d{2}(?::\d{2})?)': (.+)"
                         
@@ -388,7 +388,7 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
             index = futures_map[future]
             research_notes = future.result()
 
-            # Check if this row used transcript chunk extraction (YouTube video + Video usage)
+            # Check if this row used transcript chunk extraction (YouTube Video + Video usage)
             row = course_outline_with_lo_df.iloc[index]
             required_cols = ["References", "Reference type", "Reference usage"]
             if all(col in row.index for col in required_cols):
@@ -396,9 +396,9 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                 ref_type = str(row["Reference type"]).strip()
                 ref_usage = str(row["Reference usage"]).strip()
                 
-                if ref and ref_type and ref_usage and (ref_type == "Youtube video" or ref_type == "Google Drive Video") and ref_usage == "Video":
+                if ref and ref_type and ref_usage and (ref_type == "Youtube Video" or ref_type == "Google Drive Video") and ref_usage == "Video":
                     # Extract video ID from the URL or file ID from Google Drive link
-                    if ref_type == "Youtube video":
+                    if ref_type == "Youtube Video":
                         video_id = get_video_id_from_url(ref)
                         start_match = re.search(r'Start: (\d+)', research_notes)
                         end_match = re.search(r'End: (\d+)', research_notes)

@@ -244,7 +244,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
         ref = str(row["References"]).strip()
         ref_type = str(row["Reference type"]).strip()
         ref_usage = str(row["Reference usage"]).strip()
-        if ref and ref_type in ["Web Article", "Youtube video"] and ref_usage:
+        if ref and ref_type in ["Web Article", "Youtube Video"] and ref_usage:
             context_chunks = []
             # Use Web Loader
             if ref_type == "Web Article":
@@ -264,7 +264,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                 except Exception as e:
                     print(f"Error using web loader for row {index}: {e}")
             # Use YouTube Loader
-            elif ref_type == "Youtube video":
+            elif ref_type == "Youtube Video":
                 try:
                     video_id = get_video_id_from_url(ref)
                     transcript = get_transcript_with_fallback(video_id, return_text_only=False)
@@ -337,7 +337,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                 context_combined = '\n'.join([f"- '{item['timestamp']}': {item['text']}" for item in transcript])
                 return index, context_combined, "", "", "", "", ""
             except Exception as e:
-                print(f"AssemblyAI fallback failed for Drive video: {e}")
+                print(f"AssemblyAI fallback failed for Drive Video: {e}")
                 return index, '', '', '', '', '', ''
 
     # Get the LOs for this row / subtopic
