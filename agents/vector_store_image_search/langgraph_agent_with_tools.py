@@ -67,9 +67,10 @@ def custom_tool_node(state: SearchState) -> SearchState:
 
 # --- Agent Node ---
 def agent_node(state: SearchState) -> SearchState:
-    # Placeholder logic - replace with your agent reasoning logic
     print("[AGENT] Running agent logic...")
+
     if not state.get("used_vector_search", False):
+        # First attempt: vector search
         results = graphics_retriever_agent(
             query=state["query"],
             drive=state["drive"],
@@ -81,61 +82,65 @@ def agent_node(state: SearchState) -> SearchState:
         )
         state["images"] = results
         state["used_vector_search"] = True
-        if results:
-            state["should_terminate"] = True
-        else:
-            state["verdict"] = "WEB_SEARCH"
+        state["verdict"] = "CONTINUE" if not results else "TERMINATE"
         return state
+
+    results = state.get("results", [])
+    if not results and not state.get("used_web_search", False):
+        # If vector failed and web not yet tried
+        state["verdict"] = "WEB_SEARCH"
+        return state
+    elif not results:
+        # Nothing left to try
+        state["verdict"] = "TERMINATE"
+        return state
+
+    # LLM judges images
+    chain = Chain(
+        llm=state.get("llm", "gemini_2_flash"),
+        tags=["observations", "verdict", "selected_indexes", "action", "query"],
+        use_xml_checker=True
+    )
+    chain.add_message(role="system", content=graphics_retriever_agent_prompt)
+    formatted_prompt = image_relevance_prompt.format(query=state["query"])
+    content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
+    flat_content = "\n".join(map(str, content_parts)) if isinstance(content_parts, list) else str(content_parts)
+    chain.add_message(role="user", content=flat_content)
+    llm_raw = chain.run()
+    content = llm_raw.get("content") if isinstance(llm_raw, dict) else llm_raw
+    llm_response = chain.extract_text_in_tags(content)
+
+    verdict = llm_response.get("verdict", "").strip().upper()
+    state["verdict"] = verdict
+
+    if verdict == "TERMINATE":
+        selected_indexes = parse_selected_indexes(llm_response.get("selected_indexes", ""))
+        state["images"] = [
+            {
+                "image": results[i]["image"],
+                "metadata": results[i].get("metadata", {})
+            }
+            for i in selected_indexes if 0 <= i < len(results)
+        ]
     else:
-        results = state.get("results", [])
-        if not results:
-            state["verdict"] = "TERMINATE"
-            return state
+        state["query"] = llm_response.get("query", "").strip()
 
-        chain = Chain(
-            llm=state.get("llm", "gemini_2_flash"),
-            tags=["observations", "verdict", "selected_indexes", "action", "query"],
-            use_xml_checker=True
-        )
-        chain.add_message(role="system", content=graphics_retriever_agent_prompt)
-        formatted_prompt = image_relevance_prompt.format(query=state["query"])
-        content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
-        if isinstance(content_parts, list):
-            flat_content = "\n".join(str(part) for part in content_parts)
-        else:
-            flat_content = str(content_parts)
+    return state
 
-        chain.add_message(role="user", content=flat_content)
-        llm_raw = chain.run()
-        content = llm_raw.get("content") if isinstance(llm_raw, dict) else llm_raw
-        llm_response = chain.extract_text_in_tags(content)
-
-        verdict = llm_response.get("verdict", "").strip().upper()
-        state["verdict"] = verdict
-
-        if verdict == "TERMINATE":
-            selected_indexes = parse_selected_indexes(llm_response.get("selected_indexes", ""))
-            state["images"] = [
-                {
-                    "image": results[i]["image"],
-                    "metadata": results[i].get("metadata", {})
-                }
-                for i in selected_indexes if 0 <= i < len(results)
-            ]
-            state["should_terminate"] = True
-        else:
-            state["query"] = llm_response.get("query", "").strip()
-
-        return state
 
 # --- Decision Node ---
 def decision_node(state: SearchState) -> SearchState:
-    if state.get("should_terminate", False):
-        return state
     verdict = state.get("verdict", "").upper()
-    state["turn"] = state.get("turn", 1) + 1
-    if state["turn"] > state.get("max_turns", 5):
+    turn = state.get("turn", 1)
+    state["turn"] = turn + 1
+
+    if turn >= state.get("max_turns", 5):
         state["should_terminate"] = True
+    elif verdict == "TERMINATE" and state.get("images"):
+        state["should_terminate"] = True
+    else:
+        state["should_terminate"] = False
+
     return state
 
 # --- Conditional Routing ---

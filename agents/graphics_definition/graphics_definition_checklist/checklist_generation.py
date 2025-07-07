@@ -72,10 +72,6 @@ Feedback: [Provide your explaination if your final verdict is "Fail". Omit this 
 """
 
 @traceable(
-<<<<<<< codex/check-checklist-implementation-in-agents
-=======
-    
->>>>>>> main
     metadata={
         "agent_name": "graphics_definition",
         "step_name": "Checklist Evaluation",

@@ -2,7 +2,7 @@ import streamlit as st
 import re
 from typing import List, Any, Optional
 import pandas as pd
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 from services.llm_service import llm_with_retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
@@ -13,6 +13,7 @@ from services.drive_service import login_with_service_account
 from pydrive2.drive import GoogleDrive
 from dotenv import load_dotenv
 from services.smart_progress_bar import SmartProgressBar
+from modules.chain import Chain
 
 sheet = st.session_state.get("sheet")
 drive = st.session_state.get("drive")
@@ -25,149 +26,274 @@ gauth = login_with_service_account(json_str=sa_json)
 gauth.ServiceAuth()
 drive = GoogleDrive(gauth)
 
+import re
+
+def parse_flat_graphics_definitions(definition_text: str) -> list:
+    """
+    Parses a structured graphics definition text where each scene contains:
+    - Sentence:
+    - Purpose of the Scene:
+    - Graphics Type:
+    - Followed by lines of visual descriptions (until next 'Sentence:' or end)
+    """
+    pattern = re.compile(
+        r"Sentence:\s*(?P<sentence>.*?)\n"
+        r"Purpose of the Scene:\s*(?P<purpose>.*?)\n"
+        r"Graphics Type:\s*(?P<graphics_type>.*?)\n"
+        r"(?P<visuals>(.*?))(?=\nSentence:|\Z)",  # Stop at next Sentence or EOF
+        re.DOTALL
+    )
+
+    scenes = []
+    for match in pattern.finditer(definition_text.strip()):
+        sentence = match.group("sentence").strip()
+        purpose = match.group("purpose").strip()
+        graphics_type = match.group("graphics_type").strip()
+        visuals = match.group("visuals").strip()
+
+        scenes.append({
+            "sentence": sentence,
+            "purpose": purpose,
+            "graphics_type": graphics_type,
+            "visuals": visuals
+        })
+
+    return scenes
+
+
+
+
+generate_clean_queries_prompt_template = """  
+You will be given a detailed graphics definition for a visual scene. Your task is to extract literal, concise image search queries for the sentences provided in the graphics definition. 
+A graphics definition is solely defined as all the sentences after the "Graphics Type" line, which includes the visuals and how the images should be used in the scene.
+From the provided definition, generate a list of search queries that will help retrieve images matching the visual elements described in the scene. 
+In the first sentence after the "Graphics Type" line, it should be the first search query, and subsequent sentences should be used to generate additional queries.
+Your queries should be specific to the visual elements mentioned in the definition and should not include any non-visual keywords or phrases.Emphasis should be placed on the visual elements, as they are to be the main focus of the search queries, not the supposrting text or context. 
+Before generating queries, check the sentence first, ensure it contains the main subject of the scene, and that it is not just a general statement or introduction.
+For example, if the sentences are, 
+
+"The electrical circuit diagram fades in first.
+The "Safety" icon appears, and an arrow connects it to the circuit diagram as "safety" is spoken.
+The "Efficiency" icon appears, and an arrow connects it to the circuit diagram as "efficiency" is spoken.
+The "Troubleshooting" icon appears, and an arrow connects it to the circuit diagram as "effective troubleshooting" is spoken."
+
+You would generate the following queries:
+1. "Electrical circuit diagram"
+2. "Safety icon"
+3. "Efficiency icon"
+4. "Troubleshooting icon"
+
+It will be incorrect to generate queries like, "arrow connecting efficiency icon to circuit diagram", or, "arrow connecting troubleshooting icon to circuit diagram", or, "The electrical circuit diagram fades in first" or "The 'Safety' icon appears, or an arrow connects it to the circuit diagram as 'safety' is spoken." 
+It is important to focus on the visual elements that can be searched for, such as icons, diagrams, or specific objects mentioned in the definition.
+Also, the sentence, purpose, and graphics type can be used to add more information to the queries, but they should not be included in the queries themselves.
+Focus only on the visual elements described in the definition below the graphics type line. 
+When a query is generated, is should be a sensible sentence, not just words obtained fron the definition and brought together. It should be a complete sentence that describes the visual elements in a way that can be used for image search.
+If a definition does not contain any visual elements, do not generate any queries for it. 
+
+
+Acceptable Queries Should:
+- Be short, specific, and visually descriptive.  
+- Use clear, descriptive terms that directly relate to the visual elements described. 
+- Include all visual elements mentioned in the definition.
+
+ 
+
+Format Rules:
+- One query per line.
+- No numbering or grouping.
+- Keep it clean and search-friendly (this will be used directly for image search).  
+
+
+<examples>
+{examples}
+</examples>
+
+Graphics Definition:
+Sentence: {sentence}
+Purpose of the Scene: {purpose}
+Graphics Type: {gtype}
+Visual Elements: {visuals}
+
+
+Now output the list of search queries needed to get all relevant visual elements for this scene. Use the format shown above.
+
+Output your response in the following format:
+<clean_query_generation>
+[Place your image search queries here]
+</clean_query_generation>
+
+
+"""
+
+generate_clean_queries_examples = """
+Example Definition:
+Sentence: "HVAC systems rely heavily on electricity."
+Purpose of the Scene: To visually represent the electrical nature of HVAC systems by highlighting electrical components within a typical unit.
+Graphics Type: Illustration
+The HVAC unit fades in at the start of the sentence.
+As the narration emphasizes "rely heavily on electricity," all electrical components fade in simultaneously to emphasize their importance.
+The electricity symbol animates, showing the flow of power into the unit.
+
+Sentence: "Understanding electrical principles is not just helpful, it's essential for HVAC technicians to ensure safety, efficiency, and effective troubleshooting."
+Purpose of the Scene: To illustrate the application of electrical knowledge by an HVAC technician while emphasizing safety, efficiency, and effective troubleshooting.
+Graphics Type: Illustration
+The technician and the HVAC unit fade in together.
+As the narration mentions "ensure safety," the hard hat icon appears.
+As the narration mentions "efficiency," the energy-saving light bulb icon appears.
+As the narration mentions "effective troubleshooting," the wrench and voltmeter icon appears.
+The multimeter display changes to indicate a reading, showing the technician actively troubleshooting.
+Reusing Previous Graphics:
+The HVAC unit from Scene 1 can be partially reused to maintain consistency.
+
+Example Output:
+HVAC unit
+HVAC electrical components
+the electricity symbol
+technician illustration
+hard hat icon illustration
+energy-saving light bulb icon illustration
+wrench icon illustration
+voltmeter icon illustration
+multimeter with display
+"""
 
 def generate_clean_query_from_scene(
+    sentence: str,
     gtype: str,
     purpose: str,
     visuals: str,
     llm: str = "gemini_2_flash"
 ) -> Optional[str]:
+
     """
-    Formats a prompt from scene fields and uses your llm_with_retry() function.
-    Ensures the returned query starts with the Graphics Type.
+    Generates search queries for image retrieval from a graphics scene definition.
     """
-    prompt = f"""You are helping generate clean and effective image search queries from technical scene descriptions.
+    non_visual_keywords = ["learning objectives", "by the end", "introduction"]
+    if any(kw in visuals.lower() or kw in purpose.lower() for kw in non_visual_keywords):
+        return None
 
-Here is a scene description:
+    agent = Chain(llm=llm, tags=['clean_query_generation'])
 
-Graphics Type: {gtype}
+    formatted_prompt = generate_clean_queries_prompt_template.format(
+        examples=generate_clean_queries_examples,
+        sentence = sentence,
+        gtype=gtype,
+        purpose=purpose,
+        visuals=visuals
+    )
 
-Purpose of the Scene: {purpose}
-
-Visual Elements:
-{visuals}
-
-Instructions:
-- Write a short, natural-language query that describes the image this scene is meant to depict.
-- The query MUST begin with the Graphics Type (e.g., "Illustration of...", "Infographic showing...").
-- Do NOT include references to scene numbers or IDs like "Scene 2_4".
-- The query should be specific and visually descriptive, based on the Visual Elements and Purpose.
-- Keep it to one or two concise sentences.
-- Make it suitable for use as a search prompt for an illustration or infographic.
-
-Output only the query, with no explanation or additional text."""
+    agent.add_message(role='user', content=formatted_prompt)
 
     try:
-        response = llm_with_retry(prompt, llm_name=llm)
-        return response.content.strip() if hasattr(response, "content") else str(response).strip()
+        response = agent.run()
+        if isinstance(response, dict) and "clean_query_generation" in response:
+            return response["clean_query_generation"].strip()
+        else:
+            print("Unexpected response format:", response)
+            return None
+
     except Exception as e:
         print(f"LLM failed: {e}")
         return None
 
 
-def generate_queries_from_definition_text(definition_text: str, llm: str):
-    scene_blocks = re.findall(r"<scene>(.*?)</scene>", definition_text, re.DOTALL)
-    clean_queries = []
 
-    for scene in scene_blocks:
-        purpose_match = re.search(r"Purpose of the Scene:\s*(.*)", scene)
-        gtype_match = re.search(r"Graphics Type:\s*(.*)", scene)
-        visuals_match = re.search(
-            r"Visual Elements:\s*(.*?)(?:\n\n|\n[A-Z]|Arrangement:|Presentation and Transitions:)",
-            scene,
-            re.DOTALL,
-        )
+def generate_queries_from_definition_text(definition_text: str, llm: str) -> str:
+    scenes = parse_flat_graphics_definitions(definition_text)
+    all_queries = []
 
-        gtype = gtype_match.group(1).strip() if gtype_match else ""
-        purpose = purpose_match.group(1).strip() if purpose_match else ""
-        visuals = visuals_match.group(1).strip().replace("\n", " ") if visuals_match else ""
+    if not scenes:
+        print("No valid scenes found in:")
+        print(definition_text)
+        return ""
 
-        if any([gtype, purpose, visuals]):
-            query = generate_clean_query_from_scene(gtype, purpose, visuals, llm=llm)
-            clean_queries.append(query)
+    for i, scene in enumerate(scenes):
+        if "sentence" not in scene:
+            print(f"Scene {i} missing 'sentence': {scene}")
+            continue
 
-    return clean_queries
+        try:
+            sentence = scene.get("sentence", "").strip()
+            gtype = scene.get("graphics_type", "").strip()
+            purpose = scene.get("purpose", "").strip()
+            visuals = scene.get("visuals", "").strip()
+
+            if not (sentence and purpose and gtype):
+                print(f"Incomplete scene at index {i}, skipping.")
+                continue
+
+            query_block = generate_clean_query_from_scene(sentence, gtype, purpose, visuals, llm=llm)
+            if query_block:
+                individual_queries = [q.strip() for q in query_block.splitlines() if q.strip()]
+                all_queries.extend(individual_queries)
+
+        except Exception as e:
+            print(f"❌ Error processing scene {i}: {e}")
+            print("Scene content:", scene)
+
+    return "\n".join(all_queries) if all_queries else ""
+
+
 
 
 
 def run_generate_queries_from_definition(sheet, sheet_name, llm: str) -> list:
-    """
-    Run the generation of queries from graphics definitions in the Slide Chunks sheet.
-    :param sheet: The Google Sheets spreadsheet object.
-    :param sheet_name: The name of the worksheet to process.
-    :param llm: The LLM to use for generating queries.
-    :return: A list of generated queries for each row in the Slide Chunks sheet.
-    """
-    # Load the sheet and DataFrame
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
-    
-    # Check if queries column already exists
+
     queries_column = "generated_graphics_queries"
     if queries_column in slide_chunks_df.columns and slide_chunks_df[queries_column].notna().any():
         print("Queries already exist. Skipping generation.")
         return slide_chunks_df[queries_column].tolist()
 
-    # Prepare input data
-    graphics_definitions = slide_chunks_df["checklist_revised_graphics_definition"].fillna("").tolist()
+    graphics_definitions = slide_chunks_df["short_graphics_definitions"].fillna("").tolist()
     all_clean_queries = [None] * len(graphics_definitions)
 
-    # Define the processing function
     def process_definition(index, definition_text):
         if not definition_text.strip():
-            return index, []
+            return index, ""
         clean_queries = generate_queries_from_definition_text(definition_text, llm=llm)
         return index, clean_queries
 
-    # Submit tasks and track futures
-    futures_map = {}
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        for idx, definition_text in enumerate(graphics_definitions):
-            future = executor.submit(process_definition, idx, definition_text)
-            futures_map[future] = idx
-    
-        total_tasks = len(futures_map)
-        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete:")
-    
+    with st.spinner("⚙️ Generating queries from definitions..."):
+        futures_map = {}
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            for idx, definition_text in enumerate(graphics_definitions):
+                future = executor.submit(process_definition, idx, definition_text)
+                futures_map[future] = idx
 
-        # Collect results
-        for future in as_completed(futures_map):
-            try:
-                idx, result = future.result()
-                all_clean_queries[idx] = result
-                print(f"Processed row {idx + 1} with {len(result)} queries.")
-            except Exception as e:
-                print(f"Error processing row {futures_map[future]}: {e}")
-            progress.update()
+            for future in as_completed(futures_map):
+                try:
+                    idx, result = future.result()
+                    all_clean_queries[idx] = result
 
-    # Add queries to the DataFrame
-    slide_chunks_df[queries_column] = [json.dumps(qs) for qs in all_clean_queries]
+                    # Save result to DataFrame and immediately to sheet
+                    slide_chunks_df.at[idx, queries_column] = result
+                    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
-    # Save back to sheet
-    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+                    print(f"Processed and saved row {idx + 1} with {len(result.splitlines())} queries.")
+                except Exception as e:
+                    print(f"Error processing row {futures_map[future]}: {e}")
 
     return all_clean_queries
 
 
 
+
+
 def load_queries_from_sheet(sheet, sheet_name, queries_column="generated_graphics_queries"):
     _, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
-    
     query_data = []
-    for idx, cell in enumerate(slide_chunks_df[queries_column].fillna("")):
-        try:
-            queries = json.loads(cell) if cell.strip() else []
-            if not isinstance(queries, list):
-                queries = [queries]
-        except json.JSONDecodeError:
-            print(f"Row {idx + 1}: Invalid JSON in query cell. Skipping.")
-            queries = []
-        query_data.append(queries)
+
+    for cell in slide_chunks_df[queries_column].fillna(""):
+        cell_str = cell.strip()
+        query_data.append(cell_str if cell_str else "")
 
     return query_data
 
 
 
-def search_images_for_query_list(queries: List[str], progress, llm: str = "gemini_2_flash", max_workers: int = 5) -> List[str]:
+
+def search_images_for_query_list(queries: List[str], llm: str = "gemini_2_flash", max_workers: int = 5) -> List[str]:
     """
     Search for images based on a list of queries using parallel processing.
     
@@ -208,42 +334,69 @@ def search_images_for_query_list(queries: List[str], progress, llm: str = "gemin
         for future in as_completed(future_to_index):
             idx = future_to_index[future]
             image_links[idx] = future.result()
-            progress.update()
 
     return image_links
 
 
 def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=4):
     """
-    Run image search for each query in the Slide Chunks sheet and save results.
-    :param spreadsheet: The Google Sheets spreadsheet object.
-    :param worksheet_name: The name of the worksheet to process.
-    :param drive: The Google Drive service object for image search.
-    :param llm: The LLM to use for generating queries.
-    :param k: The number of top results to return for each query.
-    :return: A list of image URLs for each row in the Slide Chunks sheet.
-    
+    Run image search for each set of newline-separated queries in the Slide Chunks sheet
+    and save all image URLs in a single column, one per line.
     """
-        
-    all_image_links_per_row = []
-    
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
+    all_query_blocks = load_queries_from_sheet(sheet, sheet_name)
 
-    all_clean_queries = load_queries_from_sheet(sheet, sheet_name)
-    
-    total_tasks = len(all_clean_queries)
-    progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete:")
+    url_column = "image_urls"
+    if url_column not in slide_chunks_df.columns:
+        slide_chunks_df[url_column] = ""
 
-    for row_index, query_list in enumerate(all_clean_queries):
-        if not isinstance(query_list, list):
-            print(f"Row {row_index+1} is not a list! Got: {type(query_list)} - {query_list}")
-            continue
+    with st.spinner("🔍 Searching for images... this may take a few minutes"):
+        for row_index, query_block in enumerate(all_query_blocks):
+            # Skip if already done
+            existing_urls = str(slide_chunks_df.at[row_index, url_column])
+            if existing_urls.strip().startswith("http"):
+                print(f"Row {row_index + 1} already processed. Skipping.")
+                continue
 
-        print(f"Processing row {row_index+1} with {len(query_list)} queries in parallel...")
-        image_links = search_images_for_query_list(query_list, progress, llm=llm)
-        all_image_links_per_row.append("; ".join(image_links))
+            if not isinstance(query_block, str) or not query_block.strip():
+                print(f"Row {row_index + 1} has no valid query block.")
+                continue
 
-    slide_chunks_df["image_urls"] = all_image_links_per_row
-    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+            # Process query list
+            query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
+            if not query_list:
+                print(f"Row {row_index + 1} has no valid queries after splitting.")
+                continue
 
-    return all_image_links_per_row
+            print(f"Processing row {row_index + 1} with {len(query_list)} queries...")
+            image_links = search_images_for_query_list(query_list, llm=llm)
+
+            # Filter valid URLs and save
+            valid_urls = [link for link in image_links if isinstance(link, str) and link.startswith("http")]
+            joined_urls = "\n".join(valid_urls)
+
+            slide_chunks_df.at[row_index, url_column] = joined_urls
+            save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
+    return slide_chunks_df[url_column].tolist()
+
+
+def delete_generated_graphics_queries(sheet, worksheet_name="Slide Chunks"):
+    """Remove graphics definition related columns from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [
+        "generated_graphics_queries",
+        "image_urls",
+        
+    ]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+
+
+
+
+
+

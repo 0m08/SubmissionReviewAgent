@@ -6,7 +6,6 @@ from agents.vector_store_image_search.create_vectorstore import download_image_f
 import os
 from langchain_chroma import Chroma
 from services.drive_service import download_folder_from_drive
-from PIL import Image
 # from typing import List, Set, Dict
 
 def load_central_chroma_db(embedding_function, drive, central_folder_id):
@@ -66,41 +65,20 @@ def load_central_chroma_db(embedding_function, drive, central_folder_id):
 
     
 
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-# clip_model, preprocess = clip.load("ViT-B/32", device=device)
-# clip_model.eval()
+device = "cuda" if torch.cuda.is_available() else "cpu"
+clip_model, preprocess = clip.load("ViT-B/32", device=device)
+clip_model.eval()
 
-# def get_text_embedding_clip(text: str):
-#     """
-#     Compute CLIP embedding for a given text query.
-#     Returns a normalized list of floats.
-#     """
-#     with torch.no_grad():
-#         tokens = clip.tokenize([text]).to(device)
-#         text_features = clip_model.encode_text(tokens)
-#         text_features /= text_features.norm(dim=-1, keepdim=True)
-#     return text_features[0].cpu().numpy().tolist()
-
-_clip_model = None
-_preprocess = None
-
-def get_clip_model_and_preprocess():
-    global _clip_model, _preprocess
-    if _clip_model is None or _preprocess is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        _clip_model, _preprocess = clip.load("ViT-B/32", device=device)
-        _clip_model.eval()
-    return _clip_model, _preprocess
-
-def get_image_embedding_from_pil(image: Image.Image):
-    model, preprocess = get_clip_model_and_preprocess()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    image_tensor = preprocess(image).unsqueeze(0).to(device)
+def get_text_embedding_clip(text: str):
+    """
+    Compute CLIP embedding for a given text query.
+    Returns a normalized list of floats.
+    """
     with torch.no_grad():
-        image_features = model.encode_image(image_tensor)
-        image_features /= image_features.norm(dim=-1, keepdim=True)
-    return image_features[0].cpu().numpy().tolist()
-
+        tokens = clip.tokenize([text]).to(device)
+        text_features = clip_model.encode_text(tokens)
+        text_features /= text_features.norm(dim=-1, keepdim=True)
+    return text_features[0].cpu().numpy().tolist()
 
 
 def graphics_retriever(query, drive, k=5, filters=None):
@@ -123,7 +101,7 @@ def graphics_retriever(query, drive, k=5, filters=None):
     all_docs = chroma_db.get()
     num_docs = len(all_docs['documents'])
     # metadata_list = all_docs.get("metadatas", [])
-
+    
     # image_types_set: Set[str] = set()
     # for metadata in metadata_list:
     #     image_type_field = metadata.get("image_type", "")
@@ -209,5 +187,5 @@ def graphics_retriever(query, drive, k=5, filters=None):
 
     filtered_results.sort(key=lambda x: x['similarity'])
     print(f"Returning {len(filtered_results)} visually unique images.")
-
+    
     return filtered_results[:k]

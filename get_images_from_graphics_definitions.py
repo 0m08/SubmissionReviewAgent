@@ -1,7 +1,7 @@
 from agent_ui_template import agent_ui
 
 from agents.vector_store_image_search.get_similar_images_graphics_definitions import run_generate_queries_from_definition
-from agents.vector_store_image_search.get_similar_images_graphics_definitions import run_search_images_for_query_list
+from agents.vector_store_image_search.get_similar_images_graphics_definitions import run_search_images_for_query_list, delete_generated_graphics_queries
 
 
 pipeline_sections = [
@@ -19,18 +19,16 @@ pipeline_sections = [
                     "llm": "gemini_2_flash"
                 },
 
-                "delete_func": None,  # No delete function needed for this step
+                "delete_func": delete_generated_graphics_queries,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                },
 
                 "estimated_time": "10-20 minutes",
                 "description": "This function generates queries from the graphics definitions in the `Slide Chunks` sheet and saves them in the same sheet.",
             },
-        ]
-    },
-
-    {
-        "section_name": "Section 2: Search Images for Generated Queries",
-        "steps": [
-
+            
             {
                 "name": "Search Images for Generated Queries",
                 "func": run_search_images_for_query_list,
@@ -51,7 +49,6 @@ pipeline_sections = [
         ]
     },
 
-    
-]
-
+        
+        ]
 agent_ui(step_name = "Image Search with Graphics Definitions", pipeline_sections = pipeline_sections)

@@ -248,3 +248,6 @@ elif task == "Search Images":
                     )
         else:
             st.warning("No images found.")
+            
+            
+        
