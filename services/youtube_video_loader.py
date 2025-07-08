@@ -22,6 +22,7 @@ from langsmith import traceable
 import base64
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
+from bs4 import BeautifulSoup
 
 
 ### YT video link loader
@@ -877,8 +878,13 @@ def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestampe
             'length': 86399
         }
 
+    # Fallback: If title is missing or error, try to scrape it
     if video_title is None:
-        video_title = additional_metadata['title']
+        if additional_metadata['title'] == 'Error getting additional metadata' or not additional_metadata['title']:
+            video_title = get_youtube_title_fallback(video_id)
+            additional_metadata['title'] = video_title
+        else:
+            video_title = additional_metadata['title']
     else:
         additional_metadata['title'] = video_title
 
@@ -1132,3 +1138,23 @@ def get_transcript_assemblyai_drive(file_link_or_id, drive=None):
         else:
             formatted_transcript = []
         return formatted_transcript
+
+def get_youtube_title_fallback(video_id):
+    """
+    Fetch the YouTube video title by scraping the video page as a fallback.
+    """
+    try:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            title_tag = soup.find('title')
+            if title_tag:
+                title = title_tag.text.strip()
+                # Remove ' - YouTube' suffix if present
+                if title.endswith(' - YouTube'):
+                    title = title[:-10].strip()
+                return title
+    except Exception as e:
+        print(f"Error scraping YouTube title for {video_id}: {e}")
+    return "Unknown Title"

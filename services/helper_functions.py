@@ -678,7 +678,15 @@ def create_final_outline_sheet(sheet):
 
     # Check for extra columns to copy if present
     extra_cols = ["References", "Reference type", "Reference usage"]
-    present_extra_cols = [col for col in extra_cols if col in df.columns]
+    if outline_stage == "final":
+        # Always create these columns in the Final Outline sheet
+        for col in extra_cols:
+            if col not in df.columns:
+                df[col] = ""
+        present_extra_cols = extra_cols
+    else:
+        # Do not create these columns in the Final Outline sheet
+        present_extra_cols = []
 
     # Step 4: Split LOs into individual rows
     final_rows = []
