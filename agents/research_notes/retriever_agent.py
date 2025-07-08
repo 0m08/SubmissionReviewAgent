@@ -12,7 +12,7 @@ from services.sheets_service import (
     get_worksheet_names,
 )
 from tqdm import tqdm
-from services.helper_functions import create_and_populate_columns, get_outline_with_los
+from services.helper_functions import create_and_populate_columns, get_outline_with_los, normalize_youtube_url, extract_transcript_segment
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -26,6 +26,7 @@ import os
 import subprocess
 import gspread
 import base64
+import re
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
@@ -224,6 +225,110 @@ def format_transcript_segments(transcript_json, group_size=6):
         timestamp = convert_time(group_start, format='HH:MM:SS' if group_start >= 3600 else 'MM:SS')
         lines.append(f"- '{timestamp}': {' '.join(group)}")
     return '\n'.join(lines)
+
+
+relevant_link_selection_if_multiple_matching_reference_links_prompt = """You are an expert instructional designer and content analyst. Your task is to select the single most relevant reference link for a specific Learning Objective (LO) from a set of candidate links. You will be provided with the course context and the content associated with each candidate link.
+
+Below is the course information:
+
+<course_information>
+Course name: {course_name}
+Target audience: {target_audience}
+</course_information>
+
+Topic:
+<topic>
+{topic}
+</topic>
+
+Subtopic:
+<subtopic>
+{subtopic}
+</subtopic>
+
+Learning Objective:
+<learning_objective>
+{learning_objective}
+</learning_objective>
+
+Below are the candidate reference links and their content:
+Note: All candidate links will be of the same type - either all YouTube video links (with their transcript segments) or all web article links (with their article content).
+
+<candidate_links_and_content>
+{candidate_links_and_content}
+</candidate_links_and_content>
+
+Your task:
+
+- Carefully read the Learning Objective and the content of each candidate link.
+- Analyze which link provides the most relevant, comprehensive, and directly useful information for achieving the Learning Objective, considering the course name and target audience.
+- Select only one link as the single most relevant reference for the given Learning Objective.
+- Do not add, modify, or paraphrase the content. Only select from the provided links.
+
+Provide your output strictly in the following format:
+
+<final_output>
+
+<analysis>
+[Provide a brief analysis of your reasoning for selecting the most relevant link. Explain why this link is the best fit for the Learning Objective, referencing specific content if needed.]
+</analysis>
+
+<selected_link>
+[Paste the single most relevant link here. Only include the URL as it is, nothing else.]
+</selected_link>
+
+</final_output>
+"""
+
+
+def relevant_link_selection_if_multiple_matching_reference_links(course_name, target_audience, topic, subtopic, learning_objective, candidate_links_and_content, llm = 'gemini_2_flash'):
+    """
+    This function runs the relevant link selection prompt for multiple matching reference links for a single Learning Objective
+    :param course_name: The name of the course.
+    :param target_audience: The target audience for the course.
+    :param topic: The topic for the LO.
+    :param subtopic: The subtopic for the LO.
+    :param learning_objective: The learning objective.
+    :param candidate_links_and_content: The formatted string of candidate links and their content.
+    :param llm: The language model to use.
+    :return: The selected link (content inside <selected_link>)
+    """
+    
+    # Construct the chain
+    relevant_link_selection_agent = Chain(llm = llm, tags = ['final_output'])
+
+    # Format the prompt for debugging (printing)
+    formatted_prompt = relevant_link_selection_if_multiple_matching_reference_links_prompt.format(
+            course_name = course_name,
+            target_audience = target_audience,
+            topic = topic,
+            subtopic = subtopic,
+            learning_objective = learning_objective,
+            candidate_links_and_content = candidate_links_and_content
+        ) 
+
+    # Print the formatted prompt for debugging
+    print("\n🔍 Prompt Being Sent to LLM:\n")
+    print(formatted_prompt)
+    print("\n" + "=" * 100 + "\n")
+
+    # Add the user message
+    relevant_link_selection_agent.add_message(
+        role = 'user',
+        content = relevant_link_selection_if_multiple_matching_reference_links_prompt.format(
+            course_name = course_name,
+            target_audience = target_audience,
+            topic = topic,
+            subtopic = subtopic,
+            learning_objective = learning_objective,
+            candidate_links_and_content = candidate_links_and_content
+        )
+    )
+    response = relevant_link_selection_agent.run()
+    match = re.search(r'<selected_link>(.*?)</selected_link>', response['text'], re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return response['text']
 
 
 @traceable(metadata={
@@ -590,10 +695,169 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
 
     format_worksheet(course_outline_with_lo_sheet)
 
-    column_names = [column_name for column_name in course_outline_with_lo_df.columns if ("context" in column_name or column_name in ["source_links", "as_is_sources", "content_sources"])]
+    # Reference link matching and usage for Initial Outline Stage
+    try:
+        course_info_ws = sheet.worksheet("Course info")
+        course_info_df = pd.DataFrame(course_info_ws.get_all_records())
+        course_info_df.columns = [col.strip() for col in course_info_df.columns]
+        outline_stage = course_info_df["Outline Stage"].dropna().astype(str).str.strip().str.lower().iloc[0]
+    except Exception as e:
+        print(f"Failed to read 'Outline Stage' from 'Course Info' sheet: {e}")
+        outline_stage = None
 
-    # Hide the columns
-    hide_columns_by_name(worksheet = course_outline_with_lo_sheet, column_names = column_names, df = course_outline_with_lo_df)
+    if outline_stage == "initial":
+        print("Running Reference link matching and usage for Initial Outline Stage")
+        
+        # Load Base Outline
+        try:
+            base_outline_ws, base_outline_df = get_sheet_data_and_df(sheet, "Base Outline")
+        except Exception as e:
+            print(f"Failed to load Base Outline: {e}")
+            return
+        
+        # Reload Final Outline
+        final_ws, final_df = get_sheet_data_and_df(sheet, worksheet_name)
+        
+        # Ensure reference columns exist 
+        for col in reversed(["References", "Reference type", "Reference usage"]):
+            if col not in final_df.columns:
+                final_df.insert(3, col, "")
+        
+        # For each LO, cross-reference links
+        for idx, row in final_df.iterrows():
+            web_links = str(row.get("web_links", "")).split("\n") if row.get("web_links", "") else []
+            video_links = str(row.get("video_links", "")).split("\n") if row.get("video_links", "") else []
+            
+            # Normalize all links
+            web_links = [w.strip() for w in web_links if w.strip()]
+            video_links = [v.strip() for v in video_links if v.strip()]
+            
+            # Prepare Base Outline reference set
+            base_refs = base_outline_df["References"].dropna().astype(str).str.strip().tolist()
+            base_refs_youtube = [normalize_youtube_url(ref) for ref in base_refs if "youtube.com" in ref]
+            base_refs_web = [ref for ref in base_refs if "youtube.com" not in ref]
+            
+            # Find matches
+            matched_youtube = []
+            for v in video_links:
+                base_url = normalize_youtube_url(v)
+                if base_url in base_refs_youtube:
+                    matched_youtube.append(v)
+            matched_web = [w for w in web_links if w in base_refs_web]
+            
+            # Selection logic
+            selected_link = None
+            selected_type = None
+            selected_usage = None
+            if matched_youtube:
+                if len(matched_youtube) == 1:
+                    selected_link = matched_youtube[0]
+                else:
+
+                    # Prepare prompt input: fetch transcript segments for each
+                    candidate_links_and_content = ""
+                    for i, link in enumerate(matched_youtube, 1):
+                        video_id = get_video_id_from_url(link)
+                        transcript = get_transcript_with_fallback(video_id, return_text_only=False)
+                        # Extract segment if start/end present
+                        m = re.search(r"[?&]start=(\d+)", link)
+                        n = re.search(r"[?&]end=(\d+)", link)
+                        if m and n:
+                            start_sec = int(m.group(1))
+                            end_sec = int(n.group(1))
+                            transcript = extract_transcript_segment(transcript, start_sec, end_sec)
+                        
+                        # Format as lines
+                        lines = [f"- '{item['timestamp']}': {item['text']}" for item in transcript]
+                        transcript_text = '\n'.join(lines)
+                        candidate_links_and_content += (
+                            f"<link_{i}>\n\n"
+                            f"<link>\nLink: {link}\n</link>\n\n"
+                            f"<content>\nContent:\n{transcript_text}\n</content>\n\n"
+                            f"</link_{i}>\n\n"
+                        )
+                    selected_link = relevant_link_selection_if_multiple_matching_reference_links(
+                        course_name, target_audience, row["Topic"], row["Subtopic"], row["Learning Objectives"], candidate_links_and_content, llm=llm
+                    )
+                
+                # Find Reference type/usage from Base Outline (match on base URL)
+                base_url = normalize_youtube_url(selected_link)
+                match_row = base_outline_df[base_outline_df["References"].apply(lambda x: normalize_youtube_url(str(x)) == base_url)]
+                if not match_row.empty:
+                    selected_type = match_row.iloc[0]["Reference type"] if "Reference type" in match_row.columns else ""
+                    selected_usage = match_row.iloc[0]["Reference usage"] if "Reference usage" in match_row.columns else ""
+            elif matched_web:
+                if len(matched_web) == 1:
+                    selected_link = matched_web[0]
+                else:
+                    
+                    # Prepare prompt input: fetch web content for each
+                    candidate_links_and_content = ""
+                    for i, link in enumerate(matched_web, 1):
+                        docs = get_docs_from_url(link, "")
+                        content = "\n".join([doc.page_content for doc in docs])
+                        candidate_links_and_content += (
+                            f"<link_{i}>\n\n"
+                            f"<link>\nLink: {link}\n</link>\n\n"
+                            f"<content>\nContent:\n{content}\n</content>\n\n"
+                            f"</link_{i}>\n\n"
+                        )
+                    selected_link = relevant_link_selection_if_multiple_matching_reference_links(
+                        course_name, target_audience, row["Topic"], row["Subtopic"], row["Learning Objectives"], candidate_links_and_content, llm=llm
+                    )
+                
+                # Find Reference type/usage from Base Outline
+                match_row = base_outline_df[base_outline_df["References"] == selected_link]
+                if not match_row.empty:
+                    selected_type = match_row.iloc[0]["Reference type"] if "Reference type" in match_row.columns else ""
+                    selected_usage = match_row.iloc[0]["Reference usage"] if "Reference usage" in match_row.columns else ""
+            
+            # If a link was selected, update the row and context
+            if selected_link:
+                final_df.at[idx, "References"] = selected_link
+                final_df.at[idx, "Reference type"] = selected_type
+                final_df.at[idx, "Reference usage"] = selected_usage
+                
+                # Clear all existing context_n columns for this LO before updating
+                for col in final_df.columns:
+                    if col.startswith("context_"):
+                        final_df.at[idx, col] = ""
+                
+                # Update context_n columns for this LO
+                context_chunks = []
+                if "youtube.com" in selected_link:
+                    video_id = get_video_id_from_url(selected_link)
+                    transcript = get_transcript_with_fallback(video_id, return_text_only=False)
+                    m = re.search(r"[?&]start=(\d+)", selected_link)
+                    n = re.search(r"[?&]end=(\d+)", selected_link)
+                    if m and n:
+                        start_sec = int(m.group(1))
+                        end_sec = int(n.group(1))
+                        transcript = extract_transcript_segment(transcript, start_sec, end_sec)
+                    lines = [f"- '{item['timestamp']}': {item['text']}" for item in transcript]
+                    transcript_text = '\n'.join(lines)
+                    temp_df = pd.DataFrame({"dummy": [""]})
+                    temp_df = create_and_populate_columns(temp_df, transcript_text, 0, "context", 49000)
+                    for col in temp_df.columns:
+                        if col.startswith("context_"):
+                            final_df.at[idx, col] = temp_df.at[0, col]
+                
+                else:
+                    docs = get_docs_from_url(selected_link, "")
+                    content = "\n".join([doc.page_content for doc in docs])
+                    temp_df = pd.DataFrame({"dummy": [""]})
+                    temp_df = create_and_populate_columns(temp_df, content, 0, "context", 49000)
+                    for col in temp_df.columns:
+                        if col.startswith("context_"):
+                            final_df.at[idx, col] = temp_df.at[0, col]
+                
+                # Save and format after each row
+                save_to_sheet(worksheet=final_ws, df=final_df)
+                format_worksheet(final_ws)
+
+    # Hide the columns in the most up-to-date Final Outline (after all processing)
+    column_names = [column_name for column_name in final_df.columns if ("context" in column_name or column_name in ["source_links", "as_is_sources", "content_sources"])]
+    hide_columns_by_name(worksheet=final_ws, column_names=column_names, df=final_df)
 
     # Hide specified sheets if they exist
     sheets_to_hide = [
@@ -647,9 +911,20 @@ def manual_input_review_context(sheet, worksheet_name):
 def delete_retriever_context(sheet, worksheet_name="Final Outline"):
     """Remove context columns and reference links from Final Outline sheet."""
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    # Check Outline Stage
+    try:
+        course_info_ws = sheet.worksheet("Course info")
+        course_info_df = pd.DataFrame(course_info_ws.get_all_records())
+        course_info_df.columns = [col.strip() for col in course_info_df.columns]
+        outline_stage = course_info_df["Outline Stage"].dropna().astype(str).str.strip().str.lower().iloc[0]
+    except Exception as e:
+        print(f"Failed to read 'Outline Stage' from 'Course Info' sheet: {e}")
+        outline_stage = None
     cols = [c for c in df.columns if c.startswith("context_") or c in ["source_links", "as_is_sources", "content_sources", "web_links", "video_links"]]
+    # If Initial Outline, also delete reference columns
+    if outline_stage == "initial":
+        cols += [c for c in ["References", "Reference type", "Reference usage"] if c in df.columns]
     if cols:
         df = df.drop(columns=cols)
         clear_worksheet(ws)
         save_to_sheet(ws, df)
-

@@ -624,15 +624,14 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
 #     print(" Final Outline sheet created successfully.")
 #     return True
 
-# @traceable(
-#     metadata={
-#         "agent_name": "course_outline",
-#         "step_name": "Create the Final Outline Sheet",
-#         "function_name": "create_final_outline_sheet",
-#         "user_id": st.session_state.get("role", "anonymous")
-#     }
-# )
-
+@traceable(
+    metadata={
+        "agent_name": "course_outline",
+        "step_name": "Create the Final Outline Sheet",
+        "function_name": "create_final_outline_sheet",
+        "user_id": st.session_state.get("role", "anonymous")
+    }
+)
 def create_final_outline_sheet(sheet):
     """
     Creates a 'Final Outline' sheet by reading from one of the source sheets depending on the Outline Stage and splits multiple LOs into separate rows.
@@ -720,3 +719,37 @@ def create_final_outline_sheet(sheet):
 def delete_final_outline(sheet, worksheet_name="Final Outline"):
     """Delete the Final Outline worksheet."""
     delete_worksheet(sheet, worksheet_name)
+
+
+def normalize_youtube_url(url):
+    """
+    Strips start/end parameters from a YouTube URL, returning the base video URL.
+    """
+    import re
+    match = re.match(r'(https?://www\.youtube\.com/watch\?v=[^&]+)', url)
+    if match:
+        return match.group(1)
+    return url
+
+
+def extract_transcript_segment(transcript, start_sec, end_sec):
+    """
+    Given a transcript (list of dicts with 'timestamp' and 'text'), returns only the lines within [start_sec, end_sec].
+    Assumes transcript items have a 'timestamp' in MM:SS or HH:MM:SS format.
+    """
+    def time_to_seconds(ts):
+        parts = ts.split(":")
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        elif len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        return 0
+    filtered = []
+    for item in transcript:
+        ts = item.get('timestamp', '')
+        if not ts:
+            continue
+        sec = time_to_seconds(ts)
+        if start_sec <= sec <= end_sec:
+            filtered.append(item)
+    return filtered
