@@ -1,9 +1,7 @@
 import streamlit as st
 import re
-from typing import List, Any, Optional
-import pandas as pd
+from typing import List, Optional
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
-from services.llm_service import llm_with_retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
 import json
@@ -12,11 +10,9 @@ import os
 from services.drive_service import login_with_service_account
 from pydrive2.drive import GoogleDrive
 from dotenv import load_dotenv
-from services.smart_progress_bar import SmartProgressBar
 from modules.chain import Chain
 
-sheet = st.session_state.get("sheet")
-drive = st.session_state.get("drive")
+
 
 load_dotenv()
 key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
@@ -26,7 +22,7 @@ gauth = login_with_service_account(json_str=sa_json)
 gauth.ServiceAuth()
 drive = GoogleDrive(gauth)
 
-import re
+sheet = st.session_state.get("sheet")
 
 def parse_flat_graphics_definitions(definition_text: str) -> list:
     """

@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 import gspread
 import base64
 import os
-import re
 import json
 import requests
 from io import BytesIO

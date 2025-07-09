@@ -32,9 +32,9 @@ class SearchState(TypedDict, total=False):
 
 # --- Tool functions ---
 @tool
-def run_vector_tool(query: str, drive: Any, k: int) -> List[Dict[str, Any]]:
+def run_vector_tool(query: str, drive: Any, k: int, query_image: Any = None) -> List[Dict[str, Any]]:
     """Search for images using vector search and return top k results."""
-    return graphics_retriever(query=query, drive=drive, k=k)
+    return graphics_retriever(query=query, query_image=query_image, drive=drive, k=k)
 
 @tool
 def run_web_tool(query: Optional[str] = None, query_image: Optional[Image.Image] = None, k: int = 5) -> List[Dict[str, Any]]:
@@ -206,10 +206,8 @@ def run_graphics_search_graph(
     filters: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     memory = MemorySaver()
+    app = build_graph().with_config(checkpointer=memory)
 
-    # Rebuild and compile the graph with memory
-    app = build_graph()
-    # Initial state
     initial_state = {
         "query": query,
         "query_image": query_image,
@@ -223,4 +221,5 @@ def run_graphics_search_graph(
 
     final_state = app.invoke(initial_state)
     return final_state.get("images", [])
+
 

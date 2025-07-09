@@ -1,7 +1,7 @@
 import base64
 from io import BytesIO
 from PIL.Image import Image as PILImageType
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from modules.chain import Chain, xml_check_and_fix
 from services.llm_service import llm_with_retry
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
@@ -209,7 +209,7 @@ def graphics_retriever_agent(
     drive,
     llm,
     k,
-    query_image: Any,
+    query_image: Optional[PILImageType],
     max_turns: int = 3,
     filters: dict = None,
     verbose: bool = True

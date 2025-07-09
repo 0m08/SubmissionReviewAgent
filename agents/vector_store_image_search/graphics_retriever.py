@@ -125,7 +125,7 @@ def graphics_retriever(query=None, query_image=None, drive=None, k=5, filters=No
 
     # === Image Query Handling ===
     if query_image is None and query:
-        if query.startswith("http") and any(query.endswith(ext) for ext in [".jpg", ".jpeg", ".png, .gif,.webp, .bmp, .tiff, .svg, .ico, .avif, .heic,, .heif, .jfif, .exif, .jxl, .j2c, .j2k, .jpf, .jp2, .jpx, .jpm, .jxr, .wdp, .hdp"]):
+        if query.startswith("http") and any(query.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".svg", ".ico", ".avif", ".heic", ".heif", ".jfif", ".exif", ".jxl", ".j2c", ".j2k", ".jpf", ".jp2", ".jpx", ".jpm", ".jxr", ".wdp", ".hdp"]):
             print("Detected image URL. Downloading...")
             try:
                 response = requests.get(query)
@@ -139,7 +139,7 @@ def graphics_retriever(query=None, query_image=None, drive=None, k=5, filters=No
                 print(f"Error loading image from URL: {e}")
                 return []
 
-        elif os.path.exists(query) and query.lower().endswith((".jpg", ".jpeg", ".png, .gif,.webp, .bmp, .tiff, .svg, .ico, .avif, .heic,, .heif, .jfif, .exif, .jxl, .j2c, .j2k, .jpf, .jp2, .jpx, .jpm, .jxr, .wdp, .hdp")):
+        elif os.path.exists(query) and query.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".svg", ".ico", ".avif", ".heic", ".heif", ".jfif", ".exif", ".jxl", ".j2c", ".j2k", ".jpf", ".jp2", ".jpx", ".jpm", ".jxr", ".wdp", ".hdp")):
             print("Detected local image path. Loading...")
             try:
                 query_image = Image.open(query).convert("RGB")
