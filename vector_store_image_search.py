@@ -278,20 +278,25 @@ elif task == "Search Images":
                 name = metadata.get("name", f"Image {idx+1}")
                 url = metadata.get("drive_url", "#")
                 short_name = name if len(name) <= 60 else name[:57] + "..."
+                source = img_data.get("metadata", {}).get("source", "unknown").capitalize()
 
                 st.image(image, use_container_width=True)
                 st.markdown(
                     f"""
-                    <div style='text-align: center; margin-top: 10px; margin-bottom: 30px;'>
+                    <div style='text-align: center; margin-top: 10px; margin-bottom: 5px;'>
                         <a href='{url}' target='_blank' style='text-decoration: none; font-size: 18px; font-weight: bold; color: #1a73e8;'>
                             {idx + 1}. {short_name}
                         </a>
+                    </div>
+                    <div style='text-align: center; color: gray; font-size: 14px; margin-bottom: 30px;'>
+                        Source: <b>{source} collection</b>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
     elif run_search:
         st.warning("No images found.")
+
             
             
             

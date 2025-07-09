@@ -1,7 +1,6 @@
 import torch
 import clip
 import os
-import time
 import requests
 from io import BytesIO
 from PIL import Image
@@ -9,7 +8,8 @@ from services.embedding_service import get_embedding_model
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from langchain_chroma import Chroma
 from services.drive_service import download_folder_from_drive
-# from typing import List, Set, Dict
+from typing import Optional, List, Dict
+
 
 def load_central_chroma_db(embedding_function, drive, central_folder_id):
     """
@@ -86,17 +86,19 @@ def get_image_embedding_from_pil(image: Image.Image):
 
 
 
-def graphics_retriever(query=None, query_image=None, drive=None, k=5, filters=None):
+def get_text_embedding(query: str) -> List[float]:
     """
-    Search for similar images using text, a local image path, an image URL, or a PIL image.
-    :param query: Text string or image path or image URL.
-    :param query_image: Optional direct PIL image (overrides query).
-    :param drive: Authenticated GoogleDrive instance.
-    :param k: Number of results to return.
-    :param filters: Optional metadata filters.
-    :return: List of dicts with 'similarity', 'image' (PIL), and 'metadata'.
+    Compute CLIP embedding for a given text query.
     """
+    text_tokens = clip.tokenize([query]).to(device)
+    with torch.no_grad():
+        text_features = clip_model.encode_text(text_tokens)
+        text_features /= text_features.norm(dim=-1, keepdim=True)
+    return text_features[0].cpu().numpy().tolist()
 
+
+def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.Image] = None,
+                       drive=None, k: int = 5, filters=None) -> List[Dict[str, any]]:
     assert query or query_image, "Please provide a query or an image."
 
     def match_filters(metadata):
@@ -114,43 +116,42 @@ def graphics_retriever(query=None, query_image=None, drive=None, k=5, filters=No
                 return False
         return True
 
-    # Load Chroma DBs
-    print("Loading central Chroma DB...")
+    print("Loading Chroma DBs...")
     embedding_function = get_embedding_model()
     central_folder_id = '1BACIAhOG-c2659kl2d_gJuzulopNGIrP'
     dbs = load_central_chroma_db(embedding_function, drive, central_folder_id)
 
-    results = []
     seen_phashes = set()
+    combined_results = []
 
-    # === Image Query Handling ===
-    if query_image is None and query:
-        if query.startswith("http") and any(query.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".svg", ".ico", ".avif", ".heic", ".heif", ".jfif", ".exif", ".jxl", ".j2c", ".j2k", ".jpf", ".jp2", ".jpx", ".jpm", ".jxr", ".wdp", ".hdp"]):
-            print("Detected image URL. Downloading...")
+    # === Image Input ===
+    if not query_image and query:
+        if query.startswith("http") and query.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")):
+            print("Detected image URL, downloading...")
             try:
                 response = requests.get(query)
                 if response.status_code == 200:
                     query_image = Image.open(BytesIO(response.content)).convert("RGB")
-                    print("Image loaded from URL.")
+                    print("Loaded image from URL.")
                 else:
-                    print("Failed to fetch image from URL.")
+                    print("Failed to download image from URL.")
                     return []
             except Exception as e:
-                print(f"Error loading image from URL: {e}")
+                print(f"Error downloading image: {e}")
                 return []
 
-        elif os.path.exists(query) and query.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".svg", ".ico", ".avif", ".heic", ".heif", ".jfif", ".exif", ".jxl", ".j2c", ".j2k", ".jpf", ".jp2", ".jpx", ".jpm", ".jxr", ".wdp", ".hdp")):
-            print("Detected local image path. Loading...")
+        elif os.path.exists(query):
+            print("Detected local image path, loading...")
             try:
                 query_image = Image.open(query).convert("RGB")
-                print("Image loaded from file.")
+                print("Loaded image from local file.")
             except Exception as e:
-                print(f"Error loading local image: {e}")
+                print(f"Error loading image file: {e}")
                 return []
 
-    # === Image-Based Search ===
+    # === Search via Image Embedding ===
     if query_image:
-        print("Using image embedding for similarity search.")
+        print("Searching image collection using image embedding...")
         try:
             query_vector = get_image_embedding_from_pil(query_image)
         except Exception as e:
@@ -158,59 +159,93 @@ def graphics_retriever(query=None, query_image=None, drive=None, k=5, filters=No
             return []
 
         image_db = dbs["image"]
-        raw_results = image_db._collection.query(
+        raw_image_results = image_db._collection.query(
             query_embeddings=[query_vector],
             n_results=50,
             include=["metadatas", "distances"]
         )
-        matches = zip(raw_results["metadatas"][0], raw_results["distances"][0])
+        
+        for metadata, distance in zip(raw_image_results["metadatas"][0], raw_image_results["distances"][0]):
+            if 'image_id' not in metadata or not match_filters(metadata):
+                continue
+            combined_results.append({
+                "similarity": distance,
+                "metadata": metadata,
+                "source": "image"
+            })
 
-    # === Text-Based Search ===
-    else:
-        print(f"🔍 Performing text search: '{query}'")
-        text_db = dbs["text"]
-        raw_results = text_db.similarity_search_with_score(query, k=50)
-        matches = ((doc.metadata, score) for doc, score in raw_results)
+    # === Search via Text Embedding ===
+    if query:
+        print("Searching both collections using text query...")
+        try:
+            # === Search text DB ===
+            text_db = dbs["text"]
+            text_results = text_db.similarity_search_with_score(query, k=50)
+            print(f"[INFO] Text DB returned {len(text_results)} results")
+            for doc, score in text_results:
+                if 'image_id' not in doc.metadata or not match_filters(doc.metadata):
+                    continue
+                combined_results.append({
+                    "similarity": score,
+                    "metadata": doc.metadata,
+                    "source": "text"
+                })
 
-    # === Process Results ===
-    for metadata, score in matches:
-        if len(results) >= k:
-            break
+            # === Search image DB with CLIP text embedding ===
+            print("Searching image collection with CLIP text embedding...")
+            clip_vector = get_text_embedding(query)
+            image_db = dbs["image"]
+            clip_results = image_db._collection.query(
+                query_embeddings=[clip_vector],
+                n_results=50,
+                include=["metadatas", "distances"]
+            )
+            for metadata, distance in zip(clip_results["metadatas"][0], clip_results["distances"][0]):
+                if 'image_id' not in metadata or not match_filters(metadata):
+                    continue
+                combined_results.append({
+                    "similarity": distance,
+                    "metadata": metadata,
+                    "source": "image"
+                })
 
-        if 'image_id' not in metadata or not match_filters(metadata):
-            continue
+        except Exception as e:
+            print(f"Error during text embedding search: {e}")
+            return []
 
+    # === Sort and Deduplicate ===
+    print("Ranking and filtering results...")
+    results = []
+    for result in sorted(combined_results, key=lambda x: x["similarity"]):
+        metadata = result["metadata"]
         phash = metadata.get("phash")
         if phash and phash in seen_phashes:
-            print(f"Skipping visually duplicate image (pHash: {phash})")
             continue
         if phash:
             seen_phashes.add(phash)
 
         try:
-            image_file_id = metadata['image_id']
-            print(f"⬇ Downloading image: {image_file_id}")
-            start_time = time.time()
-
+            image_file_id = metadata["image_id"]
             pil_image = download_image_from_drive(drive, image_file_id)
-
             if not pil_image:
-                print(f"Image {image_file_id} returned None.")
                 continue
 
-            elapsed = time.time() - start_time
-            if elapsed > 10:
-                print(f"Download took {elapsed:.2f} seconds.")
-
             results.append({
-                "similarity": score,
+                "similarity": result["similarity"],
                 "image": pil_image,
-                "metadata": metadata
+                "metadata": {
+                    **metadata,
+                    "source": result["source"]
+                }
             })
 
-        except Exception as e:
-            print(f"Error downloading image ID {metadata.get('image_id')}: {e}")
+            if len(results) >= k:
+                break
 
-    results.sort(key=lambda x: x["similarity"])
+        except Exception as e:
+            print(f"Failed to load image {metadata.get('image_id')}: {e}")
+            continue
+
     print(f"Returning {len(results)} results.")
-    return results[:k]
+    return results
+
