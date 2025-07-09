@@ -340,19 +340,23 @@ def search_images_for_query_list(queries: List[str], llm: str = "gemini_2_flash"
 
 def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=4):
     """
-    Run image search for each set of newline-separated queries in the Slide Chunks sheet
-    and save all image URLs in a single column, one per line.
+    Run image search for each newline-separated query in a sheet row.
+    - Saves image URLs in 'image_urls' column (newline-separated).
+    - Saves query–link or query–'No result' pairs in 'query_link_pairs'.
     """
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
     all_query_blocks = load_queries_from_sheet(sheet, sheet_name)
 
     url_column = "image_urls"
-    if url_column not in slide_chunks_df.columns:
-        slide_chunks_df[url_column] = ""
+    pair_column = "query_link_pairs"
+
+    # Ensure both columns exist
+    for col in [url_column, pair_column]:
+        if col not in slide_chunks_df.columns:
+            slide_chunks_df[col] = ""
 
     with st.spinner("🔍 Searching for images... this may take a few minutes"):
         for row_index, query_block in enumerate(all_query_blocks):
-            # Skip if already done
             existing_urls = str(slide_chunks_df.at[row_index, url_column])
             if existing_urls.strip().startswith("http"):
                 print(f"Row {row_index + 1} already processed. Skipping.")
@@ -362,7 +366,6 @@ def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=
                 print(f"Row {row_index + 1} has no valid query block.")
                 continue
 
-            # Process query list
             query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
             if not query_list:
                 print(f"Row {row_index + 1} has no valid queries after splitting.")
@@ -371,14 +374,23 @@ def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=
             print(f"Processing row {row_index + 1} with {len(query_list)} queries...")
             image_links = search_images_for_query_list(query_list, llm=llm)
 
-            # Filter valid URLs and save
-            valid_urls = [link for link in image_links if isinstance(link, str) and link.startswith("http")]
-            joined_urls = "\n".join(valid_urls)
+            # Ensure image_links aligns with query_list
+            result_pairs = []
+            final_links = []
+            for query, link in zip(query_list, image_links):
+                if isinstance(link, str) and link.startswith("http"):
+                    result_pairs.append(f"{query} - {link}")
+                    final_links.append(link)
+                else:
+                    result_pairs.append(f"{query} - No result")
 
-            slide_chunks_df.at[row_index, url_column] = joined_urls
+            # Save results
+            slide_chunks_df.at[row_index, url_column] = "\n".join(final_links)
+            slide_chunks_df.at[row_index, pair_column] = "\n".join(result_pairs)
+
             save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
-    return slide_chunks_df[url_column].tolist()
+    return slide_chunks_df[pair_column].tolist()
 
 
 def delete_generated_graphics_queries(sheet, worksheet_name="Slide Chunks"):

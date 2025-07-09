@@ -1,7 +1,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any, List, TypedDict
+from typing import Dict, Any, List, TypedDict, Optional
+from PIL import Image
 from langgraph.graph import StateGraph, END
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableLambda
@@ -19,6 +20,7 @@ class SearchState(TypedDict, total=False):
     drive: Any
     k: int
     llm: str
+    query_image: Any
     filters: Dict[str, Any]
     results: List[Dict[str, Any]]
     images: List[Dict[str, Any]]
@@ -35,9 +37,10 @@ def run_vector_tool(query: str, drive: Any, k: int) -> List[Dict[str, Any]]:
     return graphics_retriever(query=query, drive=drive, k=k)
 
 @tool
-def run_web_tool(query: str, k: int) -> List[Dict[str, Any]]:
-    """Search for images using web search and return top k results."""
-    return web_image_search_tool(query=query, k=k)
+def run_web_tool(query: Optional[str] = None, query_image: Optional[Image.Image] = None, k: int = 5) -> List[Dict[str, Any]]:
+    """Search for images using web search. Text query is required. Image is optional for refinement."""
+    return web_image_search_tool(query=query, query_image=query_image, k=k)
+
 
 # --- Custom Tool Node ---
 def custom_tool_node(state: SearchState) -> SearchState:
@@ -47,13 +50,18 @@ def custom_tool_node(state: SearchState) -> SearchState:
         tool_name = "run_vector_tool"
         tool_input = {
             "query": state["query"],
+            "query_image": state.get("query_image"),
             "drive": state["drive"],
             "k": state["k"]
         }
         state["used_vector_search"] = True
-    elif not state.get("used_web_search", False):
+    elif not state.get("used_web_search", False) and state.get("query"):
         tool_name = "run_web_tool"
-        tool_input = {"query": state["query"], "k": state["k"]}
+        tool_input = {
+            "query": state["query"],
+            "query_image": state.get("query_image"),
+            "k": state["k"]
+        }
         state["used_web_search"] = True
     else:
         return state
@@ -69,10 +77,19 @@ def custom_tool_node(state: SearchState) -> SearchState:
 def agent_node(state: SearchState) -> SearchState:
     print("[AGENT] Running agent logic...")
 
+    # Handle None safely
+    query = (state.get("query") or "").strip()
+    query_image = state.get("query_image")
+
+    if not query and query_image is not None:
+        query = "Image-based search input from user"
+        state["query"] = query
+
+    # First vector search attempt
     if not state.get("used_vector_search", False):
-        # First attempt: vector search
         results = graphics_retriever_agent(
             query=state["query"],
+            query_image=state.get("query_image"),
             drive=state["drive"],
             llm=state.get("llm", "gemini_2_flash"),
             k=state.get("k", 5),
@@ -87,25 +104,25 @@ def agent_node(state: SearchState) -> SearchState:
 
     results = state.get("results", [])
     if not results and not state.get("used_web_search", False):
-        # If vector failed and web not yet tried
         state["verdict"] = "WEB_SEARCH"
         return state
     elif not results:
-        # Nothing left to try
         state["verdict"] = "TERMINATE"
         return state
 
-    # LLM judges images
+    # LLM evaluates the results
     chain = Chain(
         llm=state.get("llm", "gemini_2_flash"),
         tags=["observations", "verdict", "selected_indexes", "action", "query"],
         use_xml_checker=True
     )
     chain.add_message(role="system", content=graphics_retriever_agent_prompt)
+
     formatted_prompt = image_relevance_prompt.format(query=state["query"])
     content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
     flat_content = "\n".join(map(str, content_parts)) if isinstance(content_parts, list) else str(content_parts)
     chain.add_message(role="user", content=flat_content)
+
     llm_raw = chain.run()
     content = llm_raw.get("content") if isinstance(llm_raw, dict) else llm_raw
     llm_response = chain.extract_text_in_tags(content)
@@ -123,9 +140,14 @@ def agent_node(state: SearchState) -> SearchState:
             for i in selected_indexes if 0 <= i < len(results)
         ]
     else:
-        state["query"] = llm_response.get("query", "").strip()
+        # Handle empty or None query in response
+        updated_query = llm_response.get("query", "").strip()
+        if not updated_query or updated_query.lower() == "none":
+            updated_query = "Image-based query"
+        state["query"] = updated_query
 
     return state
+
 
 
 # --- Decision Node ---
@@ -176,6 +198,7 @@ def build_graph():
 def run_graphics_search_graph(
     query: str,
     drive: Any,
+    query_image: Any,
     k: int = 5,
     *,
     llm: str = "gemini_2_flash",
@@ -189,6 +212,7 @@ def run_graphics_search_graph(
     # Initial state
     initial_state = {
         "query": query,
+        "query_image": query_image,
         "drive": drive,
         "k": k,
         "llm": llm,

@@ -108,7 +108,7 @@ Additional guidance for query refinement and termination:
 
 
 image_relevance_prompt = ("""
-You are an expert in evaluating images for relevance to a search query.
+You are an expert in evaluating images for relevance to a search query.The user query may be textual, visual, or both.
 
 You will be shown:
 - The original search query: {query}
@@ -209,6 +209,7 @@ def graphics_retriever_agent(
     drive,
     llm,
     k,
+    query_image: Any,
     max_turns: int = 3,
     filters: dict = None,
     verbose: bool = True
@@ -239,7 +240,7 @@ def graphics_retriever_agent(
             print(f"\nTurn {turn + 1}: Query = '{query}'")
 
         # Step 1: Retrieve top-k image metadata + PIL objects
-        results = graphics_retriever(query, drive=drive, k=k, filters=filters)
+        results = graphics_retriever(query, query_image, drive=drive, k=k, filters=filters)
 
         if not results:
             print("No results returned.")
