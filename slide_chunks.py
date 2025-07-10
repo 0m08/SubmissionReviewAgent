@@ -56,24 +56,24 @@ pipeline_sections = [
                 "estimated_time": "5-10 minutes",
                 "description": "This function parses the slide_chunks column in the Final Outline sheet, extracts structured slide data, and writes it to the Slide Chunks sheet."
             },
-            {
-                "name": "Research Notes Parsing",
-                "func": run_research_notes_parsing,
-                "depends_on": ["Slide Chunks Parsing"],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Research Notes",
-                },
-
-                "delete_func": delete_slide_chunks_sheet,
-                "delete_args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks",
-                },
-
-                "estimated_time": "10-20 minutes",
-                "description": "This function parses the research notes from the `Research Notes` sheet and extracts slide chunks in the `Slide Chunks` sheet.",
-            },
+            # {
+            #     "name": "Research Notes Parsing",
+            #     "func": run_research_notes_parsing,
+            #     "depends_on": ["Slide Chunks Parsing"],
+            #     "args": {
+            #         "sheet": "sheet",
+            #         "worksheet_name": "Research Notes",
+            #     },
+            #
+            #     "delete_func": delete_slide_chunks_sheet,
+            #     "delete_args": {
+            #         "sheet": "sheet",
+            #         "worksheet_name": "Slide Chunks",
+            #     },
+            #
+            #     "estimated_time": "10-20 minutes",
+            #     "description": "This function parses the research notes from the `Research Notes` sheet and extracts slide chunks in the `Slide Chunks` sheet.",
+            # },
         ]
     },
 
@@ -84,7 +84,7 @@ pipeline_sections = [
             {
                 "name": "Generate Learning Objectives",
                 "func": run_learning_objectives_agent,
-                "depends_on": ['Research Notes Parsing'],
+                "depends_on": ['Slide Chunks Parsing'],
                 "args": {
                     "sheet": "sheet",
                     "worksheet_name": "Slide Chunks",

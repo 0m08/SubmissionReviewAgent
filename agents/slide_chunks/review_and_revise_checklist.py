@@ -77,13 +77,16 @@ Evaluation Guidelines:
   - Include a "Evaluation Breakdown" field for every checklist criterion in the final output. This section should clearly document the thought process behind your verdict.
   - If the Final Verdict is "Pass", include only the fields for Checklist Criterion, Evaluation Breakdown, and Final Verdict in your output. If the Final Verdict is "Fail", include an additional field, "Feedback", to explain the negative verdict concisely.
 
+Important Special Instruction:
+- If the Slide Type is "Video", you must assign a Final Verdict of "Pass" for every checklist criterion, skip the detailed review and feedback, and do not provide any feedback for these criteria. Only output the required fields for a passing verdict (Checklist Criterion, Evaluation Breakdown, and Final Verdict as 'Pass').
+
 Provide your output strictly in the following format:
 
 <output>
 
 Checklist Criterion: [Enter the Checklist Criteria text that is being evaluated as it is without any modification]
 Evaluation Breakdown: [Provide your reasoning here regarding whether the checklist criterion has been met]
-Final Verdict: [Enter your final verdict - Pass or Fail]
+Final Verdict: [Enter your final verdict - Pass or Fail. For "Video" Slide type, strictly enter Pass verdict]
 Feedback: [Provide your explanation and suggestions if your final verdict is "Fail". Omit this field entirely if your verdict is "Pass"]
 
 [Repeat the above pattern for all the checklist criteria]
