@@ -42,11 +42,11 @@ Use the following instructions to break down the research notes into clear, slid
     a. Document-Derived Format
       - This format is structured like an article or summary with clear sections, bullet points, or numbered sub-points.
       - It may include explanations, facts, cause-effect relationships, or short direct quotes from documents.
-      - Paragraphs my be logically organized around key instructional points.
+      - Paragraphs may be logically organized around key instructional points.
 
     b. Transcript-Derived Format
       - This format consists of line-by-line transcript segments extracted from a video, with each line prefixed by a timestamp in seconds (e.g., 266, 268).
-      - The tone could conversational and informal, with natural pauses, incomplete sentences, or casual phrasing typical of spoken language.
+      - The tone could be conversational and informal, with natural pauses, incomplete sentences, or casual phrasing typical of spoken language.
 
   You may encounter either or both formats within a subtopic. Your job is to identify the format for each section and respect that format's tone, structure, and pacing while chunking into slides.
 
@@ -100,7 +100,8 @@ Use the following instructions to break down the research notes into clear, slid
       - The content should feel cohesive and interconnected — not like a list of disconnected facts. Use transitions or bridge statements between slides if needed to help maintain continuity.
       - Use instructional language that sounds natural, engaging, and learner-friendly. The tone should be clear and slightly conversational, as if guiding a learner through a concept step-by-step.
       - Aim to subtly emulate a story-like flow, especially when the content lends itself to real-world scenarios, challenges, cause-effect relationships, or sequential processes.
-      - Do not use overly formal or academic language. Write as though you are explaining to a motivated learner with no prior knowledge, while still respecting their intelligence and considering the target audience.
+      - Avoid robotic, overly mechanical, or template-like phrasing. The content should feel like it was written by a knowledgeable human instructor, not auto-generated.
+      - Do not use overly formal or academic language . Write as though you are explaining to a motivated learner with no prior knowledge, while still respecting their intelligence and considering the target audience.
 
   b. For Timestamped Transcript-Derived Research Notes
      If the research note is in timestamped transcript format, do not paraphrase, restructure, or rewrite the content.
@@ -138,7 +139,8 @@ Use the following instructions to break down the research notes into clear, slid
             - Paraphrase the content into clear, concise instructional language — avoid copying directly.
             - Use short sentences and bullet points if necessary, but ensure the content flows naturally as a slide explanation.
             - Do not introduce any new information beyond what is present in the research notes.
-
+            - There is no fixed limit to the number of content slides you may generate. You must ensure that all meaningful points from the research notes are reflected in the slides — even if it requires many short, focused slides. It's acceptable (and encouraged) to break the material into multiple pedagogically sound chunks to preserve clarity, pacing, and instructional value. All relevant content should be represented in the slides, even if some points receive only brief or partial coverage. Avoid skipping any portion of the research notes unless it is clearly redundant, irrelevant to the learning objective, or off-topic. 
+          
           ii) For Timestamped Transcript-Derived Notes:
             - Do not paraphrase, summarize, or rewrite the transcript lines.
             - Your job is to segment the transcript into meaningful chunks using the existing timestamps.
@@ -276,7 +278,7 @@ You must address the following points:
 3. Slide Structure Plan 
    Describe your overall plan for:
    - The Transition Slide: What key ideas will be previewed?
-   - The Content Slides: How many content slides do you expect to generate? What major instructional chunks or themes will they follow?
+   - The Content Slides: How many content slides do you expect to generate? What instructional chunks or themes will they follow?
    - The Summary Slide: What main takeaways will be highlighted?
 
 4. Chunking and Coverage Strategy 
@@ -290,6 +292,8 @@ You may also use this space to document any additional observations, reflections
 
 </evaluation_breakdown>
 
+(Based on your above evaluation, provide the slides)
+
 <slides>
 Provide all slides in sequence for this subtopic, starting with a Transition Slide, followed by one or more Content Slides, and ending with a Summary Slide. 
 Ensure the output strictly follows the slide formats described above in Instruction no. 8. Ensure that each slide chunk is separated by a full blank line to maintain clarity and visual distinction in the output.
@@ -301,7 +305,7 @@ Note: Strictly remember to always enclose your entire output inside the <output>
 """
 
 
-slide_chunks_generation_few_shot_prompt = """Follow the example below to understand how to generate a complete and well-structured set of slides based on a subtopic’s learning objectives and research notes.
+slide_chunks_generation_few_shot_prompt = """Follow the example below to understand how to generate a complete and well-structured set of slides based on a subtopic’s learning objectives and research notes. Note - This is only a demonstration. Do not copy or reuse slide content from this example - even if the course name, topic, subtopic, or learning objectives appear similar. Always generate output based solely on the actual input and the research notes provided.
 
 <input>
 
@@ -609,7 +613,7 @@ def generate_slide_chunks_from_research_notes_for_all_subtopics(sheet, sheet_nam
         for _, row in rows.iterrows():
             lo = row["Learning Objectives"]
             rn = row["revised_research_notes"]
-            blocks.append(f"<learning_objective>\n\nLearning Objective: {lo}\n\n<research_note>\n\n{rn}\n\n<research_note>\n\n</learning_objective>")
+            blocks.append(f"<learning_objective>\n\nLearning Objective: {lo}\n\n<research_note>\n\n{rn}\n\n</research_note>\n\n</learning_objective>")
         return "\n\n".join(blocks)
 
     # Function to run the agent and extract <slides> for a subtopic

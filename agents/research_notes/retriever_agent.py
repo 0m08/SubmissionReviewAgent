@@ -856,6 +856,8 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                 format_worksheet(final_ws)
 
     # Hide the columns in the most up-to-date Final Outline (after all processing)
+
+    final_ws, final_df = get_sheet_data_and_df(sheet, worksheet_name)
     column_names = [column_name for column_name in final_df.columns if ("context" in column_name or column_name in ["source_links", "as_is_sources", "content_sources"])]
     hide_columns_by_name(worksheet=final_ws, column_names=column_names, df=final_df)
 
