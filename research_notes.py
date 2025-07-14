@@ -94,36 +94,36 @@ pipeline_sections = [
                     "llm": "gemini_2_flash",
                 },
                 "estimated_time": "~ 5 minutes",
-                "description": "Uses the context retrived earlier to produce initial research notes for each subtopic.",
+                "description": "Uses the context retrived earlier to produce research notes for each subtopic.",
                 "delete_func": delete_research_notes,
                 "delete_args": {
                     "sheet": "sheet",
                     "worksheet_name": "Final Outline",
                 }
             },
-            {
-                "name": "Subtopic Context-Aware Review and Revise",
-                "func": run_subtopic_context_aware_review_and_revise_for_all_rows,
-                "depends_on": ["Researcher"],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Final Outline",
-                    "llm": "gemini_2_flash",
-                },
-                "estimated_time": "~ 10 minutes",
-                "description": "Runs a subtopic context-aware review and revision of each research note at the subtopic level, producing reviewed and revised research notes for every row.",
-                "delete_func": delete_subtopic_context_aware_review_and_revise,
-                "delete_args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Final Outline",
-                }
-            },
+            # {
+            #     "name": "Subtopic Context-Aware Review and Revise",
+            #     "func": run_subtopic_context_aware_review_and_revise_for_all_rows,
+            #     "depends_on": ["Researcher"],
+            #     "args": {
+            #         "sheet": "sheet",
+            #         "worksheet_name": "Final Outline",
+            #         "llm": "gemini_2_flash",
+            #     },
+            #     "estimated_time": "~ 10 minutes",
+            #     "description": "Runs a subtopic context-aware review and revision of each research note at the subtopic level, producing reviewed and revised research notes for every row.",
+            #     "delete_func": delete_subtopic_context_aware_review_and_revise,
+            #     "delete_args": {
+            #         "sheet": "sheet",
+            #         "worksheet_name": "Final Outline",
+            #     }
+            # },
         ],
     },
-    # {
-    #     "section_name": "Section 2: Subtopic Review & Revision",
-    #     "steps": [
-    #         {
+    {
+        "section_name": "Section 2: Research Notes Revision",
+        "steps": [
+    #        {
     #             "name": "Reviewer",
     #             "func": run_reviewer_agent_for_all_rows,
     #             "depends_on": ["Subtopic Context-Aware Review and Revise"],
@@ -196,29 +196,29 @@ pipeline_sections = [
     #             }
                 
     #         },
-    #         {
-    #             "name": "Manual Review Revised Notes",
-    #             "func": manual_input_review_revised_research_notes,
-    #             "depends_on": ["Reviser"],
-    #             "args": {
-    #                 "sheet": "sheet",
-    #                 "worksheet_name": "Final Outline",
-    #                 "course_name": "course_name",
-    #                 "target_audience": "target_audience",
-    #                 "skip_manual_step": "skip_manual_step",
-    #             },
-    #             "instructions": [
-    #                 "Review the `revised_research_notes` column within the `Final Outline` sheet.",
-    #                 "Make any edits—such as deleting specific or extra information—directly in that column.",
-    #                 "Once finished, proceed to the next step.",
-    #             ],
-    #             "is_manual_step": True,
-    #             "estimated_time": "Manual step",
-    #             "description": "Manually refine the revised research notes before continuing.",
-    #             "delete_func": noop,
-    #         },
-    #     ],
-    # },
+            {
+                "name": "Manually Review the Research Notes",
+                "func": manual_input_review_revised_research_notes,
+                "depends_on": ["Researcher"],
+                "args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "skip_manual_step": "skip_manual_step",
+                },
+                "instructions": [
+                    "Review the `research_notes` column within the `Final Outline` sheet.",
+                    "Make any edits—such as deleting specific or extra information—directly in that column.",
+                    "Once finished, proceed to the next step.",
+                ],
+                "is_manual_step": True,
+                "estimated_time": "Manual step",
+                "description": "Manually refine the revised research notes before continuing.",
+                "delete_func": noop,
+            },
+        ],
+    },
     # {
     #     "section_name": "Section 3: Topic-Level Research Notes",
     #     "steps": [

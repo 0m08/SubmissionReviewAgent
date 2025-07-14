@@ -612,7 +612,7 @@ def generate_slide_chunks_from_research_notes_for_all_subtopics(sheet, sheet_nam
         blocks = []
         for _, row in rows.iterrows():
             lo = row["Learning Objectives"]
-            rn = row["revised_research_notes"]
+            rn = row["research_notes"]
             blocks.append(f"<learning_objective>\n\nLearning Objective: {lo}\n\n<research_note>\n\n{rn}\n\n</research_note>\n\n</learning_objective>")
         return "\n\n".join(blocks)
 
