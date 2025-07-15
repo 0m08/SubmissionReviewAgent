@@ -1,7 +1,7 @@
 from langchain_core.documents import Document
 import json
 from tqdm import tqdm
-from services.web_page_loaders import get_docs_from_url, extract_image_links_from_markdown
+from services.web_page_loaders import get_docs_from_url, extract_image_links_from_markdown, get_webpage_title_fallback
 from services.youtube_video_loader import get_video_id_from_url, get_yt_chapters_chunks_as_docs
 from services.chunking_service import general_chunker
 from services.helper_functions import create_and_populate_columns
@@ -716,12 +716,47 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
     references_df = references_df.fillna('')
     references_df = references_df[references_df['source'].str.strip() != '']
 
-    # Save data to sheet
-    save_to_sheet(worksheet = references_sheet, df = references_df)
+    try:
+        _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
+        outline_stage = course_info_df.loc[0, 'Outline Stage'] if 'Outline Stage' in course_info_df.columns else None
+        if outline_stage == 'Initial':
+            _, base_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
+            # Only process if all required columns exist
+            required_cols = ['References', 'Reference type', 'Reference usage']
+            if all(col in base_outline_df.columns for col in required_cols):
+                for idx, row in tqdm(base_outline_df.iterrows(), total=base_outline_df.shape[0], desc='Base Outline References'):
+                    ref = str(row['References']).strip()
+                    ref_type = str(row['Reference type']).strip()
+                    ref_usage = str(row['Reference usage']).strip()
+                    # Skip if any required value is empty
+                    if not ref or not ref_type or not ref_usage:
+                        continue
+                    # Only process YouTube Video and Web Article
+                    if ref_type not in ['Youtube Video', 'Web Article']:
+                        continue
+                    # Skip if already present
+                    if ref in references_df['source'].values:
+                        continue
+                    # Add row to references_df
+                    new_row = {
+                        'source': ref,
+                        'source_origin': 'References',
+                        'title': '',
+                        'reference_type': ref_type,
+                        'chunks_0': ''
+                    }
+                    references_df = pd.concat([references_df, pd.DataFrame([new_row])], ignore_index=True)
+    except Exception as e:
+        print(f"Error processing Base Outline references: {e}")
 
-    # Format worksheet
-    format_worksheet(worksheet = references_sheet)
+    # Fill all chunk columns' nan with empty string before saving
+    chunk_cols = [col for col in references_df.columns if col.startswith('chunks_')]
+    references_df[chunk_cols] = references_df[chunk_cols].fillna('')
 
+    # Final save to sheet after all tasks
+    print('All topics processed. Saving final DataFrame to sheet.')
+    save_to_sheet(worksheet=references_sheet, df=references_df)
+    format_worksheet(worksheet=references_sheet)
     return references_sheet, references_df
 
 @traceable(metadata={
@@ -760,7 +795,27 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
             if row["chunks_0"] != "":
                 continue
 
-            # Submit the task based on reference type
+            if row.get("source_origin", "") == "References":
+                if row["reference_type"] == "Youtube Video":
+                    future = executor.submit(
+                        get_yt_chapters_chunks_as_docs,
+                        video_id = get_video_id_from_url(row["source"]),
+                        video_title = None,
+                        timestamped_transcript = None,
+                        llm = llm
+                    )
+                elif row["reference_type"] == "Web Article":
+                    future = executor.submit(
+                        get_docs_from_url,
+                        url = row["source"],
+                        query = ""
+                    )
+                else:
+                    continue  # skip Google Drive Video or unknown types
+                futures_map[future] = index
+                continue
+
+            # Submit the task based on reference type (existing logic)
             if row["reference_type"] == "Youtube Video":
                 future = executor.submit(
                     get_yt_chapters_chunks_as_docs,
@@ -836,6 +891,18 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
                             col_base_name='chunks',
                             chunk_size=49000
                         )
+                        # Update the Title for Base Outline references
+                        if references_df.at[index, 'source_origin'] == 'References' and len(docs) > 0:
+                            # Try to get a title from the first doc's metadata
+                            title = docs[0].metadata.get('title', '') if hasattr(docs[0], 'metadata') else ''
+                            if not title:
+                                # fallback: for YouTube, use video_title; for web, use query or page title
+                                if references_df.at[index, 'reference_type'] == 'Youtube Video':
+                                    title = docs[0].metadata.get('video_title', '')
+                                elif references_df.at[index, 'reference_type'] == 'Web Article':
+                                    # Fallback: scrape the web page title
+                                    title = get_webpage_title_fallback(references_df.at[index, 'source'])
+                            references_df.at[index, 'title'] = title
                     except Exception as e:
                         print(f"Error processing index {index}: {e}")
                         references_df.at[index, 'chunks_0'] = "Error"

@@ -11,6 +11,8 @@ from langchain_core.documents import Document
 from services.chunking_service import general_chunker
 import subprocess
 from langsmith import traceable
+import os
+import time
 
 
 @traceable
@@ -164,6 +166,56 @@ def clean_mark_article_stdout(url, output_type='md'):
         print("clean-mark failed:", e.stderr)
         return None
 
+def fetch_with_firecrawl(url, query):
+    """
+    Fetch web page content using Firecrawl API as a last fallback.
+    Implements a rate limiter to stay within 10 requests per minute.
+    """
+    api_key = os.getenv('FIRECRAWL_API_KEY')
+    if not api_key:
+        print("Firecrawl API key not found in environment.")
+        return None
+    # Rate limiting logic
+    if not hasattr(fetch_with_firecrawl, "_firecrawl_requests"):
+        fetch_with_firecrawl._firecrawl_requests = []
+    now = time.time()
+    # Remove requests older than 60 seconds
+    fetch_with_firecrawl._firecrawl_requests = [t for t in fetch_with_firecrawl._firecrawl_requests if now - t < 60]
+    if len(fetch_with_firecrawl._firecrawl_requests) >= 10:
+        wait_time = 60 - (now - fetch_with_firecrawl._firecrawl_requests[0])
+        print(f"Firecrawl rate limit reached. Waiting {wait_time:.1f} seconds...")
+        time.sleep(wait_time)
+        # After sleeping, clean up again
+        now = time.time()
+        fetch_with_firecrawl._firecrawl_requests = [t for t in fetch_with_firecrawl._firecrawl_requests if now - t < 60]
+    fetch_with_firecrawl._firecrawl_requests.append(time.time())
+    try:
+        response = requests.post(
+            "https://api.firecrawl.dev/v1/scrape",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            },
+            json={"url": url, "formats": ["markdown"]},
+            timeout=30
+        )
+        if response.status_code == 200:
+            data = response.json()
+            text = data.get("data", {}).get("markdown", "").strip()
+            if text:
+                return Document(
+                    page_content=text,
+                    metadata={
+                        'source': url,
+                        'query': query,
+                        'method': 'Firecrawl'
+                    }
+                )
+        print(f"Firecrawl API request failed for {url}. Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        print(f"Error using Firecrawl for {url}: {e}")
+    return None
 
 #@try_n_times(2)
 @traceable
@@ -219,7 +271,12 @@ def get_docs_from_url(url: str, query: str):
             except Exception as e: # Try with Jina AI
                 print(f"Error extracting markdown from {url} with AsyncChromimuLoader. Trying with Jina AI. Error: {e}")
                 doc = fetch_with_jina_ai(url = url, query = query)
-
+                if doc is None:
+                    print(f"All previous methods failed for {url}. Trying Firecrawl as last fallback.")
+                    doc = fetch_with_firecrawl(url, query)
+                    if doc is None:
+                        print(f"Firecrawl also failed for {url}. Returning empty list.")
+                        return []
     # Chunk the doc
     chunked_list = general_chunker(doc.page_content)
     metadata = doc.metadata
@@ -239,4 +296,20 @@ def get_docs_from_url(url: str, query: str):
         )
 
     return chunked_docs
+
+def get_webpage_title_fallback(url):
+    """
+    Fetch the web page title by scraping the <title> tag as a fallback.
+    """
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            title_tag = soup.find('title')
+            if title_tag:
+                title = title_tag.text.strip()
+                return title
+    except Exception as e:
+        print(f"Error scraping web page title for {url}: {e}")
+    return "Unknown Title"
 
