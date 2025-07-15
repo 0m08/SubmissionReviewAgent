@@ -746,6 +746,10 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
     topic_outline_sheet, topic_outline_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_outline_sheet_name)
     topic_deep_research_sheet, topic_deep_research_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_deep_research_sheet_name)
 
+    # If video chunks df is empty, create an empty DataFrame
+    if video_chunks_df.empty:
+        video_chunks_df = pd.DataFrame(columns = ['video_id'])
+
     # Enlist the sources from all sheets in a single sheet
     references_sheet, references_df = list_references(sheet, videos_research_df, video_chunks_df, None, preliminary_research_df, deep_research_df, topic_deep_research_df if not topic_deep_research_df.empty else pd.DataFrame(), topic_outline_df if not topic_outline_df.empty else pd.DataFrame())
 
