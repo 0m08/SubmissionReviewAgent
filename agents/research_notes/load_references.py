@@ -42,6 +42,11 @@ def list_video_research_references(references_df, videos_research_df, video_chun
         print("Video research references already present in the references DataFrame.")
         return references_df
 
+    # Skip if video_chunks_df is empty or does not have video_id column
+    if 'video_id' not in video_chunks_df.columns or video_chunks_df.empty:
+        print("No video chunks found, skipping video research references.")
+        return references_df
+
     # Get the chunks for all relevant marked videos from video chunks df
     for index, row in videos_research_df[videos_research_df['Manual Review'].str.contains('Yes', na=False)].iterrows():
 
@@ -210,6 +215,11 @@ def populate_reference_df_from_video_chunks_df(source, source_origin, title, ref
     :param references_df: The DataFrame containing the references data.
     :return: The updated references DataFrame.
     """
+    # Skip if video_chunks_df is empty or does not have video_id column
+    if 'video_id' not in video_chunks_df.columns or video_chunks_df.empty:
+        print("No video chunks found, skipping video chunk reference for this source.")
+        return references_df
+
     video_id = get_video_id_from_url(source)
 
     # Check if video already chunked

@@ -320,7 +320,7 @@ def run_get_relevant_chunks(sheet, worksheet_name, course_name, target_audience,
         print("Chapter summaries already created")
         for ind, row in videos_research_df.iterrows():
             video_id = row['video_id']
-            if video_id in video_chunks_df['video_id'].values:
+            if 'video_id' in video_chunks_df.columns and video_id in video_chunks_df['video_id'].values:
                 metadata = json.loads(video_chunks_df[video_chunks_df['video_id'] == video_id].iloc[0]['metadata'])
                 videos_research_df.loc[ind, 'chapter_summaries'] = metadata['chapter_summaries']
 
@@ -409,6 +409,11 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         # Save changes to sheet
         save_to_sheet(worksheet = video_research_sheet, df = videos_research_df)
         
+        return True
+
+    # If there are no rows with non-empty 'proposed_chapters_to_include', skip the check and return True
+    if (videos_research_df["proposed_chapters_to_include"] != "").sum() == 0:
+        print("No relevant videos to mark. Skipping manual review step.")
         return True
 
     # Check if user has properly added inputs - for both Manual Review and User for columns
