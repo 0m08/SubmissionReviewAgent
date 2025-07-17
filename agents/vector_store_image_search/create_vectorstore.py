@@ -15,6 +15,9 @@ import tempfile
 from typing import List
 import cohere
 import base64
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def is_valid_folderid(title):
     """

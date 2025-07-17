@@ -3,7 +3,7 @@ from agents.vector_store_image_search.graphics_retriever import graphics_retriev
 from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists, extract_drive_file_id
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
-# from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
+from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
 from services.drive_service import login_with_service_account
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
@@ -263,9 +263,9 @@ elif task == "Search Images":
                 image = img_data["image"]
                 metadata = img_data["metadata"]
                 name = metadata.get("name", f"Image {idx+1}")
-                url = metadata.get("drive_url", "#")
+                url = metadata.get("source_url") or metadata.get("drive_url", "#")
                 short_name = name if len(name) <= 60 else name[:57] + "..."
-                source = img_data.get("metadata", {}).get("source", "unknown").capitalize()
+                source = img_data.get("metadata", {}).get("source", "web").capitalize()
 
                 st.image(image, use_container_width=True)
                 st.markdown(

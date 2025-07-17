@@ -351,7 +351,7 @@ def search_images_for_query_list(
 
             if results:
                 metadata = results[0].get("metadata", {})
-                url = metadata.get("drive_url") or metadata.get("source_url") or "No URL found"
+                url = metadata.get("source_url") or metadata.get("drive_url") or "No URL found"
                 print(f"[DEBUG] Got result URL: {url}")
                 image_links.append(url)
             else:
