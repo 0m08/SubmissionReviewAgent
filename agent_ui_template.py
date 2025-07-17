@@ -3,7 +3,7 @@ import gspread
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 import traceback
-
+import re
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
 from services.drive_service import login_with_service_account
@@ -11,7 +11,20 @@ from datetime import datetime
 import os
 from langtrace_python_sdk import langtrace # Must precede any llm module imports
 import tempfile, json, base64
+import subprocess
+import sys
 from services.helper_functions import get_short_name
+
+# Mapping from display names used in the Streamlit UI to the
+# agent names expected by the SDK/CLI scripts.
+AGENT_CODE_MAP = {
+    "Course Outline": "course_outline",
+    "Research Notes": "research_notes",
+    "Slide Chunks": "slide_chunks",
+    "Graphics Definition": "graphics_definition",
+    "Assessment": "assessment",
+    "Graphics Search": "graphics_search",
+}
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False):
@@ -94,6 +107,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
                 st.session_state["root_folder_id"] = root_folder_id
                 st.session_state["sheet"] = sheet
+                st.session_state["sheet_link"] = sheet_link
                 st.session_state["course_name"] = course_info_df['Course Name'][0]
                 st.session_state["target_audience"] = course_info_df['Target Audience & Industry'][0]
                 st.session_state["course_background"] = course_info_df['Course Background'][0]
@@ -115,8 +129,26 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 st.text(traceback.format_exc())
     else:
         # If data is already loaded, simply confirm it to the user
-        st.success(f"Data already loaded for course: **{st.session_state['course_name']}**. Proceed below.")
-        
+        # Create two columns: left for info, right for the button
+        col1, col2 = st.columns([3, 1])  # Adjust the ratio as needed
+
+        # Full-width green info bar with default text size
+        st.markdown(
+            f"""
+            <div style='background-color: #1b4636; color: #fff; padding: 1.2em 1em; border-radius: 12px; width: 100%; font-weight: 500; margin-bottom: 1.5em;'>
+                Data already loaded for course: <b>{st.session_state['course_name']}</b>. Proceed below.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Two columns for the buttons, placed horizontally on the same line
+        button_col1, button_col2 = st.columns([1, 1])
+        with button_col1:
+            run_all_automated = st.button("Run All Automated Steps", type="primary")
+        with button_col2:
+            run_in_background = st.button("Run the Agent in Background", type="primary")
+
         # Admin exclusive features
         if 'role' in st.session_state: #and st.session_state['role'] == 'Admin':
             # Skip Manual Steps
@@ -133,10 +165,58 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             #     # st.rerun()
             
             # Add "Run All Automated Steps" button
-            if st.button("Run All Automated Steps", type="primary"):
+            # if st.button("Run All Automated Steps", type="primary"):
+            #     st.session_state["automation_in_progress"] = True
+            #     run_all_automated_steps(pipeline_sections)
+
+            if run_all_automated:
                 st.session_state["automation_in_progress"] = True
                 run_all_automated_steps(pipeline_sections)
-                # st.rerun()
+
+            if run_in_background:
+                agent_code = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
+                sheet_link = st.session_state.get("sheet_link")
+                folder_id = st.session_state.get("root_folder_id")
+                if not sheet_link or not folder_id:
+                    st.error("Sheet link or Drive folder ID missing. Please reload data.")
+                else:
+                    cmd = [
+                        sys.executable,
+                        "launch_agents_via_sdk.py",
+                        "--sheet_link",
+                        sheet_link,
+                        "--drive_folder_id",
+                        folder_id,
+                        "--agent_name",
+                        agent_code,
+                    ]
+                    log_placeholder = st.empty()
+                    link_placeholder = st.empty()
+                    with st.spinner("Running the Agent in Background"):
+                        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                        logs = ""
+                        for line in iter(process.stdout.readline, ''):
+                            if not line:
+                                break
+                            # Remove the URL from the log line if present
+                            match = re.search(r'(https://lightning\.ai/\S+)', line)
+                            if match:
+                                job_url = match.group(1)
+                                # Remove the URL and the phrase 'View it at' from the line
+                                line = re.sub(r'https://lightning\.ai/\S+', '', line)
+                                line = line.replace('View it at', '').rstrip() + '\n'
+                                link_placeholder.success(f"🚀 [View Lightning Job]({job_url})", icon="🔗")
+                            logs += line
+                        process.stdout.close()
+                        process.wait()
+                    st.markdown(
+    """
+    <div style='background-color: #1b4636; color: #fff; padding: 1.5em 1em; border-radius: 14px; font-size: 1.4em; font-weight: 700; margin-top: 1.5em; text-align: center;'>
+        🎉 <b>All the steps completed successfully!</b>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
     # --- 4) Display pipeline steps in nested sections ---
     if "sheet" in st.session_state:

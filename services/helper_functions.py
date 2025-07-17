@@ -624,6 +624,17 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
 #     print(" Final Outline sheet created successfully.")
 #     return True
 
+
+# Helper function to extract Google Drive file ID from a URL
+def extract_drive_file_id(url):
+    """
+    Extracts the file ID from a Google Drive URL.
+    Returns the file ID as a string, or None if not found.
+    """
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", url)
+    return match.group(1) if match else None
+
+
 @traceable(
     metadata={
         "agent_name": "course_outline",

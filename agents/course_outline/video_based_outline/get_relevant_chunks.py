@@ -411,6 +411,11 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         
         return True
 
+    # If there are no rows with non-empty 'proposed_chapters_to_include', skip the check and return True
+    if (videos_research_df["proposed_chapters_to_include"] != "").sum() == 0:
+        print("No relevant videos to mark. Skipping manual review step.")
+        return True
+
     # Check if user has properly added inputs - for both Manual Review and User for columns
     validate_column_values(
         df = videos_research_df,

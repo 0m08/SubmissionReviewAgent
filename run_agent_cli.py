@@ -114,9 +114,7 @@ try:
         session_state["course_name"] = row0.get("Course Name", "")
         session_state["target_audience"] = row0.get("Target Audience & Industry", "")
         session_state["course_background"] = row0.get("Course Background", "")
-        session_state["course_objective_guidelines"] = row0.get(
-            "Course Objective Guidelines", ""
-        )
+        session_state["course_objective_guidelines"] = row0.get("Course Objective Guidelines", "")
 except Exception as e:
     print(f"[WARNING] Could not extract course info: {e}")
 

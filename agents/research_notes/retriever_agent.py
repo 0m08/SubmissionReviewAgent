@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
 import pandas as pd
+from services.helper_functions import extract_drive_file_id
 from services.web_page_loaders import get_docs_from_url
 from services.youtube_video_loader import get_yt_chapters_chunks_as_docs, get_video_id_from_url, convert_time, get_transcript_with_fallback, get_transcript_assemblyai_drive
 import json
@@ -27,6 +28,7 @@ import subprocess
 import gspread
 import base64
 import re
+
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
@@ -297,20 +299,20 @@ def relevant_link_selection_if_multiple_matching_reference_links(course_name, ta
     # Construct the chain
     relevant_link_selection_agent = Chain(llm = llm, tags = ['final_output'])
 
-    # Format the prompt for debugging (printing)
-    formatted_prompt = relevant_link_selection_if_multiple_matching_reference_links_prompt.format(
-            course_name = course_name,
-            target_audience = target_audience,
-            topic = topic,
-            subtopic = subtopic,
-            learning_objective = learning_objective,
-            candidate_links_and_content = candidate_links_and_content
-        ) 
+    # # Format the prompt for debugging (printing)
+    # formatted_prompt = relevant_link_selection_if_multiple_matching_reference_links_prompt.format(
+    #         course_name = course_name,
+    #         target_audience = target_audience,
+    #         topic = topic,
+    #         subtopic = subtopic,
+    #         learning_objective = learning_objective,
+    #         candidate_links_and_content = candidate_links_and_content
+    #     ) 
 
-    # Print the formatted prompt for debugging
-    print("\n🔍 Prompt Being Sent to LLM:\n")
-    print(formatted_prompt)
-    print("\n" + "=" * 100 + "\n")
+    # # Print the formatted prompt for debugging
+    # print("\n🔍 Prompt Being Sent to LLM:\n")
+    # print(formatted_prompt)
+    # print("\n" + "=" * 100 + "\n")
 
     # Add the user message
     relevant_link_selection_agent.add_message(
@@ -410,25 +412,29 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                 grit_sheet = gc.open("MAIN GRIT VIDEOS")
                 worksheet_names = get_worksheet_names(grit_sheet)
                 found = False
+                # Extract file ID from the References column (outline sheet)
+                ref_file_id = extract_drive_file_id(ref.strip())
                 for ws_name in worksheet_names:
                     ws, df = get_sheet_data_and_df(grit_sheet, ws_name)
                     # Make matching robust by stripping whitespace
                     df['File Link'] = df['File Link'].astype(str).str.strip()
-                    ref_clean = ref.strip()
-                    match = df[df["File Link"] == ref_clean]
+                    # Extract file IDs from the File Link column (MAIN GRIT VIDEOS sheet)
+                    df['File Link File ID'] = df['File Link'].apply(extract_drive_file_id)
+                    # Compare file IDs for matching
+                    match = df[df["File Link File ID"] == ref_file_id]
                     if not match.empty:
-                        print(f"Match found for '{ref_clean}' in worksheet '{ws_name}'")
+                        print(f"Match found for file ID '{ref_file_id}' in worksheet '{ws_name}' (References vs File Link)")
                         found = True
                         for col in match.columns:
                             if col.startswith("Transcript ") and col[len("Transcript ") :].strip().isdigit():
                                 transcript_json = match.iloc[0][col]
                                 if transcript_json and transcript_json != 'nan':
-                                    print(f"Fetched transcript from MAIN GRIT VIDEOS for {ref_clean} in worksheet {ws_name}, column {col}")
+                                    print(f"Fetched transcript from MAIN GRIT VIDEOS for file ID {ref_file_id} in worksheet {ws_name}, column {col}")
                                     formatted = format_transcript_segments(transcript_json, group_size=6)
                                     context_chunks.append(formatted)
                         break
                     else:
-                        print(f"No match found for '{ref_clean}' in worksheet '{ws_name}'")
+                        print(f"No match found for file ID '{ref_file_id}' in worksheet '{ws_name}' (References vs File Link)")
                 if found and context_chunks:
                     context_combined = "\n\n".join(context_chunks)
                     return index, context_combined, "", "", "", "", ""

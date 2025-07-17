@@ -453,6 +453,9 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
         video_chunks_df['metadata'] = ''
         video_chunks_df['text_0'] = ''
 
+    # Correct mapping for channel_title
+    video_id_to_channel_title = dict(zip(videos_research_df['video_id'], videos_research_df['channel_title']))
+
     # Get video_transcript column count
     video_transcript_col_count = len([col for col in videos_research_df.columns if 'video_transcript_' in col])
 
@@ -515,14 +518,18 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
 
                 # Populate video chunks df
                 for doc in yt_docs:
+                    # Correct: get the chapter title from the doc metadata
+                    chapter_title = doc.metadata.get('chapter_title', '')
+                    # Correct: get the channel title from the mapping
+                    channel_title = video_id_to_channel_title.get(videos_research_df.loc[index, 'video_id'], row.get('channel_title', 'Unknown'))
                     video_chunks_df = pd.concat([
                         video_chunks_df,
                         pd.DataFrame({
                             'video_id': [videos_research_df.loc[index, 'video_id']],
                             'video_title': [videos_research_df.loc[index, 'title']],
-                            'chapter_title': [doc.metadata.get('chapter_title', '')],
-                            'metadata': [json.dumps({**doc.metadata, 'channel': 'HVAC School'})],
-                            'text_0': ''#[doc.page_content[:49000]]  # Trim if needed
+                            'chapter_title': [chapter_title],
+                            'metadata': [json.dumps({**doc.metadata, 'channel': channel_title})],
+                            'text_0': ['']
                         })
                     ], ignore_index=True)
 

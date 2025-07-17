@@ -31,7 +31,11 @@ def run_get_hvac_school_videos(sheet, worksheet_name):
     
     videos_research_sheet, videos_research_df = create_or_read_worksheet(sheet, worksheet_name, rows = 1000, cols = 30)
 
-    hvac_school_channel_id = "UCdLlUhD9LUGm0-NTYDASPFA"
+    # Define the list of channel IDs to search
+    channel_ids = [
+        "UCdLlUhD9LUGm0-NTYDASPFA",  # HVAC School
+        "UCIoD-SEdUWMA74tWXRMyCZQ"   # New channel
+    ]
 
     query_list = []
     
@@ -59,25 +63,26 @@ def run_get_hvac_school_videos(sheet, worksheet_name):
             print(f"Skip. Query {query} already searched")
             continue
            
-        # Run the search
-        search_results = search_youtube_videos(query, max_results=10, channel_id=hvac_school_channel_id)
+        all_results = []
+        for channel_id in channel_ids:
+            # Run the search for each channel
+            search_results = search_youtube_videos(query, max_results=10, channel_id=channel_id)
+            print(f"Search results for '{query}' in channel {channel_id}:", search_results)  # Debugging print
+            # Ensure search results are not empty
+            if search_results:
+                # Ensure 'video_id' exists in search results
+                valid_results = [video for video in search_results if 'video_id' in video]
+                if not valid_results:
+                    print(f"Warning: 'video_id' missing in search results for query: {query} in channel {channel_id}")
+                    continue  # Skip to next channel
+                all_results.extend(valid_results)
 
-        print(f"Search results for '{query}':", search_results)  # Debugging print
-
-        # Ensure search results are not empty
-        if not search_results:
-            print(f"No results found for query: {query}")
+        if not all_results:
+            print(f"No results found for query: {query} in any channel")
             continue
 
-        # Ensure 'video_id' exists in search results
-        valid_results = [video for video in search_results if 'video_id' in video]
-
-        if not valid_results:
-            print(f"Warning: 'video_id' missing in search results for query: {query}")
-            continue  # Skip to next query
-
         # Add valid results to the dataframe
-        videos_research_df = pd.concat([videos_research_df, pd.DataFrame(valid_results)], ignore_index=True)
+        videos_research_df = pd.concat([videos_research_df, pd.DataFrame(all_results)], ignore_index=True)
 
         # Update query list
         query_list.append(query)
