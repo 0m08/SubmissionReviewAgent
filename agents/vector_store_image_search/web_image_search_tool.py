@@ -9,7 +9,7 @@ from PIL import Image
 from io import BytesIO
 from typing import Optional, List, Dict, Any
 
-API_KEY = os.getenv("GOOGLE_CSE_API_KEY")
+API_KEY = os.getenv("GOOGLE_API_KEY")
 CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
 def web_image_search_tool(
