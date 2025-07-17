@@ -37,9 +37,9 @@ def main():
     print(f"\n[INFO] Submitting job for agent: {agent}")
     job = jobs_plugin.run(
         command,
-        name=f"{agent}-job",
-        machine=Machine.CPU,
-        interruptible=True
+        name = f"{agent}-job",
+        machine = Machine.CPU,
+        interruptible = True
     )
 
     print(f"[INFO] Job '{job.name}' submitted. Waiting for it to finish...")

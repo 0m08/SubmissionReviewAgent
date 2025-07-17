@@ -529,7 +529,7 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
                             'video_title': [videos_research_df.loc[index, 'title']],
                             'chapter_title': [chapter_title],
                             'metadata': [json.dumps({**doc.metadata, 'channel': channel_title})],
-                            'text_0': ['']  # or your text logic
+                            'text_0': ['']
                         })
                     ], ignore_index=True)
 
