@@ -1,7 +1,7 @@
 from agent_ui_template import agent_ui
 
 from agents.vector_store_image_search.get_similar_images_graphics_definitions import run_generate_queries_from_definition
-from agents.vector_store_image_search.get_similar_images_graphics_definitions import run_search_images_for_query_list, delete_generated_graphics_queries
+from agents.vector_store_image_search.get_similar_images_graphics_definitions import run_search_images_for_query_list, delete_generated_graphics_queries, delete_retrieved_image_urls
 
 
 pipeline_sections = [
@@ -40,7 +40,11 @@ pipeline_sections = [
                     "llm":"gemini_2_flash"
                 },
 
-                "delete_func": None,  
+                "delete_func": delete_retrieved_image_urls,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks",
+                },
                 
 
                 "estimated_time": "< 1 minute",

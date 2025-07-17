@@ -112,6 +112,7 @@ You are an expert in evaluating images for relevance to a search query.The user 
 
 You will be shown:
 - The original search query: {query}
+- {definition}
 - A set of top-k candidate images
 
 Your job is to:
@@ -119,6 +120,7 @@ Your job is to:
 2. Comment on whether the image matches the query intent.
 3. Choose the best matching images by their index (starting from 0).
 4. If none fit well, suggest a better query — but **preserve the context and avoid switching domains**.
+5. For the search query from the graphics definitions, you are provided with a definition to help you understand the context better. Use this definition to refine your understanding of the query, and to retrieve the most relevant images accordingly.
 
 
 Respond in this exact XML format:
@@ -212,7 +214,8 @@ def graphics_retriever_agent(
     query_image: Optional[PILImageType],
     max_turns: int = 3,
     filters: dict = None,
-    verbose: bool = True
+    verbose: bool = True,
+    definition: str | None = None,
 ):
     """
     LLM-driven image selection agent using actual image objects and a multi-turn refinement process.
@@ -246,8 +249,12 @@ def graphics_retriever_agent(
             print("No results returned.")
             return []
 
-        # Step 2: Format prompt from template
-        formatted_prompt = image_relevance_prompt.format(query=original_query)
+        # Step 2: Format prompt from template, include optional definition
+        formatted_prompt = image_relevance_prompt.format(
+            query=original_query,
+            definition=definition or "",
+        )
+
 
 
 

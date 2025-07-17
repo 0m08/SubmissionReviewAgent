@@ -1,21 +1,20 @@
 import os
 from PIL import Image
 import pandas as pd
-import datetime
+from datetime import datetime
 import requests
 import imagehash
 from io import BytesIO
-import torch
-import clip
-from langchain_chroma import Chroma
+from langchain.vectorstores import Chroma
 from services.embedding_service import get_embedding_model
 from services.sheets_service import save_to_sheet
-from services.drive_service import upload_folder_to_drive, download_folder_from_drive
+from services.drive_service import download_folder_from_drive
 import re
 from concurrent.futures import ThreadPoolExecutor
-
-
-
+import tempfile
+from typing import List
+import cohere
+import base64
 
 def is_valid_folderid(title):
     """
@@ -53,6 +52,49 @@ def chroma_db_exists(drive, parent_folder_id):
     return bool(chroma_folder_list)
 
 
+def upload_folder_to_drive(local_folder_path, parent_drive_folder_id, drive):
+    folder_name = os.path.basename(local_folder_path)
+
+    # Step 1: Create a folder on Drive
+    folder_metadata = {
+        'title': folder_name,
+        'parents': [{'id': parent_drive_folder_id}],
+        'mimeType': 'application/vnd.google-apps.folder'
+    }
+    drive_folder = drive.CreateFile(folder_metadata)
+    drive_folder.Upload()
+    drive_folder_id = drive_folder['id']
+
+    # Step 2: Recursively upload contents
+    for root, dirs, files in os.walk(local_folder_path):
+        rel_path = os.path.relpath(root, local_folder_path)
+        current_folder_id = drive_folder_id
+
+        # Maintain folder structure
+        if rel_path != '.':
+            path_parts = rel_path.split(os.sep)
+            for part in path_parts:
+                folder_list = drive.ListFile({
+                    'q': f"title='{part}' and '{current_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                }).GetList()
+                if folder_list:
+                    current_folder_id = folder_list[0]['id']
+                else:
+                    subfolder_metadata = {
+                        'title': part,
+                        'parents': [{'id': current_folder_id}],
+                        'mimeType': 'application/vnd.google-apps.folder'
+                    }
+                    subfolder = drive.CreateFile(subfolder_metadata)
+                    subfolder.Upload()
+                    current_folder_id = subfolder['id']
+
+        # Upload files in current directory
+        for file_name in files:
+            file_path = os.path.join(root, file_name)
+            f = drive.CreateFile({'title': file_name, 'parents': [{'id': current_folder_id}]})
+            f.SetContentFile(file_path)
+            f.Upload()
 
 def compute_phash_from_drive_url(url):
     """
@@ -68,20 +110,6 @@ def compute_phash_from_drive_url(url):
         print(f"⚠️ Could not compute pHash for {url}: {e}")
         return None
 
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-# clip_model, preprocess = clip.load("ViT-B/32", device=device)  # ← BAD: runs on import
-# clip_model.eval()
-
-_clip_model = None
-_preprocess = None
-
-def get_clip_model_and_preprocess():
-    global _clip_model, _preprocess
-    if _clip_model is None or _preprocess is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        _clip_model, _preprocess = clip.load("ViT-B/32", device=device)
-        _clip_model.eval()
-    return _clip_model, _preprocess
 
 def extract_drive_file_id(url):
     patterns = [
@@ -96,17 +124,25 @@ def extract_drive_file_id(url):
             return match.group(1)
     return None
 
-def get_image_embedding_from_pil(image: Image.Image):
+
+co = cohere.ClientV2(api_key=os.getenv('COHERE_API_KEY'))
+def get_image_embedding_from_file(image: Image.Image) -> List[float]:
     """
-    Get image embedding from a PIL image using CLIP.
+    Save a PIL image to a temporary file and extract the embedding using Cohere's embed-v4.0.
     """
-    model, preprocess = get_clip_model_and_preprocess()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    image_tensor = preprocess(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        image_features = model.encode_image(image_tensor)
-        image_features /= image_features.norm(dim=-1, keepdim=True)
-    return image_features[0].cpu().numpy().tolist()
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+        image.save(tmp_file.name, format="JPEG")
+        with open(tmp_file.name, "rb") as f:
+            enc_img = base64.b64encode(f.read()).decode("utf-8")
+            enc_img = f"data:image/jpeg;base64,{enc_img}"
+
+    response = co.embed(
+        model="embed-v4.0",
+        images=[enc_img],
+        input_type="image",
+        embedding_types=["float"],
+    )
+    return response.embeddings.float[0]
 
 
 def download_image_from_drive(drive, file_id):
@@ -145,7 +181,7 @@ def process_image_embedding(row, folder_id, drive):
         local_img = download_image_from_drive(drive, row['Image ID'])
         if not isinstance(local_img, Image.Image):
             return None, None, None
-        image_vector = get_image_embedding_from_pil(local_img)
+        image_vector = get_image_embedding_from_file(local_img)
         metadata = {
             'image_id': row['Image ID'],
             'name': row['Image Name'],
@@ -161,6 +197,7 @@ def process_image_embedding(row, folder_id, drive):
     except Exception as e:
         print(f"Error embedding image ID {row['Image ID']}: {e}")
         return None, None, None
+
 
 def build_vectorstore_and_upload(spreadsheet, drive):
     valid_sheets = [ws.title for ws in spreadsheet.worksheets() if is_valid_folderid(ws.title)]
@@ -300,6 +337,7 @@ def build_vectorstore_and_upload(spreadsheet, drive):
     upload_folder_to_drive(local_chroma_path, vectorstore_folder_id, drive)
     print("Upload complete.\n All embeddings processed successfully.")
     
+    
 def update_vectorstore(spreadsheet, drive):
     """
     Update Chroma DB with new text and image embeddings from Google Sheets and upload to Drive.
@@ -307,7 +345,7 @@ def update_vectorstore(spreadsheet, drive):
     :param drive: Google Drive instance.
     """
     print("Starting vectorstore update...")
-    parent_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
+    parent_folder_id = '1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2'
     local_chroma_root = "/tmp/temp_chroma_folder"
     local_chroma_path = os.path.join(local_chroma_root, "chroma_graphics_db")
     os.makedirs(local_chroma_root, exist_ok=True)

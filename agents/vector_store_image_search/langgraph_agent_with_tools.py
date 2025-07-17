@@ -14,7 +14,6 @@ from modules.chain import Chain
 
 
 # --- Define state ---
-# --- Define state ---
 class SearchState(TypedDict, total=False):
     query: str
     drive: Any
@@ -22,6 +21,7 @@ class SearchState(TypedDict, total=False):
     llm: str
     query_image: Any
     filters: Dict[str, Any]
+    definition: Optional[str]
     results: List[Dict[str, Any]]
     images: List[Dict[str, Any]]
     verdict: str
@@ -72,12 +72,10 @@ def custom_tool_node(state: SearchState) -> SearchState:
     return state
 
 
-
 # --- Agent Node ---
 def agent_node(state: SearchState) -> SearchState:
     print("[AGENT] Running agent logic...")
 
-    # Handle None safely
     query = (state.get("query") or "").strip()
     query_image = state.get("query_image")
 
@@ -85,32 +83,62 @@ def agent_node(state: SearchState) -> SearchState:
         query = "Image-based search input from user"
         state["query"] = query
 
-    # First vector search attempt
+    # First-time vector search using agent
     if not state.get("used_vector_search", False):
+        print("[AGENT] Running first vector search...")
         results = graphics_retriever_agent(
-            query=state["query"],
-            query_image=state.get("query_image"),
+            query=query,
+            query_image=query_image,
             drive=state["drive"],
             llm=state.get("llm", "gemini_2_flash"),
             k=state.get("k", 5),
             filters=state.get("filters"),
             max_turns=1,
-            verbose=True
+            verbose=True,
+            definition=state.get("definition"),
         )
         state["images"] = results
         state["used_vector_search"] = True
-        state["verdict"] = "CONTINUE" if not results else "TERMINATE"
-        return state
+
+        if results:
+            state["verdict"] = "TERMINATE"
+            return state
+        else:
+            # Let the tool node attempt vector search
+            state["verdict"] = "CONTINUE"
+            return state
 
     results = state.get("results", [])
+
+    # If no results and web search not yet used, fallback
     if not results and not state.get("used_web_search", False):
-        state["verdict"] = "WEB_SEARCH"
-        return state
-    elif not results:
+        print("[AGENT] No results after requery → using web search...")
+        try:
+            web_results = web_image_search_tool(
+                query=query,
+                query_image=query_image,
+                k=state.get("k", 1)
+            )
+            state["images"] = [{
+                "image": res["image"],
+                "metadata": res.get("metadata", {})
+            } for res in web_results] if web_results else []
+        except Exception as e:
+            print(f"[ERROR] Web search failed: {e}")
+            state["images"] = []
+
+        state["used_web_search"] = True
         state["verdict"] = "TERMINATE"
         return state
 
-    # LLM evaluates the results
+    elif not results:
+        print("[AGENT] No results found. Terminating.")
+        state["images"] = []
+        state["verdict"] = "TERMINATE"
+        return state
+
+    # Evaluate results with LLM
+    print("[AGENT] Evaluating results with LLM...")
     chain = Chain(
         llm=state.get("llm", "gemini_2_flash"),
         tags=["observations", "verdict", "selected_indexes", "action", "query"],
@@ -118,7 +146,10 @@ def agent_node(state: SearchState) -> SearchState:
     )
     chain.add_message(role="system", content=graphics_retriever_agent_prompt)
 
-    formatted_prompt = image_relevance_prompt.format(query=state["query"])
+    formatted_prompt = image_relevance_prompt.format(
+        query=state["query"],
+        definition=state.get("definition", ""),
+    )
     content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
     flat_content = "\n".join(map(str, content_parts)) if isinstance(content_parts, list) else str(content_parts)
     chain.add_message(role="user", content=flat_content)
@@ -140,11 +171,16 @@ def agent_node(state: SearchState) -> SearchState:
             for i in selected_indexes if 0 <= i < len(results)
         ]
     else:
-        # Handle empty or None query in response
+        # Requery path
         updated_query = llm_response.get("query", "").strip()
         if not updated_query or updated_query.lower() == "none":
             updated_query = "Image-based query"
+
+        print(f"[AGENT] Requerying with: {updated_query}")
         state["query"] = updated_query
+        state["results"] = []
+        state["verdict"] = "CONTINUE"
+        state["used_vector_search"] = False  # Allow vector search tool to run again
 
     return state
 
@@ -204,6 +240,7 @@ def run_graphics_search_graph(
     llm: str = "gemini_2_flash",
     max_turns: int = 3,
     filters: Dict[str, Any] | None = None,
+    definition: str | None = None,
 ) -> List[Dict[str, Any]]:
     memory = MemorySaver()
     app = build_graph().with_config(checkpointer=memory)
@@ -215,11 +252,11 @@ def run_graphics_search_graph(
         "k": k,
         "llm": llm,
         "filters": filters,
+        "definition": definition,
         "max_turns": max_turns,
         "turn": 1,
     }
 
     final_state = app.invoke(initial_state)
     return final_state.get("images", [])
-
 

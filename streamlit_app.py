@@ -133,7 +133,7 @@ vectorstore_page = st.Page(
 
 get_images_page = st.Page(
     "get_images_from_graphics_definitions.py",
-    title="Get Images from Graphics Definitions",
+    title="Image Search with Graphics Definitions",
     icon=":material/image_search:",
 )
 

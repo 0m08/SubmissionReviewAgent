@@ -1,5 +1,4 @@
-import torch
-import clip
+import cohere
 import os
 import requests
 from io import BytesIO
@@ -8,7 +7,9 @@ from services.embedding_service import get_embedding_model
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from langchain_chroma import Chroma
 from services.drive_service import download_folder_from_drive
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
+import base64
+import tempfile
 
 
 def load_central_chroma_db(embedding_function, drive, central_folder_id):
@@ -67,34 +68,40 @@ def load_central_chroma_db(embedding_function, drive, central_folder_id):
     }
     
     
-# Load model globally
-device = "cuda" if torch.cuda.is_available() else "cpu"
-clip_model, preprocess = clip.load("ViT-B/32", device=device)
-clip_model.eval()
+co = cohere.ClientV2(api_key=os.getenv('COHERE_API_KEY'))
 
-def get_image_embedding_from_pil(image: Image.Image):
+def get_image_embedding(query: Union[str, Image.Image]) -> List[float]:
     """
-    Compute CLIP embedding for a given PIL Image.
-
-    Returns a list of floats (embedding vector).
+    Generate Cohere embed-v4.0 vector for a text or image query.
+    Accepts either a string (text) or PIL.Image.
     """
-    image_tensor = preprocess(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        image_features = clip_model.encode_image(image_tensor)
-        image_features /= image_features.norm(dim=-1, keepdim=True)
-    return image_features[0].cpu().numpy().tolist()
+    if isinstance(query, str):
+        response = co.embed(
+            model="embed-v4.0",
+            texts=[query],
+            input_type="search_query",
+            embedding_types=["float"],
+        )
+        return response.embeddings.float[0]
 
+    elif isinstance(query, Image.Image):
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+            query.save(tmp_file.name, format="JPEG")
+            with open(tmp_file.name, "rb") as f:
+                enc_img = base64.b64encode(f.read()).decode("utf-8")
+                enc_img = f"data:image/jpeg;base64,{enc_img}"
 
+        response = co.embed(
+            model="embed-v4.0",
+            images=[enc_img],
+            input_type="image",
+            embedding_types=["float"],
+        )
+        return response.embeddings.float[0]
 
-def get_text_embedding(query: str) -> List[float]:
-    """
-    Compute CLIP embedding for a given text query.
-    """
-    text_tokens = clip.tokenize([query]).to(device)
-    with torch.no_grad():
-        text_features = clip_model.encode_text(text_tokens)
-        text_features /= text_features.norm(dim=-1, keepdim=True)
-    return text_features[0].cpu().numpy().tolist()
+    else:
+        raise ValueError("Unsupported query type for embedding: must be str or PIL.Image")
+
 
 
 def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.Image] = None,
@@ -118,7 +125,7 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
 
     print("Loading Chroma DBs...")
     embedding_function = get_embedding_model()
-    central_folder_id = '1BACIAhOG-c2659kl2d_gJuzulopNGIrP'
+    central_folder_id = '1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2'
     dbs = load_central_chroma_db(embedding_function, drive, central_folder_id)
 
     seen_phashes = set()
@@ -153,7 +160,7 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
     if query_image:
         print("Searching image collection using image embedding...")
         try:
-            query_vector = get_image_embedding_from_pil(query_image)
+            query_vector = get_image_embedding(query_image)
         except Exception as e:
             print(f"Failed to embed image: {e}")
             return []
@@ -193,7 +200,7 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
 
             # === Search image DB with CLIP text embedding ===
             print("Searching image collection with CLIP text embedding...")
-            clip_vector = get_text_embedding(query)
+            clip_vector = get_image_embedding(query)
             image_db = dbs["image"]
             clip_results = image_db._collection.query(
                 query_embeddings=[clip_vector],

@@ -1,6 +1,6 @@
 import streamlit as st
 import re
-from typing import List, Optional
+from typing import List, Optional, Any
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
@@ -55,8 +55,6 @@ def parse_flat_graphics_definitions(definition_text: str) -> list:
         })
 
     return scenes
-
-
 
 
 generate_clean_queries_prompt_template = """  
@@ -121,6 +119,7 @@ Output your response in the following format:
 
 """
 
+
 generate_clean_queries_examples = """
 Example Definition:
 Sentence: "HVAC systems rely heavily on electricity."
@@ -152,6 +151,7 @@ wrench icon illustration
 voltmeter icon illustration
 multimeter with display
 """
+
 
 def generate_clean_query_from_scene(
     sentence: str,
@@ -289,47 +289,78 @@ def load_queries_from_sheet(sheet, sheet_name, queries_column="generated_graphic
 
 
 
-def search_images_for_query_list(queries: List[str], llm: str = "gemini_2_flash", max_workers: int = 5) -> List[str]:
-    """
-    Search for images based on a list of queries using parallel processing.
+# def search_images_for_query_list(queries: List[str], query_image: Any, llm: str = "gemini_2_flash") -> List[str]:
+#     """
+#     Search for images based on a list of queries sequentially.
     
-    :param queries: List of search queries.
-    :param drive: The Google Drive service object for image search.
-    :param llm: The LLM to use for generating queries.
-    :param max_workers: Maximum number of threads to use for parallel processing.
+#     :param queries: List of search queries.
+#     :param query_image: An optional query image to enhance the search.
+#     :param llm: The LLM to use for generating or refining queries.
+#     :return: List of image URLs (one for each query).
+#     """
+#     image_links = []
+
+#     for query in queries:
+#         try:
+#             results = run_graphics_search_graph(
+#                 query=query,
+#                 query_image=query_image,
+#                 drive=drive,  # Make sure `drive` is defined in scope
+#                 k=5,
+#                 llm=llm
+#             )
+#             if results:
+#                 metadata = results[0].get("metadata", {})
+#                 # Prefer drive_url > source_url > fallback
+#                 url = metadata.get("drive_url") or metadata.get("source_url") or "No URL found"
+#                 image_links.append(url)
+#             else:
+#                 image_links.append("No result")
+#         except Exception as e:
+#             image_links.append(f"Error: {str(e)}")
+
+#     return image_links
+
+def search_images_for_query_list(
+    queries: List[str],
+    query_image: Any,
+    definition: str | None = None,
+    llm: str = "gemini_2_flash",
+) -> List[str]:
     """
-    # drive = st.session_state["drive"] 
-    
-    def search(query):
+    Search for images based on a list of queries, injecting contextual graphics definitions
+    directly into the query string.
+    """
+    image_links = []
+
+    for i, query in enumerate(queries):
+        # # Inject the graphics context inline into the query
+        # query_with_context = f"{query.strip()}\n\nGraphics Context: {graphics_context}" if graphics_context else query.strip()
+
+        # print(f"\n[DEBUG] → Query {i + 1}/{len(queries)}: {query_with_context[:100]}...")
+
         try:
             results = run_graphics_search_graph(
                 query=query,
+                query_image=query_image,
                 drive=drive,
-                k=1,
+                k=5,
+                definition=definition,
                 llm=llm
             )
+
             if results:
                 metadata = results[0].get("metadata", {})
-                # Prefer drive_url > source_url > fallback
                 url = metadata.get("drive_url") or metadata.get("source_url") or "No URL found"
-                return url
+                print(f"[DEBUG] Got result URL: {url}")
+                image_links.append(url)
             else:
-                return "No result"
+                print("[DEBUG] No results returned.")
+                image_links.append("No result")
 
         except Exception as e:
-            return f"Error: {str(e)}"
-
-    image_links = [None] * len(queries)
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(search, query): idx
-            for idx, query in enumerate(queries)
-        }
-
-        for future in as_completed(future_to_index):
-            idx = future_to_index[future]
-            image_links[idx] = future.result()
+            print(f"[ERROR] Exception while processing query '{query}': {e}")
+            image_links.append(f"Error: {str(e)}")
 
     return image_links
 
@@ -337,56 +368,126 @@ def search_images_for_query_list(queries: List[str], llm: str = "gemini_2_flash"
 def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=4):
     """
     Run image search for each newline-separated query in a sheet row.
-    - Saves image URLs in 'image_urls' column (newline-separated).
-    - Saves query–link or query–'No result' pairs in 'query_link_pairs'.
+    Each individual query is processed and saved immediately.
+    Previously processed queries are skipped.
     """
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
     all_query_blocks = load_queries_from_sheet(sheet, sheet_name)
 
-    url_column = "image_urls"
-    pair_column = "query_link_pairs"
+    pair_column = "image_urls"
 
-    # Ensure both columns exist
-    for col in [url_column, pair_column]:
-        if col not in slide_chunks_df.columns:
-            slide_chunks_df[col] = ""
+    # Ensure 'image_urls' column exists
+    if pair_column not in slide_chunks_df.columns:
+        slide_chunks_df[pair_column] = ""
 
     with st.spinner("🔍 Searching for images... this may take a few minutes"):
         for row_index, query_block in enumerate(all_query_blocks):
-            existing_urls = str(slide_chunks_df.at[row_index, url_column])
-            if existing_urls.strip().startswith("http"):
-                print(f"Row {row_index + 1} already processed. Skipping.")
-                continue
-
             if not isinstance(query_block, str) or not query_block.strip():
                 print(f"Row {row_index + 1} has no valid query block.")
                 continue
 
+            # Get existing results in this row
+            existing_links_str = slide_chunks_df.at[row_index, pair_column]
+            existing_results = {}
+            if isinstance(existing_links_str, str) and existing_links_str.strip():
+                for line in existing_links_str.strip().split("\n"):
+                    if " - " in line:
+                        q, link = line.split(" - ", 1)
+                        existing_results[q.strip()] = link.strip()
+
+            # Extract and clean individual queries
             query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
             if not query_list:
                 print(f"Row {row_index + 1} has no valid queries after splitting.")
                 continue
 
-            print(f"Processing row {row_index + 1} with {len(query_list)} queries...")
-            image_links = search_images_for_query_list(query_list, llm=llm)
+            # Get context if available
+            definition = (
+                slide_chunks_df.at[row_index, "short_graphics_definitions"]
+                if "short_graphics_definitions" in slide_chunks_df.columns else ""
+            )
 
-            # Ensure image_links aligns with query_list
-            result_pairs = []
-            final_links = []
-            for query, link in zip(query_list, image_links):
-                if isinstance(link, str) and link.startswith("http"):
-                    result_pairs.append(f"{query} - {link}")
-                    final_links.append(link)
-                else:
-                    result_pairs.append(f"{query} - No result")
+            updated_results = existing_results.copy()
+            for query in query_list:
+                # Skip if already processed with a valid link
+                if query in existing_results and existing_results[query].startswith("http"):
+                    print(f"✅ Query already processed: '{query}' — skipping.")
+                    continue
 
-            # Save results
-            slide_chunks_df.at[row_index, url_column] = "\n".join(final_links)
-            slide_chunks_df.at[row_index, pair_column] = "\n".join(result_pairs)
+                print(f"🔍 Processing query: '{query}'")
 
-            save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+                # Run the search (single-query call)
+                image_links = search_images_for_query_list(
+                    [query],
+                    query_image=None,
+                    definition=definition,
+                    llm=llm
+                )
+
+                link = image_links[0] if image_links else "No result"
+                updated_results[query] = link if isinstance(link, str) and link.startswith("http") else "No result"
+
+                # Save immediately
+                updated_lines = [f"{q} - {l}" for q, l in updated_results.items()]
+                slide_chunks_df.at[row_index, pair_column] = "\n".join(updated_lines)
+                save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
     return slide_chunks_df[pair_column].tolist()
+
+
+# def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=4):
+#     """
+#     Run image search for each newline-separated query in a sheet row.
+#     Skips rows that already contain image URLs.
+#     Saves query–link or query–'No result' pairs in the 'image_urls' column.
+#     """
+#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
+#     all_query_blocks = load_queries_from_sheet(sheet, sheet_name)
+
+#     pair_column = "image_urls"
+
+#     # Ensure 'image_urls' column exists
+#     if pair_column not in slide_chunks_df.columns:
+#         slide_chunks_df[pair_column] = ""
+
+#     with st.spinner("🔍 Searching for images... this may take a few minutes"):
+#         for row_index, query_block in enumerate(all_query_blocks):
+#             if not isinstance(query_block, str) or not query_block.strip():
+#                 print(f"Row {row_index + 1} has no valid query block.")
+#                 continue
+
+#             # ✅ Skip if already filled
+#             existing_links = slide_chunks_df.at[row_index, pair_column]
+#             if isinstance(existing_links, str) and existing_links.strip():
+#                 print(f"Row {row_index + 1} already has image URLs. Skipping.")
+#                 continue
+
+#             query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
+#             if not query_list:
+#                 print(f"Row {row_index + 1} has no valid queries after splitting.")
+#                 continue
+
+#             print(f"Processing row {row_index + 1} with {len(query_list)} queries...")
+
+#             # If needed, pass an image to search with (currently not used)
+#             query_image = None
+#             image_links = search_images_for_query_list(query_list, query_image, llm=llm)
+
+#             result_pairs = []
+#             for query, link in zip(query_list, image_links):
+#                 if isinstance(link, str) and link.startswith("http"):
+#                     result_pairs.append(f"{query} - {link}")
+#                 else:
+#                     result_pairs.append(f"{query} - No result")
+
+#             # Save result pairs in the DataFrame
+#             slide_chunks_df.at[row_index, pair_column] = "\n".join(result_pairs)
+
+#             # Save after each row to preserve progress
+#             save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
+#     return slide_chunks_df[pair_column].tolist()
+
 
 
 def delete_generated_graphics_queries(sheet, worksheet_name="Slide Chunks"):
@@ -394,8 +495,6 @@ def delete_generated_graphics_queries(sheet, worksheet_name="Slide Chunks"):
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     cols = [
         "generated_graphics_queries",
-        "image_urls",
-        
     ]
     cols = [c for c in cols if c in df.columns]
     if cols:
@@ -403,6 +502,18 @@ def delete_generated_graphics_queries(sheet, worksheet_name="Slide Chunks"):
         clear_worksheet(ws)
         save_to_sheet(ws, df)
 
+
+def delete_retrieved_image_urls(sheet, worksheet_name="Slide Chunks"):
+    """Remove graphics definition related columns from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    cols = [
+        "image_urls",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    if cols:
+        df = df.drop(columns=cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
 
 
 

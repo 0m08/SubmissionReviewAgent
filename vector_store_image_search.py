@@ -1,12 +1,9 @@
 import streamlit as st
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
-from agents.vector_store_image_search.graphics_retriever_agent import graphics_retriever_agent
 from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists, extract_drive_file_id
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
-
-# from agents.vector_store_image_search.graphics_search_graph import run_graphics_search_graph
-# from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
 from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
+# from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
 from services.drive_service import login_with_service_account
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
@@ -134,10 +131,12 @@ elif task == "Update Vectorstore":
                     break
 
             if update_required:
-                update_vectorstore(sheet, drive)
+                with st.spinner("Updating vectorstore... This may take a few minutes."):
+                    update_vectorstore(sheet, drive)
                 st.success("Vectorstore updated.")
             else:
                 st.info("No updates needed. Vectorstore is up to date.")
+
 
 # -------------------- Task: Search Images -------------------- #
 
@@ -222,8 +221,7 @@ elif task == "Search Images":
             filters["image_title"] = image_title_keyword
 
     # === Search Mode Toggles ===
-    use_agent = st.toggle("Use Graphics Search Agent", value=False)
-    use_graph = st.toggle("Use LangGraph Search", value=False)
+    use_graph = st.toggle("Agent Mode", value=False)
 
     run_search = st.button("Run Search")
 
@@ -233,9 +231,8 @@ elif task == "Search Images":
             st.warning("Please enter a query or upload an image.")
         else:
             mode = (
-                'LangGraph Search' if use_graph else
-                ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
-            )
+                'Agent Mode' if use_graph else 'Graphics Retriever')
+            
             with st.spinner(f"Searching images using {mode}..."):
                 if use_graph:
                     results = run_graphics_search_graph(
@@ -247,17 +244,6 @@ elif task == "Search Images":
                         max_turns=3,
                         filters=filters
                     )
-                elif use_agent:
-                    results = graphics_retriever_agent(
-                        query=query,
-                        query_image=query_image,
-                        drive=drive,
-                        llm="gemini_2_flash",
-                        k=k,
-                        max_turns=3,
-                        filters=filters,
-                        verbose=False
-                    )
                 else:
                     results = graphics_retriever(
                         query=query,
@@ -266,6 +252,7 @@ elif task == "Search Images":
                         k=k,
                         filters=filters
                     )
+                    # results =web_image_search_tool(query=query, k=k)
 
     # === Display Results ===
     if results:
