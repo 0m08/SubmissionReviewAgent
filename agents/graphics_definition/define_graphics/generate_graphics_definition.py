@@ -506,8 +506,8 @@ def get_previous_graphics_definition_as_str(slide_no, text, existing_definition_
     :return: The updated existing definition string
     """
 
-    # If the text is empty, return the exisiting definition str
-    if text == "":
+    # If the text is empty or doesn't contain <scene>, return the existing definition str
+    if not text or "<scene>" not in text:
         return existing_definition_str
 
     # Extract the scenes as a list

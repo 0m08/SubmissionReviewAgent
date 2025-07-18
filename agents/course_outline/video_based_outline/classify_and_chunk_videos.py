@@ -208,7 +208,7 @@ Format your response as follows:
 [State whether the video is RELEVANT or IRRELEVANT]
 </verdict>
 
-Do not enter verdict such as "PARTIALLY RELEVANT", "CONDITIONALLY RELEVANT", etc. Only two valid options for verdict are "RELEVANT" and "IRRELEVANT"
+Do not enter a verdict such as "PARTIALLY RELEVANT", "CONDITIONALLY RELEVANT", etc. Only two valid options for verdict are "RELEVANT" and "IRRELEVANT"
 Ensure your analysis is thorough and your verdict is clear and well-justified based on the provided information.
 """
 

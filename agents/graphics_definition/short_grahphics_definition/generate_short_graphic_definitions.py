@@ -265,6 +265,11 @@ def run_generate_short_graphic_definitions(sheet, worksheet_name, llm = 'gemini_
         # Submit tasks for each row
         for index, row in slide_chunks_df.iterrows():
 
+            # Check Slide Type for 'Video'
+            slide_type = row.get('Slide Type', '').strip().lower()
+            if slide_type == 'video':
+                slide_chunks_df.loc[index, 'short_graphics_definitions'] = 'No graphics since slide type is video'
+                continue
             # Skip if short graphic definitions already populated
             if row['short_graphics_definitions'] != '':
                 print(f'Skipping row {index}. Already populated')

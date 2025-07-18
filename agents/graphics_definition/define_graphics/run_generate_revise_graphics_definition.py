@@ -55,6 +55,23 @@ def run_generate_graphics_definition(sheet, worksheet_name, course_name, target_
     previous_graphics_definition = ""
 
     for index, row in slide_chunks_df.iterrows():
+        # Check Slide Type for 'Video'
+        slide_type = row.get('Slide Type', '').strip().lower()
+        if slide_type == 'video':
+            for col in [
+                'graphics_definition',
+                'complexity_review',
+                'missing_sentences_review',
+                'accuracy_review',
+                'reuse_previous_graphics_review',
+                'human_review',
+                'revised_graphics_definition',
+            ]:
+                slide_chunks_df.loc[index, col] = 'No graphics since slide type is video'
+            save_to_sheet(worksheet=slide_chunks_sheet, df=slide_chunks_df)
+            format_worksheet(slide_chunks_sheet)
+            continue
+
         if row['graphics_definition'].strip():
             continue
 
