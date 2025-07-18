@@ -941,7 +941,7 @@ pipeline_sections.append({
 #             "args": {
 #                 "sheet": "sheet",
 #                 "worksheet_name": "Final Outline",
-#                 "llm": llm_model,
+#                 "llm": "gemini_2_5_flash",
 #             },
 #             "delete_func": delete_outline_checklist_review_and_revise,
 #             "delete_args": {
@@ -961,7 +961,7 @@ pipeline_sections.append({
         {
             "name": "Get relevant references for Learning Objectives",
             "func": load_references,
-            "depends_on": ["Create the Final Outline Sheet"],
+            "depends_on": ["Create the Final Outline Sheet"], #["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
             "args": {
                 "sheet": "sheet",
             },

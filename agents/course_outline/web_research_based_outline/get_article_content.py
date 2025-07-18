@@ -180,6 +180,10 @@ def fetch_and_process_article(index, row):
         if article_content:
             article_content = escape_single_braces(article_content)
 
+        # Ensure article_content is not longer than 8,00,000 characters ~ 200,000 tokens
+        if article_content and len(article_content) > 800000:
+            article_content = article_content[:800000]
+
         return index, article_content
     except Exception as e:
         print(f"Unexpected error processing index {index}: {e}")

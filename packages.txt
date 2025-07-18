@@ -28,3 +28,4 @@ libx264-dev
 libwoff1
 libmanette-0.2-0
 libgudev-1.0-0
+ffmpeg

@@ -17,8 +17,8 @@ import pandas as pd
 from langsmith import traceable
 import streamlit as st
 
-outline_checklist_review_prompt = """ You are a checklist-based review agent. A course outline for an E-learning course was created. Your task is to review the topics, subtopics, and learning objectives from this generated course outline using the predefined review criteria provided.
-For the given checklist task and its review criterion, determine whether the outline content satisfies the requirement. If any issue is found, you will mark it as a failure and apply the predefined operation specified for that criterion — such as deleting, modifying, splitting, or merging content. Do not invent or suggest a different operation. Your goal is to ensure that the course outline remains clear, relevant, and instructionally sound.
+outline_checklist_review_prompt = """ You are a checklist-based review agent. A course outline for an E-learning course was created. Your task is to review the topics, subtopics, and learning objectives from this generated course outline using the predefined review criteria provided. 
+For the given checklist task and its review criterion, determine whether the outline content satisfies the requirement. If any issue is found, you will mark it as a failure and recommend the predefined operation specified for that criterion — such as deleting, modifying, splitting, or merging content. Do not invent or suggest a different operation. Your goal is to ensure that the course outline remains clear, relevant, and instructionally sound. You must avoid suggesting unnecessary changes, and ensure that your analysis respects the structural relationships between topics, subtopics, and learning objectives. Only flag real issues that clearly violate the checklist criteria.
 
 Below is the course information for which the outline was generated:
 
@@ -39,21 +39,42 @@ Here is the checklist task and its corresponding review criteria you need to use
 {checklist_criteria}
 </checklist_criteria>
 
-A) Scope-based checklist criteria application guidelines
+A) Outline Structure Reference
+
+The course outline follows a structured, hierarchical format. You must understand and respect this organization when conducting your review.
+
+Each outline entry is formatted using this repeated pattern:
+
+Topic: ...
+Subtopic: ...
+Learning Objective: ...
+
+This pattern is repeated for every Learning Objective in the outline.
+
+The structure follows a hierarchy:
+- A Topic may include multiple Subtopics.
+- Each Subtopic may include multiple Learning Objectives.
+- The same Topic and Subtopic lines may appear more than once — this is expected, as each occurrence corresponds to a different Learning Objective within that structure.
+
+Always reason about each Topic, Subtopic, and Learning Objective within the context of this hierarchy.
+
+B) Scope-based checklist criteria application guidelines
 
 Each review criterion has its own scope which indicates whether you will be reviewing individual topics or the entire outline. Apply the checklist task and its review criteria based on the specified scope:
 
 - Outline: Apply all checklist criteria across the entire course outline. Review all topics, subtopics, and learning objectives together to determine whether the overall content meets the review criteria.
-- Topic: Apply the checklist criteria to the topic block provided, which includes the topic, subtopics, and associated learning objectives. Evaluate the relevant parts of this block based on each review criterion.
+- Topic: Apply the checklist criteria to the topic block provided, which includes the topic, its subtopics, and associated learning objectives. Evaluate the relevant parts of this block based on each review criterion.
 
-B) Multiple review criteria under a single checklist task
+Be especially careful for “Outline” scope as it requires reasoning across the entire outline structure, not isolated entries. Consider Topic-Subtopic-Learning Objective relationships holistically when judging whether any changes are needed.
+
+C) Multiple review criteria under a single checklist task
 
 - The checklist task may contain one or more review criteria.
-- Evaluate the outline content against each criterion individually.
+- Evaluate the outline content against each criterion individually. Ensure each evaluation is focused, justified, and does not generalize the issue across unrelated entries. If you cannot confidently say a criterion fails, mark it as Pass.
 - Do not treat the group of criteria as a single combined statement—assess each one on its own.
 - Strictly preserve the wording of the task name and each review criterion. Do not rephrase, paraphrase, or alter them in any way.
 
-C) How to assign verdicts and recommend operations
+D) How to assign verdicts and recommend operations
 
 - The checklist task contains multiple individual review criteria.
 - Evaluate the course outline content against each criterion separately.
@@ -70,11 +91,13 @@ c) split → for breaking complex or multi-part content into simpler entries
 d) merge → for combining overly brief or overlapping entries
 
 Only if the verdict is Fail, include a short feedback statement that clearly explains what the issue is and how the predefined operation should be applied. Do not alter the operation — simply explain what content needs to be revised and how.
+Suggest changes only when the content clearly violates the review criterion. Do not overcorrect or suggest unnecessary edits.
+Ensure your analysis respects the structural relationships between topics, subtopics, and learning objectives. Do not evaluate items in isolation if their meaning depends on surrounding entries.
 
 So your output for each review criterion should strictly contain the following fields:
 Task, Review Criterion, Analysis, Verdict, Justification, Operation (if failed), Feedback (if failed)
 
-D) Evaluation Breakdown
+E) Evaluation Breakdown
 
 Use this section to reason step by step before producing the final output. You must evaluate the course outline entry against each review criterion individually, using the provided scope to determine how to apply the checklist. First, interpret what the scope means for this task. Then, go through each criterion and assess whether the content satisfies it.
 
@@ -128,7 +151,7 @@ Justification: [Briefly explain why you reached this verdict]
 
 Operation: [This field should be included only if the verdict is "Fail". Copy only the given operation for this criterion as it is]
 
-Feedback: [This field should appear only if the verdict is "Fail". Briefly explain what the issue is and how to apply the given operation to resolve it]
+Feedback: [This field should appear only if the verdict is "Fail". Clearly explain what specific part of the content needs revision, why it fails the review criterion, and how the operation should be applied to fix it. Do not suggest vague or overly general feedback]
 
 </criterion_1>
 
@@ -146,7 +169,7 @@ Justification: [Briefly explain why you reached this verdict]
 
 Operation: [This field should be included only if the verdict is "Fail". Copy only the given operation for this criterion as it is]
 
-Feedback: [This field should appear only if the verdict is "Fail". Briefly explain what the issue is and how to apply the given operation to resolve it]
+Feedback: [This field should appear only if the verdict is "Fail". Clearly explain what specific part of the content needs revision, why it fails the review criterion, and how the operation should be applied to fix it. Do not suggest vague or overly general feedback]
 
 </criterion_2>
 
@@ -240,25 +263,44 @@ Review Criteria:
 
 Follow the below instructions carefully while doing the revisions:
 
-A) Scope-Based Revision Guidelines
+A) Outline Structure Reference
 
-Each review criterion has its own scope, which indicates whether you will be revising the entire outline or only a specific topic and its related content. Apply the revision based on the given scope:
+The course outline follows a structured, hierarchical format. You must understand this organization before doing the revisions.
+
+Each outline entry is formatted using this repeated pattern:
+
+Topic: ...
+Subtopic: ...
+Learning Objective: ...
+
+This pattern is repeated for every Learning Objective in the outline.
+
+The structure follows a hierarchy:
+- A Topic may include multiple Subtopics.
+- Each Subtopic may include multiple Learning Objectives.
+- The same Topic and Subtopic lines may appear more than once — this is expected, as each occurrence corresponds to a different Learning Objective within that structure.
+
+You must revise only the parts that require edits based on the feedback while keeping in mind this structural hierarchy. Always reason about each change in context of the full Topic → Subtopic → Learning Objective chain.
+
+B) Scope-Based Revision Guidelines
+
+Each review criterion has its own scope, which determines whether you will be revising the entire outline or just a specific topic block. Apply the revision based on the given scope:
 
 - Outline: Revise one or more entries from the course outline as needed. These may include multiple Topic, Subtopic, and Learning Objective lines. Apply the feedback across the full outline wherever necessary.
 - Topic: Revise the provided topic block, which includes the topic, its associated subtopics, and learning objectives. Apply the feedback to revise whichever parts of the block are mentioned. 
 
-B) Operation Guidelines
+C) Operation Guidelines
 
 Each checklist task includes a recommended operation based on the type of issue found. Apply the operation exactly as specified in the reviewer feedback:
 
 - Delete: Remove the identified entry or part of an entry.
-- Modify: Rewrite the existing line(s) as instructed.
+- Modify: Modify the content content as instructed.
 - Split: Break a single entry into multiple clearer parts.
 - Merge: Combine related entries into a single, unified entry.
 
 Do not make additional edits beyond what is described in the feedback.
 
-C) Use of Reviewer Feedback
+D) Use of Reviewer Feedback
 
 Use the reviewer feedback exactly as provided. It describes:
 
@@ -266,9 +308,9 @@ Use the reviewer feedback exactly as provided. It describes:
 - What needs to be changed
 - What operation to apply
 
-Do not reinterpret, generalize, or invent additional issues. Revise only the part of the outline that is mentioned in the feedback, and follow the instructions closely. Do not alter or rewrite any other entries in the outline. Leave all unrelated content - anything not referenced in the feedback - strictly unchanged.
+Do not reinterpret, generalize, or invent additional issues. Revise only the part of the outline that is mentioned in the feedback, and follow the instructions exactly. Do not alter or rewrite any other entries. If the feedback refers to a Topic or Subtopic without specifying exact entries, revise only where the reference is unambiguous and the issue clearly applies. Leave all unrelated content — anything not explicitly referenced in the feedback — strictly unchanged.
 
-D) Revision Requirements
+E) Revision Requirements
 
 All revisions in the outline must:
 
@@ -325,7 +367,7 @@ Revision Plan: [Explain your reasoning and the approach you will take to revise 
 
 <final_outline>
 
-[Insert the complete revised course outline below. Keep all original entries exactly as they are, except for the ones that require changes based on the reviewer feedback. Apply revisions only where instructed. Each block must follow this structure, with exactly one Learning Objective per block:
+Insert the complete revised course outline below. Keep all original entries exactly as they are, except for the ones that require changes based on the reviewer feedback. Apply revisions only where instructed. Each block must follow this structure, with exactly one Learning Objective per block:
 
 <block_1>
 
@@ -346,6 +388,7 @@ Learning Objective: ...
 ......
 
 (Repeat this block format for each Learning Objective in the full revised outline)
+Important: You must strictly include the <block_n> tags (e.g., <block_1>, <block_2>, ...) for each and every entry in the revised outline. 
 
 </final_outline>
 
