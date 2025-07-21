@@ -447,6 +447,9 @@ def process_slide(index, row, course_name, target_audience, llm, checklist_df, s
 )
 def run_checklist_review_and_revise(sheet, worksheet_name, course_name, target_audience, llm="gemini_2_flash"):
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
+    # Add Slide No. column if not present
+    if "Slide No." not in slide_chunks_df.columns:
+        slide_chunks_df.insert(0, "Slide No.", range(1, len(slide_chunks_df) + 1))
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
     checklist_sheet_link = course_info_df['Checklist Link'][0]

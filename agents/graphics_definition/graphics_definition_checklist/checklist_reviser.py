@@ -214,6 +214,11 @@ def run_checklist_evaluation_for_all_slides(sheet, worksheet_name, course_name, 
     futures_map = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
         for index, row in slide_chunks_df.iterrows():
+            # Check Slide Type for 'Video'
+            slide_type = row.get('Slide Type', '').strip().lower()
+            if slide_type == 'video':
+                slide_chunks_df.at[index, 'Graphics Definition'] = 'No graphics since slide type is video'
+                continue
             slide_index = index + 1
             revised_graphics_definition = row["revised_graphics_definition"].strip()
             

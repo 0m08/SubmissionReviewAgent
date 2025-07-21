@@ -267,9 +267,6 @@ def run_ai_detection_with_readability(sheet, worksheet_name, course_name, target
         if col not in slide_chunks_df.columns:
             slide_chunks_df[col] = ""
     
-    if "Slide No." not in slide_chunks_df.columns:
-        slide_chunks_df.insert(0, "Slide No.", range(1, len(slide_chunks_df) + 1))
-
     save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
     # Set the column width of "Slide No." (column A) to 50
