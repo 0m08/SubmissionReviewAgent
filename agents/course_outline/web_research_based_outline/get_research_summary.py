@@ -19,12 +19,12 @@ Your task is to summarize the following information in such a way that no inform
 {info_to_summarize}
 </info_to_summarize>
 
-Aim to summarize this information such that little to no critical information wrt the course is lost. At the same time, aim to create a summary that is clear, concise, and free from any repititions.
+Aim to summarize this information such that little to no critical information wrt the course is lost. At the same time, aim to create a summary that is clear, concise, and free from any repetitions.
 
 Output in the following format:
 <output>
 <scratchpad>
-[Place to think through before you respond with actual summary. Use this space to think step by step.]
+[Place to think through before you respond with an actual summary. Use this space to think step by step.]
 </scratchpad>
 <summary>
 [Actual summary]
