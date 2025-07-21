@@ -427,6 +427,10 @@ def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm 
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
 
+    # Hide analysis and verdict columns
+    columns_to_hide = ['video_analysis', 'video_verdict']
+    hide_columns_by_name(worksheet=videos_research_sheet, column_names=columns_to_hide, df=videos_research_df)
+
     return
 
 

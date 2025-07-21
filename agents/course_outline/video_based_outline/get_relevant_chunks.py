@@ -7,6 +7,7 @@ from services.sheets_service import (
     clear_worksheet,
     delete_worksheet,
     clear_all_filters,
+    hide_columns_by_name,
 )
 import json
 import streamlit as st
@@ -381,6 +382,9 @@ def run_get_relevant_chunks(sheet, worksheet_name, course_name, target_audience,
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
 
+    # Hide the video_scratchpad column
+    hide_columns_by_name(worksheet=videos_research_sheet, column_names=['video_scratchpad'], df=videos_research_df)
+
     # Apply filter on sheet to only show rows with relevant chunks
     filter_non_blank_column(videos_research_sheet, column_name = 'proposed_chapters_to_include', df = videos_research_df)
 
@@ -408,7 +412,8 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         videos_research_df.loc[mask, "Used for"] = "Skipped - Default - Just Content"
         # Save changes to sheet
         save_to_sheet(worksheet = video_research_sheet, df = videos_research_df)
-        
+        # Hide the manual review columns
+        hide_columns_by_name(worksheet=video_research_sheet, column_names=["Manual Review", "Used for"], df=videos_research_df)
         return True
 
     # If there are no rows with non-empty 'proposed_chapters_to_include', skip the check and return True
@@ -438,6 +443,9 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         case_sensitive = False,
         require_populated = False
     )
+
+    # Hide the manual review columns after user input
+    hide_columns_by_name(worksheet=video_research_sheet, column_names=["Manual Review", "Used for"], df=videos_research_df)
 
     return True
 
