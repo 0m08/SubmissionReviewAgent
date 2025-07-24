@@ -38,6 +38,7 @@ from agents.research_notes.revise_topic_notes import (
     run_revise_topic_notes_for_all_rows,
     delete_revised_topic_notes,
 )
+from agents.research_notes.research_notes_checklist import run_research_notes_checklist_and_reviser
 from agents.research_notes.checklist_review_and_revise import (
     run_research_review_revise_checklist,
     delete_research_checklist_review_revise,
@@ -308,28 +309,32 @@ pipeline_sections = [
     #         },
     #     ]
     # },
-    # {
-    #     "section_name": "Section 4: Checklist based Review-Revise Agents",
-    #     "steps": [
-    #         {
-    #             "name": "Checklist Based Review and Revise Agents",
-    #             "func": run_research_review_revise_checklist,
-    #             "depends_on": ["Revise Topic Notes"],
-    #             "args": {
-    #                 "sheet": "sheet",
-    #                 "worksheet_name": "Research Notes",
-    #                 "llm": "gemini_2_flash",
-    #             },
-    #             "estimated_time": "~ 5 minutes",
-    #             "description": "Runs checklist-based review and revision on the final research notes.",
-    #             "delete_func": delete_research_checklist_review_revise,
-    #             "delete_args": {
-    #                 "sheet": "sheet",
-    #                 "worksheet_name": "Research Notes",
-    #             }
-    #         },
-    #     ]
-    # }
+    {
+        "section_name": "Section 4: Checklist based Review-Revise Agents",
+        "steps": [
+            {
+                "name": "Checklist Based Review and Revise Agents",
+                "func": run_research_notes_checklist_and_reviser,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "checklist_sheet_link": "checklist_sheet_link",
+                    "gc": "gc",
+                    # "worksheet_name": "Research Notes",
+                    "llm": "gemini_2_flash",
+                },
+                "estimated_time": "~ 5 minutes",
+                "description": "Runs checklist-based review and revision on the final research notes.",
+                # "delete_func": delete_research_checklist_review_revise,
+                # "delete_args": {
+                #     "sheet": "sheet",
+                #     "worksheet_name": "Research Notes",
+                # }
+            },
+        ]
+    }
 ]
 
 
