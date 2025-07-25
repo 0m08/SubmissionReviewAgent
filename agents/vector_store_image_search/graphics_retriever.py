@@ -102,6 +102,27 @@ def get_image_embedding(query: Union[str, Image.Image]) -> List[float]:
     else:
         raise ValueError("Unsupported query type for embedding: must be str or PIL.Image")
 
+def _safe_iter_clip_results(clip_results):
+    """Return an iterator over (metadata, distance) or an empty list safely."""
+    if not clip_results:
+        print("⚠️ clip_results is None/empty")
+        return []
+    metadatas = clip_results.get("metadatas")
+    distances = clip_results.get("distances")
+
+    if not metadatas or not distances:
+        print(f"⚠️ clip_results missing metadatas/distances. "
+              f"metadatas={type(metadatas)}, distances={type(distances)}")
+        return []
+
+    if not isinstance(metadatas, list) or not metadatas or not isinstance(metadatas[0], list):
+        print("⚠️ clip_results['metadatas'] malformed:", type(metadatas), metadatas)
+        return []
+    if not isinstance(distances, list) or not distances or not isinstance(distances[0], list):
+        print("⚠️ clip_results['distances'] malformed:", type(distances), distances)
+        return []
+
+    return zip(metadatas[0], distances[0])
 
 
 def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.Image] = None,
@@ -161,31 +182,38 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
         print("Searching image collection using image embedding...")
         try:
             query_vector = get_image_embedding(query_image)
-        except Exception as e:
-            print(f"Failed to embed image: {e}")
-            return []
+            image_db = dbs["image"]
+            try:
+                print("Sample vector from image DB:")
+                sample_doc = image_db._collection.peek()
+                print("✅ Vector length in DB:", len(sample_doc["embeddings"][0]))
+            except Exception as e:
+                print("❌ Could not inspect vector size in DB:", e)
 
-        image_db = dbs["image"]
-        raw_image_results = image_db._collection.query(
-            query_embeddings=[query_vector],
-            n_results=50,
-            include=["metadatas", "distances"]
-        )
-        
-        for metadata, distance in zip(raw_image_results["metadatas"][0], raw_image_results["distances"][0]):
-            if 'image_id' not in metadata or not match_filters(metadata):
-                continue
-            combined_results.append({
-                "similarity": distance,
-                "metadata": metadata,
-                "source": "image"
-            })
+            raw_image_results = image_db._collection.query(
+                query_embeddings=[query_vector],
+                n_results=50,
+                include=["metadatas", "distances"]
+            )
+           
+
+            for metadata, distance in _safe_iter_clip_results(raw_image_results):
+                if 'image_id' not in metadata or not match_filters(metadata):
+                    continue
+                combined_results.append({
+                    "similarity": distance,
+                    "metadata": metadata,
+                    "source": "image"
+                })
+        except Exception as e:
+            print(f"Failed image embedding search: {e}")
+            return []
 
     # === Search via Text Embedding ===
     if query:
         print("Searching both collections using text query...")
+
         try:
-            # === Search text DB ===
             text_db = dbs["text"]
             text_results = text_db.similarity_search_with_score(query, k=50)
             print(f"[INFO] Text DB returned {len(text_results)} results")
@@ -197,28 +225,51 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
                     "metadata": doc.metadata,
                     "source": "text"
                 })
+        except Exception as e:
+            print(f"❌ Text DB similarity_search_with_score failed: {e}")
 
-            # === Search image DB with CLIP text embedding ===
+        try:
             print("Searching image collection with CLIP text embedding...")
             clip_vector = get_image_embedding(query)
-            image_db = dbs["image"]
-            clip_results = image_db._collection.query(
-                query_embeddings=[clip_vector],
-                n_results=50,
-                include=["metadatas", "distances"]
-            )
-            for metadata, distance in zip(clip_results["metadatas"][0], clip_results["distances"][0]):
-                if 'image_id' not in metadata or not match_filters(metadata):
-                    continue
-                combined_results.append({
-                    "similarity": distance,
-                    "metadata": metadata,
-                    "source": "image"
-                })
+
+            if not clip_vector or not isinstance(clip_vector, list):
+                print("❌ clip_vector is None/invalid. Skipping CLIP search.")
+            else:
+                print(f"✅ clip_vector length: {len(clip_vector)} (first 3: {clip_vector[:3]})")
+                image_db = dbs["image"]
+
+                # === Safe query with internal error catching ===
+                clip_results = None
+                try:
+                    clip_results = image_db._collection.query(
+                        query_embeddings=[clip_vector],
+                        n_results=50,
+                        include=["metadatas", "distances"]
+                    )
+                except Exception as query_error:
+                    print(f"❌ Chroma .query() failed: {query_error}")
+
+                if clip_results is None:
+                    print("⚠️ clip_results is None — Chroma query failed or returned nothing.")
+                else:
+                    print("clip_results structure:", type(clip_results))
+                    try:
+                        print("metadatas:", clip_results.get("metadatas"))
+                        print("distances:", clip_results.get("distances"))
+                    except Exception as debug_err:
+                        print("❌ Error inspecting clip_results fields:", debug_err)
+
+                    for metadata, distance in _safe_iter_clip_results(clip_results):
+                        if 'image_id' not in metadata or not match_filters(metadata):
+                            continue
+                        combined_results.append({
+                            "similarity": distance,
+                            "metadata": metadata,
+                            "source": "image"
+                        })
 
         except Exception as e:
-            print(f"Error during text embedding search: {e}")
-            return []
+            print(f"❌ CLIP text embedding→image search failed: {e}")
 
     # === Sort and Deduplicate ===
     print("Ranking and filtering results...")
