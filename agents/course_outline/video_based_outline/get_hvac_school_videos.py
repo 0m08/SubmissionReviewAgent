@@ -4,6 +4,7 @@ from services.sheets_service import (
     format_worksheet,
     save_to_sheet,
     delete_worksheet,
+    hide_columns_by_name
 )
 from tqdm import tqdm
 import pandas as pd
@@ -104,6 +105,10 @@ def run_get_hvac_school_videos(sheet, worksheet_name):
 
     # Format the sheet
     format_worksheet(videos_research_sheet)
+
+    # Hide specified columns after generation
+    columns_to_hide = ['video_id', 'title', 'description', 'search_query', 'published_at']
+    hide_columns_by_name(worksheet=videos_research_sheet, column_names=columns_to_hide, df=videos_research_df)
 
     # return videos_research_df, query_list, video_search_queries
     return

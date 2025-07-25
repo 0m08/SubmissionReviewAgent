@@ -7,6 +7,7 @@ from services.sheets_service import (
     clear_worksheet,
     delete_worksheet,
     clear_all_filters,
+    hide_columns_by_name,
 )
 import json
 import streamlit as st
@@ -58,14 +59,14 @@ Analyze each section wrt to the course outline. Ask questions to self and self r
 </video_relevance>
 
 <proposed_chapters_to_include>
-[If video is marked as fully or partially relevant, list timestamps and relevant chapters in following format: Timestamp in square brackets followed by chapter title. If multiple relevant chapters, insert them in new lines. If video is irrelevant, leave this section blank.]
+[If the video is marked as fully or partially relevant, list timestamps and relevant chapters in following format: Timestamp in square brackets followed by chapter title. If multiple relevant chapters, insert them in new lines. If video is irrelevant, leave this section blank.]
 </proposed_chapters_to_include>
 
 Important considerations:
 - Only include relevant sections if it is a 100% match and exactly covers one or more concepts in the outline.
 - DO NOT include sections that don't fit the outline 100%.
-- I REPEAT AGAIN, only identify relevant sections, these sections can be used directly, don't contain the information in any other context.
-- Most of the times, you will not be able to find relevant sections and that is acceptable.
+- I REPEAT AGAIN, only identify relevant sections, these sections can be used directly, and don't contain the information in any other context.
+- Most of the time, you will not be able to find relevant sections and that is acceptable.
 
 Remember, your goal is to identify only those sections that align closely with the course content and are immediately usable without modification. Avoid suggesting sections that would require significant editing or additional explanation to fit the course.
 """
@@ -183,7 +184,7 @@ Step-by-step Analysis and Reasoning:
    - **Conclusion**: Still specialized and not a purely educational segment on fundamental definitions.
 
    **[10:58] Understanding Ohm’s Law in Practice**
-   - Talks about Ohm’s law, but underscores complexity in real-world (changing resistance with temperature, etc.).
+   - Talks about Ohm’s law, but underscores complexity in the real-world (changing resistance with temperature, etc.).
    - This goes beyond the simpler, fundamental coverage that might be found in a basic course section on Ohm’s law.
    - **Conclusion**: Could conceptually align with “fundamental electrical concepts,” but it’s heavily geared toward advanced practical scenarios.
 
@@ -381,6 +382,9 @@ def run_get_relevant_chunks(sheet, worksheet_name, course_name, target_audience,
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
 
+    # Hide the video_scratchpad column
+    hide_columns_by_name(worksheet=videos_research_sheet, column_names=['video_scratchpad'], df=videos_research_df)
+
     # Apply filter on sheet to only show rows with relevant chunks
     filter_non_blank_column(videos_research_sheet, column_name = 'proposed_chapters_to_include', df = videos_research_df)
 
@@ -408,7 +412,8 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         videos_research_df.loc[mask, "Used for"] = "Skipped - Default - Just Content"
         # Save changes to sheet
         save_to_sheet(worksheet = video_research_sheet, df = videos_research_df)
-        
+        # Hide the manual review columns
+        hide_columns_by_name(worksheet=video_research_sheet, column_names=["Manual Review", "Used for"], df=videos_research_df)
         return True
 
     # If there are no rows with non-empty 'proposed_chapters_to_include', skip the check and return True
@@ -438,6 +443,9 @@ def manual_input_mark_relevant_videos(sheet, worksheet_name, skip_manual_step = 
         case_sensitive = False,
         require_populated = False
     )
+
+    # Hide the manual review columns after user input
+    hide_columns_by_name(worksheet=video_research_sheet, column_names=["Manual Review", "Used for"], df=videos_research_df)
 
     return True
 

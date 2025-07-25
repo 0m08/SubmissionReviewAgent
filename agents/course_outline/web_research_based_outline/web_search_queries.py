@@ -120,7 +120,7 @@ Output format: Structure your response as follows:
 <output>
 <scratchpad>
 <query_analysis>
-Put all queries in a markdown table, with each query on a new line. The table should have following columns: Query, Search results (A sentence or two on what would the search results yeild), Review (based on guidelines), Enough context to get results related to {course_name} (Yes , No), Action to take (Keep, Modify, Delete)
+Put all queries in a markdown table, with each query on a new line. The table should have following columns: Query, Search results (A sentence or two on what would the search results yield), Review (based on guidelines), Enough context to get results related to {course_name} (Yes , No), Action to take (Keep, Modify, Delete)
 </query_analysis>
 <overall_analysis>
 Use this section to check the queries as a whole:

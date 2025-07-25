@@ -208,7 +208,7 @@ Format your response as follows:
 [State whether the video is RELEVANT or IRRELEVANT]
 </verdict>
 
-Do not enter verdict such as "PARTIALLY RELEVANT", "CONDITIONALLY RELEVANT", etc. Only two valid options for verdict are "RELEVANT" and "IRRELEVANT"
+Do not enter a verdict such as "PARTIALLY RELEVANT", "CONDITIONALLY RELEVANT", etc. Only two valid options for verdict are "RELEVANT" and "IRRELEVANT"
 Ensure your analysis is thorough and your verdict is clear and well-justified based on the provided information.
 """
 
@@ -426,6 +426,10 @@ def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm 
     # Final save to sheet after all tasks
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
+
+    # Hide analysis and verdict columns
+    columns_to_hide = ['video_analysis', 'video_verdict']
+    hide_columns_by_name(worksheet=videos_research_sheet, column_names=columns_to_hide, df=videos_research_df)
 
     return
 
