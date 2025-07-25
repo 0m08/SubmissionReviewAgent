@@ -7,10 +7,15 @@ from agents.vector_store_image_search.langgraph_agent_with_tools import run_grap
 import json
 import base64
 import os
+from tqdm import tqdm 
+import time
+import random
 from services.drive_service import login_with_service_account
 from pydrive2.drive import GoogleDrive
 from dotenv import load_dotenv
 from modules.chain import Chain
+
+from services.smart_progress_bar import SmartProgressBar
 
 
 
@@ -224,12 +229,10 @@ def generate_queries_from_definition_text(definition_text: str, llm: str) -> str
                 all_queries.extend(individual_queries)
 
         except Exception as e:
-            print(f"❌ Error processing scene {i}: {e}")
+            print(f"Error processing scene {i}: {e}")
             print("Scene content:", scene)
 
     return "\n".join(all_queries) if all_queries else ""
-
-
 
 
 
@@ -250,27 +253,77 @@ def run_generate_queries_from_definition(sheet, sheet_name, llm: str) -> list:
         clean_queries = generate_queries_from_definition_text(definition_text, llm=llm)
         return index, clean_queries
 
-    with st.spinner("⚙️ Generating queries from definitions..."):
-        futures_map = {}
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            for idx, definition_text in enumerate(graphics_definitions):
-                future = executor.submit(process_definition, idx, definition_text)
-                futures_map[future] = idx
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for idx, definition_text in enumerate(graphics_definitions):
+            future = executor.submit(process_definition, idx, definition_text)
+            futures_map[future] = idx
 
-            for future in as_completed(futures_map):
-                try:
-                    idx, result = future.result()
-                    all_clean_queries[idx] = result
+        total_tasks = len(futures_map)
+        save_interval = 5
+        progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=save_interval)
 
-                    # Save result to DataFrame and immediately to sheet
-                    slide_chunks_df.at[idx, queries_column] = result
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            try:
+                idx, result = future.result()
+                all_clean_queries[idx] = result
+
+                # Update DataFrame and sheet
+                slide_chunks_df.at[idx, queries_column] = result
+                progress.update()
+
+                if progress.should_save():
+                    print(f"Saving partial progress after {progress.completed_count} rows.")
                     save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
-                    print(f"Processed and saved row {idx + 1} with {len(result.splitlines())} queries.")
-                except Exception as e:
-                    print(f"Error processing row {futures_map[future]}: {e}")
+                print(f"Processed and saved row {idx + 1} with {len(result.splitlines())} queries.")
+            except Exception as e:
+                print(f"Error processing row {futures_map[future]}: {e}")
+
+    # Final save after all tasks
+    print("All rows processed. Saving final DataFrame to sheet.")
+    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
     return all_clean_queries
+
+# def run_generate_queries_from_definition(sheet, sheet_name, llm: str) -> list:
+#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
+
+#     queries_column = "generated_graphics_queries"
+#     if queries_column in slide_chunks_df.columns and slide_chunks_df[queries_column].notna().any():
+#         print("Queries already exist. Skipping generation.")
+#         return slide_chunks_df[queries_column].tolist()
+
+#     graphics_definitions = slide_chunks_df["short_graphics_definitions"].fillna("").tolist()
+#     all_clean_queries = [None] * len(graphics_definitions)
+
+#     def process_definition(index, definition_text):
+#         if not definition_text.strip():
+#             return index, ""
+#         clean_queries = generate_queries_from_definition_text(definition_text, llm=llm)
+#         return index, clean_queries
+
+#     with st.spinner("⚙️ Generating queries from definitions..."):
+#         futures_map = {}
+#         with ThreadPoolExecutor(max_workers=5) as executor:
+#             for idx, definition_text in enumerate(graphics_definitions):
+#                 future = executor.submit(process_definition, idx, definition_text)
+#                 futures_map[future] = idx
+
+#             for future in as_completed(futures_map):
+#                 try:
+#                     idx, result = future.result()
+#                     all_clean_queries[idx] = result
+
+#                     # Save result to DataFrame and immediately to sheet
+#                     slide_chunks_df.at[idx, queries_column] = result
+#                     save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
+#                     print(f"Processed and saved row {idx + 1} with {len(result.splitlines())} queries.")
+#                 except Exception as e:
+#                     print(f"Error processing row {futures_map[future]}: {e}")
+
+#     return all_clean_queries
 
 
 
@@ -371,122 +424,107 @@ def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=
     Each individual query is processed and saved immediately.
     Previously processed queries are skipped.
     """
+
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
     all_query_blocks = load_queries_from_sheet(sheet, sheet_name)
 
     pair_column = "image_urls"
-
-    # Ensure 'image_urls' column exists
     if pair_column not in slide_chunks_df.columns:
         slide_chunks_df[pair_column] = ""
 
-    with st.spinner("🔍 Searching for images... this may take a few minutes"):
-        for row_index, query_block in enumerate(all_query_blocks):
-            if not isinstance(query_block, str) or not query_block.strip():
-                print(f"Row {row_index + 1} has no valid query block.")
+    # Flatten all queries with row context
+    task_list = []
+    for row_index, query_block in enumerate(all_query_blocks):
+        if not isinstance(query_block, str) or not query_block.strip():
+            continue
+
+        existing_links_str = slide_chunks_df.at[row_index, pair_column]
+        existing_results = {}
+        if isinstance(existing_links_str, str) and existing_links_str.strip():
+            for line in existing_links_str.strip().split("\n"):
+                if " - " in line:
+                    q, link = line.split(" - ", 1)
+                    existing_results[q.strip()] = link.strip()
+
+        query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
+        if not query_list:
+            continue
+
+        definition = slide_chunks_df.at[row_index, "short_graphics_definitions"] if "short_graphics_definitions" in slide_chunks_df.columns else ""
+
+        for query in query_list:
+            if query in existing_results and existing_results[query].startswith("http"):
                 continue
+            task_list.append((row_index, query, query_block, definition))
 
-            # Get existing results in this row
-            existing_links_str = slide_chunks_df.at[row_index, pair_column]
-            existing_results = {}
-            if isinstance(existing_links_str, str) and existing_links_str.strip():
-                for line in existing_links_str.strip().split("\n"):
-                    if " - " in line:
-                        q, link = line.split(" - ", 1)
-                        existing_results[q.strip()] = link.strip()
+    total_tasks = len(task_list)
+    if total_tasks == 0:
+        print("All queries already processed. Nothing to do.")
+        return slide_chunks_df[pair_column].tolist()
 
-            # Extract and clean individual queries
-            query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
-            if not query_list:
-                print(f"Row {row_index + 1} has no valid queries after splitting.")
-                continue
+    print(f"Starting image search for {total_tasks} queries...")
 
-            # Get context if available
-            definition = (
-                slide_chunks_df.at[row_index, "short_graphics_definitions"]
-                if "short_graphics_definitions" in slide_chunks_df.columns else ""
-            )
+    # Progress bar
+    save_interval = 10
+    progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=save_interval)
 
-            updated_results = existing_results.copy()
-            for query in query_list:
-                # Skip if already processed with a valid link
-                if query in existing_results and existing_results[query].startswith("http"):
-                    print(f"✅ Query already processed: '{query}' — skipping.")
-                    continue
-
-                print(f"🔍 Processing query: '{query}'")
-
-                # Run the search (single-query call)
-                image_links = search_images_for_query_list(
+    # Use 3 threads for better reliability
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        for row_index, query, query_block, definition in task_list:
+            # Introduce a small staggered delay inside the function to reduce API pressure
+            def task_fn(query=query, definition=definition):
+                time.sleep(random.uniform(0.8, 1.6))
+                return search_images_for_query_list(
                     [query],
                     query_image=None,
                     definition=definition,
                     llm=llm
                 )
 
+            future = executor.submit(task_fn)
+            futures_map[future] = (row_index, query, query_block)
+
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            try:
+                row_index, query, query_block = futures_map[future]
+                image_links = future.result()
                 link = image_links[0] if image_links else "No result"
+
+                # Update results while preserving query order
+                existing_links_str = slide_chunks_df.at[row_index, pair_column]
+                updated_results = {}
+                if existing_links_str:
+                    for line in existing_links_str.strip().split("\n"):
+                        if " - " in line:
+                            q, l = line.split(" - ", 1)
+                            updated_results[q.strip()] = l.strip()
+
                 updated_results[query] = link if isinstance(link, str) and link.startswith("http") else "No result"
 
-                # Save immediately
-                updated_lines = [f"{q} - {l}" for q, l in updated_results.items()]
+                # Preserve original order
+                query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
+                updated_lines = [f"{q} - {updated_results.get(q, 'No result')}" for q in query_list]
                 slide_chunks_df.at[row_index, pair_column] = "\n".join(updated_lines)
+
+                # Save to sheet
                 save_to_sheet(slide_chunks_sheet, slide_chunks_df)
 
+                print(f"Processed query: '{query}' in row {row_index + 1}")
+
+                progress.update()
+                if progress.should_save():
+                    print(f"Saving intermediate results after {progress.completed_count} queries.")
+                    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
+            except Exception as e:
+                row_index, query, _ = futures_map[future]
+                print(f"Error processing query '{query}' (row {row_index + 1}): {e}")
+
+    print("All queries processed. Saving final results.")
+    save_to_sheet(slide_chunks_sheet, slide_chunks_df)
+
     return slide_chunks_df[pair_column].tolist()
-
-
-# def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=4):
-#     """
-#     Run image search for each newline-separated query in a sheet row.
-#     Skips rows that already contain image URLs.
-#     Saves query–link or query–'No result' pairs in the 'image_urls' column.
-#     """
-#     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, sheet_name)
-#     all_query_blocks = load_queries_from_sheet(sheet, sheet_name)
-
-#     pair_column = "image_urls"
-
-#     # Ensure 'image_urls' column exists
-#     if pair_column not in slide_chunks_df.columns:
-#         slide_chunks_df[pair_column] = ""
-
-#     with st.spinner("🔍 Searching for images... this may take a few minutes"):
-#         for row_index, query_block in enumerate(all_query_blocks):
-#             if not isinstance(query_block, str) or not query_block.strip():
-#                 print(f"Row {row_index + 1} has no valid query block.")
-#                 continue
-
-#             # ✅ Skip if already filled
-#             existing_links = slide_chunks_df.at[row_index, pair_column]
-#             if isinstance(existing_links, str) and existing_links.strip():
-#                 print(f"Row {row_index + 1} already has image URLs. Skipping.")
-#                 continue
-
-#             query_list = [q.strip() for q in query_block.strip().split("\n") if q.strip()]
-#             if not query_list:
-#                 print(f"Row {row_index + 1} has no valid queries after splitting.")
-#                 continue
-
-#             print(f"Processing row {row_index + 1} with {len(query_list)} queries...")
-
-#             # If needed, pass an image to search with (currently not used)
-#             query_image = None
-#             image_links = search_images_for_query_list(query_list, query_image, llm=llm)
-
-#             result_pairs = []
-#             for query, link in zip(query_list, image_links):
-#                 if isinstance(link, str) and link.startswith("http"):
-#                     result_pairs.append(f"{query} - {link}")
-#                 else:
-#                     result_pairs.append(f"{query} - No result")
-
-#             # Save result pairs in the DataFrame
-#             slide_chunks_df.at[row_index, pair_column] = "\n".join(result_pairs)
-
-#             # Save after each row to preserve progress
-#             save_to_sheet(slide_chunks_sheet, slide_chunks_df)
-
-#     return slide_chunks_df[pair_column].tolist()
 
 
 
@@ -514,8 +552,5 @@ def delete_retrieved_image_urls(sheet, worksheet_name="Slide Chunks"):
         df = df.drop(columns=cols)
         clear_worksheet(ws)
         save_to_sheet(ws, df)
-
-
-
 
 
