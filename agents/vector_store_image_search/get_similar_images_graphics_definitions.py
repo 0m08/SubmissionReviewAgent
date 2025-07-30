@@ -470,7 +470,7 @@ def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=
 
     # Use 3 threads for better reliability
     futures_map = {}
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         for row_index, query, query_block, definition in task_list:
             # Introduce a small staggered delay inside the function to reduce API pressure
             def task_fn(query=query, definition=definition):
