@@ -88,7 +88,7 @@ Also, the sentence, purpose, and graphics type can be used to add more informati
 Focus only on the visual elements described in the definition below the graphics type line. 
 When a query is generated, is should be a sensible sentence, not just words obtained fron the definition and brought together. It should be a complete sentence that describes the visual elements in a way that can be used for image search.
 If a definition does not contain any visual elements, do not generate any queries for it. 
-For the graphics definitions, some sentences may contain visual keywords that are visual elemtns, but they are not the main subject of the scene, so do not generate queries for them, since some of them may not make sense as search queries. It is not a must to generate queries for every visual element mentioned in the definition, only those that are relevant and can be searched for.
+For the graphics definitions, some sentences may contain visual keywords that are visual elements, but they are not the main subject of the scene, so do not generate queries for them, since some of them may not make sense as search queries. It is not a must to generate queries for every visual element mentioned in the definition, only those that are relevant and can be searched for.
 
 
 Acceptable Queries Should:
