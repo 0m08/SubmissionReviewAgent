@@ -1,5 +1,8 @@
 import streamlit as st
 from agents.quality_compliance_scoring.quality_scoring import run_update_quality_scores
+import streamlit as st
+
+
 import os
 import re
 import json
@@ -29,22 +32,31 @@ def extract_spreadsheet_id(url):
         return None
 
 
-st.title("Quality Complaince Scoring Automation")
+# === Streamlit App UI ===
+st.title("Quality Compliance Scoring Automation")
 
-spreadsheet_url = st.text_input("Enter Google Spreadsheet URL:")
+st.info(
+    """
+    ### 📝 Instructions
+    1. Please paste the **Checklist Sheet Link** of the course checklist reviewed below.  
+    2. Make sure the sheet contains the reviewed stages with properly labeled columns.
+    """
+)
+
+spreadsheet_url = st.text_input("Enter Google Spreadsheet URL")
 
 if spreadsheet_url:
     spreadsheet_id = extract_spreadsheet_id(spreadsheet_url)
     if not spreadsheet_id:
-        st.error("Invalid Google Sheets URL.")
+        st.error("Invalid Google Sheets URL. Please check the format.")
     else:
         try:
             spreadsheet = gc.open_by_key(spreadsheet_id)
             st.success(f"Loaded Spreadsheet: {spreadsheet.title}")
-            
+
             if st.button("Run Quality Scoring"):
                 run_update_quality_scores(spreadsheet)
-                st.success("Task Logs updated successfully.")
+                st.success("Task Logs updated successfully!")
 
         except Exception as e:
             st.error(f"Error loading spreadsheet: {e}")
