@@ -88,13 +88,58 @@ Also, the sentence, purpose, and graphics type can be used to add more informati
 Focus only on the visual elements described in the definition below the graphics type line. 
 When a query is generated, is should be a sensible sentence, not just words obtained fron the definition and brought together. It should be a complete sentence that describes the visual elements in a way that can be used for image search.
 If a definition does not contain any visual elements, do not generate any queries for it. 
+For the graphics definitions, some sentences may contain visual keywords that are visual elements, but they are not the main subject of the scene, so do not generate queries for them, since some of them may not make sense as search queries. It is not a must to generate queries for every visual element mentioned in the definition, only those that are relevant and can be searched for.
 
 
 Acceptable Queries Should:
 - Be short, specific, and visually descriptive.  
 - Use clear, descriptive terms that directly relate to the visual elements described. 
 - Include all visual elements mentioned in the definition.
+- Avoid generating quaries from the graphics type, for example, if the graphics type is "Illustration", do not generate a query like "Illustration" this is not an ideal query.
+- Avoid repeating a search query if it has already been generated in the same definition.
+- If a graphics definition containes an abbreviation, check in the definition if the abbreviation is explained, if it is not, do not generate a query for it. If it is explained, then generate a query for it, and use the full form of the abbreviation in the query.
 
+In the graphics definitions below, you will find the sentences, purpose of the scene, graphics type, and visual elements. An example is provided to illustrate how to generate queries from the definition. 
+Note that the example is not part of the definition, it is just to illustrate how to generate queries from the definition. Note also how the queries are generated, not all visual elements are used to generate queries, only those that are relevant and can be searched for.
+
+Example
+Sentence: "By the end of this topic, you will be able to:"
+Purpose of the Scene: To introduce the learning objectives of the topic.
+Graphics Type: Text Overlay
+The title and sentence fade in at the beginning of the animation.
+They remain on screen for a few seconds before fading out.
+
+Sentence: "Recognize signs of blower wheel imbalance through visual and auditory inspection."
+Purpose of the Scene: To demonstrate the visual and auditory signs of a blower wheel imbalance.
+Graphics Type: Animation
+The blower wheel starts spinning.
+A wobble effect is introduced during rotation.
+Sound waves appear, pulsating in sync with the wobble.
+
+Sentence: "Confirm that a blower wheel is securely mounted by checking the hardware and alignment."
+Purpose of the Scene: To illustrate the process of ensuring a blower wheel is securely mounted by checking hardware and alignment.
+Graphics Type: Animation
+Blower wheel is shown being placed on the shaft.
+Mounting hardware appears and is tightened sequentially.
+The alignment laser appears, confirming correct alignment.
+Reusing Previous Graphics:
+Uses the same blower wheel design as in Scene 2.
+
+Sentence: "Identify debris, damage, and obstructions that could impact blower wheel performance."
+Purpose of the Scene: To showcase the types of debris, damage, and obstructions that can affect blower wheel performance.
+Graphics Type: Illustration
+The blower wheel appears.
+Debris, damage, and obstructions fade in, highlighting the problems.
+Arrows appear, emphasizing each issue.
+Reusing Previous Graphics:
+Uses the same blower wheel design as Scenes 2 and 3.
+
+Example Output:
+Blower wheel
+Pulsating sound waves
+Mounting hardware
+Alignment laser illustration
+Debris Illustration
  
 
 Format Rules:
@@ -126,7 +171,7 @@ Output your response in the following format:
 
 
 generate_clean_queries_examples = """
-Example Definition:
+Example 1 Definition:
 Sentence: "HVAC systems rely heavily on electricity."
 Purpose of the Scene: To visually represent the electrical nature of HVAC systems by highlighting electrical components within a typical unit.
 Graphics Type: Illustration
@@ -155,7 +200,10 @@ energy-saving light bulb icon illustration
 wrench icon illustration
 voltmeter icon illustration
 multimeter with display
+
+
 """
+
 
 
 def generate_clean_query_from_scene(
