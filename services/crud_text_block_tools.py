@@ -44,6 +44,8 @@ def create_block(
         * The original block IDs (DataFrame index) **never change**; a brand-new
           integer ID is allocated (`max(index)+1`).
     """
+    print(f"🔧 TOOL USED: create_block | insert_after_block_id: {insert_after_block_id} | block_text_length: {len(block_text)} chars")
+    
     # _ensure_order_column(df)
 
     # Normalize “prepend” sentinel
@@ -95,6 +97,8 @@ def read_blocks(
     Raises:
         IndexError if either ID is absent.
     """
+    print(f"🔧 TOOL USED: read_blocks | start_block_id: {start_block_id} | end_block_id: {end_block_id}")
+    
     if start_block_id not in df.index or end_block_id not in df.index:
         raise IndexError("start or end block_id not found")
 
@@ -131,6 +135,8 @@ def update_block(
     Raises:
         IndexError if `block_id` is absent.
     """
+    print(f"🔧 TOOL USED: update_block | block_id: {block_id} | block_text_length: {len(block_text)} chars")
+    
     if block_id not in df.index:
         raise IndexError("block_id not found")
     df.at[block_id, "block text"] = block_text
@@ -156,6 +162,8 @@ def delete_block(
     Raises:
         IndexError if `block_id` is absent.
     """
+    print(f"🔧 TOOL USED: delete_block | block_id: {block_id}")
+    
     if block_id not in df.index:
         raise IndexError("block_id not found")
     df.drop(block_id, inplace=True)

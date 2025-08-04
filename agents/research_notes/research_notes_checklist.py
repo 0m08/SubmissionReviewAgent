@@ -34,6 +34,7 @@ from services.crud_text_block_tools import create_block, read_blocks, update_blo
 
 import pandas as pd
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------
 # 1.  Generic iterator that yields exactly the slice required
@@ -241,6 +242,9 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops_and_
     :param llm: The language model to use for the agent.
     :return: The revised block of research notes as a dataframe.
     """
+    print(f"\n🔄 STARTING REVISER AGENT for {len(df)} blocks")
+    print(f"📝 Checklist feedback length: {len(checklist_feedback)} chars")
+    print("=" * 80)
 
     rate_limiter = InMemoryRateLimiter(
         requests_per_second=1,  # <-- Super slow! We can only make a request once every 10 seconds!!
@@ -295,6 +299,11 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops_and_
         {"recursion_limit": 50}
     )
 
+    print("=" * 80)
+    print("✅ REVISER AGENT COMPLETED")
+    print(f"📊 Final DataFrame shape: {final_state['df'].shape}")
+    print("=" * 80)
+
     return final_state["df"]
 
 
@@ -339,7 +348,7 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
 
 
     scope_to_selector = {
-        "Global (full output)": [],                        # whole frame
+        "Global (full output)": [],          # whole frame
         "Topic":  ["Topic"],                 # group by Topic col
         "Subtopic": ["Topic", "Subtopic"],   # group by both
         "Learning Objective": "__row__",     # one row each
@@ -418,13 +427,22 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
             print(f"Revised research notes for {key}: {revised_research_notes_df}")
 
             # Merge the revised slice back into the main DataFrame
-            # Use the original slice indices to ensure correct mapping
-            for idx in df_slice.index:
-                if idx in revised_research_notes_df.index:
-                    research_notes_df.loc[idx, 'block text'] = revised_research_notes_df.loc[idx, 'block text']
-                    print(f"Updated block text for index {idx}")
-                else:
-                    print(f"Warning: Index {idx} not found in revised DataFrame")
+            # Remove the original slice and replace with the revised version
+            # print(f"🔄 Merging revised data back to main DataFrame...")
+            # print(f"Original slice indices: {list(df_slice.index)}")
+            # print(f"Revised DataFrame indices: {list(revised_research_notes_df.index)}")
+            
+            # Remove the original slice from main DataFrame
+            research_notes_df = research_notes_df.drop(df_slice.index)
+            # print(f"Removed original slice from main DataFrame")
+            
+            # Add the revised slice back to main DataFrame
+            research_notes_df = pd.concat([research_notes_df, revised_research_notes_df], ignore_index=False)
+            # print(f"Added revised slice back to main DataFrame")
+            
+            # Sort by DataFrame index (block IDs) to maintain stable order
+            research_notes_df = research_notes_df.sort_index()
+            # print(f"Main DataFrame shape after merge and sort: {research_notes_df.shape}")
 
             # print(revised_research_notes_df)
         
@@ -437,7 +455,10 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
         block_text = str(row.get('block text', '')).strip()
         
         # Check if format is correct
-        has_correct_format = 'Block ID' in block_text
+        has_correct_format = (
+            'Block ID' in block_text or 
+            '####**Topic:**' in block_text
+        )
         
         if not has_correct_format and block_text != '':
             # Regenerate block text with correct format
@@ -450,32 +471,30 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
             
             research_notes_df.loc[index, 'block text'] = research_notes_str
             corrected_count += 1
-            print(f"  Corrected format for row {index}")
+            print(f"   ✅ Row {index} corrected successfully")
+        elif not has_correct_format and block_text == '':
+            print(f"  ⚠️ Row {index}: Empty block text, skipping")
+        else:
+            print(f"  ✅ Row {index}: Format is correct, no action needed")
     
     print(f"✅ Corrected format for {corrected_count} rows")
     
-    # Parse the updated block_text column back to individual columns
-    print("\n🔄 Parsing updated block_text content back to individual columns...")
-    research_notes_df = parse_block_text_to_columns(research_notes_df)
-    print("✅ Block text parsing completed. Individual columns updated with revised content.")
+    # Clear the worksheet first to handle row deletions properly
+    research_notes_sheet.clear()
     
     # Save to sheet
     save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
-
+    
+    # Parse the updated block_text column back to individual columns (optional final step)
+    print("\n🔄 Parsing updated block_text content back to individual columns...")
+    research_notes_df = parse_block_text_to_columns(research_notes_df)
+    save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
+    print("✅ Block text parsing completed. Individual columns updated with revised content.")
+    
     return
 
 
-
-# Define the checklist prompt and code to run it for a given task - run outline checklist
-
-## Prompt for outline checklist - output should be a pass or fail + feedback for each checklist item
-
-## Prompt for reviser agent - output will be revised block of text based on the checklist feedback
-
-## Reviser agent will have access to the CRUD block text tools, will have same input text as the outline checklist agent.
-
-# Block Text Parsing functionality
-from pydantic import BaseModel, Field
+# Block Text Parsing 
 
 class BlockTextContent(BaseModel):
     topic: str = Field(description="The topic extracted from the block text.")
@@ -560,61 +579,4 @@ def parse_block_text_to_columns(df, max_workers=5):
 
     print(f"Successfully parsed block_text column and updated individual columns.")
     
-    # # Remove rows with empty block text
-    # initial_count = len(df)
-    
-    # # Debug: Check column names and data
-    # print(f"🔍 DataFrame columns: {list(df.columns)}")
-    # print(f"🔍 DataFrame shape before cleaning: {df.shape}")
-    
-    # # Check if 'block text' column exists
-    # if 'block text' not in df.columns:
-    #     print("❌ 'block text' column not found!")
-    #     return df
-    
-    # # More robust empty detection - handle NaN, empty strings, whitespace-only strings
-    # def is_empty_block_text(value):
-    #     # Handle NaN/None values
-    #     if pd.isna(value) or value is None:
-    #         return True
-    #     # Handle empty strings or whitespace-only strings
-    #     if isinstance(value, str):
-    #         return value.strip() == ''
-    #     # Handle other types that might be considered empty
-    #     if value == '' or value == 'nan' or value == 'None':
-    #         return True
-    #     return False
-    
-    # # Debug: Check the last few rows specifically
-    # print(f"🔍 Last 5 rows of 'block text' column:")
-    # for i in range(max(0, len(df)-5), len(df)):
-    #     if i < len(df):
-    #         block_text_value = df.iloc[i]['block text']
-    #         print(f"  Row {i}: '{repr(block_text_value)}' (type: {type(block_text_value)})")
-    #         # Also check if our empty detection function thinks it's empty
-    #         is_empty = is_empty_block_text(block_text_value)
-    #         print(f"    -> is_empty_block_text() returns: {is_empty}")
-    
-    # # Debug: Check what we're finding
-    # empty_rows = df[df['block text'].apply(is_empty_block_text)]
-    # if not empty_rows.empty:
-    #     print(f"🔍 Found {len(empty_rows)} rows with empty block text:")
-    #     for idx, row in empty_rows.iterrows():
-    #         print(f"  Row {idx}: block_text = '{repr(row['block text'])}'")
-    # else:
-    #     print("🔍 No empty rows found - this might be the issue!")
-    
-    # # Apply the filter
-    # df = df[~df['block text'].apply(is_empty_block_text)]
-    # removed_count = initial_count - len(df)
-    
-    # if removed_count > 0:
-    #     print(f"🧹 Removed {removed_count} rows with empty block text.")
-    #     # Reset index to ensure clean sequential numbering
-    #     df = df.reset_index(drop=True)
-    # else:
-    #     print("✅ No rows with empty block text found to remove.")
-    
-    # print(f"🔍 DataFrame shape after cleaning: {df.shape}")
-    
-    # return df
+    return df

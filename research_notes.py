@@ -315,7 +315,7 @@ pipeline_sections = [
             {
                 "name": "Checklist Based Review and Revise Agents",
                 "func": run_research_notes_checklist_and_reviser,
-                "depends_on": [],
+                "depends_on": ["Manually Review the Research Notes"],
                 "args": {
                     "sheet": "sheet",
                     "course_name": "course_name",
