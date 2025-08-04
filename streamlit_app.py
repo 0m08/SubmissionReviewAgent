@@ -131,6 +131,18 @@ vectorstore_page = st.Page(
     # Optional: default=True or role-based logic
 )
 
+get_images_page = st.Page(
+    "get_images_from_graphics_definitions.py",
+    title="Image Search with Graphics Definitions",
+    icon=":material/image_search:",
+)
+
+quality_compliance_scoring_page = st.Page(
+    "quality_compliance_scoring.py",
+    title="Quality Compliance Scoring",
+    icon=":material/check_circle:",
+)
+
 
 #######################
 # 3) Common app layout
@@ -149,11 +161,11 @@ vectorstore_page = st.Page(
 
 
 role_based_page_access_dict = {
-    "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page],
-    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page],
-    "Content Head": [course_outline_page, research_notes_page],
-    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page],
-    "Visual Designer": [graphics_definition_page, vectorstore_page],
+        "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
+    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
+    "Content Head": [course_outline_page, research_notes_page, quality_compliance_scoring_page],
+    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
+    "Visual Designer": [graphics_definition_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
 }
 
 

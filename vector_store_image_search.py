@@ -1,8 +1,9 @@
 import streamlit as st
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
-from agents.vector_store_image_search.graphics_retriever_agent import graphics_retriever_agent
-from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists
-from agents.vector_store_image_search.graphics_search_graph import run_graphics_search_graph
+from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists, extract_drive_file_id
+from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
+from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
+from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
 from services.drive_service import login_with_service_account
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
@@ -11,6 +12,9 @@ import gspread
 import base64
 import os
 import json
+import requests
+from io import BytesIO
+from PIL import Image
 
 # Load Google Service Account credentials
 load_dotenv()
@@ -101,7 +105,7 @@ if task == "Create Vectorstore":
             if st.button("Create Vectorstore"):
                 with st.spinner("⏳ Building and uploading Vectorstore..."):
                     build_vectorstore_and_upload(sheet, drive)
-                st.success("✅ Vectorstore built and uploaded successfully!")
+                st.success("Vectorstore built and uploaded successfully!")
                 st.session_state["chroma_created"] = True
 
 # -------------------- Task: Update Vectorstore -------------------- #
@@ -127,122 +131,160 @@ elif task == "Update Vectorstore":
                     break
 
             if update_required:
-                update_vectorstore(sheet, drive)
+                with st.spinner("Updating vectorstore... This may take a few minutes."):
+                    update_vectorstore(sheet, drive)
                 st.success("Vectorstore updated.")
             else:
                 st.info("No updates needed. Vectorstore is up to date.")
 
+
 # -------------------- Task: Search Images -------------------- #
+
+
 elif task == "Search Images":
+    st.markdown("#### Choose Query Type")
+    st.info("Search for images using text queries or by uploading an image. If you are using an image, you can either upload it from your device or paste a URL to an image from the web or Google Drive.")
+    search_mode = st.selectbox("Search by:", ["Text", "Image"])
+
+    query = None
+    query_image = None
     
 
-    # User inputs
-    st.markdown("#### Enter Search Query")
-    query = st.text_input("What are you looking for?(Press enter to continue)", placeholder="e.g., ventilation duct")
+    if search_mode == "Text":
+        query = st.text_input("Enter your search query", placeholder="e.g., ventilation duct")
 
-    st.markdown("#### Number of images to retrieve")
+    else:
+        image_source = st.selectbox("Select image input method", ["Upload", "Paste URL"])
+        # Session state to track and clear image
+        if "active_image_source" not in st.session_state:
+            st.session_state.active_image_source = image_source
+
+        if st.session_state.active_image_source != image_source:
+            # Reset previous input if user switches method
+            st.session_state.pop("uploaded_file", None)
+            st.session_state.pop("image_url", None)
+            query_image = None
+            st.session_state.active_image_source = image_source
+            
+        # === Upload Method ===
+        if image_source == "Upload":
+            uploaded_file = st.file_uploader("Upload image", type=["png", "jpg", "jpeg"], key="uploaded_file")
+            if uploaded_file:
+                try:
+                    query_image = Image.open(uploaded_file).convert("RGB")
+                    st.image(query_image, caption="Uploaded Image", use_container_width=True)
+                except Exception as e:
+                    st.error(f"Couldn't read image: {e}")
+                    
+        # === URL Method ===
+        elif image_source == "Paste URL":
+            image_url = st.text_input("Paste Image URL & Press Enter to Continue", key="image_url")
+            
+            if image_url:
+                if "drive.google.com" in image_url:
+                    file_id = extract_drive_file_id(image_url)
+                    if file_id:
+                        try:
+                            query_image = download_image_from_drive(drive, file_id)
+                            if query_image:
+                                st.image(query_image, caption="Image from Google Drive", use_container_width=True)
+                            else:
+                                st.warning("Could not load image from Drive.")
+                        except Exception as e:
+                            st.error(f"Error downloading from Drive: {e}")
+                    else:
+                        st.warning("Invalid Google Drive URL.")
+                else:
+                    try:
+                        response = requests.get(image_url)
+                        if response.status_code == 200:
+                            query_image = Image.open(BytesIO(response.content)).convert("RGB")
+                            st.image(query_image, caption="Image from URL", use_container_width=True)
+                        else:
+                            st.warning("Failed to fetch image from URL.")
+                    except Exception as e:
+                        st.error(f"Error loading image from URL: {e}")
+
+    # === Retrieval Options ===
+    st.markdown("#### Number of Images to Retrieve")
     k = st.number_input("How many images?", min_value=1, max_value=20, value=5, step=1)
 
-    # Filters in expandable section
     filters = {}
-    selected_mime_types = []
-    image_title_keyword = ""
-    # selected_image_types = []
-    # unique_image_types = []
-
     with st.expander("Apply Filters (Optional)", expanded=False):
-        st.caption("Narrow your search by file type, title, or visual category.")
+        st.caption("Narrow your search by file type or title.")
+        selected_mime_types = st.multiselect("Mime type", options=["image/png", "image/jpeg", "image/webp", "image/gif"])
+        if selected_mime_types:
+            filters["mime_type"] = selected_mime_types
 
-        selected_mime_types = st.multiselect(
-            "Mime type",
-            options=["image/png", "image/jpeg", "image/webp", "image/gif"],
-            help="Filter by file format (e.g. PNG or JPEG)"
-        )
+        image_title_keyword = st.text_input("Image Title Keyword")
+        if image_title_keyword:
+            filters["image_title"] = image_title_keyword
 
-        image_title_keyword = st.text_input(
-            "Image Title Keyword",
-            help="Enter a word or phrase that appears in the image's *title* — the descriptive name assigned to an image, like 'Electrical Tools' or 'High Voltage Sign'. This helps narrow results by topic or concept."
-        )
+    # === Search Mode Toggles ===
+    use_graph = st.toggle("Agent Mode", value=False)
 
-        # unique_image_types will be set after first search, so keep it empty for now
-        # selected_image_types = st.multiselect(
-        #     "Image Type",
-        #     options=unique_image_types,
-        #     help="Select one or more image types (e.g., Diagram, Icon, Logo)"
-        # )
-
-    if selected_mime_types:
-        filters["mime_type"] = selected_mime_types
-    if image_title_keyword:
-        filters["image_title"] = image_title_keyword
-    # if selected_image_types:
-    #     filters["image_type"] = selected_image_types
-
-    # results, image_types = graphics_retriever(query, drive, k, filters)
-    # unique_image_types = sorted(set(image_types)) if image_types else []
-
-    # Toggle to choose search mode
-    # use_agent = st.toggle("Use Graphics Search Agent", value=False)
-    # use_graph = st.toggle("Use LangGraph Search", value=False)
-
-    # Button to execute search
     run_search = st.button("Run Search")
 
     results = None
     if run_search:
-    #     if not query:
-    #         st.warning("Please enter a search query.")
-    #     else:
-    #         mode = (
-    #             'LangGraph Search' if use_graph else
-    #             ('Graphics Search Agent' if use_agent else 'Graphics Retriever')
-    #         )
-    #         with st.spinner(f"Searching images using {mode}..."):
-    #             if use_graph:
-    #                 results = run_graphics_search_graph(
-    #                     query=query,
-    #                     drive=drive,
-    #                     k=k,
-    #                     llm="gemini_2_flash",
-    #                     max_turns=3,
-    #                     filters=filters,
-    #                 )
-    #             elif use_agent:
-    #                 results = graphics_retriever_agent(
-    #                     query=query,
-    #                     drive=drive,
-    #                     llm="gemini_2_flash",
-    #                     k=k,
-    #                     max_turns=3,
-    #                     filters=filters,
-    #                     verbose=False
-    #                 )
-    #             else:
-        results = graphics_retriever(query=query, drive=drive, k=k, filters=filters)
-
-        # Display results
-        if results:
-            st.subheader(f"Top {len(results)} Results")
-            cols = st.columns(2)
-            for idx, img_data in enumerate(results):
-                with cols[idx % 2]:
-                    image = img_data["image"]
-                    metadata = img_data["metadata"]
-
-                    name = metadata.get("name", f"Image {idx+1}")
-                    url = metadata.get("drive_url", "#")
-                    short_name = name if len(name) <= 60 else name[:57] + "..."
-
-                    st.image(image, use_container_width=True)
-                    st.markdown(
-                        f"""
-                        <div style='text-align: center; margin-top: 10px; margin-bottom: 30px;'>
-                            <a href='{url}' target='_blank' style='text-decoration: none; font-size: 18px; font-weight: bold; color: #1a73e8;'>
-                                {idx + 1}. {short_name}
-                            </a>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+        if not query and not query_image:
+            st.warning("Please enter a query or upload an image.")
         else:
-            st.warning("No images found.")
+            mode = (
+                'Agent Mode' if use_graph else 'Graphics Retriever')
+            
+            with st.spinner(f"Searching images using {mode}..."):
+                if use_graph:
+                    results = run_graphics_search_graph(
+                        query=query,
+                        query_image=query_image,
+                        drive=drive,
+                        k=k,
+                        llm="gemini_2_flash",
+                        max_turns=3,
+                        filters=filters
+                    )
+                else:
+                    results = graphics_retriever(
+                        query=query,
+                        query_image=query_image,
+                        drive=drive,
+                        k=k,
+                        filters=filters
+                    )
+                    # results =web_image_search_tool(query=query, k=k)
+
+    # === Display Results ===
+    if results:
+        st.subheader(f"Top {len(results)} Results")
+        cols = st.columns(2)
+        for idx, img_data in enumerate(results):
+            with cols[idx % 2]:
+                image = img_data["image"]
+                metadata = img_data["metadata"]
+                name = metadata.get("name", f"Image {idx+1}")
+                url = metadata.get("source_url") or metadata.get("drive_url", "#")
+                short_name = name if len(name) <= 60 else name[:57] + "..."
+                source = img_data.get("metadata", {}).get("source", "web").capitalize()
+
+                st.image(image, use_container_width=True)
+                st.markdown(
+                    f"""
+                    <div style='text-align: center; margin-top: 10px; margin-bottom: 5px;'>
+                        <a href='{url}' target='_blank' style='text-decoration: none; font-size: 18px; font-weight: bold; color: #1a73e8;'>
+                            {idx + 1}. {short_name}
+                        </a>
+                    </div>
+                    <div style='text-align: center; color: gray; font-size: 14px; margin-bottom: 30px;'>
+                        Source: <b>{source} collection</b>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+    elif run_search:
+        st.warning("No images found.")
+
+            
+            
+            
+
