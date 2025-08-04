@@ -56,7 +56,7 @@ def generate_llm_feedback_from_issues(
     llm: str = "gemini_2_flash"
 ) -> Optional[str]:
     if not issues:
-        print(f"⚠️ No {issue_type} issues to generate feedback.")
+        print(f"No {issue_type} issues to generate feedback.")
         return None
 
     agent = Chain(llm=llm) 
@@ -74,12 +74,12 @@ def generate_llm_feedback_from_issues(
 
     try:
         response = agent.run()
-        print(f"🧠 LLM raw response:\n{response}")
+        print(f"LLM raw response:\n{response}")
 
         if isinstance(response, str):
             return response.strip()
         else:
-            print("⚠️ Unexpected LLM response format.")
+            print("Unexpected LLM response format.")
             return None
 
     except Exception as e:
@@ -125,7 +125,7 @@ def process_and_save_stage(sheet, spreadsheet):
     print(f"Found {len(topic_columns)} reviewer topic columns.")
 
     if len(topic_columns) == 0:
-        print(f"⏭ Skipping stage '{sheet.title}' — No reviewer columns found.")
+        print(f"Skipping stage '{sheet.title}' — No reviewer columns found.")
         return None
 
     total_basic = total_critical = total_basic_issues = total_critical_issues = 0
@@ -205,7 +205,7 @@ def run_update_quality_scores(spreadsheet):
 
     source_sheet_id = spreadsheet.id
     course_name = extract_course_name(spreadsheet.title)
-    task_logs_sheet_id = "119OmC0ya6W8hDddG8hfcIufprzMq6OhIjXTGvtpR3Bc"
+    task_logs_sheet_id = "1LSdFMKnRCr6sdukD-12bIJtYTigFVZfNzNxib0Yqebc"
 
     # STEP 1: Get all stage sheets
     stage_sheets = get_stage_sheets(spreadsheet)
@@ -286,7 +286,7 @@ def run_update_quality_scores(spreadsheet):
 
         if match.any():
             task_df.loc[match, list(new_entry.keys())[2:]] = list(new_entry.values())[2:]
-            print(f"🔄 Updated task log for {row['Creator Name']}")
+            print(f"Updated task log for {row['Creator Name']}")
         else:
             new_rows.append(new_entry)
             print(f"Added task log for {row['Creator Name']}")
@@ -298,3 +298,4 @@ def run_update_quality_scores(spreadsheet):
     print("Task Logs sheet updated.")
 
 
+x
