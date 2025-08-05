@@ -1,14 +1,15 @@
 import base64
 from io import BytesIO
 from PIL.Image import Image as PILImageType
-from typing import List, Dict, Any
-from modules.chain import Chain
+from typing import List, Dict, Any, Optional
+from modules.chain import Chain, xml_check_and_fix
+from services.llm_service import llm_with_retry
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
 
 graphics_retriever_agent_prompt = """
-You are an expert in visual content evaluation, tasked with selecting the most visually relevant image(s) to match a given query. You have access to a vector database that returns both image metadata and the actual image content.
+You are an expert in visual content evaluation, tasked with selecting the most visually relevant image(s) to match a given query.
 
-Your goal is to select up to k image(s) requested by the user, that best match the query based on visual alignment — not just text. If no good images are found, you may refine the query and re-search up to 3 times. If nothing fits after all attempts, return "NONE".
+Your goal is to identify images that best match the intent of the search query based on visual content, not just metadata or similarity scores.
 
 For each search turn, you will receive:
 - The search query used to retrieve results.
@@ -21,7 +22,7 @@ Your responsibilities are as follows:
 1. VISUAL INSPECTION
 
 - Carefully examine the actual images.
-- Use visual reasoning to understand what is shown (e.g., objects, diagrams, environments, actions).
+- Pay close attention to distinguishing features when terms may be visually similar but semantically different. Do not select images that contradict the core terms in the query.
 - Use metadata (title, description) only to support what you *see*.
 - Ignore high similarity scores if the visuals don't match the intent.
 
@@ -29,28 +30,40 @@ Your responsibilities are as follows:
 
 2. IF RELEVANT IMAGES ARE FOUND
 
-- If k strong visual matches are found, return those.
-- Set the verdict to "TERMINATE".
-- Output the selected image(s) as rendered images (optional), and return their indexes.
+If you found any clearly relevant and visually matching images, mark them and set verdict = TERMINATE.
+Do not suggest refinements if a usable set of results has already been found.
 
 ---
 
 3. IF RESULTS ARE POOR OR IRRELEVANT
 
-- Determine why the query underperformed.
-- Suggest how to reword or refine it for better visual alignment.
-- This may involve:
-  - Disambiguating vague terms (e.g., "ventilation" → "airflow through HVAC duct")
-  - Adding context (e.g., setting, action, device type)
-  - Substituting synonyms or clarifying the intent (e.g., “technician fixing ductwork”)
+- Determine why the query underperformed:
+  - Is the query vague, overly broad, or ambiguous?
+  - Are domain terms present but not contextualized?
+  - Is the visual concept too generic to be meaningful?
 
-- Set the verdict to "CONTINUE" and provide the refined query.
+- If the query is vague but still thematically relevant (e.g., "gear thing", "air moving", "box with lines", "empty room"), you must CONTINUE and refine the query.
+
+- When refining:
+  - Disambiguate vague terms (e.g., "ventilation" → "airflow through HVAC duct")
+  - Add context (e.g., "gear diagram icon", "wall-mounted disconnect switch", "return air grille airflow schematic")
+  - Clarify function, setting, or visual type (e.g., "training diagram", "schematic", "photo of used fuses")
+  - Preserve the **intent and scope** of the original query.
+
+
+- If multiple vague queries fail, fallback to a **context-respecting structured query**:
+  - Use visual scene interpretation for general queries.
+  - Use common object phrasing (e.g., "a thing to hit nails" → "manual hammer tool in use")
+  - Avoid switching to unrelated technical domains (e.g., do NOT interpret "empty room" as needing "mechanical diagram" unless clearly implied)
 
 ---
 
-4. IF AFTER 3 TURNS NO MATCH IS FOUND
+4. IF AFTER 3 REFINED ATTEMPTS NO MATCH IS FOUND
 
-- Set verdict to "TERMINATE" and return "NONE".
+- Set verdict to "TERMINATE" and return "NONE" only if:
+  - The query is fundamentally unrelated to visual domains (e.g., abstract emotion, pure text queries)
+  - All refinements have failed to yield even loosely related results
+  - The subject cannot be visually represented in any technical, general, or instructional form
 
 ---
 
@@ -72,35 +85,48 @@ Summarize what you saw in the images and their relevance.
 
 <action>
 [If CONTINUE: explain what is wrong with the current query and how you'll refine it.
- If TERMINATE: briefly state that the query was sufficient, or that no relevant images were found.]
+ If TERMINATE: briefly state that the query was sufficient, or that no relevant images were found after exhaustive attempts.]
 </action>
 
 <query>
 [If CONTINUE: provide your improved, more visual search query.
- If TERMINATE: repeat the original query to confirm no refinement was needed.]
+ If TERMINATE: repeat the original query to confirm no refinement was needed or indicate failure after 3 attempts.]
 </query>
 
-Be sure to wrap each section inside the correct tags exactly as shown above. Do not include Markdown or extra text.
+---
+
+Additional guidance for query refinement and termination:
+
+- Only suggest query refinements if the original query is relevant but vague or ambiguous. Refinements should focus on clarifying intent, adding context, or disambiguating terms related to the domain.
+- Never shift to a different domain unless explicitly supported by the query itself.
+- Avoid using engineering, schematic, HVAC, or symbolic defaults unless the query includes related terms.
+- Use the <action> tag to clearly explain your reasoning.
+- Always prefer refining over terminating unless you're confident the query is completely outside of all visual domains.
+- Always preserve the user's apparent context (scene, object, use-case) when requerying vague inputs.
 """
 
 
+
 image_relevance_prompt = ("""
-You are an expert in evaluating images for relevance to a search query.
+You are an expert in evaluating images for relevance to a search query.The user query may be textual, visual, or both.
 
 You will be shown:
-- A search query
+- The original search query: {query}
+- {definition}
 - A set of top-k candidate images
 
 Your job is to:
 1. Visually inspect each image.
 2. Comment on whether the image matches the query intent.
 3. Choose the best matching images by their index (starting from 0).
-4. If none fit well, suggest a better query.
+4. If none fit well, suggest a better query — but **preserve the context and avoid switching domains**.
+5. For the search query from the graphics definitions, you are provided with a definition to help you understand the context better. Use this definition to refine your understanding of the query, and to retrieve the most relevant images accordingly.
+
 
 Respond in this exact XML format:
 
 <observations>
-<Your reasoning for each image, e.g., "Image 0 shows HVAC equipment, relevant to 'air conditioner'">
+<Your reasoning for each image.">
 </observations>
 
 <verdict>
@@ -121,19 +147,6 @@ Refined query if verdict is CONTINUE. Leave empty if verdict is TERMINATE.
 """)
 
 
-
-def pil_to_base64(img):
-    """
-    Converts a PIL image to a base64-encoded data URI.
-    :param img: PIL image.
-    :return: Base64-encoded data URI.
-    """
-    buffered = BytesIO()
-    img.save(buffered, format="JPEG")
-    encoded = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{encoded}"
-
-
 def pil_to_base64_data_uri(image: PILImageType) -> str:
     
     """
@@ -152,33 +165,32 @@ def prepare_images_for_llm(
     formatted_prompt: str
 ) -> List[Dict[str, Any]]:
     """
-    Prepares prompt content for visualization.
-    :param images: List of image objects.
-    :param formatted_prompt: Prompt template.
-    :return: List of prompt parts.
+    Prepares prompt content for vision LLM. 
+    Only sends images and the core prompt
+    
+    :param images: List of image dictionaries with PIL images under 'image' key.
+    :param formatted_prompt: Main prompt string to be shown before the images.
+    :return: List of prompt parts with 'text' and 'image_url' elements.
     """
     parts = []
 
-    # Add the prompt text
+    # Add the prompt instruction as text
     parts.append({
         "type": "text",
         "text": formatted_prompt.strip()
     })
 
-    # Add images
-    for i, item in enumerate(images):
+    # Add each image as a base64 data URI
+    for item in images:
         img = item.get("image")
         if isinstance(img, PILImageType):
             parts.append({
                 "type": "image_url",
                 "image_url": pil_to_base64_data_uri(img)
             })
-            parts.append({
-                "type": "text",
-                "text": f"Image {i+1} — Similarity: {item.get('similarity', 0.0):.4f}"
-            })
 
     return parts
+
 
 
 def parse_selected_indexes(index_string):
@@ -199,9 +211,11 @@ def graphics_retriever_agent(
     drive,
     llm,
     k,
+    query_image: Optional[PILImageType],
     max_turns: int = 3,
     filters: dict = None,
-    verbose: bool = True
+    verbose: bool = True,
+    definition: str | None = None,
 ):
     """
     LLM-driven image selection agent using actual image objects and a multi-turn refinement process.
@@ -220,6 +234,8 @@ def graphics_retriever_agent(
         tags=["observations", "verdict", "selected_indexes", "action", "query"],
         use_xml_checker=True
     )
+    original_query = query
+
     chain.add_message(role="system", content=graphics_retriever_agent_prompt)
 
     for turn in range(max_turns):
@@ -227,37 +243,47 @@ def graphics_retriever_agent(
             print(f"\nTurn {turn + 1}: Query = '{query}'")
 
         # Step 1: Retrieve top-k image metadata + PIL objects
-        results = graphics_retriever(query, drive=drive, k=k, filters=filters)
+        results = graphics_retriever(query, query_image, drive=drive, k=k, filters=filters)
 
         if not results:
             print("No results returned.")
             return []
 
-        # Step 2: Format prompt from template
-        formatted_prompt = image_relevance_prompt.format(query=query)
+        # Step 2: Format prompt from template, include optional definition
+        formatted_prompt = image_relevance_prompt.format(
+            query=original_query,
+            definition=definition or "",
+        )
 
-        # (base64 + "image_url" part type)
-        content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
+
+
 
         if verbose:
             print(f"Sending {len(results)} images to LLM for evaluation...")
 
-        # Step 4: Add to chain and call LLM
-        # Flatten all parts into a single string prompt
-        flat_prompt = formatted_prompt + "\n\n"
-        for i, item in enumerate(results):
-            img_meta = item.get("metadata", {})
-            flat_prompt += f"Image {i}: {img_meta.get('image_title', 'Untitled')} — {img_meta.get('description', '')}\n"
+         # Step 4: Prepare message list and call LLM directly
+        content_parts = prepare_images_for_llm(results, formatted_prompt=formatted_prompt)
+        chain.add_message(role="user", content=content_parts)
 
-        chain.add_message(role="user", content=flat_prompt)
+        # Call the LLM with the raw conversation
+        llm_raw = llm_with_retry(chain.messages_list, llm_name=llm)
 
-        llm_raw = chain.run()
-
-        # If it's a dict, unwrap `.content`
-        if isinstance(llm_raw, dict):
-            content = llm_raw.get("content") or llm_raw.get("text", "")
+        # Normalize raw output to a plain string
+        if hasattr(llm_raw, "content"):
+            raw_text = llm_raw.content
+        elif isinstance(llm_raw, dict):
+            raw_text = llm_raw.get("content") or llm_raw.get("text", "")
         else:
-            content = llm_raw  # plain string
+            raw_text = llm_raw
+
+        # Validate XML if enabled (mirrors Chain.run behaviour)
+        if chain.use_xml_checker:
+            content = xml_check_and_fix(raw_text, llm=llm)
+        else:
+            content = raw_text
+
+        # Save the AI response back to the conversation history
+        chain.add_message(role="ai", content=content)
 
         # Now extract XML tags from string content
         try:
@@ -278,13 +304,15 @@ def graphics_retriever_agent(
         if verdict == "TERMINATE":
             selected_indexes = parse_selected_indexes(llm_response.get("selected_indexes", ""))
             # Filter only the image and its metadata
-            final_images_with_metadata = [
-                {
-                    "image": results[i]["image"],
-                    "metadata": results[i].get("metadata", {})
-                }
-                for i in selected_indexes if 0 <= i < len(results)
-            ]
+            final_images_with_metadata = []
+            for i in selected_indexes:
+                if 0 <= i < len(results):
+                    metadata = results[i].get("metadata", {})
+                    final_images_with_metadata.append({
+                        "image": results[i]["image"],
+                        "metadata": metadata,
+                        "url": metadata.get("url", "")  # Optional: promote URL to top level
+                    })
 
             return final_images_with_metadata if final_images_with_metadata else []
 
