@@ -193,10 +193,15 @@ Here is the checklist feedback to consider:
 {checklist_feedback}
 </checklist_feedback>
 
-Here are the review criteria with their corrective operations and revision examples:
-<criteria_with_ops_and_examples>
-{criteria_with_ops_and_examples}
-</criteria_with_ops_and_examples>
+Here are the review criteria with their corrective operations:
+<criteria_with_corrective_operations>
+{criteria_with_ops}
+</criteria_with_corrective_operations>
+
+Here are the revision examples to guide your corrections:
+<revision_examples>
+{reviser_examples}
+</revision_examples>
 
 CRITICAL FORMAT REQUIREMENTS:
 When using the CRUD tools, the output you return must strictly maintain the exact format structure as of the original research notes that you are revising:
@@ -226,18 +231,22 @@ NOTES:
 - You can only work with one block of text at a time. Each block of text is a separate entity identified by a unique ID - Block ID.
 - To implement some of the feedback, you may need to make edits to multiple blocks of text.
 
-Corrective Examples and Revision Examples:
-These are specific instructions and examples for fixing failed criteria items. Match each failed criteria from the checklist feedback above with its corresponding corrective operation and revision example below. Only apply the corrective operations for criteria that actually failed - ignore corrective operations for criteria that passed the evaluation. Use these corrective operations and revision examples in combination with the feedback to make the necessary revisions. The revision examples provide reference patterns for applying the feedback to research notes. Use the checklist feedback as your primary guide, and study these examples to understand the general approach and methodology for making the required changes, then apply similar principles to the research notes you are revising.
+Corrective Operations:
+These are specific instructions for fixing failed criteria items. Match each failed criteria from the checklist feedback above with its corresponding corrective operation in the criteria section below. Only apply the corrective operations for criteria that actually failed - ignore corrective operations for criteria that passed the evaluation. Use these corrective operations in combination with the feedback to make the necessary revisions.
+
+Revision Examples:
+These examples show how to apply the corrections to the research notes. Use these examples as reference to understand the approach to revising the research notes. Only refer the examples of the criteria that failed.
 """
 
 
 
-def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops_and_examples, df, llm = "gemini_2_flash"):
+def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, reviser_examples, df, llm = "gemini_2_flash"):
     """
     Run the reviser agent with the provided parameters.
     :param research_notes: The block of research notes to revise.
     :param checklist_feedback: The feedback from the checklist evaluation to consider for revisions.
     :param criteria_with_ops: All criteria with their corrective operations for the reviser to reference.
+    :param reviser_examples: Examples showing how to apply corrections for each criteria.
     :param df: The dataframe containing the research notes.
     :param llm: The language model to use for the agent.
     :return: The revised block of research notes as a dataframe.
@@ -278,7 +287,8 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops_and_
     # formatted_prompt = research_notes_reviser_prompt.format(
     #     research_notes=research_notes,
     #     checklist_feedback=checklist_feedback,
-    #     criteria_with_ops_and_examples=criteria_with_ops_and_examples,
+    #     criteria_with_ops=criteria_with_ops,
+    #     reviser_examples=reviser_examples,
     # )
 
     # # Print the formatted prompt for debugging
@@ -290,7 +300,8 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops_and_
         "messages": [{"role": "user", "content": research_notes_reviser_prompt.format(
             research_notes=research_notes,
             checklist_feedback=checklist_feedback,
-            criteria_with_ops_and_examples=criteria_with_ops_and_examples,)}],
+            criteria_with_ops=criteria_with_ops,
+            reviser_examples=reviser_examples,)}],
         "df": df,        # one buffer for the whole session
     }
 
@@ -371,23 +382,29 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
         
         criteria_str = "\n".join(criteria_list)
         
-        # Build examples with separators between criteria
+        # Build examples with structured format for each criteria
         examples_with_separators = []
         for i, (criteria, example) in enumerate(zip(criteria_list, examples_list)):
-            if i > 0:
-                examples_with_separators.append("------")
-            examples_with_separators.append(f"Review Criteria: {criteria}\n\n{example}")
+            criteria_num = i + 1
+            examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria: {criteria}\n\n<example>\n\n{example}\n\n</example>\n\n</criteria_{criteria_num}>")
         examples_str = "\n\n".join(examples_with_separators)
         
-        # Build criteria with corrective operations and reviser examples for reviser agent
-        criteria_with_ops_and_examples = []
+        # Build criteria with corrective operations for reviser agent
+        criteria_with_ops = []
         for _, row in grp.iterrows():
             criteria = row["Review Criteria"]
             corrective_ops = row["Corrective Operations"]
-            reviser_example = row["Reviser Agent Examples"]
-            criteria_with_ops_and_examples.append(f"Review Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\nRevision Example:\n\n{reviser_example}")
+            criteria_with_ops.append(f"<criteria>\n\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n</criteria>")
         
-        criteria_ops_and_examples_str = "\n\n------\n\n".join(criteria_with_ops_and_examples)
+        criteria_ops_str = "\n\n".join(criteria_with_ops)
+        
+        # Build examples with structured format for reviser agent
+        reviser_examples_with_separators = []
+        for i, (criteria, corrective_ops, reviser_example) in enumerate(zip(criteria_list, grp["Corrective Operations"].tolist(), grp["Reviser Agent Examples"].tolist())):
+            criteria_num = i + 1
+            reviser_examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n<example>\n\n{reviser_example}\n\n</example>\n\n</criteria_{criteria_num}>")
+        
+        reviser_examples_str = "\n\n".join(reviser_examples_with_separators)
 
         for key, df_slice in iterate_scope(scope, research_notes_df, scope_to_selector):
 
@@ -419,7 +436,8 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
             revised_research_notes_df = run_reviser_agent(
                 research_notes=research_notes_str,
                 checklist_feedback=failed_items,
-                criteria_with_ops_and_examples=criteria_ops_and_examples_str,
+                criteria_with_ops=criteria_ops_str,
+                reviser_examples=reviser_examples_str,
                 df=df_slice,
                 llm=llm
             )
@@ -471,11 +489,11 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
             
             research_notes_df.loc[index, 'block text'] = research_notes_str
             corrected_count += 1
-            print(f"   ✅ Row {index} corrected successfully")
+            print(f"✅ Row {index} corrected successfully")
         elif not has_correct_format and block_text == '':
-            print(f"  ⚠️ Row {index}: Empty block text, skipping")
+            print(f"⚠️ Row {index}: Empty block text, skipping")
         else:
-            print(f"  ✅ Row {index}: Format is correct, no action needed")
+            print(f"✅ Row {index}: Format is correct, no action needed")
     
     print(f"✅ Corrected format for {corrected_count} rows")
     
@@ -495,7 +513,6 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
 
 
 # Block Text Parsing 
-
 class BlockTextContent(BaseModel):
     topic: str = Field(description="The topic extracted from the block text.")
     subtopic: str = Field(description="The subtopic extracted from the block text.")
