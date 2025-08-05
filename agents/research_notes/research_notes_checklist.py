@@ -198,7 +198,7 @@ Here are the review criteria with their corrective operations:
 {criteria_with_ops}
 </criteria_with_corrective_operations>
 
-Here are the revision examples to guide your corrections:
+Here are the revision examples that you can use as reference to understand the approach to revising the research notes:
 <revision_examples>
 {reviser_examples}
 </revision_examples>
