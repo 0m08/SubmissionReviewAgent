@@ -298,4 +298,3 @@ def run_update_quality_scores(spreadsheet):
     print("Task Logs sheet updated.")
 
 
-x
