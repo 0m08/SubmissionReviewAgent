@@ -36,227 +36,115 @@ Use the following instructions to break down the research notes into clear, slid
 
 <instructions>
 
-1. Understand the Structure of the Research Notes:
-  Before chunking the content into slides, carefully examine the format of each research note. Each block of research content is provided alongside its associated learning objective and may follow one of the two formats described below:
+1.  Understand the Structure of the Research Notes:
+    Before chunking the content into slides, carefully examine the format of each research note. Each block of research content is provided alongside its associated learning objective and may follow one of the two formats described below:
 
     a. Document-Derived Format
-      - This format is structured like an article or summary with clear sections, bullet points, or numbered sub-points.
-      - It may include explanations, facts, cause-effect relationships, or short direct quotes from documents.
-      - Paragraphs may be logically organized around key instructional points.
+       - This format is structured like an article or summary with clear sections, bullet points, or numbered sub-points.
+       - It may include explanations, facts, cause-effect relationships, or short direct quotes from documents.
+       - Paragraphs may be logically organized around key instructional points.
 
     b. Transcript-Derived Format
-      - This format consists of line-by-line transcript segments extracted from a video, with each line prefixed by a timestamp in seconds (e.g., 266, 268).
-      - The tone could be conversational and informal, with natural pauses, incomplete sentences, or casual phrasing typical of spoken language.
+       - This format consists of line-by-line transcript segments extracted from a video, with each line prefixed by a timestamp in seconds (e.g., 266, 268).
+       - The tone could be conversational and informal, with natural pauses, incomplete sentences, or casual phrasing typical of spoken language.
 
-  You may encounter either or both formats within a subtopic. Your job is to identify the format for each section and respect that format's tone, structure, and pacing while chunking into slides.
+    You may encounter either or both formats within a subtopic. Your job is to identify the format for each section and respect that format's tone, structure, and pacing while chunking into slides.
 
-2. Understand What Constitutes a Slide Chunk:
-  The structure and style of slide chunks will depend on whether the source content is document-derived or transcript-derived. Follow the corresponding guidance based on the format of the research notes.
+2.  Understand What Constitutes a Slide Chunk:
+    The structure and style of slide chunks will depend on whether the source content is document-derived or transcript-derived. Follow the corresponding guidance based on the format of the research notes.
 
     a. For Document-Derived Research Notes
-      - A slide chunk is a self-contained instructional unit designed to fit on a single E-learning slide.
-      - It should convey one clear, teachable idea or closely related set of points.
-      - The content in a chunk should be concise enough to be narrated within approximately 30 seconds, which typically translates to 70–80 words per slide based on a natural speaking rate.
-      - Each slide chunk should be pedagogically meaningful — either introducing, explaining, elaborating, or summarizing a specific concept.
-      - Paraphrase the source content into clear, accessible, and instructional language suitable for slide narration.
+       - A slide chunk is a self-contained instructional unit designed to fit on a single E-learning slide.
+       - It should convey one clear, teachable idea or a set of closely related points with sufficient depth and context.
+       - The content should be substantial enough to provide meaningful instruction, typically around 120-180 words per slide, allowing for proper explanation and a conversational flow.
+       - Each slide chunk should be pedagogically meaningful—either introducing, explaining, or elaborating on a specific concept with enough detail to be truly instructive.
+       - Paraphrase the source content into clear, accessible, and instructional language that builds understanding progressively.
 
     b. For Timestamped Transcript-Derived Research Notes
-      - A slide chunk is a meaningful sub-segment of the original transcript.
-      - Do not rewrite or paraphrase the transcript content.
-      - Instead, your task is to divide the transcript into a sequence of natural, logically flowing chunks based on shifts in ideas, instructional steps, or topic transitions.
-      - Each chunk should include only as much transcript content as can reasonably be narrated within approximately 30 seconds, which typically translates to 70–80 words per slide based on a natural speaking rate.
-      - For each chunk, return:
-          i) A descriptive but concise Slide Title
-          ii) The original Video Id
-          iii) The Start and End timestamps for the chunk
-          iv) The original Transcript lines along with the timestamps (do not edit the content)
-      - The chunking should enhance learning by making the transcript easier to follow and aligned with instructional pacing.
+       - A slide chunk is a meaningful sub-segment of the original transcript that maintains a natural conversational flow.
+       - Do not rewrite or paraphrase the transcript content.
+       - Instead, your task is to divide the transcript into natural, logically flowing chunks based on shifts in ideas or instructional steps.
+       - Each chunk should include enough transcript content to provide substantial instruction, typically around 45-75 seconds, to preserve the natural speaking rhythm.
+       - For each chunk, return:
+           i) A descriptive but concise Slide Title
+           ii) The original Video Id
+           iii) The Start and End timestamps for the chunk
+           iv) The original Transcript lines along with their timestamps (do not edit the content).
 
-3. Ensure Alignment with the Learning Objective:
-  - Every slide chunk you generate must support the provided learning objective.
-  - Do not include tangential information or background that does not meaningfully contribute to helping the learner achieve that learning objective.
-  - Before creating each slide chunk, ask: “Does this idea help the learner progress toward the learning objective?”
-  - If a portion of the research notes is interesting but not directly relevant, it should be excluded from the final output.
-  - If multiple segments support the same instructional point, group or merge them into a single coherent chunk rather than repeating the same idea across multiple slides.
-  - For transcript-derived research notes:
-      - You must include every transcript line in your output — do not skip or omit any content.
-      - Maintain the original timestamp order — do not rearrange or combine non-consecutive lines.
-      - Divide the transcript into sequential, pedagogically meaningful chunks based on clear shifts in ideas or focus, while ensuring that the entire transcript is covered exactly once, in order.
+3.  Ensure Alignment with the Learning Objective:
+    - Every slide chunk you generate must support the provided learning objective.
+    - Do not include tangential information. Before creating each slide, ask: "Does this idea help the learner achieve the learning objective?"
+    - If a portion of the research is interesting but not directly relevant, exclude it.
+    - If multiple segments support the same instructional point, group or merge them into a single coherent chunk.
+    - For transcript-derived notes, include every line in order without omission.
 
-4. Do Not Add Unverified or External Information:
-  - You must only use the content present in the provided <research_notes> block.
-  - Do not invent, speculate, or introduce additional facts, examples, analogies, or elaborations unless they are already implied or explicitly stated in the source content.
-  - Avoid making assumptions beyond what the original research note conveys - even if the information seems obvious.
-  - Your role is to restructure and segment existing content into slide-friendly units, not to enhance or expand it with new material.
-  - Paraphrasing is encouraged when working with document-style research notes to improve clarity and instructional tone — but do not change the original meaning or introduce new information.
-  - For transcript-derived notes, do not paraphrase. Instead, preserve the exact wording of each transcript line within its assigned chunk. Your job is to segment the transcript logically — not to rewrite it.
+4.  Do Not Add Unverified or External Information:
+    - You must only use the content present in the provided <research_notes> block.
+    - Do not invent, speculate, or introduce additional facts or analogies unless they are already implied or explicitly stated in the source content.
+    - Your role is to restructure existing content, not to expand it with new material.
 
-5. Ensure Logical Flow and Instructional Storytelling:
+5.  Ensure Logical Flow and Instructional Storytelling:
 
-  a. For Document-Derived Research Notes
-     If the research note is in document-derived format, organize the slides to create a clear, coherent instructional narrative.
-      - The sequence of slides should feel like a smooth progression of ideas — each slide building naturally on the previous one.
-      - The overall structure should follow an instructional flow that starts with introducing the concept, then explaining or elaborating on its components, and finally summarizing all the concepts covered
-      - The content should feel cohesive and interconnected — not like a list of disconnected facts. Use transitions or bridge statements between slides if needed to help maintain continuity.
-      - Use instructional language that sounds natural, engaging, and learner-friendly. The tone should be clear and slightly conversational, as if guiding a learner through a concept step-by-step.
-      - Aim to subtly emulate a story-like flow, especially when the content lends itself to real-world scenarios, challenges, cause-effect relationships, or sequential processes.
-      - Avoid robotic, overly mechanical, or template-like phrasing. The content should feel like it was written by a knowledgeable human instructor, not auto-generated.
-      - Do not use overly formal or academic language . Write as though you are explaining to a motivated learner with no prior knowledge, while still respecting their intelligence and considering the target audience.
+    a. For Document-Derived Research Notes
+       - **Adopt a Conversational, Mentor-Like Tone:** The language should be personal and direct, as if a senior technician is guiding a new team member. Avoid a mechanical, academic tone ("we will learn...").
+       - **Use Action-Oriented Verbs:** Use strong, hands-on verbs that reflect on-the-job tasks. Prefer words like "spot," "check," or "find" over "identify" or "assess."
+       - **Simplify and Contextualize:** Break down complex ideas into practical, easy-to-understand language. Instead of abstract "consequences," describe "what can happen if the issue isn’t fixed." Use clear, visual terms ("burnt smells," "dark marks").
+       - **Build a Narrative:** Weave the points into a story. Follow a natural progression from **problem -> process -> consequence.** Show *how* and *why* things happen. Connect the steps to the technician's workflow.
+       - **Ask Questions:** Engage the learner by asking a question *before* stating a concept to pique their curiosity.
+       - **Provide Visual Guidance:** "Walk" the learner through the process with your words. Describe what they will see, where they should look, and what to watch out for.
 
-  b. For Timestamped Transcript-Derived Research Notes
-     If the research note is in timestamped transcript format, do not paraphrase, restructure, or rewrite the content.
-      - Maintain the original speaker sequence and line order.
-      - Your job is to segment the transcript into logical, meaningful chunks that reflect a natural flow of ideas as spoken — without altering the language or inserting bridging text.
+    b. For Timestamped Transcript-Derived Research Notes
+       - Maintain the original speaker sequence and line order.
+       - Your job is to segment the transcript into logical, meaningful chunks that reflect a natural flow of ideas as spoken. Allow for longer chunks to preserve conversational flow.
 
-6. Follow the Prescribed Slide Structure and Types:
-  For each subtopic, you must generate exactly three types of slides: a Transition Slide, multiple Content Slides, and a Summary Slide. The slides should collectively represent and organize the research notes for all learning objectives within that subtopic.
+6.  Follow the Prescribed Slide Structure and Types:
+    For each subtopic, you must generate exactly three types of slides: a Transition Slide, multiple Content Slides, and a Summary Slide.
 
     a. Transition Slide (Exactly One)
-       This is the first slide of the set. It introduces the learner to what they will be learning in this subtopic. You must create only one transition slide for the given subtopic, based on all the research notes provided, which may include both document-derived and timestamped transcript formats.
-
-       Instructions:
-         - Review the full set of research notes across all learning objectives within the subtopic.
-         - Identify the main instructional points that will actually be covered in the content slides (i.e., the core teaching material).
-         - The transition slide should only preview the ideas and concepts that will be covered in the upcoming content slides — do not include unrelated or extraneous information.
-         - Write the slide in your own instructional language — do not copy or reuse lines from the transcript or document text.
-         - Keep the tone clear, target audience-friendly, and appropriate for introducing the section.
-
-       All Transition Slides must: 
-         - Begin with a phrase like “In this section, we will…” or a similar preview-style opener.
-         - Use concise, introductory instructional language appropriate for the target audience.
-         - Be returned in the sentence-based slide format (i.e., no timestamps), even if some input research notes were in transcript format.
+       - This is the first slide. It introduces what the learner will be doing in the subtopic.
+       - Review all research notes to identify the main instructional points.
+       - Preview only the concepts that will be covered in the upcoming content slides.
+       - Write the slide in your own instructional language.
+       - The tone should be clear and audience-friendly.
 
     b. Content Slides (One or More)
-       These are the main instructional slides that break down the research notes into coherent, focused units. You will generate as many content slides as needed to cover the material, while respecting chunk size limits and instructional clarity. The content slides should represent all research notes provided for the subtopic — which may include a mix of document-style notes and timestamped transcript segments.
-
-       Instructions:
-         - Read through all the research notes provided across all learning objectives within the subtopic.
-         - Break the content into logical, pedagogically sound chunks — each chunk should focus on a single core idea or tightly related set of points.
-         - Each slide chunk must be short enough to be narrated within approximately 30 seconds (about 70–80 words), whether derived from document notes or timestamped transcripts.
-         - Ensure that each content slide meaningfully contributes to the associated learning objective.
-
-          i) For Document-Derived Research Notes:
-            - Paraphrase the content into clear, concise instructional language — avoid copying directly.
-            - Use short sentences and bullet points if necessary, but ensure the content flows naturally as a slide explanation.
-            - Do not introduce any new information beyond what is present in the research notes.
-            - There is no fixed limit to the number of content slides you may generate. You must ensure that all meaningful points from the research notes are reflected in the slides — even if it requires many short, focused slides. It's acceptable (and encouraged) to break the material into multiple pedagogically sound chunks to preserve clarity, pacing, and instructional value. All relevant content should be represented in the slides, even if some points receive only brief or partial coverage. Avoid skipping any portion of the research notes unless it is clearly redundant, irrelevant to the learning objective, or off-topic. 
-          
-          ii) For Timestamped Transcript-Derived Notes:
-            - Do not paraphrase, summarize, or rewrite the transcript lines.
-            - Your job is to segment the transcript into meaningful chunks using the existing timestamps.
-            - Keep each chunk within a reasonable duration (roughly 30 seconds).
-            - Maintain the sequence of transcript lines as given; do not reorder or omit any lines.
-            - For each chunk, specify the corresponding Start, End, and include the exact transcript lines within that range.
-
-       All Content Slides must:
-          - Include a distinct and meaningful slide title, derived from the content it covers or the learning objective it supports.
-          - Use "Slide Type: Content" for document-derived content, and "Slide Type: Video" for transcript-based content.
-          - Clearly differentiate one slide from another - avoid redundant or overly similar titles.
-          - Maintain consistent formatting according to the source type (document-style or transcript-style).
+       - These are the main instructional slides.
+       - **Chunk by Task, Not by Fact:** Group information based on how a technician works. If a tech looks at a component's appearance and location simultaneously, teach it that way. Merge slides that support a single, unified task.
+       - Each slide chunk should be substantial enough to provide meaningful instruction (around 120-180 words for document-derived content).
+       - Ensure each slide contributes to the learning objective with enough depth.
+       - **Craft Engaging Titles:** Titles should be clear, grab attention, and sound practical or answer a "why this matters" question.
 
     c. Summary Slide (Exactly One)
-      This is the final slide of the set. It provides a concise recap of the key instructional points covered in the content slides. You must create only one summary slide for the given subtopic, using your own instructional language to synthesize the main takeaways. This slide should reflect all the concepts actually covered in the content slides — not general ideas from the original research notes.
+       - This is the final slide. It provides a concise, memorable recap.
+       - **Do not use bullet points.**
+       - The summary should be short, conversational, and focused. Highlight the **single most important takeaway** from the topic.
+       - Frame it around how the technician will *use* the skills they just learned. Do not start with "In this section, we covered..."
 
-       Instructions:
-         - Review the full set of content slides generated for the subtopic.
-         - Identify the most important points or takeaways actually covered across those slides - not what was in the original research notes.
-         - Do not repeat slide content verbatim or reuse full sentences. Rephrase and condense the ideas in a learner-friendly, summary-style manner.
-         - Exclude any ideas that were not explicitly covered in the content slides — the summary should only reflect the material that was actually delivered in the content slides.
-
-       All Summary Slides must:
-         - Begin with a phrase like “In this section, we covered:” or a similar reflective opener.
-         - Present the takeaways in a short, clear list — using either bullet points or numbered format.
-         - Be returned in sentence-based format (i.e., no timestamps), even if some input research notes were in transcript format.
-         - Maintain a neutral, instructional tone appropriate for E-learning — avoid overly casual or formal language.
-         - Ensure the summary is meaningful on its own, providing a helpful closing recap for the learner.
-
-7. Slide Title Guidelines:
-  - Every slide, regardless of its type or source format, must include a clear, distinct, and meaningful Title.
-  - Titles can be derived from either the slide content itself or the associated learning objective.
-  - Do not repeat or reuse the same title across multiple slides.
-  - Titles should be short, concise and instructional. While some slide types (like introductions or summaries) may use broad framing, content slide titles must clearly convey the specific idea or teaching point being addressed.
-
-8. Slide Output Format:
-  All slide outputs must follow a structured, source-sensitive format based on the type of research note the slide was derived from.
+7.  Slide Output Format:
+    All slide outputs must follow a structured format.
 
     a. For Document-Derived Slides:
-      Use the following format:
+       Use the following format:
 
-      Title: [Slide title]
-      Slide Type: [Transition / Content / Summary]
-      Content: [Paraphrased instructional content in natural language]
-
-      Example:
-
-      Title: Introduction to Preventive Maintenance  
-      Slide Type: Transition  
-      Content: In this section, we will explore what preventive maintenance is, why it matters, and how it helps reduce unexpected equipment failures.
-
-      Title: What is Preventive Maintenance?  
-      Slide Type: Content  
-      Content: Preventive maintenance involves regularly scheduled inspections and adjustments to avoid unexpected equipment failure.
-
-      Title: Benefits of Preventive Maintenance  
-      Slide Type: Content  
-      Content: Regular maintenance improves system reliability, extends equipment life, and reduces costly repairs.
-
-      Title: Key Takeaways  
-      Slide Type: Summary  
-      Content: In this section, we covered:  
-      1. Preventive maintenance involves scheduled inspections.  
-      2. It improves reliability and reduces breakdowns.  
-      3. It helps minimize long-term costs.
+       Title: [Slide title]
+       Slide Type: [Transition / Content / Summary]
+       Content: [Detailed instructional content in natural language]
 
     b. For Timestamped Transcript-Derived Slides:
-      Use the following format:
+       Use the following format:
 
-      Title: [Slide title]  
-      Slide Type: [Transition / Video / Summary]  
-      Video_Id: [Video ID from the input]  
-      Start: [Start timestamp]  
-      End: [End timestamp]  
-      Transcript:  
-        - '[timestamp]': [line of transcript]  
-        - '[timestamp]': [line of transcript]  
-      ...
+       Title: [Slide title]
+       Slide Type: [Video]
+       Video_Id: [Video ID from the input]
+       Start: [Start timestamp]
+       End: [End timestamp]
+       Transcript:
+         - '[timestamp]': [line of transcript]
+         - '[timestamp]': [line of transcript]
+         ...
 
-      Example:
-
-      Title: Preparing for Disconnection  
-      Slide Type: Transition  
-      Content: In this section, we will walk through the process of safely disconnecting an HVAC unit before maintenance.
-
-      Title: Step 1. Identify the power source  
-      Slide Type: Video  
-      Video_Id: bgUGUEYtNbA  
-      Start: 477  
-      End: 490  
-      Transcript:  
-        - '477': The first step is to identify the power source ...  
-        - '480': Locate the power supply to the unit ...  
-        - '483': Ensure it is accessible before continuing ...  
-
-      Title: Step 2. Switch off the power  
-      Slide Type: Video  
-      Video_Id: bgUGUEYtNbA  
-      Start: 493  
-      End: 520  
-      Transcript:  
-        - '493': Switch off the power by disconnecting ...  
-        - '497': Make sure there is no voltage present ...  
-
-      Title: Key Takeaways  
-      Slide Type: Summary  
-      Content: In this section, we covered:  
-      1. Identify the power source before working.  
-      2. Turn off the power completely to ensure safety.
-
-  Note: The Transition and Summary slides — even when generated from transcript-derived input — must still be written in natural instructional language and follow the document-style output format (i.e., do not include timestamps).
-
-9. Ensure Full Coverage of All Input:
-  - The final slide set must comprehensively reflect all research notes provided for the subtopic.
-  - For document-derived notes: Avoid skipping content unless it’s clearly off-topic or redundant.
-  - For transcript-derived notes: Do not skip any transcript lines — include every line once, in order, without omission.
+8.  Ensure Full Coverage of All Input:
+    The final slide set must comprehensively reflect all research notes provided for the subtopic. Avoid skipping content unless it’s clearly off-topic or redundant.
 
 </instructions>
 
@@ -265,38 +153,21 @@ Provide your output strictly in the following format:
 <output>
 
 <evaluation_breakdown>
-Use this section to plan how you will chunk the input research notes into slides. This is your internal reasoning space — do not begin writing the final slide outputs yet. Think carefully before proceeding.
+Use this section to plan how you will chunk the input research notes into slides. This is your internal reasoning space.
 
 You must address the following points:
 
-1. Subtopic Understanding 
-   Summarize what the learner is expected to understand or achieve from this subtopic, based on the learning objectives and research notes.
-
-2. Source Format Analysis 
-   Identify which research notes are document-derived vs. transcript-derived. Briefly describe the structure and tone of each. Note if both formats are present.
-
-3. Slide Structure Plan 
-   Describe your overall plan for:
-   - The Transition Slide: What key ideas will be previewed?
-   - The Content Slides: How many content slides do you expect to generate? What instructional chunks or themes will they follow?
-   - The Summary Slide: What main takeaways will be highlighted?
-
-4. Chunking and Coverage Strategy 
-   Explain how you will:
-   - Ensure all learning objectives and research notes are covered.
-   - Avoid skipping or blending unrelated segments.
-   - Preserve order for transcript-derived content.
-   - Maintain logical flow and instructional clarity.
-
-You may also use this space to document any additional observations, reflections, or considerations — based on the <instructions> section above — that will help you generate a stronger, more instructionally aligned slide sequence and its content.
+1.  Subtopic Understanding: Summarize what the learner is expected to understand or do.
+2.  Source Format Analysis: Identify the format of the research notes.
+3.  Slide Structure Plan: Describe your plan for the Transition, Content, and Summary slides.
+4.  Chunking and Coverage Strategy: Explain how you will ensure all objectives and notes are covered.
 
 </evaluation_breakdown>
 
 (Based on your above evaluation, provide the slides)
 
 <slides>
-Provide all slides in sequence for this subtopic, starting with a Transition Slide, followed by one or more Content Slides, and ending with a Summary Slide. 
-Ensure the output strictly follows the slide formats described above in Instruction no. 8. Ensure that each slide chunk is separated by a full blank line to maintain clarity and visual distinction in the output.
+Provide all slides in sequence, starting with a Transition Slide, followed by one or more Content Slides, and ending with a Summary Slide. Ensure each slide is separated by a full blank line.
 </slides>
 
 </output>
@@ -323,22 +194,29 @@ Preparation
 </subtopic>
 
 <research_notes>
+... [same research notes as provided in the previous prompt] ...
+</research_notes>
 
-<learning_objective>
+</input>
 
-Learning Objective: Pull the disconnect and confirm power is off with a voltmeter as a safety measure.
+<output>
 
-<research_note>
+<slides>
 
-Link: https://youtube.com/shorts/sI_569t7HmE?si=lCKEGi8R9hYbZbim&start=2&end=92
+Title: Getting Ready for a Safe Fan Removal
+Slide Type: Transition
+Content: Before you even think about touching that fan, there are a few key prep steps we need to walk through. In this section, you'll learn how to be certain the power is off, not just guess. We'll also cover the right way to take photos of your setup so you have a roadmap for putting it all back together, and finally, how to give the fan blade a good inspection to spot any problems before they start. Getting this prep work right is what separates a smooth job from a frustrating one.
+
+Title: Setting Up the Voltmeter and Initial Safety Checks
+Slide Type: Video
 Video_Id: sI_569t7HmE
 Start: 2
-End: 92
+End: 42
 Transcript:
   - '2': All right. And now that we got
   - '3': everything off, again, before we start
   - '6': messing with anything, we are going to
-  - '8': verify with a voltmeter. So, first 
+  - '8': verify with a voltmeter. So, first
   - '12': going to go ahead and turn it to volts
   - '13': DC. That's the little straight line with
   - '16': the little dashes on it. And again, it
@@ -352,113 +230,8 @@ Transcript:
   - '36': battery terminals up
   - '38': here. I've got 45 m
   - '42': volts. We're going to check our PV
-  - '47': [Music]
-  - '49': conductors. I got zero
-  - '53': volts.
-  - '55': Going to check all of our
-  - '58': MPPPTs. Zero
-  - '64': volts. This one's got 12 mill
-  - '69': [Music]
-  - '71': volts. Let's go ahead and check uh you
-  - '74': know ground to
-  - '77': neutral zero volts.
-  - '80': Ground the
-  - '84': hot 7 mill volts. Ground the
-  - '88': negative a few
-  - '90': milli volts. I think we're safe to say
-  - '92': we're good to work on this.
 
-</research_note>
-
-</learning_objective>
-
-<learning_objective>
-
-Learning Objective: Document the existing setup by taking photos of the wiring before disconnecting. Note the fan blade height within the shroud.
-
-<research_note>
-
-1. **Importance of Documentation Before Disassembly**
-      1.1. Why Documenting is Crucial: Before you start disconnecting anything, it's vital to document the existing setup. This is because HVAC systems can have complex wiring, and the exact placement of the fan blade within the shroud is critical for proper airflow. Accurate documentation ensures that you can reassemble everything correctly, avoiding potential electrical issues or performance problems.
-      1.2. Methods of Documentation: The two most effective methods are taking photos and making notes. Photos provide a visual record of the wiring and component placement, while notes can capture specific details or measurements that might not be clear in a photo.
-
-   2. **Photographing the Wiring**
-      2.1. Taking Clear Photos: When photographing the wiring, ensure the photos are clear and well-lit. Take multiple photos from different angles to capture all the wiring connections, including the wires connected to the contactor, capacitor, and any control boards.
-      2.2. What to Capture in Photos: Focus on capturing the colors of the wires and where they connect. According to the document, "Before disconnecting any wires, make note of their locations or take photos. This can help when wiring the replacement motor." Note any labels or markings on the wires or terminals. These photos will serve as a reference when you're wiring the new motor.
-
-   3. **Noting Fan Blade Height**
-      3.1. Importance of Correct Fan Blade Height: The height of the fan blade within the shroud is crucial for optimal airflow. If the fan blade is too high or too low, it can reduce the system's cooling efficiency.
-      3.2. How to Measure/Note Fan Blade Height: Before removing the fan blade, carefully observe its position within the shroud. Measure the distance from the top of the shroud to the top of the fan blade. You can also take a photo showing the fan blade's position relative to the shroud. The document states, "Install the inspected or new fan blade, verifying the fan is in the same location when it is placed in the shroud," reinforcing the importance of knowing the original location.
-
-</research_note>
-
-</learning_objective>
-
-<learning_objective>
-
-Learning Objective: Perform an initial inspection: Inspect the fan blade for damage (bends, damaged rivets, corrosion). Replace the blade if damaged.
-
-<research_note>
-
-1.  **Initial Inspection of the Condenser Fan Blade**
-        1.  **Purpose of the initial inspection:** The initial inspection aims to identify any existing damage or potential problems with the condenser fan blade *before* beginning any maintenance or repair work. This proactive approach can prevent further damage to the HVAC system and ensure the technician is prepared with the correct replacement parts, if needed. As stated in the documents, "Identifying signs of a malfunctioning component in an HVAC system can help homeowners prevent costly repairs and maintain optimal performance..."
-        2.  **When to perform the inspection:** An initial inspection should be performed:
-            *   As part of any scheduled HVAC maintenance. "Regular maintenance is crucial for assessing the condition of the fan blade."
-            *   When troubleshooting HVAC system issues such as unusual noises, slow spinning, or overheating.
-            *   Before starting any work on the condenser fan or motor.
-            *   Periodically as a general check-up, in addition to annual inspections.
-
-    2.  **Types of Damage to Look For**
-        1.  **Visual cues: bends, warping, cracks, fractures:** Carefully examine the fan blades for any visible signs of physical damage. This includes bends, warping, cracks, and fractures. "Inspect the fan blades for any signs of damage, such as bending or warping. If you notice any bent blades, consider replacing them as bent blades can disrupt airflow and reduce efficiency." A fractured or cracked blade is a severe issue that requires immediate attention, as "A fractured or cracked blade can split, flinging metal that could cause serious injury to anyone nearby or damage to your AC unit."
-        2.  **Material degradation: corrosion, wear:** Look for signs of corrosion (rust) or general wear on the fan blades. "Wheels...Wear or corrosion..." Corrosion can weaken the blade material, making it more susceptible to failure.
-        3.  **Fastener issues: loose or damaged rivets/bolts:** Check the rivets or bolts that attach the fan blades to the hub for any signs of looseness or damage. "Wheels...Loose rivets or bolts." Loose fasteners can cause the blades to vibrate or even detach during operation.
-        4.  **Audible cues: Unusual noises:** Note any unusual noises coming from the condenser fan during operation, such as howling, rattling, or wobbling. "When a blade is damaged, it will produce a howling or metallic wobbling or rattling noise. A visual inspection can help to confirm that the blade is the issue." These sounds can indicate a damaged or unbalanced fan blade.
-
-    3.  **Assessing Damage and Determining Replacement**
-        1.  **Severity of damage:** Assess the severity of any identified damage. Minor bends or surface corrosion might not require immediate replacement, but should be monitored. Major cracks, fractures, or significant corrosion warrant immediate replacement.
-        2.  **Impact on performance and safety:** Consider how the damage impacts the fan's performance and the overall safety of the HVAC system. Damaged blades can reduce airflow, leading to decreased cooling efficiency and potential overheating. Fractured blades pose a safety hazard.
-        3.  **Decision to replace:** If the fan blade exhibits significant damage that affects its performance or poses a safety risk, it should be replaced. "Check all fastenings and impeller blades for cracks or damage - Replace as necessary." It is always best to err on the side of caution and replace a questionable blade to prevent further damage or injury.
-
-</research_note>
-
-</learning_objective>
-
-</research_notes>
-
-</input>
-
-<output>
-
-<slides>
-
-Title: Getting Ready for Fan Removal
-Slide Type: Transition
-Content: In this section, we will learn how to properly prepare before removing a condenser fan. We’ll walk through verifying power is off, documenting the fan setup, and inspecting the fan blade for any signs of damage or wear.
-
-Title: Setting the Voltmeter and Testing Battery Terminals
-Slide Type: Video
-Video_Id: sI_569t7HmE
-Start: 2
-End: 38
-Transcript:
-  - '2': All right. And now that we got
-  - '3': everything off, again, before we start
-  - '6': messing with anything, we are going to
-  - '8': verify with a voltmeter. So, first 
-  - '12': going to go ahead and turn it to volts
-  - '13': DC. That's the little straight line with
-  - '16': the little dashes on it. And again, it
-  - '18': just bounces around a little bit between
-  - '20': a few volts. But, uh, we're going to go
-  - '22': throw it on our battery bus bars here
-  - '24': between the positive and negative.
-  - '30': saying I got 12 mill volts, which is
-  - '33': essentially
-  - '34': nothing. We're going to check our
-  - '36': battery terminals up
-  - '38': here. I've got 45 m
-
-Title: Confirming Zero Voltage on System Circuits
+Title: Completing Voltage Verification Across All System Components
 Slide Type: Video
 Video_Id: sI_569t7HmE
 Start: 42
@@ -481,28 +254,21 @@ Transcript:
   - '90': milli volts. I think we're safe to say
   - '92': we're good to work on this.
 
-Title: Why Documentation Matters
+Title: Why You Need to Document Your Work
 Slide Type: Content
-Content: Before disconnecting any components, it’s critical to document the current setup. HVAC systems have complex wiring and fan blade positioning, both of which must be restored accurately. Documentation helps prevent wiring mistakes and airflow issues during reassembly.
+Content: So, why do we need to stop and take pictures before we start wrenching? Because HVAC systems can have tricky wiring, and the fan blade has to sit just right in its housing for the system to move air correctly. If you don't record the setup, you might cross a wire during reassembly, leading to electrical problems, or install the fan at the wrong height, which kills the unit's cooling power. Taking a few minutes to document everything now with clear photos and notes will save you from major headaches and hours of troubleshooting later. It’s your roadmap for getting the job done right.
 
-Title: How to Document Wiring and Blade Position
+Title: Spotting Fan Blade Problems Before You Start
 Slide Type: Content
-Content: Take clear, well-lit photos of all wiring connections from multiple angles, including wires connected to the contactor, capacitor, and control boards. Note wire colors and terminal positions. Also, record the fan blade’s height in the shroud by measuring or photographing its position before removal.
+Content: Before you do any work, it's time to play detective with the fan blade. A good inspection now can save you from a callback later. So, what are you looking for? First, give each blade a close look for any obvious physical damage—things like bends, warping, or even small cracks. A bent blade won't move air efficiently, and a cracked one is a serious safety risk because it could fly apart during operation. Next, check for rust or corrosion, which can weaken the blade. Finally, grab the blade and gently check for any looseness in the rivets or bolts holding it to the hub. Any of these issues could be the root cause of a noise complaint or performance problem.
 
-Title: Performing an Initial Inspection
+Title: Making the Call: When to Replace a Fan Blade
 Slide Type: Content
-Content: Always start with a fan blade inspection before maintenance. Look for visual damage like bending, warping, or cracking. Also check for corrosion and loose rivets or bolts, as these can reduce efficiency or pose safety risks.
+Content: After your inspection, you have to make a judgment call: does this blade need to be replaced? If you spot any major cracks, fractures, or significant corrosion, the decision is easy—replace it immediately. There's no fixing that kind of damage. For minor issues, like small bends or light surface rust, you have to consider the impact. Will this cause a vibration? Is it affecting airflow? A damaged blade can reduce cooling efficiency and put extra strain on the motor. When you're in doubt, the safest and most professional move is always to replace the blade. It's better to explain the need for a new part to the customer now than to get a call back for a bigger failure down the line.
 
-Title: Identifying Damage and Deciding on Replacement
-Slide Type: Content
-Content: If the fan blade is significantly damaged — such as cracked or corroded — it should be replaced immediately. Even minor issues should be closely monitored. Always consider how the damage might impact airflow, safety, and overall HVAC system performance.
-
-Title: Key Takeaways
+Title: Your Key Takeaway
 Slide Type: Summary
-Content: In this section, we covered:
-1. How to verify that power is safely off using a voltmeter.
-2. Why documenting wiring and fan blade height is essential for accurate reassembly.
-3. How to inspect the fan blade for damage and when to replace it for safety and efficiency.
+Content: Remember, taking a few extra minutes before you start the real work to check for power, document your setup, and inspect the parts isn't just about following steps—it's about controlling the job so you can work safely and avoid problems before they happen.
 
 </slides>
 
@@ -670,4 +436,3 @@ def delete_slide_chunks_generation(sheet, worksheet_name="Final Outline"):
         df = df.drop(columns=["slide_chunks"])
         clear_worksheet(ws)
         save_to_sheet(ws, df)
-
