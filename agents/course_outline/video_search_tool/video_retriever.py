@@ -28,7 +28,6 @@ def load_video_chroma_db(embedding_function, drive, central_folder_id):
 
     if not file_list:
         raise FileNotFoundError("'chroma_video_db' not found in Drive.")
-
     chroma_folder_id = file_list[0]['id']
     print(f"Found Chroma folder ID: {chroma_folder_id}")
 
@@ -90,7 +89,6 @@ def video_retriever(query: str, drive=None, k: int = 10, filters: Optional[Dict]
             start_sec = metadata.get("start_time") or 0
             end_sec = metadata.get("end_time") or None
 
-            # Construct YouTube embed URL using video_id + start/end time
             if vid_id:
                 if end_sec is not None:
                     video_url = f"https://www.youtube.com/embed/{vid_id}?start={start_sec}&end={end_sec}"
@@ -99,7 +97,6 @@ def video_retriever(query: str, drive=None, k: int = 10, filters: Optional[Dict]
             else:
                 video_url = "#"
 
-            # Get transcript from metadata text_0
             transcript = metadata.get("text_0", "Transcript not available.")
 
             final_results.append({
