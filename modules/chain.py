@@ -69,8 +69,9 @@ Make sure to only output the fixed xml. Don't output anything else.
 
 
 class Chain:
-    def __init__(self, llm='groq', tags=None, use_xml_checker=False, use_output_parser=True):
+    def __init__(self, llm='groq', tags=None, use_xml_checker=False, use_output_parser=True, max_tokens=None):
         self.llm = llm
+        self.max_tokens = max_tokens
         self.messages_list = []
         self.tags = tags
         self.use_xml_checker = use_xml_checker
