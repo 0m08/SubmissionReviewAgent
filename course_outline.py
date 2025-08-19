@@ -987,47 +987,47 @@ pipeline_sections.append({
     ]
 })
 
-# pipeline_sections.append({
-#     "section_name": "Section: Get References for the Final Outline",
-#     "steps": [
-#         {
-#             "name": "Get relevant references for Learning Objectives",
-#             "func": load_references,
-#             "depends_on": ["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
-#             "args": {
-#                 "sheet": "sheet",
-#             },
-#             "estimated_time": "~ 2-5 minutes",
-#             "description": "Loads all reference documents into the vectorstore for faster retrieval.",
-#             "delete_func": delete_all_references,
-#             "delete_args": {
-#                 "sheet": "sheet",
-#                 "worksheet_name": "All References",
-#             }
-#         },
-#         {
-#             "name": "Retrieve relevant references for Learning Objectives",
-#             "func": run_retriever_agent_for_all_rows,
-#             "depends_on": ["Get relevant references for Learning Objectives"],
-#             "args": {
-#                 "root_folder_id": "root_folder_id",
-#                 "drive": "drive",
-#                 "sheet": "sheet",
-#                 "worksheet_name": "Final Outline",
-#                 "course_name": "course_name",
-#                 "target_audience": "target_audience",
-#                 "llm": llm_model,
-#             },
-#             "estimated_time": "~ 10 - 20 minutes",
-#             "description": "Gathers relevant context needed for the research.",
-#             "delete_func": delete_retriever_context,
-#             "delete_args": {
-#                 "sheet": "sheet",
-#                 "worksheet_name": "Final Outline",
-#             }
-#         },
-#     ]
-# })
+pipeline_sections.append({
+    "section_name": "Section: Get References for the Final Outline",
+    "steps": [
+        {
+            "name": "Get relevant references for Learning Objectives",
+            "func": load_references,
+            "depends_on": ["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
+            "args": {
+                "sheet": "sheet",
+            },
+            "estimated_time": "~ 2-5 minutes",
+            "description": "Loads all reference documents into the vectorstore for faster retrieval.",
+            "delete_func": delete_all_references,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "All References",
+            }
+        },
+        {
+            "name": "Retrieve relevant references for Learning Objectives",
+            "func": run_retriever_agent_for_all_rows,
+            "depends_on": ["Get relevant references for Learning Objectives"],
+            "args": {
+                "root_folder_id": "root_folder_id",
+                "drive": "drive",
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+                "course_name": "course_name",
+                "target_audience": "target_audience",
+                "llm": llm_model,
+            },
+            "estimated_time": "~ 10 - 20 minutes",
+            "description": "Gathers relevant context needed for the research.",
+            "delete_func": delete_retriever_context,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+            }
+        },
+    ]
+})
 
 agent_ui(step_name="Course Outline", pipeline_sections=pipeline_sections, outline_finalized=outline_finalized)
 
