@@ -10,6 +10,7 @@ from services.sheets_service import (
     format_worksheet,
     create_or_read_worksheet,
     hide_worksheet_by_name,
+    hide_columns_by_name,
 )
 import json
 import streamlit as st
@@ -732,6 +733,17 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
         research_notes_df = research_notes_df.rename(columns=column_renames)
     
     save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
+    
+    # Hide working columns
+    columns_to_hide = []
+    if 'rn_order' in research_notes_df.columns:
+        columns_to_hide.append('rn_order')
+    if 'rn_block text' in research_notes_df.columns:
+        columns_to_hide.append('rn_block text')
+    
+    if columns_to_hide:
+        hide_columns_by_name(research_notes_sheet, columns_to_hide, research_notes_df)
+    
     print("✅ Block text parsing completed. Individual columns updated with revised content.")
     
     return

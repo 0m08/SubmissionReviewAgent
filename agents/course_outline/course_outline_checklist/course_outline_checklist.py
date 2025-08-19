@@ -10,6 +10,7 @@ from services.sheets_service import (
     format_worksheet,
     create_or_read_worksheet,
     hide_worksheet_by_name,
+    hide_columns_by_name,
 )
 import json
 import streamlit as st
@@ -813,6 +814,17 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
     
     save_to_sheet(worksheet = course_outline_sheet, df = course_outline_df)
     format_worksheet(worksheet = course_outline_sheet)
+    
+    # Hide working columns
+    columns_to_hide = []
+    if 'co_order' in course_outline_df.columns:
+        columns_to_hide.append('co_order')
+    if 'co_block text' in course_outline_df.columns:
+        columns_to_hide.append('co_block text')
+    
+    if columns_to_hide:
+        hide_columns_by_name(course_outline_sheet, columns_to_hide, course_outline_df)
+    
     print("✅ Block text parsing completed. Individual columns updated with revised content.")
    
     return
