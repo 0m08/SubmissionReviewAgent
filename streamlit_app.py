@@ -143,6 +143,11 @@ quality_compliance_scoring_page = st.Page(
     icon=":material/check_circle:",
 )
 
+video_search_tool_page = st.Page(
+    "run_video_search_tool.py",
+    title="Video Search Tool",
+    icon=":material/video_library:",
+)
 
 #######################
 # 3) Common app layout
@@ -161,11 +166,11 @@ quality_compliance_scoring_page = st.Page(
 
 
 role_based_page_access_dict = {
-        "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
-    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
-    "Content Head": [course_outline_page, research_notes_page, quality_compliance_scoring_page],
-    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
-    "Visual Designer": [graphics_definition_page, vectorstore_page, get_images_page, quality_compliance_scoring_page],
+        "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+    "Content Head": [course_outline_page, research_notes_page, quality_compliance_scoring_page, video_search_tool_page],
+    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+    "Visual Designer": [graphics_definition_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
 }
 
 

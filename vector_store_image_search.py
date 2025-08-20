@@ -35,7 +35,7 @@ st.session_state["gc"] = gc
 sheet = st.session_state.get("sheet")
 
 # Define task visibility by role
-st.markdown("## Image Search Tool")
+st.markdown("## SkillCat Graphics Search Tool")
 st.markdown("Use this tool to search and retrieve relevant images based on text queries.")
 
 
