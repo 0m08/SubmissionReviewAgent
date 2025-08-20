@@ -53,13 +53,27 @@ Course Objective Guidelines: {course_objective_guidelines}
 Course Background: {course_background}
 </course_info>
 
-Here's the course outline to evaluate:
+The following base outline was used as the foundation for developing the final course outline:
+<base_outline>
+{base_outline}
+</base_outline>
+
+Here's the final course outline to evaluate:
 <course_outline>
 {course_outline}
 </course_outline>
 
 Course Outline Structure:
 The course outline is structured in blocks where each block contains a Topic, Subtopic, and Learning Objective. Topics and subtopics may appear multiple times across different blocks, but each block has a unique Learning Objective. This repetition is intentional - it allows for multiple specific learning objectives under the same topic/subtopic structure. When evaluating, keep in mind this relationship between related blocks that share the same topic or subtopic.
+
+Evaluation Scope:
+The amount of course outline provided to you for evaluation will vary based on the evaluation scope. You may receive:
+- The complete course outline (Global scope evaluation)
+- Course outline blocks for a specific Topic (Topic scope evaluation)  
+- Course outline blocks for a specific Topic and Subtopic combination (Subtopic scope evaluation)
+- A single course outline blocks (Learning Objective scope evaluation)
+
+Focus your evaluation on the specific course outline content provided in the <course_outline> section above, using the <base_outline> only as a reference context.
 
 Here are the checklist criteria to evaluate:
 <checklist>
@@ -113,13 +127,14 @@ Follow the examples below to understand how to evaluate each review criteria:
     "function_name": "run_course_outline_checklist_agent",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def run_course_outline_checklist_agent(course_name, target_audience, course_objective_guidelines, course_background, course_outline, checklist, examples, llm = "gemini_2_5_flash"):
+def run_course_outline_checklist_agent(course_name, target_audience, course_objective_guidelines, course_background, base_outline, course_outline, checklist, examples, llm = "gemini_2_5_flash"):
     """
     Run the course outline checklist agent with the provided parameters.
     :param course_name: Name of the course for which the course outline is created.
     :param target_audience: Target audience for the course.
     :param course_objective_guidelines: Guidelines for the course objectives.
     :param course_background: Background information about the course.
+    :param base_outline: The base outline used as foundation for developing the course.
     :param course_outline: The block of course outline to evaluate.
     :param checklist: The checklist criteria to evaluate the course outline against.
     :param examples: The examples to guide evaluation of the checklist criteria.
@@ -135,6 +150,7 @@ def run_course_outline_checklist_agent(course_name, target_audience, course_obje
     #     target_audience = target_audience,
     #     course_objective_guidelines = course_objective_guidelines,
     #     course_background = course_background,
+    #     base_outline = base_outline,
     #     course_outline = course_outline,
     #     checklist = checklist,
     #     examples = examples,
@@ -152,6 +168,7 @@ def run_course_outline_checklist_agent(course_name, target_audience, course_obje
             target_audience = target_audience,
             course_objective_guidelines = course_objective_guidelines,
             course_background = course_background,
+            base_outline = base_outline,
             course_outline = course_outline,
             checklist = checklist,
             examples = examples,
@@ -176,6 +193,11 @@ Course Objective Guidelines: {course_objective_guidelines}
 Course Background: {course_background}
 </course_info>
 
+The following base outline was used as the foundation for developing the final course outline:
+<base_outline>
+{base_outline}
+</base_outline>
+
 Here are the course outline block(s) to revise:
 <course_outline>
 {course_outline}
@@ -183,6 +205,14 @@ Here are the course outline block(s) to revise:
 
 Course Outline Structure:
 The course outline is structured in blocks where each block contains a Topic, Subtopic, and Learning Objective. Topics and subtopics may appear multiple times across different blocks, but each block has a unique Learning Objective. This repetition is intentional - it allows for multiple specific learning objectives under the same topic/subtopic structure. When revising, keep in mind this relationship between related blocks that share the same topic or subtopic.
+
+Revision Scope:
+The amount of course outline provided to you will vary based on the evaluation scope. You may receive:
+- The complete course outline (Global scope revision)
+- Course outline blocks for a specific Topic (Topic scope revision)  
+- Course outline blocks for a specific Topic and Subtopic combination (Subtopic scope revision)
+- A single course outline block (Learning Objective scope revision)
+Focus on the specific course outline content provided in the <course_outline> section above, using the <base_outline> only as a reference context.
 
 Here is the checklist feedback to consider:
 <checklist_feedback>
@@ -238,7 +268,7 @@ These examples show how to apply the corrections to the course outline. Use thes
     "function_name": "run_course_outline_reviser_agent",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteria_with_ops, reviser_examples, df, course_name, target_audience, course_objective_guidelines, course_background, llm = "gemini_2_flash"):
+def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteria_with_ops, reviser_examples, df, course_name, target_audience, course_objective_guidelines, course_background, base_outline, llm = "gemini_2_flash"):
     """
     Run the course outline reviser agent with the provided parameters.
     :param course_outline: The block of course outline to revise.
@@ -250,6 +280,7 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
     :param target_audience: Target audience for the course.
     :param course_objective_guidelines: Guidelines for the course objectives.
     :param course_background: Background information about the course.
+    :param base_outline: The base outline used as foundation for developing the course.
     :param llm: The language model to use for the agent.
     :return: The revised block of course outline as a dataframe.
     """
@@ -310,6 +341,7 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
     #     target_audience=target_audience,
     #     course_objective_guidelines=course_objective_guidelines,
     #     course_background=course_background,
+    #     base_outline=base_outline,
     # )
 
     # # Print the formatted prompt for debugging
@@ -326,7 +358,8 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
             course_name=course_name,
             target_audience=target_audience,
             course_objective_guidelines=course_objective_guidelines,
-            course_background=course_background,)}],
+            course_background=course_background,
+            base_outline=base_outline,)}],
         "df": df,        # one buffer for the whole session
     }
 
@@ -349,7 +382,7 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
     "function_name": "process_single_co_slice",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def process_single_co_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, llm):
+def process_single_co_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, base_outline, llm):
     """
     Process a single slice: review → revise (if needed) → return result
     This function runs in parallel for scope-based processing.
@@ -364,6 +397,7 @@ def process_single_co_slice(key, df_slice, criteria_str, examples_str, criteria_
     :param target_audience: Target audience for the course
     :param course_objective_guidelines: Guidelines for course objectives
     :param course_background: Background information about the course
+    :param base_outline: The base outline used as foundation for developing the course
     :param llm: The language model to use
     :return: The revised DataFrame slice (or original if no changes needed)
     """
@@ -382,6 +416,7 @@ def process_single_co_slice(key, df_slice, criteria_str, examples_str, criteria_
         target_audience=target_audience,
         course_objective_guidelines=course_objective_guidelines,
         course_background=course_background,
+        base_outline=base_outline,
         course_outline=course_outline_str,
         checklist=criteria_str,
         examples=examples_str,
@@ -405,6 +440,7 @@ def process_single_co_slice(key, df_slice, criteria_str, examples_str, criteria_
         target_audience=target_audience,
         course_objective_guidelines=course_objective_guidelines,
         course_background=course_background,
+        base_outline=base_outline,
         llm=llm
     )
     
@@ -418,7 +454,7 @@ def process_single_co_slice(key, df_slice, criteria_str, examples_str, criteria_
     "function_name": "process_co_scope_slices_parallel",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def process_co_scope_slices_parallel(scope, course_outline_df, scope_to_selector, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, llm):
+def process_co_scope_slices_parallel(scope, course_outline_df, scope_to_selector, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, base_outline, llm):
     """
     Process all slices within a scope in parallel.
     
@@ -433,6 +469,7 @@ def process_co_scope_slices_parallel(scope, course_outline_df, scope_to_selector
     :param target_audience: Target audience for the course
     :param course_objective_guidelines: Guidelines for course objectives
     :param course_background: Background information about the course
+    :param base_outline: The base outline used as foundation for developing the course
     :param llm: The language model to use
     :return: List of (original_slice, revised_slice) tuples
     """
@@ -462,7 +499,7 @@ def process_co_scope_slices_parallel(scope, course_outline_df, scope_to_selector
                 key, df_slice, criteria_str, examples_str, 
                 criteria_ops_str, reviser_examples_str,
                 course_name, target_audience, course_objective_guidelines, 
-                course_background, llm
+                course_background, base_outline, llm
             )
             futures_map[future] = (key, df_slice)
         
@@ -524,6 +561,22 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
             course_objective_guidelines = str(course_info_df["Course Objective Guidelines"].iloc[0]) if not pd.isna(course_info_df["Course Objective Guidelines"].iloc[0]) else ""
         if "Course Background" in course_info_df.columns:
             course_background = str(course_info_df["Course Background"].iloc[0]) if not pd.isna(course_info_df["Course Background"].iloc[0]) else ""
+
+    # Load the base outline sheet
+    base_outline_sheet, base_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Base Outline")
+    
+    # Format base outline using get_outline_with_los
+    # Check if Learning Objectives column has any non-empty values
+    has_learning_objectives = False
+    if 'Learning Objectives' in base_outline_df.columns:
+        has_learning_objectives = base_outline_df['Learning Objectives'].notna().any() and \
+                                (base_outline_df['Learning Objectives'] != '').any()
+    
+    base_outline = get_outline_with_los(
+        df=base_outline_df, 
+        include_learning_objectives=has_learning_objectives,
+        include_prefix=True
+    )
 
     # Load the course outline sheet
     course_outline_sheet, course_outline_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Final Outline")
@@ -642,6 +695,7 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
                         target_audience=target_audience,
                         course_objective_guidelines=course_objective_guidelines,
                         course_background=course_background,
+                        base_outline=base_outline,
                         course_outline=course_outline_str,
                         checklist=criteria_str,
                         examples=examples_str,
@@ -665,6 +719,7 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
                         target_audience=target_audience,
                         course_objective_guidelines=course_objective_guidelines,
                         course_background=course_background,
+                        base_outline=base_outline,
                         llm=llm
                     )
 
@@ -691,7 +746,7 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
                     scope, course_outline_df, scope_to_selector, 
                     criteria_str, examples_str, criteria_ops_str, 
                     reviser_examples_str, course_name, target_audience, 
-                    course_objective_guidelines, course_background, llm
+                    course_objective_guidelines, course_background, base_outline, llm
                 )
                 
                 # Merge all parallel results back to main DataFrame
