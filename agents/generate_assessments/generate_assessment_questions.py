@@ -21,11 +21,11 @@ generate_assessment_prompt = """As an expert Instructional Designer with extensi
 {slides}
 </slides>
 
-Before creating questions, first analyze the slide content to determine question appropriateness:
+Before creating questions, first analyze the slide content to determine if Matching questions are appropriate for this topic:
 - Identify if the topic discusses components of a system, device, or equipment
 - Check if the topic presents types, categories, or classifications of something  
 - Look for lists of closely related items that naturally group together
-- Determine if matching questions would be meaningful and educational for this specific topic content
+- Use this analysis to determine if matching questions would be meaningful and educational for this specific topic content
 
 Create questions using the following approach:
 
