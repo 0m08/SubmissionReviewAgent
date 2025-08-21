@@ -80,8 +80,11 @@ def generate_checklist_for_question(course_name, target_audience,  task_name, ev
     """
 
 
-    # Format the checklist criteria
-    checklist_criteria = "\n".join([f"- {evidence}" for evidence in evidence_list])
+    # Format the checklist criteria with XML tags
+    checklist_criteria = ""
+    for i, evidence in enumerate(evidence_list, 1):
+        checklist_criteria += f"<criteria_{i}>\n- {evidence}\n</criteria_{i}>\n\n"
+    checklist_criteria = checklist_criteria.strip()  # Remove trailing newlines
 
     # Format the LLM prompt for the current task
     task_prompt = generate_review_checklist_prompt.format(
@@ -178,6 +181,11 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
                             f"Option A: {question_row['Option A']}\n"
                             f"Option B: {question_row['Option B']}\n"
                             if question_row['Question type'] == 'truefalse' else
+                            f"Option A: {question_row['Option A']}\n"
+                            f"Option B: {question_row['Option B']}\n"
+                            f"Option C: {question_row['Option C']}\n"
+                            f"Option D: {question_row['Option D']}\n"
+                            if question_row['Question type'] == 'select_all' else
                             "Matching Pairs:\n" + "\n".join(
                                 f"  - {pair.strip()}"
                                 for pair in question_row['Correct Answer'].splitlines()

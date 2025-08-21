@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal, List 
+from typing import Literal, List
 #Pydantic function for structured output
 
 #Multiple Choice Question
@@ -23,6 +23,21 @@ class TrueFalseQuestion(BaseModel):
     correct_answer: Literal["A", "B"] = Field(description="The label of the correct answer, must be one of 'A', 'B'. This corresponds to the correct answer.")
     correct_feedback: str = Field(description="Correct feedback for the answer. Should be positive and reinforce the correct choice.")
     incorrect_feedback: str = Field(description="Incorrect feedback for the answer. Should briefly explain why the correct answer is correct without mentioning slide content explicitly.")
+
+# Select All That Apply Question
+class SelectAllQuestion(BaseModel):
+    question_type: str = Field(description="The type of the question. Always set to 'select_all' for select all that apply questions.")
+    question_text: str = Field(description="The question text.")
+    option_a: str = Field(description="Text for Option A")
+    option_b: str = Field(description="Text for Option B")
+    option_c: str = Field(description="Text for Option C")
+    option_d: str = Field(description="Text for Option D")
+    correct_answer: Literal[
+        "A, B", "A, C", "A, D", "B, C", "B, D", "C, D",  # 2 correct answers
+        "A, B, C", "A, B, D", "A, C, D", "B, C, D"       # 3 correct answers
+    ] = Field(description="Comma-separated list of correct option letters. Must contain 2-3 correct answers from the available combinations.")
+    correct_feedback: str = Field(description="Correct feedback acknowledging multiple correct answers. Should be positive and reinforce the correct choices.")
+    incorrect_feedback: str = Field(description="Incorrect feedback explaining all correct answers and why they are correct without mentioning slide content explicitly.")
 
 # Matching Question
 class MatchingPair(BaseModel):

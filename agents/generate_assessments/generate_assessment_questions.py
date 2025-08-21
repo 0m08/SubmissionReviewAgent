@@ -21,21 +21,39 @@ generate_assessment_prompt = """As an expert Instructional Designer with extensi
 {slides}
 </slides>
 
-Create questions from the following question types, delimited by XML tags:
-<assessment_questions_types>
-Question Type, Description
-Multiple Choice: allows the selection of a single response from a pre-defined list.
-True/False: a simple form of multiple choice question with just the two choices 'True' and 'False'.
-Matching: the answer to each of a number of sub-questions must be selected from a list of possibilities.
-</assessment_question_types>
+Before creating questions, first analyze the slide content to determine question appropriateness:
+- Identify if the topic discusses components of a system, device, or equipment
+- Check if the topic presents types, categories, or classifications of something  
+- Look for lists of closely related items that naturally group together
+- Determine if matching questions would be meaningful and educational for this specific topic content
+
+Create questions using the following approach:
+
+ALWAYS create these question types:
+- Multiple Choice: allows the selection of a single response from a pre-defined list
+- True/False: a simple form of multiple choice question with just the two choices 'True' and 'False'
+- Select All That Apply: allows selection of multiple correct responses from a pre-defined list
+
+CONDITIONALLY create Matching questions ONLY if the slide content contains:
+- Components of a system, device, or process
+- Types or categories of related items within the same domain
+- Lists of closely related concepts that naturally group together
+- Items that require understanding relationships, not just definition recall
+
+AVOID Matching questions when:
+- The topic only contains unrelated definitions or concepts
+- Matches would be obvious or trivial (like simple acronym definitions)
+- The slide content doesn't discuss grouped or related items
 
 Follow these guidelines when creating the questions.
 - Ensure exhaustive and proportional coverage of the course content, including a mix of first-level and second-level questions, with thoughtful answer choices.
 - Any field that does not apply to a given question type should be left empty. For instance, True/False question type will have options C and D left empty.
 - For Matching question types, give the exact correct answer under the ""Correct Answer"" field. Match correctly without using Options. Use the exact option text and words being matched. Ensure that all the option text and match text for matching type questions are unique.
+- For Select All That Apply questions: Use when multiple options can be simultaneously correct. Ensure 2-3 options are correct out of 4 total options. In the ""Correct Answer"" field, list all correct option letters separated by commas (e.g., ""A, B, D"").
 - The correct feedback will be shown everytime the user answers correctly. The incorrect feedback is common feedback that will be shown anytime a user does not answer the question correctly and it should explain the correct answer.
 - Correct and incorrect feedback must be provided for all question types, including matching.
-- For Multiple Choice and True/False questions, simply indicate the correct answer (e.g., ""B"") in the ""Correct Answer"" field.
+- For True/False questions, if the correct answer is True, always start the correct and incorrect feedback with "Correct! This statement is True..." and "Incorrect! This statement is True..." respectively. If the correct answer is False, always start both feedbacks with "Correct! This statement is False..." and "Incorrect! This statement is False..." respectively.
+- Creation of Matching questions is optional and should be created only if the topic content naturally contains related items.
 
 Reply in the following output format:
 
@@ -53,9 +71,9 @@ Option D: [Option D text here. Leave blank for True/False questions]
 
 Correct Answer: [Correct Option letter eg. ""C""]
 
-Correct feedback: [Feedback for correct answer. Always start this feedback with this word - Correct!]
+Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true..." If correct answer is False, start with "Correct! This statement is false..." For other question types, start with "Correct!"]
 
-Incorrect feedback: [Feedback for incorrect answer. Always start this feedback with this word - Incorrect!]
+Incorrect feedback: [Feedback for incorrect answer. For True/False questions: If correct answer is True, start with "Incorrect! This statement is true..." If correct answer is False, start with "Incorrect! This statement is false..." For other question types, start with "Incorrect!"]
 
 </question>
 
@@ -71,15 +89,33 @@ Option D: [Option D text here. Leave blank for True/False questions]
 
 Correct Answer: [Correct Option letter eg. ""B""]
 
-Correct feedback: [Feedback for correct answer. Always start this feedback with this word - Correct!]
+Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true..." If correct answer is False, start with "Correct! This statement is false...". For other question types, start with "Correct!"]
 
-Incorrect feedback: [Feedback for incorrect answer. Always start this feedback with this word - Incorrect!]
+Incorrect feedback: [Feedback for incorrect answer. For True/False questions: If correct answer is True, start with "Incorrect! This statement is true..." If correct answer is False, start with "Incorrect! This statement is false...". For other question types, start with "Incorrect!"]
 
 </question>
 
 <question>
 Question no: 3
-Question Type: Matching
+Question Type: Select All That Apply
+Question: [Question text here]
+
+Option A: [Option A text here]
+Option B: [Option B text here]
+Option C: [Option C text here]
+Option D: [Option D text here]
+
+Correct Answer: [List all correct option letters separated by commas, e.g., "A, B, D"]
+
+Correct feedback: Correct! [Acknowledge the multiple correct answers in your feedback]
+
+Incorrect feedback: Incorrect! [Explain all the correct answers and why they are correct]
+
+</question>
+
+<question>
+Question no: 4
+Question Type: Matching (Optional)
 Question: [Question text here]
 
 Option A: [Option A text here. Leave blank if not applicable]

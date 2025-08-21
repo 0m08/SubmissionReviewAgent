@@ -72,8 +72,8 @@ Option B: False
 
 Correct Answer: [Correct Option letter eg. "A"]
 
-Correct feedback: Correct! [Feedback for correct answer. Don't give information about slide content references while giving this feedback.]
-Incorrect feedback: Incorrect! [Feedback for any incorrect answer. Don't give information about slide content references while giving this feedback.]
+Correct feedback: Correct! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Then provide feedback for correct answer. Don't give information about slide content references while giving this feedback.]
+Incorrect feedback: Incorrect! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Then provide feedback for any incorrect answer. Don't give information about slide content references while giving this feedback.]
 
 </question>
 """
@@ -109,6 +109,27 @@ Incorrect feedback: Incorrect! These are the correct match choices: A. Exact Opt
 </question>
 """
 
+select_all_question_format = """
+<question>
+
+Question no: [Question number here]
+Question Type: Select All That Apply
+Question: [Question text here]
+
+Option A: [Option A text here]
+Option B: [Option B text here]
+Option C: [Option C text here]
+Option D: [Option D text here]
+
+Correct Answer: [List all correct option letters separated by commas, e.g., "A, B, D"]
+
+Correct feedback: Correct! [Acknowledge the multiple correct answers in your feedback. Don't give information about slide content references while giving this feedback.]
+
+Incorrect feedback: Incorrect! [Explain all the correct answers and why they are correct. Don't give information about slide content references while giving this feedback.]
+
+</question>
+"""
+
 # Function to detect the type of an assessment question
 def detect_question_type(assessment_question):
     """
@@ -118,7 +139,7 @@ def detect_question_type(assessment_question):
         assessment_question (str): The assessment question text.
 
     Returns:
-        str: The detected question type (Multiple Choice, True/False, Matching).
+        str: The detected question type (Multiple Choice, True/False, Select All That Apply, Matching).
     """
     # Extract "Question Type:" from the question
     pattern = r"Question Type:\s*(.+)"
@@ -131,6 +152,8 @@ def detect_question_type(assessment_question):
             return "Multiple Choice"
         elif question_type.lower() in {"true/false", "true-false"}:
             return "True/False"
+        elif question_type.lower() in {"select all that apply", "select-all-that-apply"}:
+            return "Select All That Apply"
         elif question_type.lower() == "matching":
             return "Matching"
         else:
@@ -143,10 +166,12 @@ def detect_question_type(assessment_question):
 def get_question_format(question_type):
     if question_type == "Multiple Choice":
         return multichoice_question_format
-    elif question_type == "Matching":
-        return matching_question_format
     elif question_type == "True/False":
         return truefalse_question_format
+    elif question_type == "Select All That Apply":
+        return select_all_question_format
+    elif question_type == "Matching":
+        return matching_question_format
     else:
         raise ValueError("Invalid question type provided!")
     
