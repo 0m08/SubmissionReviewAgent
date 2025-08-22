@@ -115,7 +115,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 st.session_state["checklist_sheet_link"] = course_info_df['Checklist Link'][0]
                 st.session_state["drive"] = drive
                 st.session_state["gc"] = gc
-                st.session_state["checklist_sheet_link"] = course_info_df['Checklist Link'][0]
                 
                 # Set the langchain project name for langsmith
                 os.environ["LANGCHAIN_PROJECT"] = get_short_name(st.session_state["course_name"]) + " " + sheet.id
