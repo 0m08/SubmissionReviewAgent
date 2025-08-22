@@ -4,6 +4,7 @@ import streamlit as st
 
 # Add import at the top
 from agents.research_notes.subtopic_context_aware_review_and_revise_notes import run_subtopic_context_aware_review_and_revise_for_all_rows, delete_subtopic_context_aware_review_and_revise
+from agents.research_notes.research_notes_checklist import run_research_notes_checklist_and_reviser
 
 def noop(*args, **kwargs):
     """Placeholder delete function for manual steps."""
@@ -330,6 +331,32 @@ pipeline_sections = [
     #         },
     #     ]
     # }
+    {
+        "section_name": "Section 4: Checklist based Review-Revise Agents",
+        "steps": [
+            {
+                "name": "Checklist Based Review and Revise Agents",
+                "func": run_research_notes_checklist_and_reviser,
+                "depends_on": ["Manually Review the Research Notes"],
+                "args": {
+                    "sheet": "sheet",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "checklist_sheet_link": "checklist_sheet_link",
+                    "gc": "gc",
+                    # "worksheet_name": "Research Notes",
+                    "llm": "gemini_2_5_flash",
+                },
+                "estimated_time": "~ 10 minutes",
+                "description": "Runs checklist-based review and revision on the final research notes.",
+                # "delete_func": delete_research_checklist_review_revise,
+                # "delete_args": {
+                #     "sheet": "sheet",
+                #     "worksheet_name": "Research Notes",
+                # }
+            },
+        ]
+    }
 ]
 
 
