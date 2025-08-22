@@ -763,6 +763,7 @@ def extract_transcript_segment(transcript, start_sec, end_sec):
         sec = time_to_seconds(ts)
         if start_sec <= sec <= end_sec:
             filtered.append(item)
+
     return filtered
 
 
@@ -817,3 +818,5 @@ def iterate_scope(
         group_cols = list(selector)
         for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
             yield key, grp
+
+
