@@ -1,5 +1,10 @@
 import streamlit as st
 import time
+# from jira import JIRA
+# import os
+# from dotenv import load_dotenv
+
+# load_dotenv()
 
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
@@ -60,17 +65,30 @@ def list_of_agents():
     st.header("Welcome")
     st.write("Here's the list of agents:")
     st.markdown(
-"""Agent Name | Status
--|-
-:material/toc: Course Outline Agent | :material/check_circle: Done
-:material/quick_reference_all: Research Notes Agent | :material/check_circle: Done
-:material/topic: Slide Chunks Agent | :material/check_circle: Done
-:material/image: Graphics Definition Agent | :material/check_circle: Done
-:material/quiz: Assessment Agent | :material/check_circle: Done
+"""Agent Name | Informational Course | Instructional Course | Practical Course
+|- | - | - | - |
+:material/toc: Course Outline Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/quick_reference_all: Research Notes Agent | :material/check_box_outline_blank: Usable | :material/check_box: Usable | :material/check_box: Usable
+:material/topic: Slide Chunks Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/image: Graphics Definition Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/quiz: Assessment Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
 """
     )
 
     st.info(""":material/info: To run any of the above agents, navigate to the corresponding page from the left side panel""")
+
+    # # Connect to Jira and fetch issue description
+    # try:
+    #     jira = JIRA(server=os.environ['JIRA_SITE'], 
+    #                 basic_auth=(os.environ['JIRA_EMAIL'], os.environ['JIRA_API_TOKEN']))
+        
+    #     issue = jira.issue('SGP-2789', expand="renderedFields,names,schema")
+    #     desc_html = issue.renderedFields.description
+        
+    #     st.markdown("### Jira Issue Description")
+    #     st.markdown(desc_html, unsafe_allow_html=True)
+    # except Exception as e:
+    #     st.error(f"Error fetching Jira issue: {str(e)}")
 
 
 # We can either define Page objects inline (pointing to .py files or callables)
@@ -79,6 +97,7 @@ def list_of_agents():
 # --- Account pages ---
 list_of_agents_page = st.Page(list_of_agents, title = "List of agents", icon = ":material/list:")
 logout_page = st.Page(logout, title="Log out", icon=":material/logout:")
+about_agents_page = st.Page("about_agents.py", title="About Agents", icon=":material/info:")
 
 # --- Outline pages ---
 course_outline_page = st.Page(
@@ -178,7 +197,7 @@ if st.session_state.role in authenticated_roles:
     # The user is logged in (role != None)
     page_dict = {}
 
-    account_pages = [list_of_agents_page, logout_page]
+    account_pages = [list_of_agents_page, about_agents_page, logout_page]
     user_pages = role_based_page_access_dict[st.session_state.role]
 
     page_dict["Account"] = account_pages

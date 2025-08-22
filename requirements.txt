@@ -1,4 +1,4 @@
-﻿﻿aiohappyeyeballs==2.4.4
+﻿aiohappyeyeballs==2.4.4
 aiohttp==3.11.11
 aiosignal==1.3.2
 altair==5.5.0
@@ -208,3 +208,4 @@ langgraph==0.5.4
 Google-Images-Search==1.4.7
 # langgraph==0.4.8
 lightning-sdk
+# jira==3.10.5
