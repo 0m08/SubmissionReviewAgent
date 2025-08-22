@@ -514,16 +514,17 @@ def run_ai_cleanup_revised_notes_for_all_rows(sheet, worksheet_name, course_name
 
 
 def manual_input_review_revised_research_notes(sheet, worksheet_name, course_name, target_audience, skip_manual_step=False, llm="gemini_2_flash"):
-    """Allows manual review of revised research notes or runs AI cleanup when skipped."""
+    """Allows manual review of revised research notes or skips the step entirely."""
 
     if skip_manual_step:
-        run_ai_cleanup_revised_notes_for_all_rows(
-            sheet=sheet,
-            worksheet_name=worksheet_name,
-            course_name=course_name,
-            target_audience=target_audience,
-            llm=llm,
-        )
+        # Do nothing, just complete the step without any changes
+        # run_ai_cleanup_revised_notes_for_all_rows(
+        #     sheet=sheet,
+        #     worksheet_name=worksheet_name,
+        #     course_name=course_name,
+        #     target_audience=target_audience,
+        #     llm=llm,
+        # )
         return True
 
     return True

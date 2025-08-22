@@ -111,7 +111,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 st.session_state["course_name"] = course_info_df['Course Name'][0]
                 st.session_state["target_audience"] = course_info_df['Target Audience & Industry'][0]
                 st.session_state["course_background"] = course_info_df['Course Background'][0]
-                st.session_state['course_objective_guidelines'] = course_info_df['Course Objective Guidelines'][0]
+                st.session_state["course_objective_guidelines"] = course_info_df['Course Objective Guidelines'][0]
+                st.session_state["checklist_sheet_link"] = course_info_df['Checklist Link'][0]
                 st.session_state["drive"] = drive
                 st.session_state["gc"] = gc
                 st.session_state["checklist_sheet_link"] = course_info_df['Checklist Link'][0]
