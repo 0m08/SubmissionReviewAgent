@@ -153,6 +153,12 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
     # Combine all topic slides into a single string
     slides = "\n\n".join(slides)
 
+    # Calculate total tasks for progress tracking
+    total_evaluation_tasks = len(unique_tasks) * len(assessment_df)
+    
+    # Initialize the progress tracker
+    progress = SmartProgressBar(total_tasks=total_evaluation_tasks, description="Percent complete:")
+
     for task_name in unique_tasks:
         # Extract review criteria for the current task
         evidence_list = checklist_df[checklist_df['Task'] == task_name]['Review Criteria'].tolist()
@@ -207,8 +213,11 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
                 try:
                     response = future.result()
                     task_evaluation[f"Question {question_idx + 1}"] = response
+                    # Update progress for each completed question evaluation
+                    progress.update()
                 except Exception as exc:
                     print(f"Question {question_idx + 1} generated an exception: {exc}")
+                    progress.update()
 
         # Add the task evaluation to the main dictionary
         review_checklist_by_task[task_name] = task_evaluation
@@ -300,9 +309,6 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
     :param worksheet_name: The name of the worksheet.
     :return: None
     """
-    # Initialize progress bar with 4 major steps
-    progress = SmartProgressBar(total_tasks=4, description="Percent complete:", save_interval=5)
-    
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
@@ -314,20 +320,16 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
 
     # Load existing data into a DataFrame
     print(checklist_df)
-    progress.update()
     
     review_checklist_by_task = update_review_checklist(sheet, worksheet_name, course_name, target_audience, llm)
     print(review_checklist_by_task)
-    progress.update()
 
     # Update the checklist with verdicts
     updated_checklist_df = update_checklist_with_verdicts_preserve(checklist_df, review_checklist_by_task)
-    progress.update()
 
     #Save and format the updated checklist using helper functions
     save_to_sheet(checklist_sheet, updated_checklist_df)
     format_worksheet(checklist_sheet)
-    progress.update()
 
     print("Review Agent Checklist updated successfully!")
     return updated_checklist_df

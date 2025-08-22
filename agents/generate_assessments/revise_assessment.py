@@ -54,8 +54,8 @@ Option D: [Option D text here]
 
 Correct Answer: [Correct Option letter eg. "B"]
 
-Correct feedback: Correct! [Feedback for correct answer. Don't give information about slide content references while giving this feedback.]
-Incorrect feedback: Incorrect! [Feedback for any incorrect answer. Don't give information about slide content references while giving this feedback.]
+Correct feedback: Correct! [Explain why the chosen option content is correct without mentioning option letters (A, B, C, D). Don't give information about slide content references while giving this feedback.]
+Incorrect feedback: Incorrect! [Explain the correct answer content without mentioning option letters (A, B, C, D). Don't give information about slide content references while giving this feedback.]
 
 </question>
 """
@@ -104,8 +104,8 @@ Correct Answer:
 
 Correct feedback: Correct! You have correctly matched all the options with their respective choices.
 
-Incorrect feedback: Incorrect! These are the correct match choices: A. Exact Option A text here - Exact Correct Answer text for Option A here. Leave blank if not applicable; B. Exact Option B text here - Exact Correct Answer text for Option B here. Leave blank if not applicable; C. Exact Option C text here - Exact Correct Answer text for Option C here. Leave blank if not applicable; D. Exact Option D text here - Exact Correct Answer text for Option D here. Leave blank if not applicable.
-[Ensure you provide all the exact option texts and their corresponding correct answer texts, not just the option or match numbers.]
+Incorrect feedback: Incorrect! These are the correct match choices: Exact Option A text here - Exact Correct Answer text for Option A here. Leave blank if not applicable; Exact Option B text here - Exact Correct Answer text for Option B here. Leave blank if not applicable; Exact Option C text here - Exact Correct Answer text for Option C here. Leave blank if not applicable; Exact Option D text here - Exact Correct Answer text for Option D here. Leave blank if not applicable.
+[Ensure you provide all the exact option texts and their corresponding correct answer texts without using option letters (A, B, C, D) in the feedback.]
 </question>
 """
 
@@ -123,9 +123,9 @@ Option D: [Option D text here]
 
 Correct Answer: [List all correct option letters separated by commas, e.g., "A, B, D"]
 
-Correct feedback: Correct! [Acknowledge the multiple correct answers in your feedback. Don't give information about slide content references while giving this feedback.]
+Correct feedback: Correct! [Acknowledge the multiple correct answers by referring to their actual content/text, not option letters. For example: "Proper ventilation, energy efficiency, and comfort control are indeed the key benefits because..." instead of "A, B, and C are correct because...". Don't give information about slide content references while giving this feedback.]
 
-Incorrect feedback: Incorrect! [Explain all the correct answers and why they are correct. Don't give information about slide content references while giving this feedback.]
+Incorrect feedback: Incorrect! [Explain all the correct answers by referring to their actual content/text, not option letters. For example: "The correct answers are proper ventilation, energy efficiency, and comfort control because..." instead of "A, B, and C are correct because...". Don't give information about slide content references while giving this feedback.]
 
 </question>
 """

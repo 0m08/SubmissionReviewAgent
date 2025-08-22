@@ -11,8 +11,8 @@ class MultiChoiceQuestion(BaseModel):
     option_c: str = Field(description="Text for Option C")
     option_d: str = Field(description="Text for Option D")
     correct_answer: Literal["A", "B", "C", "D"] = Field(description="The label of the correct answer, must be one of 'A', 'B', 'C', 'D'. This corresponds to the correct answer.")
-    correct_feedback: str = Field(description="Correct feedback for the answer. Should be positive and reinforce the correct choice.")
-    incorrect_feedback: str = Field(description="Incorrect feedback for the answer. Should briefly explain why the correct answer is correct without mentioning slide content explicitly.")
+    correct_feedback: str = Field(description="Correct feedback for the answer. Should be positive and reinforce the correct choice. Do not reference option letters (A, B, C, D) - refer to the actual content of the option instead.")
+    incorrect_feedback: str = Field(description="Incorrect feedback for the answer. Should briefly explain why the correct answer is correct. Do not reference option letters (A, B, C, D) - refer to the actual content of the correct option instead.")
 
 # True/False Question
 class TrueFalseQuestion(BaseModel):
@@ -22,7 +22,7 @@ class TrueFalseQuestion(BaseModel):
     option_b: str = Field(description="Option B for False.")
     correct_answer: Literal["A", "B"] = Field(description="The label of the correct answer, must be one of 'A', 'B'. This corresponds to the correct answer.")
     correct_feedback: str = Field(description="Correct feedback for the answer. Should be positive and reinforce the correct choice.")
-    incorrect_feedback: str = Field(description="Incorrect feedback for the answer. Should briefly explain why the correct answer is correct without mentioning slide content explicitly.")
+    incorrect_feedback: str = Field(description="Incorrect feedback for the answer. Should briefly explain why the correct answer is correct.")
 
 # Select All That Apply Question
 class SelectAllQuestion(BaseModel):
@@ -36,8 +36,8 @@ class SelectAllQuestion(BaseModel):
         "A, B", "A, C", "A, D", "B, C", "B, D", "C, D",  # 2 correct answers
         "A, B, C", "A, B, D", "A, C, D", "B, C, D"       # 3 correct answers
     ] = Field(description="Comma-separated list of correct option letters. Must contain 2-3 correct answers from the available combinations.")
-    correct_feedback: str = Field(description="Correct feedback acknowledging multiple correct answers. Should be positive and reinforce the correct choices.")
-    incorrect_feedback: str = Field(description="Incorrect feedback explaining all correct answers and why they are correct without mentioning slide content explicitly.")
+    correct_feedback: str = Field(description="Correct feedback acknowledging multiple correct answers. Should be positive and reinforce the correct choices. Do not reference option letters (A, B, C, D) - refer to the actual content of the correct options instead (e.g., 'Proper ventilation, energy efficiency, and comfort control are correct because...' instead of 'A, B, and C are correct because...').")
+    incorrect_feedback: str = Field(description="Incorrect feedback explaining all correct answers and why they are correct without mentioning slide content explicitly. Do not reference option letters (A, B, C, D) - refer to the actual content of the correct options instead (e.g., 'The correct answers are proper ventilation, energy efficiency, and comfort control because...' instead of 'A, B, and C are correct because...').")
 
 # Matching Question
 class MatchingPair(BaseModel):
@@ -91,10 +91,10 @@ class MatchingQuestion(BaseModel):
         description="Correct feedback for the matching question. Should only say this-'Correct! You have correctly matched all the options with their respective matches.' "
     )
     incorrect_feedback: str = Field(
-        description="Incorrect feedback for the matching question. Should say this-'Incorrect! These are the correct matches:' and then give all the actual option texts and its corresponding correct answer texts."
+        description="Incorrect feedback for the matching question. Should say this-'Incorrect! These are the correct matches:' and then give all the actual option texts and their corresponding correct answer texts without using option letters (A, B, C, D)."
                     "Here's how it should look like - "
-                    "Incorrect! These are the correct matches: A. Exact Option A text here - Exact Correct Answer text for Option A here; B. Exact Option B text here - Exact Correct Answer text for Option B here; C. Exact Option C text here - Exact Correct Answer text for Option C here; D. Exact Option D text here - Exact Correct Answer text for Option D here."
+                    "Incorrect! These are the correct matches: Exact Option A text here - Exact Correct Answer text for Option A here; Exact Option B text here - Exact Correct Answer text for Option B here; Exact Option C text here - Exact Correct Answer text for Option C here; Exact Option D text here - Exact Correct Answer text for Option D here."
 
                     "Example:"
-                    "Incorrect! These are the correct matches: A. Low Humidity - Comfortable for most people; B. Moderate Humidity - Generally comfortable, slight stickiness possible; C. High Humidity - Discomfort due to excessive moisture in the air; D. Very High Humidity - Oppressive and can lead to heat-related illnesses."
+                    "Incorrect! These are the correct matches: Low Humidity - Comfortable for most people; Moderate Humidity - Generally comfortable, slight stickiness possible; High Humidity - Discomfort due to excessive moisture in the air; Very High Humidity - Oppressive and can lead to heat-related illnesses."
     )
