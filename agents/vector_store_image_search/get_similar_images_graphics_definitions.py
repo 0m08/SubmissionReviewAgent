@@ -67,7 +67,7 @@ You will be given a detailed graphics definition for a visual scene. Your task i
 A graphics definition is solely defined as all the sentences after the "Graphics Type" line, which includes the visuals and how the images should be used in the scene.
 From the provided definition, generate a list of search queries that will help retrieve images matching the visual elements described in the scene. 
 In the first sentence after the "Graphics Type" line, it should be the first search query, and subsequent sentences should be used to generate additional queries.
-Your queries should be specific to the visual elements mentioned in the definition and should not include any non-visual keywords or phrases.Emphasis should be placed on the visual elements, as they are to be the main focus of the search queries, not the supposrting text or context. 
+Your queries should be specific to the visual elements mentioned in the definition and should not include any non-visual keywords or phrases. Emphasis should be placed on the visual elements, as they are to be the main focus of the search queries, not the supporting text or context. 
 Before generating queries, check the sentence first, ensure it contains the main subject of the scene, and that it is not just a general statement or introduction.
 For example, if the sentences are, 
 
@@ -86,21 +86,20 @@ It will be incorrect to generate queries like, "arrow connecting efficiency icon
 It is important to focus on the visual elements that can be searched for, such as icons, diagrams, or specific objects mentioned in the definition.
 Also, the sentence, purpose, and graphics type can be used to add more information to the queries, but they should not be included in the queries themselves.
 Focus only on the visual elements described in the definition below the graphics type line. 
-When a query is generated, is should be a sensible sentence, not just words obtained fron the definition and brought together. It should be a complete sentence that describes the visual elements in a way that can be used for image search.
+When a query is generated, is should be a sensible sentence, not just words obtained from the definition and brought together. It should be a complete sentence that describes the visual elements in a way that can be used for image search.
 If a definition does not contain any visual elements, do not generate any queries for it. 
 For the graphics definitions, some sentences may contain visual keywords that are visual elements, but they are not the main subject of the scene, so do not generate queries for them, since some of them may not make sense as search queries. It is not a must to generate queries for every visual element mentioned in the definition, only those that are relevant and can be searched for.
-
+Generate an analysis of the definitions, from the analysis, give the search queries.
 
 Acceptable Queries Should:
 - Be short, specific, and visually descriptive.  
 - Use clear, descriptive terms that directly relate to the visual elements described. 
 - Include all visual elements mentioned in the definition.
-- Avoid generating quaries from the graphics type, for example, if the graphics type is "Illustration", do not generate a query like "Illustration" this is not an ideal query.
+- Avoid generating queries from the graphics type, for example, if the graphics type is "Illustration", do not generate a query like "Illustration" this is not an ideal query.
 - Avoid repeating a search query if it has already been generated in the same definition.
-- If a graphics definition containes an abbreviation, check in the definition if the abbreviation is explained, if it is not, do not generate a query for it. If it is explained, then generate a query for it, and use the full form of the abbreviation in the query.
-
-In the graphics definitions below, you will find the sentences, purpose of the scene, graphics type, and visual elements. An example is provided to illustrate how to generate queries from the definition. 
-Note that the example is not part of the definition, it is just to illustrate how to generate queries from the definition. Note also how the queries are generated, not all visual elements are used to generate queries, only those that are relevant and can be searched for.
+- If a graphics definition contains an abbreviation, check in the definition if the abbreviation is explained, if it is not, do not generate a query for it. If it is explained, then generate a query for it, and use the full form of the abbreviation in the query.
+- The goal of these queries is to be short, image-searchable, so they must strike a balance between specificity and searchability. Overly custom or highly composed visuals will rarely yield relevant search results. Long queries can be broken down into smaller ones
+- Make sure that the queries are not are too complex i.e. too custom to find relevant images.
 
 Example
 Sentence: "By the end of this topic, you will be able to:"
@@ -172,34 +171,132 @@ Output your response in the following format:
 
 generate_clean_queries_examples = """
 Example 1 Definition:
-Sentence: "HVAC systems rely heavily on electricity."
-Purpose of the Scene: To visually represent the electrical nature of HVAC systems by highlighting electrical components within a typical unit.
+Sentence: "Airflow assessment is a simple first step in evaluating blower wheel function."
+Purpose of the Scene: Depict airflow assessment as the initial step in evaluating blower wheel function.
 Graphics Type: Illustration
-The HVAC unit fades in at the start of the sentence.
-As the narration emphasizes "rely heavily on electricity," all electrical components fade in simultaneously to emphasize their importance.
-The electricity symbol animates, showing the flow of power into the unit.
-
-Sentence: "Understanding electrical principles is not just helpful, it's essential for HVAC technicians to ensure safety, efficiency, and effective troubleshooting."
-Purpose of the Scene: To illustrate the application of electrical knowledge by an HVAC technician while emphasizing safety, efficiency, and effective troubleshooting.
-Graphics Type: Illustration
-The technician and the HVAC unit fade in together.
-As the narration mentions "ensure safety," the hard hat icon appears.
-As the narration mentions "efficiency," the energy-saving light bulb icon appears.
-As the narration mentions "effective troubleshooting," the wrench and voltmeter icon appears.
-The multimeter display changes to indicate a reading, showing the technician actively troubleshooting.
+The air vent fades in on the left side of the slide.
+The anemometer being held by a hand appears on the right side, measuring airflow from the vent (during "Airflow assessment").
+The arrow appears, connecting the vent and anemometer (during "is a simple").
+The text box "First Step" appears in the top right corner (during "first step in evaluating blower wheel function.").
 Reusing Previous Graphics:
-The HVAC unit from Scene 1 can be partially reused to maintain consistency.
+- Reuse the Air Vent visual element from Scene ID 19_1.
 
-Example Output:
-HVAC unit
-HVAC electrical components
-the electricity symbol
-technician illustration
-hard hat icon illustration
-energy-saving light bulb icon illustration
-wrench icon illustration
-voltmeter icon illustration
-multimeter with display
+Sentence: "Reduced airflow suggests potential blower wheel issues."
+Purpose of the Scene: Illustrate that reduced airflow indicates potential blower wheel issues.
+Graphics Type: Illustration
+The air vent fades in on the left side of the slide.
+The weak airflow arrows appear coming out of the vent (during "Reduced airflow").
+The warning icon appears next to the vent (during "suggests potential blower wheel issues.").
+Reusing Previous Graphics:
+- Reuse the Air Vent and Weak Airflow Arrows from Scene ID 19_1.
+
+Sentence: "Follow up with a visual inspection of the blower wheel."
+Purpose of the Scene: Show that a visual inspection should follow reduced airflow.
+Graphics Type: Illustration
+The blower wheel fades in at the center of the slide.
+The technician appears to the side, shining the flashlight on the blower wheel (during "Follow up with a visual inspection").
+The light beam appears, illuminating the blower wheel (during "of the blower wheel.").
+Reusing Previous Graphics:
+- Reuse the Blower Wheel visual element from Scene ID 19_3.
+
+
+Sentence: "Sometimes, cleaning the blower wheel inside the unit isn't enough. This section outlines when removing the blower housing becomes necessary for effective cleaning."
+Purpose of the Scene: Illustrate that cleaning the blower wheel inside the unit may not always be sufficient, necessitating blower housing removal for effective cleaning.
+Graphics Type: Illustration
+The technician and HVAC unit fade in as the narration begins ("Sometimes, cleaning the blower wheel inside the unit isn't enough.").
+The exclamation mark icon fades in near the technician to emphasize the "not enough" part.
+The thought bubble appears above the technician's head, showing the clean blower wheel after housing removal ("This section outlines when removing the blower housing becomes necessary for effective cleaning.").
+Reusing Previous Graphics:
+Reusing the Technician visual element from Scene ID 37_3 and the HVAC Unit from Scene ID 35_1.
+Adapting the "Excessive Dirt" Blower Wheel from Scene ID 38_2.
+
+
+
+## Analysis**
+
+We are analyzing only the **Graphics Definition** section (all sentences under the “Graphics Type” line). The goal is to extract **literal, concise, and searchable image queries** that reflect **main visual elements**, while **ignoring non-visual or supporting elements** (e.g. arrows, light beams, text boxes). If a visual is too complex, we **split it into smaller, searchable parts**.
+
+---
+
+### **Scene 1: Airflow assessment is a simple first step...**
+
+**Graphics Type: Illustration**
+
+* **"The air vent fades in on the left side of the slide."**
+  Primary object — simple and searchable: *air vent*.
+
+* **"The anemometer being held by a hand appears on the right side, measuring airflow from the vent..."**
+  Anemometer is a specific tool, and the visual includes a hand holding it — searchable.
+
+* **"The arrow appears..."**
+  Supportive visual — not independently meaningful in a search.
+
+* **"The text box 'First Step' appears..."**
+  Text box is not a distinct visual asset for search.
+
+---
+
+### **Scene 2: Reduced airflow suggests blower wheel issues.**
+
+**Graphics Type: Illustration**
+
+* **"The air vent fades in..."**
+   Already covered in Scene 1.
+
+* **"The weak airflow arrows appear coming out of the vent..."**
+  Describes reduced airflow — can be visualized as weak airflow from vent.
+
+* **"The warning icon appears next to the vent..."**
+  A clear, standard icon — image-searchable.
+
+---
+
+### **Scene 3: Visual inspection of the blower wheel.**
+
+**Graphics Type: Illustration**
+
+* **"The blower wheel fades in at the center..."**
+  Main HVAC component — relevant and searchable.
+
+* **"The technician appears... shining flashlight on blower wheel."**
+  Action visual — technician inspecting blower wheel — clear and useful.
+
+* **"The light beam appears..."**
+  Functional — not a standalone image.
+
+---
+
+### **Scene 4: Cleaning blower wheel may require housing removal.**
+
+**Graphics Type: Illustration**
+
+* **"The technician and HVAC unit fade in..."**
+  Two main elements — combine into one meaningful visual: *technician next to HVAC unit*.
+
+* **"The exclamation mark icon fades in near the technician..."**
+  Standard attention visual — searchable.
+
+* **"The thought bubble appears above the technician’s head, showing the clean blower wheel..."**
+  oo specific if taken as a whole. Break into:
+
+  * **Thought bubble**
+  * **Clean blower wheel**
+
+---
+
+## Search Queries**
+
+1. Air vent
+2. Anemometer held by hand measuring airflow
+3. Weak airflow coming out of air vent
+4. Warning icon
+5. Blower wheel
+6. Technician inspecting blower wheel with flashlight
+7. Technician standing next to HVAC unit
+8. Exclamation mark icon
+9. Thought bubble
+10. Clean blower wheel
+
 
 
 """

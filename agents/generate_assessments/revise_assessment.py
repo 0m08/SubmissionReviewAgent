@@ -214,6 +214,3 @@ def revise_assessment(course_name, target_audience, assessment_question, slides,
     reviser_response = revise_assessment_agent.run()
     return reviser_response['revised_question'][0]
 
-
-
-

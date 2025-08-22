@@ -14,7 +14,7 @@ from pydrive2.drive import GoogleDrive
 from services.smart_progress_bar import SmartProgressBar
 from services.drive_service import login_with_service_account
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from services.sheets_service import create_or_read_worksheet, save_to_sheet, format_worksheet, clear_worksheet
+from services.sheets_service import create_or_read_worksheet, save_to_sheet, format_worksheet, clear_worksheet, get_sheet_data_and_df
 
 load_dotenv()
 key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
@@ -244,7 +244,7 @@ def run_update_quality_scores(spreadsheet):
 
     # STEP 4: Sync to Task Logs
     tracker = gc.open_by_key(task_logs_sheet_id)
-    task_ws, task_df = create_or_read_worksheet(tracker, "Task Logs")
+    task_ws, task_df = get_sheet_data_and_df(tracker, "Task Logs")
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_rows = []
@@ -298,4 +298,3 @@ def run_update_quality_scores(spreadsheet):
     print("Task Logs sheet updated.")
 
 
-x

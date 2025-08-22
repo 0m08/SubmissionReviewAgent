@@ -86,6 +86,7 @@ from services.helper_functions import delete_final_outline
 from agents.research_notes.load_references import delete_all_references
 from agents.research_notes.retriever_agent import delete_retriever_context
 from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import map_original_outline_to_revised_outline_for_all_topics
+from agents.course_outline.video_search_tool.video_retriever_agent import run_video_search_for_los
 
 from agents.research_notes.load_references import load_references
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
@@ -1025,6 +1026,25 @@ pipeline_sections.append({
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",
             }
+        },
+        
+        {
+            "name": "Retrieve relevant HVAC Videos for Learning Objectives",
+            "func": run_video_search_for_los,
+            "depends_on": ["Get relevant references for Learning Objectives"],
+            "args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+                "drive": "drive",
+                "llm": llm_model,
+            },
+            "estimated_time": "~ 10 - 20 minutes",
+            "description": "Searches for relevant HVAC videos based on the learning objectives in the Final Outline sheet.",
+            # "delete_func": delete_retriever_context,
+            # "delete_args": {
+            #     "sheet": "sheet",
+            #     "worksheet_name": "Final Outline",
+            # }
         },
     ]
 })

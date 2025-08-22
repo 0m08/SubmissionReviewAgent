@@ -346,4 +346,3 @@ def delete_review_agent_checklist(sheet, worksheet_name="Review Agent Checklist"
         checklist_df = checklist_df.drop(columns=question_cols)
         clear_worksheet(checklist_ws)
         save_to_sheet(checklist_ws, checklist_df)
-
