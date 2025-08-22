@@ -37,60 +37,7 @@ from services.crud_text_block_tools import create_block, read_blocks, update_blo
 import pandas as pd
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple
 from pydantic import BaseModel, Field
-
-# ---------------------------------------------------------------
-# 1.  Generic iterator that yields exactly the slice required
-# ---------------------------------------------------------------
-def iterate_scope(
-    raw_scope: str,
-    data_df: pd.DataFrame,
-    scope_to_selector: Dict[str, Any],
-    scope_parser: Callable[[str], str] = lambda s: s,
-) -> Iterable[Tuple[Hashable, pd.DataFrame]]:
-    """
-    Parameters
-    ----------
-    raw_scope : the literal text from checklist_df["Scope"]
-    data_df   : the dataframe being reviewed
-    scope_to_selector :
-        Dict mapping a *canonical scope key* (e.g. "Global", "Topic") to one of:
-        • [] or () or None       → treat as *Global* (whole df in one go)
-        • "__row__"              → iterate row‑by‑row
-        • list/tuple of columns  → groupby those columns
-        • callable(df) -> iterator[(key, slice)] for anything advanced
-    scope_parser :
-        Converts the raw text ("Global (full output)") to the canonical key
-        used in `scope_to_selector`  – default is `first word only`.
-
-    Yields
-    ------
-    (key, df_slice) pairs for each review pass.
-    """
-    scope_key = scope_parser(raw_scope)
-
-    if scope_key not in scope_to_selector:
-        raise ValueError(f"Scope '{scope_key}' not found in scope_to_selector")
-
-    selector = scope_to_selector[scope_key]
-
-    # -------- dispatch selector type --------
-    if selector in (None, [], ()):
-        yield "ALL", data_df
-
-    elif selector == "__row__":
-        for idx, row in data_df.iterrows():
-            yield idx, row.to_frame().T  # keep slice a DataFrame
-
-    elif callable(selector):
-        # Your own function can do anything it likes
-        yield from selector(data_df)
-
-    else:
-        # Assume list/tuple → groupby
-        group_cols = list(selector)
-        for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
-            yield key, grp
-
+from services.helper_functions import iterate_scope
 
 slide_chunks_checklist_prompt = """Assume the role of a checklist agent tasked with evaluating the following block(s) of slide chunks for the given list of checklist criteria.
 
