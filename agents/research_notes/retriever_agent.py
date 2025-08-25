@@ -178,9 +178,10 @@ def retrieve_relevant_docs(compression_retriever, web_search_retriever, course_n
         response = retriver_agent.run()
 
         # Get selected doc ids
-        selected_doc_ids.extend(
-            csv_list_parser.invoke(response['selected_doc_ids'])
-        )
+        if response.get('selected_doc_ids'):
+            selected_doc_ids.extend(
+                csv_list_parser.invoke(response['selected_doc_ids'])
+            )
 
         # Check the verdict
         verdict = response['verdict']
@@ -596,9 +597,9 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
     if 'video_links' not in course_outline_with_lo_df.columns:
         course_outline_with_lo_df['video_links'] = ''
 
-    # Check if this step is already done by checking the last row of 'context_0'
-    if course_outline_with_lo_df.iloc[-1]['context_0'] != '':
-        print('Context already populated')
+    # Check if this step is already done by checking if ALL rows have 'context_0' populated
+    if (course_outline_with_lo_df['context_0'] != '').all():
+        print('Context already populated for all rows')
         return
 
     # Load the vector retriever

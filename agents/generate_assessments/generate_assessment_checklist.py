@@ -120,7 +120,13 @@ def get_assessment_questions(sheet, worksheet_name):
                     f"Option A: {row['Option A']}\n"
                     f"Option B: {row['Option B']}\n"
                 )
-
+            elif row['Question type'] == 'select_all':
+                question_text += (
+                    f"Option A: {row['Option A']}\n"
+                    f"Option B: {row['Option B']}\n"
+                    f"Option C: {row['Option C']}\n"
+                    f"Option D: {row['Option D']}\n"
+                )
             elif row['Question type'] == 'matching':
                 # Add matching pairs by splitting the correct answer into lines
                 question_text += "Matching Pairs:\n"
