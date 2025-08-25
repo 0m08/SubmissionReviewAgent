@@ -57,7 +57,7 @@ Follow these guidelines when creating the questions.
 - The correct feedback will be shown everytime the user answers correctly. The incorrect feedback is common feedback that will be shown anytime a user does not answer the question correctly and it should explain the correct answer.
 - Correct and incorrect feedback must be provided for all question types, including matching.
 - IMPORTANT: Do not reference option letters (A, B, C, D) in any feedback. Instead, refer to the actual content/text of the options. For example, say "Proper ventilation and energy efficiency are correct" instead of "A and B are correct".
-- For True/False questions, if the correct answer is True, always start the correct and incorrect feedback with "Correct! This statement is true..." and "Incorrect! This statement is true..." respectively. If the correct answer is False, always start the correct and incorrect feedback with "Correct! This statement is false..." and "Incorrect! This statement is false..." respectively. Always use lowercase "true" and "false" in this starting statement.
+- For True/False questions, if the correct answer is True, always start the correct and incorrect feedback with "Correct! This statement is true." and "Incorrect! This statement is true." respectively. If the correct answer is False, always start the correct and incorrect feedback with "Correct! This statement is false." and "Incorrect! This statement is false." respectively. Always use lowercase "true" and "false" in this starting statement. Follow this with a separate sentence explaining why, without using connecting words like "because".
 - Creation of Matching questions is optional and should be created only if the topic content naturally contains related items.
 
 Reply in the following output format:
@@ -76,9 +76,9 @@ Option D: [Option D text here. Leave blank for True/False questions]
 
 Correct Answer: [Correct Option letter eg. ""C""]
 
-Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true..." If correct answer is False, start with "Correct! This statement is false..." For other question types, start with "Correct!" and explain why the chosen option content is correct without mentioning option letters.]
+Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true." then add a separate sentence explaining why. If correct answer is False, start with "Correct! This statement is false." then add a separate sentence explaining why. Do not use connecting words like "This statement is true because..." or "This statement is false because...". For other question types, start with "Correct!" and explain why the chosen option content is correct without mentioning option letters.]
 
-Incorrect feedback: [Feedback for incorrect answer. For True/False questions: If correct answer is True, start with "Incorrect! This statement is true..." If correct answer is False, start with "Incorrect! This statement is false..." For other question types, start with "Incorrect!" and explain the correct answer content without mentioning option letters.]
+Incorrect feedback: [Feedback for incorrect answer. For True/False questions: If correct answer is True, start with "Incorrect! This statement is true." then add a separate sentence explaining why. If correct answer is False, start with "Incorrect! This statement is false." then add a separate sentence explaining why. Do not use connecting words like "This statement is true because..." or "This statement is false because...". For other question types, start with "Incorrect!" and explain the correct answer content without mentioning option letters.]
 
 </question>
 
@@ -94,9 +94,9 @@ Option D: [Option D text here. Leave blank for True/False questions]
 
 Correct Answer: [Correct Option letter eg. ""B""]
 
-Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true..." If correct answer is False, start with "Correct! This statement is false..." For other question types, start with "Correct!" and explain why the chosen option content is correct without mentioning option letters.]
+Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true." then add a separate sentence explaining why. If correct answer is False, start with "Correct! This statement is false." then add a separate sentence explaining why. Do not use connecting words like "because". For other question types, start with "Correct!" and explain why the chosen option content is correct without mentioning option letters.]
 
-Incorrect feedback: [Feedback for incorrect answer. For True/False questions: If correct answer is True, start with "Incorrect! This statement is true..." If correct answer is False, start with "Incorrect! This statement is false..." For other question types, start with "Incorrect!" and explain the correct answer content without mentioning option letters.]
+Incorrect feedback: [Feedback for incorrect answer. For True/False questions: If correct answer is True, start with "Incorrect! This statement is true." then add a separate sentence explaining why. If correct answer is False, start with "Incorrect! This statement is false." then add a separate sentence explaining why. Do not use connecting words like "because". For other question types, start with "Incorrect!" and explain the correct answer content without mentioning option letters.]
 
 </question>
 

@@ -72,8 +72,8 @@ Option B: False
 
 Correct Answer: [Correct Option letter eg. "A"]
 
-Correct feedback: Correct! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Always use lowercase "true" and "false" in this starting statement. Then provide feedback for correct answer. Don't give information about slide content references while giving this feedback.]
-Incorrect feedback: Incorrect! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Always use lowercase "true" and "false" in this starting statement. Then provide feedback for any incorrect answer. Don't give information about slide content references while giving this feedback.]
+Correct feedback: Correct! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Always use lowercase "true" and "false" in this starting statement. Then provide a separate sentence explaining why, without using connecting words like "because". Don't give information about slide content references while giving this feedback.]
+Incorrect feedback: Incorrect! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Always use lowercase "true" and "false" in this starting statement. Then provide a separate sentence explaining why, without using connecting words like "because". Don't give information about slide content references while giving this feedback.]
 
 </question>
 """
