@@ -92,7 +92,7 @@ pipeline_sections = [
                     "worksheet_name": "Final Outline",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash",
+                    "llm": "gemini_2_5_flash",
                 },
                 "estimated_time": "~ 5 minutes",
                 "description": "Uses the context retrived earlier to produce research notes for each subtopic.",

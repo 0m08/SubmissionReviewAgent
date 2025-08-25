@@ -27,7 +27,7 @@ class TrueFalseQuestion(BaseModel):
 # Select All That Apply Question
 class SelectAllQuestion(BaseModel):
     question_type: str = Field(description="The type of the question. Always set to 'select_all' for select all that apply questions.")
-    question_text: str = Field(description="The question text.")
+    question_text: str = Field(description="The question text. Must end with '(Select all that apply)' to clarify the question type.")
     option_a: str = Field(description="Text for Option A")
     option_b: str = Field(description="Text for Option B")
     option_c: str = Field(description="Text for Option C")

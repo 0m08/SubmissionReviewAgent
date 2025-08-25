@@ -45,15 +45,19 @@ AVOID Matching questions when:
 - Matches would be obvious or trivial (like simple acronym definitions)
 - The slide content doesn't discuss grouped or related items
 
+Question Quantity Rules:
+- Generate an appropriate number of questions based on the topic content depth and complexity
+- For Select All That Apply questions: Create only 1 if your total will be less than 9 questions, or 2+ if your total will be 9 or more questions
+
 Follow these guidelines when creating the questions.
 - Ensure exhaustive and proportional coverage of the course content, including a mix of first-level and second-level questions, with thoughtful answer choices.
 - Any field that does not apply to a given question type should be left empty. For instance, True/False question type will have options C and D left empty.
 - For Matching question types, give the exact correct answer under the ""Correct Answer"" field. Match correctly without using Options. Use the exact option text and words being matched. Ensure that all the option text and match text for matching type questions are unique.
-- For Select All That Apply questions: Use when multiple options can be simultaneously correct. Ensure 2-3 options are correct out of 4 total options. In the ""Correct Answer"" field, list all correct option letters separated by commas (e.g., ""A, B, D"").
+- For Select All That Apply questions: Use when multiple options can be simultaneously correct. Always include "(Select all that apply)" at the end of the question text. Ensure 2-3 options are correct out of 4 total options. In the ""Correct Answer"" field, list all correct option letters separated by commas (e.g., ""A, B, D""). IMPORTANT: Limit to only 1 Select All That Apply question if generating less than 9 total questions for this topic. If generating 9 or more questions, you may create 2 or more Select All That Apply questions.
 - The correct feedback will be shown everytime the user answers correctly. The incorrect feedback is common feedback that will be shown anytime a user does not answer the question correctly and it should explain the correct answer.
 - Correct and incorrect feedback must be provided for all question types, including matching.
 - IMPORTANT: Do not reference option letters (A, B, C, D) in any feedback. Instead, refer to the actual content/text of the options. For example, say "Proper ventilation and energy efficiency are correct" instead of "A and B are correct".
-- For True/False questions, if the correct answer is True, always start the correct and incorrect feedback with "Correct! This statement is True..." and "Incorrect! This statement is True..." respectively. If the correct answer is False, always start both feedbacks with "Correct! This statement is False..." and "Incorrect! This statement is False..." respectively.
+- For True/False questions, if the correct answer is True, always start the correct and incorrect feedback with "Correct! This statement is true..." and "Incorrect! This statement is true..." respectively. If the correct answer is False, always start the correct and incorrect feedback with "Correct! This statement is false..." and "Incorrect! This statement is false..." respectively. Always use lowercase "true" and "false" in this starting statement.
 - Creation of Matching questions is optional and should be created only if the topic content naturally contains related items.
 
 Reply in the following output format:
@@ -99,7 +103,7 @@ Incorrect feedback: [Feedback for incorrect answer. For True/False questions: If
 <question>
 Question no: 3
 Question Type: Select All That Apply
-Question: [Question text here]
+Question: [Question text here] (Select all that apply)
 
 Option A: [Option A text here]
 Option B: [Option B text here]
@@ -116,7 +120,7 @@ Incorrect feedback: Incorrect! [Explain all the correct answers by referring to 
 
 <question>
 Question no: 4
-Question Type: Matching (Optional)
+Question Type: Matching (This question type is optional)
 Question: [Question text here]
 
 Option A: [Option A text here. Leave blank if not applicable]

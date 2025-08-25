@@ -72,8 +72,8 @@ Option B: False
 
 Correct Answer: [Correct Option letter eg. "A"]
 
-Correct feedback: Correct! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Then provide feedback for correct answer. Don't give information about slide content references while giving this feedback.]
-Incorrect feedback: Incorrect! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Then provide feedback for any incorrect answer. Don't give information about slide content references while giving this feedback.]
+Correct feedback: Correct! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Always use lowercase "true" and "false" in this starting statement. Then provide feedback for correct answer. Don't give information about slide content references while giving this feedback.]
+Incorrect feedback: Incorrect! [If correct answer is True, start with "This statement is true." If correct answer is False, start with "This statement is false." Always use lowercase "true" and "false" in this starting statement. Then provide feedback for any incorrect answer. Don't give information about slide content references while giving this feedback.]
 
 </question>
 """
@@ -114,7 +114,7 @@ select_all_question_format = """
 
 Question no: [Question number here]
 Question Type: Select All That Apply
-Question: [Question text here]
+Question: [Question text here] (Select all that apply)
 
 Option A: [Option A text here]
 Option B: [Option B text here]
