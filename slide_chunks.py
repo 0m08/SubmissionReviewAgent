@@ -119,32 +119,31 @@ pipeline_sections = [
                 "description": "This function generates slide content based on the reviewed and revised slide chunks.",
             },
         ]
-    },
+    }
+    # {
+    #     "section_name": "Section 3: Generate Final Slides by doing Checklist based Review and Revise",
+    #     "steps": [               
+    #         {
+    #             "name": "Review and Revise Checklist",
+    #             "func": run_checklist_review_and_revise,
+    #             "depends_on": ['Generate Learning Objectives'],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Slide Chunks",
+    #                 "course_name": "course_name",
+    #                 "target_audience": "target_audience",
+    #                 "llm": "gemini_2_flash"
+    #             },
 
-    {
-        "section_name": "Section 3: Generate Final Slides by doing Checklist based Review and Revise",
-        "steps": [               
-            {
-                "name": "Review and Revise Checklist",
-                "func": run_checklist_review_and_revise,
-                "depends_on": ['Generate Learning Objectives'],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks",
-                    "course_name": "course_name",
-                    "target_audience": "target_audience",
-                    "llm": "gemini_2_flash"
-                },
+    #             "delete_func": delete_checklist_review_and_revise,
+    #             "delete_args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Slide Chunks",
+    #             },
 
-                "delete_func": delete_checklist_review_and_revise,
-                "delete_args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks",
-                },
-
-                "estimated_time": "40-60 minutes",
-                "description": "This function reviews and revises the slide chunks based on the review checklist to ensure quality and coherence.",
-            },
+    #             "estimated_time": "40-60 minutes",
+    #             "description": "This function reviews and revises the slide chunks based on the review checklist to ensure quality and coherence.",
+    #         },
             
             # {
             #     "name": "AI Detection based Review and Revise Agents",
@@ -189,12 +188,7 @@ pipeline_sections = [
             #     "estimated_time": "5-10 minutes",
             #     "description": "This function checks for AI detection and readability in the slide chunks using Winston.ai.",
             # },
-        
-        
-            
-            
-        ],
-    },
+
 ]
 
 agent_ui(step_name = "Slide Chunks", pipeline_sections = pipeline_sections)
