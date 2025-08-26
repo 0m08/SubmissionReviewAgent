@@ -13,6 +13,7 @@ from agents.slide_chunks.review_and_revise_checklist import (
     delete_checklist_review_and_revise,
 )
 from agents.slide_chunks.generate_slide_chunks import generate_slide_chunks_from_research_notes_for_all_subtopics, delete_slide_chunks_generation
+from agents.slide_chunks.slide_chunks_checklist import run_slide_chunks_checklist_and_reviser
 from agents.slide_chunks.slide_chunks_parsing import run_slide_chunks_parsing, delete_slide_chunks_sheet
 #from agents.slide_chunks.ai_detection_review_revise import run_ai_detection_review_revise
 #from agents.slide_chunks.winston_ai_plagiarism_detection import run_plagiarism_detection
@@ -56,6 +57,21 @@ pipeline_sections = [
                 "estimated_time": "5-10 minutes",
                 "description": "This function parses the slide_chunks column in the Final Outline sheet, extracts structured slide data, and writes it to the Slide Chunks sheet."
             },
+            {
+                "name": "Slide Chunks Checklist Review and Revise",
+                "func": run_slide_chunks_checklist_and_reviser,
+                "depends_on": ["Slide Chunks Parsing"],
+                "args": {
+                    "sheet": "sheet",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "checklist_sheet_link": "checklist_sheet_link",
+                    "gc": "gc",
+                    "llm": "gemini_2_flash"
+                },
+                "estimated_time": "15-30 minutes",
+                "description": "This function reviews and revises the parsed slide chunks based on a checklist to ensure quality and compliance."
+            },
             # {
             #     "name": "Research Notes Parsing",
             #     "func": run_research_notes_parsing,
@@ -84,7 +100,7 @@ pipeline_sections = [
             {
                 "name": "Generate Learning Objectives",
                 "func": run_learning_objectives_agent,
-                "depends_on": ['Slide Chunks Parsing'],
+                "depends_on": ['Slide Chunks Checklist Review and Revise'],
                 "args": {
                     "sheet": "sheet",
                     "worksheet_name": "Slide Chunks",
@@ -100,35 +116,34 @@ pipeline_sections = [
                 },
 
                 "estimated_time": "< 1 minute",
-                "description": "This function generates learning objectives based on the slide chunks extracted from the research notes.",
+                "description": "This function generates slide content based on the reviewed and revised slide chunks.",
             },
         ]
-    },
+    }
+    # {
+    #     "section_name": "Section 3: Generate Final Slides by doing Checklist based Review and Revise",
+    #     "steps": [               
+    #         {
+    #             "name": "Review and Revise Checklist",
+    #             "func": run_checklist_review_and_revise,
+    #             "depends_on": ['Generate Learning Objectives'],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Slide Chunks",
+    #                 "course_name": "course_name",
+    #                 "target_audience": "target_audience",
+    #                 "llm": "gemini_2_flash"
+    #             },
 
-    {
-        "section_name": "Section 3: Generate Final Slides by doing Checklist based Review and Revise",
-        "steps": [               
-            {
-                "name": "Review and Revise Checklist",
-                "func": run_checklist_review_and_revise,
-                "depends_on": ['Generate Learning Objectives'],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks",
-                    "course_name": "course_name",
-                    "target_audience": "target_audience",
-                    "llm": "gemini_2_flash"
-                },
+    #             "delete_func": delete_checklist_review_and_revise,
+    #             "delete_args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Slide Chunks",
+    #             },
 
-                "delete_func": delete_checklist_review_and_revise,
-                "delete_args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks",
-                },
-
-                "estimated_time": "40-60 minutes",
-                "description": "This function reviews and revises the slide chunks based on the review checklist to ensure quality and coherence.",
-            },
+    #             "estimated_time": "40-60 minutes",
+    #             "description": "This function reviews and revises the slide chunks based on the review checklist to ensure quality and coherence.",
+    #         },
             
             # {
             #     "name": "AI Detection based Review and Revise Agents",
@@ -173,12 +188,7 @@ pipeline_sections = [
             #     "estimated_time": "5-10 minutes",
             #     "description": "This function checks for AI detection and readability in the slide chunks using Winston.ai.",
             # },
-        
-        
-            
-            
-        ],
-    },
+
 ]
 
 agent_ui(step_name = "Slide Chunks", pipeline_sections = pipeline_sections)

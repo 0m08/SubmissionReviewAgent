@@ -818,5 +818,3 @@ def iterate_scope(
         group_cols = list(selector)
         for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
             yield key, grp
-
-

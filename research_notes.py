@@ -4,6 +4,7 @@ import streamlit as st
 
 # Add import at the top
 from agents.research_notes.subtopic_context_aware_review_and_revise_notes import run_subtopic_context_aware_review_and_revise_for_all_rows, delete_subtopic_context_aware_review_and_revise
+from agents.research_notes.research_notes_checklist import run_research_notes_checklist_and_reviser
 
 def noop(*args, **kwargs):
     """Placeholder delete function for manual steps."""

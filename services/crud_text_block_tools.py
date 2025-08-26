@@ -79,7 +79,13 @@ def create_block(
         raise IndexError("insert_after_block_id not found")
 
     # Allocate fresh block ID
-    new_id: int = (df.index.max() + 1) if len(df) else 0
+    if hasattr(df, 'attrs') and 'global_max_index' in df.attrs:
+        new_id = df.attrs['global_max_index'] + 1
+        df.attrs['global_max_index'] = new_id  # Update for next creation
+    else:
+        new_id = df.index.max() + 1 if not df.empty else 0
+
+    print(f"Allocated Block ID: {new_id}")
 
     # Compute ordering key
     if insert_after_block_id is None:                    # prepend
