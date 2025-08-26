@@ -10,7 +10,7 @@ from services.sheets_service import (
 from agents.generate_assessments.revise_assessment import revise_assessment, detect_question_type, get_question_format
 from agents.generate_assessments.review_assessment import review_assessment
 from tqdm import tqdm
-from agents.generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, MatchingQuestion
+from agents.generate_assessments.slide_models import MultiChoiceQuestion, TrueFalseQuestion, SelectAllQuestion, MatchingQuestion
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -119,6 +119,8 @@ def generate_structured_question(assessment_question, llm='gemini_2_flash'):
         get_structured_question_agent.set_structured_output(MultiChoiceQuestion)
     elif "True/False" in assessment_question:
         get_structured_question_agent.set_structured_output(TrueFalseQuestion)
+    elif "Select All That Apply" in assessment_question:
+        get_structured_question_agent.set_structured_output(SelectAllQuestion)
     elif "Matching" in assessment_question:
         get_structured_question_agent.set_structured_output(MatchingQuestion)
     else:

@@ -16,9 +16,14 @@ from agents.course_outline.video_based_outline.get_relevant_chunks import run_ge
 from agents.course_outline.video_based_outline.video_based_outlines import run_generate_video_based_outline, manual_input_video_outline_consolidation_comments
 from agents.course_outline.video_based_outline.consolidate_video_based_outline import run_propose_consolidated_video_outlines
 
-from agents.course_outline.course_outline_checklist.checklist_based_review_and_reviser_agent import (
-    run_outline_checklist_review_and_revise,
-    delete_outline_checklist_review_and_revise,
+# from agents.course_outline.course_outline_checklist.old_checklist_based_review_and_reviser_agent import (
+#     run_outline_checklist_review_and_revise,
+#     delete_outline_checklist_review_and_revise,
+# )
+
+from agents.course_outline.course_outline_checklist.course_outline_checklist import (
+    run_course_outline_checklist_and_reviser,
+    delete_course_outline_checklist_and_reviser,
 )
 
 #from agents.course_outline.client_reference_based_outline.client_reference_based_outlines import run_generate_outline_from_client_reference, manual_input_client_reference_consolidation_comments
@@ -957,12 +962,39 @@ pipeline_sections.append({
 # })
 
 pipeline_sections.append({
+    "section_name": "Section: Checklist based Review-Revise Agents",
+    "steps": [
+        {
+            "name": "Checklist Based Review and Revise Agents",
+            "func": run_course_outline_checklist_and_reviser,
+            "depends_on": ["Create the Final Outline Sheet"],
+            "args": {
+                "sheet": "sheet",
+                "course_name": "course_name",
+                "target_audience": "target_audience",
+                "checklist_sheet_link": "checklist_sheet_link",
+                "gc": "gc",
+                "llm": "gemini_2_5_flash",
+            },
+            "hide_if_final_outline": True,
+            "estimated_time": "~ 10 minutes",
+            "description": "Reviews and Revises the Final Outline based on predefined checklist criteria, ensuring quality and consistency.",
+            "delete_func": delete_course_outline_checklist_and_reviser,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+            }
+        }
+    ]
+})
+
+pipeline_sections.append({
     "section_name": "Section: Get References for the Final Outline",
     "steps": [
         {
             "name": "Get relevant references for Learning Objectives",
             "func": load_references,
-            "depends_on": ["Create the Final Outline Sheet"], #["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
+            "depends_on": ["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
             "args": {
                 "sheet": "sheet",
             },

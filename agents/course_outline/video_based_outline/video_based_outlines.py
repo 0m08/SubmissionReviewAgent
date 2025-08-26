@@ -283,7 +283,7 @@ def run_generate_video_based_outline(sheet, worksheet_name, course_name, target_
                     [row[f'video_transcript_{i}'] for i in range(video_transcript_col_count)]
                 )
             )
-            video_transcript = ' '.join([item['text'] for item in timestamped_transcript])
+            video_transcript = ' '.join([str(item['text']) for item in timestamped_transcript])
 
             # Submit the task
             future = executor.submit(

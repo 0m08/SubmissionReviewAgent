@@ -1,5 +1,6 @@
 from typing import Annotated, Union
 import pandas as pd
+import re
 
 # If you're using LangChain‑v0.2+, the two imports below are the same:
 from langchain.tools import tool
@@ -45,8 +46,31 @@ def create_block(
           integer ID is allocated (`max(index)+1`).
     """
     print(f"🔧 TOOL USED: create_block | insert_after_block_id: {insert_after_block_id} | block_text_length: {len(block_text)} chars")
-    
-    # _ensure_order_column(df)
+
+    # Only check for duplicates in research notes agent (check if 'research_notes' column exists)
+    if 'research_notes' in df.columns:
+        # Try to prevent logical duplicates by converting duplicate creates into updates
+        # We identify duplicates by matching Topic + Subtopic + Learning Objectives parsed from block_text
+        def _extract_section(text: str, header: str) -> str:
+            pattern = rf"####\*\*{re.escape(header)}:\*\*\n([\s\S]*?)(?=\n####\*\*|\Z)"
+            m = re.search(pattern, text, re.MULTILINE)
+            return m.group(1).strip() if m else ""
+
+        parsed_topic = _extract_section(block_text, "Topic")
+        parsed_subtopic = _extract_section(block_text, "Subtopic")
+        parsed_lo = _extract_section(block_text, "Learning Objective")
+
+        if all([parsed_topic, parsed_subtopic, parsed_lo]) and all(col in df.columns for col in ["Topic", "Subtopic", "Learning Objectives"]):
+            duplicate_matches = df[(df["Topic"].astype(str) == parsed_topic) &
+                                   (df["Subtopic"].astype(str) == parsed_subtopic) &
+                                   (df["Learning Objectives"].astype(str) == parsed_lo)]
+            if len(duplicate_matches) >= 1:
+                # Update the first match instead of creating a new block
+                target_id = int(duplicate_matches.index[0])
+                df.at[target_id, "block text"] = block_text
+                msg = f"✏️ Updated existing block {target_id} (matched by Topic/Subtopic/LO)."
+                print(msg)
+                return msg
 
     # Normalize “prepend” sentinel
     if insert_after_block_id in (-1, None):
