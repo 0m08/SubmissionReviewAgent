@@ -35,7 +35,7 @@ authenticated_roles = {
 def login():
     """A simple 'Login' page as a function. 
        Called if user is not logged in."""
-    st.header("Login Page")
+    st.header("SkillCat AI Agents Ecosystem")
     role_choice = st.text_input("Enter your login name: ")
     password = st.text_input("Enter the password: ")
     if st.button("Log in"):
@@ -62,16 +62,16 @@ def logout():
 
 
 def list_of_agents():
-    st.header("Welcome")
+    st.header("SkillCat AI Agents Ecosystem")
     st.write("Here's the list of agents:")
     st.markdown(
 """Agent Name | Informational Course | Instructional Course | Practical Course
 |- | - | - | - |
 :material/toc: Course Outline Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
-:material/quick_reference_all: Research Notes Agent | :material/check_box_outline_blank: Usable | :material/check_box: Usable | :material/check_box: Usable
+:material/quick_reference_all: Research Notes Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 :material/topic: Slide Chunks Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
 :material/image: Graphics Definition Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
-:material/quiz: Assessment Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/quiz: Assessment Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 """
     )
 
@@ -201,7 +201,7 @@ if st.session_state.role in authenticated_roles:
     user_pages = role_based_page_access_dict[st.session_state.role]
 
     page_dict["Account"] = account_pages
-    page_dict["User Pages"] = user_pages
+    page_dict["Agents and Tools"] = user_pages
 
     # Create the navigation
     # This returns the page that should be run
