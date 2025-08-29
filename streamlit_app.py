@@ -71,7 +71,7 @@ def list_of_agents():
 :material/quick_reference_all: Research Notes Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 :material/topic: Slide Chunks Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
 :material/image: Graphics Definition Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
-:material/quiz: Assessment Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/quiz: Assessment Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 """
     )
 
