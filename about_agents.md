@@ -166,7 +166,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 - LLM
 
 ## Section 3: Deep Research
-**Overview**: This section performs comprehensive, focused research on specific topics that require more detailed exploration. It goes beyond surface-level information to ensure thorough understanding and coverage of complex or critical course topics.
+**Overview**: This section performs comprehensive research with LLM based web search tools (Deep research tools). This serves as an alternate / additonal branch of performing research.
 
 **Key Outputs**:
 - In-depth topic analysis
@@ -174,33 +174,27 @@ This document describes each AI subagent, their purpose, and how to use them eff
 - Comprehensive topic outlines
 
 ### Deep Research Agent
-**Description**: Performs comprehensive topic research beyond surface-level content.
+**Description**: Performs comprehensive research for all the topics listed in the course outline.
 
 **How to Use**:
 1. Provide specific topic areas
-2. Set research depth parameters
-3. Review research findings
+2. Review research findings
 
 **Tools Used**:
-- Web Content Extractor
-- Document Vectorizer
-- Vector Database
-- Content Analysis Tools
+- LLM with web/deep search
 
 ### Deep Research Outline Generator
 **Description**: Creates detailed course outlines incorporating findings from the deep research process.
 
 **How to Use**:
 1. Submit deep research findings
-2. Agent generates detailed outlines
-3. Review and adjust outlines as necessary
+2. Agent generates detailed outline based on deep research
 
 **Tools Used**:
-- Outline Generation Tool
-- Content Mapper
+- LLM
 
 ## Section 4: Outline Consolidation
-**Overview**: This section brings together all the research outputs into a cohesive course structure. It merges insirghts from videos, web research, and deep research while ensuring consistency, completeness, and logical flow of the course content.
+**Overview**: This section brings together all the research outputs into a cohesive course structure. It merges insights from videos, web research, and deep research while ensuring consistency, completeness, and logical flow of the course content.
 
 **Key Outputs**:
 - Unified course outline
@@ -216,9 +210,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 3. Approve or modify final structure
 
 **Tools Used**:
-- Content Mapper
-- Text Analysis Tool
-- Structure Validation Tool
+- LLM
 
 ### Outline Review and Revision Agent
 **Description**: Reviews the consolidated outline and suggests improvements based on best practices.
@@ -229,10 +221,9 @@ This document describes each AI subagent, their purpose, and how to use them eff
 3. Review suggestions and implement changes
 
 **Tools Used**:
-- Outline Review Tool
-- Best Practices Analyzer
+- LLM
 
-## Section 5: Enhance Outline
+<!-- ## Section 5: Enhance Outline
 **Overview**: This section focuses on enriching the consolidated outline with specific learning objectives and detailed content organization. It ensures each topic is thoroughly developed and properly structured for effective learning.
 
 **Key Outputs**:
@@ -312,9 +303,9 @@ This document describes each AI subagent, their purpose, and how to use them eff
 
 **Tools Used**:
 - Content Mapping Tool
-- Text Analysis Tool
+- Text Analysis Tool -->
 
-## Section 6: References and Resources
+## Section 5: References and Resources
 **Overview**: This section manages the organization and integration of supporting materials. It ensures all course content is properly referenced and supported by appropriate resources, making it easier to develop detailed course materials later.
 
 **Key Outputs**:
@@ -326,15 +317,11 @@ This document describes each AI subagent, their purpose, and how to use them eff
 **Description**: Processes and imports reference materials.
 
 **How to Use**:
-1. Provide reference materials
-2. Set processing parameters
-3. Review indexed content
+1. Provide reference materials gathered during research (video, web, deep research)
 
 **Tools Used**:
-- PDF Parser
-- Document Vectorizer
-- Vector Database
-- Google Drive Integration
+- Web Content Loader
+- YouTube Video Transcript Extractor
 
 ### Reference Retriever
 **Description**: Matches relevant references to specific learning objectives.
@@ -345,8 +332,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 3. Review and adjust references as needed
 
 **Tools Used**:
-- Reference Management System
-- Content Analysis Tools
+- Similarity search using vectorstore
 
 ### Video Search Agent
 **Description**: Finds and suggests specific video clips that support individual learning objectives.
