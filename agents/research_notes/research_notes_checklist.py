@@ -7,6 +7,10 @@ from services.sheets_service import (
     clear_worksheet,
     delete_worksheet,
     clear_all_filters,
+    format_worksheet,
+    create_or_read_worksheet,
+    hide_worksheet_by_name,
+    hide_columns_by_name,
 )
 import json
 import streamlit as st
@@ -23,79 +27,30 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain.chat_models import init_chat_model
 
 
-from typing import Annotated, List, Optional, Tuple
 from pydantic import Field
 # from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 from langgraph.prebuilt.chat_agent_executor import AgentState
 import pandas as pd
 from services.crud_text_block_tools import create_block, read_blocks, update_block, delete_block 
-
+from services.helper_functions import iterate_scope
 
 import pandas as pd
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple
 from pydantic import BaseModel, Field
 
-# ---------------------------------------------------------------
-# 1.  Generic iterator that yields exactly the slice required
-# ---------------------------------------------------------------
-def iterate_scope(
-    raw_scope: str,
-    data_df: pd.DataFrame,
-    scope_to_selector: Dict[str, Any],
-    scope_parser: Callable[[str], str] = lambda s: s,
-) -> Iterable[Tuple[Hashable, pd.DataFrame]]:
-    """
-    Parameters
-    ----------
-    raw_scope : the literal text from checklist_df["Scope"]
-    data_df   : the dataframe being reviewed
-    scope_to_selector :
-        Dict mapping a *canonical scope key* (e.g. "Global", "Topic") to one of:
-        • [] or () or None       → treat as *Global* (whole df in one go)
-        • "__row__"              → iterate row‑by‑row
-        • list/tuple of columns  → groupby those columns
-        • callable(df) -> iterator[(key, slice)] for anything advanced
-    scope_parser :
-        Converts the raw text ("Global (full output)") to the canonical key
-        used in `scope_to_selector`  – default is `first word only`.
 
-    Yields
-    ------
-    (key, df_slice) pairs for each review pass.
-    """
-    scope_key = scope_parser(raw_scope)
-
-    if scope_key not in scope_to_selector:
-        raise ValueError(f"Scope '{scope_key}' not found in scope_to_selector")
-
-    selector = scope_to_selector[scope_key]
-
-    # -------- dispatch selector type --------
-    if selector in (None, [], ()):
-        yield "ALL", data_df
-
-    elif selector == "__row__":
-        for idx, row in data_df.iterrows():
-            yield idx, row.to_frame().T  # keep slice a DataFrame
-
-    elif callable(selector):
-        # Your own function can do anything it likes
-        yield from selector(data_df)
-
-    else:
-        # Assume list/tuple → groupby
-        group_cols = list(selector)
-        for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
-            yield key, grp
-
-
-research_notes_checklist_prompt = """Assume the role of a checklist agent tasked with evaluating the following block(s) of research notes for the given list of checklist criteria.
+research_notes_checklist_prompt = """Assume the role of a checklist agent tasked with evaluating the following blocks of research notes for the given list of checklist criteria. These research notes are later used to create slide content for the course.
 
 These research notes are created for the following:
 <course_info>
 Course Name: {course_name}
+
 Target Audience: {target_audience}
+
+Course Objective Guidelines: {course_objective_guidelines}
+
+Course Background: {course_background}
 </course_info>
 
 Here's the research notes to evaluate:
@@ -114,21 +69,25 @@ Make sure to output in the following format:
 </analysis>
 
 <passed_items>
-[List of checklist items that passed. Each item should be a single line with the item name.]
+[List of checklist items that passed. Each item should be the exact review criteria text as it appears in the checklist input along with the criteria name.]
 </passed_items>
 
 <failed_items>
-[List of checklist items that failed. Each item should be a single line with the item name followed by feedback in a new line on why it failed.
-Item: State the checklist item.
-Feedback: Provide specific feedback on why it failed and what needs to be improved or corrected.
-...
-]
+[List of checklist items that failed. Format each failed item as follows:
+Item: [exact review criteria text as it appears in the checklist input along with the criteria name]
+Feedback: [specific detailed feedback on why it failed and what needs to be improved or corrected]
+
+Item: [next failed review criteria text along with the criteria name]
+Feedback: [feedback for that criteria]
+
+...and so on for all failed items]
 </failed_items>
 
 NOTES:
 - The analysis should be thorough and cover all aspects of the checklist and all of the criteria.
 - The passed items should only include those that fully meet the criteria.
 - Feedback of the failed items should include all necessary information for the author to understand what needs to be fixed.
+- When listing passed or failed items, always use the complete criteria text along with the criteria name.
 
 Follow the examples below to understand how to evaluate each review criteria:
 
@@ -138,11 +97,19 @@ Follow the examples below to understand how to evaluate each review criteria:
 """
 
 
-def run_research_notes_checklist_agent(course_name, target_audience, research_notes, checklist, examples, llm = "gemini_2_flash"):
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "run_research_notes_checklist_agent",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def run_research_notes_checklist_agent(course_name, target_audience, course_objective_guidelines, course_background, research_notes, checklist, examples, llm = "gemini_2_flash"):
     """
     Run the research notes checklist agent with the provided parameters.
     :param course_name: Name of the course for which the research notes are created.
     :param target_audience: Target audience for the course.
+    :param course_objective_guidelines: Guidelines for the course objectives.
+    :param course_background: Background information about the course.
     :param research_notes: The block of research notes to evaluate.
     :param checklist: The checklist criteria to evaluate the research notes against.
     :param examples: The examples to guide evaluation of the checklist criteria.
@@ -155,6 +122,8 @@ def run_research_notes_checklist_agent(course_name, target_audience, research_no
     # formatted_prompt = research_notes_checklist_prompt.format(
     #     course_name = course_name,
     #     target_audience = target_audience,
+    #     course_objective_guidelines = course_objective_guidelines,
+    #     course_background = course_background,
     #     research_notes = research_notes,
     #     checklist = checklist,
     #     examples = examples,
@@ -170,6 +139,8 @@ def run_research_notes_checklist_agent(course_name, target_audience, research_no
         content = research_notes_checklist_prompt.format(
             course_name = course_name,
             target_audience = target_audience,
+            course_objective_guidelines = course_objective_guidelines,
+            course_background = course_background,
             research_notes = research_notes,
             checklist = checklist,
             examples = examples,
@@ -181,7 +152,18 @@ def run_research_notes_checklist_agent(course_name, target_audience, research_no
     return response["failed_items"]
 
 
-research_notes_reviser_prompt = """You are tasked with revising the following block of research notes based on the feedback provided in the checklist evaluation.
+research_notes_reviser_prompt = """You are tasked with revising the following block(s) of research notes based on the feedback provided in the checklist evaluation. These research notes are later used to create slide content for the course.
+
+This research notes is created for the following course:
+<course_info>
+Course Name: {course_name}
+
+Target Audience: {target_audience}
+
+Course Objective Guidelines: {course_objective_guidelines}
+
+Course Background: {course_background}
+</course_info>
 
 Here are the research notes to revise:
 <research_notes>
@@ -223,7 +205,7 @@ Understand the basic refrigeration cycle
 ####**Research Notes:**
 The refrigeration cycle consists of four main components...
 
-IMPORTANT: Never change or remove these headers. Only modify the content after the header as required for the revision. The format is essential for the system to function properly.
+IMPORTANT: Never change or remove these headers (Block ID, Topic, Subtopic, Learning Objective, Research Notes). Only modify the content after the header as required for the revision. The format is essential for the system to function properly.
 
 NOTES:
 - Make use of the given set of CRUD block text tools to make the necessary revisions. 
@@ -239,8 +221,13 @@ These examples show how to apply the corrections to the research notes. Use thes
 """
 
 
-
-def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, reviser_examples, df, llm = "gemini_2_flash"):
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "run_reviser_agent",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, reviser_examples, df, course_name, target_audience, course_objective_guidelines, course_background, llm = "gemini_2_flash"):
     """
     Run the reviser agent with the provided parameters.
     :param research_notes: The block of research notes to revise.
@@ -248,6 +235,10 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, rev
     :param criteria_with_ops: All criteria with their corrective operations for the reviser to reference.
     :param reviser_examples: Examples showing how to apply corrections for each criteria.
     :param df: The dataframe containing the research notes.
+    :param course_name: Name of the course for which the research notes are created.
+    :param target_audience: Target audience for the course.
+    :param course_objective_guidelines: Guidelines for the course objectives.
+    :param course_background: Background information about the course.
     :param llm: The language model to use for the agent.
     :return: The revised block of research notes as a dataframe.
     """
@@ -289,6 +280,8 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, rev
     #     checklist_feedback=checklist_feedback,
     #     criteria_with_ops=criteria_with_ops,
     #     reviser_examples=reviser_examples,
+    #     course_name=course_name,
+    #     target_audience=target_audience,
     # )
 
     # # Print the formatted prompt for debugging
@@ -301,7 +294,11 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, rev
             research_notes=research_notes,
             checklist_feedback=checklist_feedback,
             criteria_with_ops=criteria_with_ops,
-            reviser_examples=reviser_examples,)}],
+            reviser_examples=reviser_examples,
+            course_name=course_name,
+            target_audience=target_audience,
+            course_objective_guidelines=course_objective_guidelines,
+            course_background=course_background,)}],
         "df": df,        # one buffer for the whole session
     }
 
@@ -318,6 +315,160 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, rev
     return final_state["df"]
 
 
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "process_single_rn_slice",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def process_single_rn_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, llm):
+    """
+    Process a single research notes slice: review → revise (if needed) → return result
+    This function runs in parallel for scope-based processing.
+    
+    :param key: The key identifying this slice (from iterate_scope)
+    :param df_slice: The DataFrame slice to process
+    :param criteria_str: Formatted criteria string for review agent
+    :param examples_str: Formatted examples string for review agent
+    :param criteria_ops_str: Formatted criteria with operations for reviser agent
+    :param reviser_examples_str: Formatted reviser examples string
+    :param course_name: Name of the course
+    :param target_audience: Target audience for the course
+    :param course_objective_guidelines: Guidelines for course objectives
+    :param course_background: Background information about the course
+    :param llm: The language model to use
+    :return: The revised DataFrame slice (or original if no changes needed)
+    """
+    print(f"🔄 Processing slice '{key}' with {len(df_slice)} rows in parallel")
+    
+    if df_slice.empty:
+        print(f"Empty slice '{key}', returning original")
+        return df_slice
+    
+    # Build research notes string from slice
+    research_notes_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
+    
+    # Run the research notes checklist agent
+    failed_items = run_research_notes_checklist_agent(
+        course_name=course_name,
+        target_audience=target_audience,
+        course_objective_guidelines=course_objective_guidelines,
+        course_background=course_background,
+        research_notes=research_notes_str,
+        checklist=criteria_str,
+        examples=examples_str,
+        llm=llm
+    )
+    
+    print(f"Failed items for slice '{key}': {failed_items}")
+    
+    if not failed_items:
+        print(f"All items passed for slice '{key}'")
+        return df_slice  # No changes needed
+    
+    # Run the reviser agent with the failed items
+    revised_research_notes_df = run_reviser_agent(
+        research_notes=research_notes_str,
+        checklist_feedback=failed_items,
+        criteria_with_ops=criteria_ops_str,
+        reviser_examples=reviser_examples_str,
+        df=df_slice,
+        course_name=course_name,
+        target_audience=target_audience,
+        course_objective_guidelines=course_objective_guidelines,
+        course_background=course_background,
+        llm=llm
+    )
+    
+    print(f"Revised research notes for slice '{key}': shape {revised_research_notes_df.shape}")
+    return revised_research_notes_df
+
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "process_rn_scope_slices_parallel",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def process_rn_scope_slices_parallel(scope, research_notes_df, scope_to_selector, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, llm):
+    """
+    Process all research notes slices within a scope in parallel.
+    
+    :param scope: The scope to process (Topic, Subtopic, Learning Objective)
+    :param research_notes_df: The main DataFrame
+    :param scope_to_selector: Scope selector mapping
+    :param criteria_str: Formatted criteria string for review agent
+    :param examples_str: Formatted examples string for review agent
+    :param criteria_ops_str: Formatted criteria with operations for reviser agent
+    :param reviser_examples_str: Formatted reviser examples string
+    :param course_name: Name of the course
+    :param target_audience: Target audience for the course
+    :param course_objective_guidelines: Guidelines for course objectives
+    :param course_background: Background information about the course
+    :param llm: The language model to use
+    :return: List of (original_slice, revised_slice) tuples
+    """
+    print(f"🚀 Starting parallel processing for scope: {scope}")
+    
+    # Collect all slices for this scope
+    all_slices = list(iterate_scope(scope, research_notes_df, scope_to_selector))
+    
+    if not all_slices:
+        print(f"No slices found for scope {scope}")
+        return []
+    
+    print(f"Found {len(all_slices)} slices for scope {scope}")
+    
+    # Prepare for parallel processing
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        
+        # Submit all slices for parallel processing
+        for key, df_slice in all_slices:
+            if df_slice.empty:
+                print(f"Skipping empty slice '{key}'")
+                continue
+                
+            future = executor.submit(
+                process_single_rn_slice,
+                key, df_slice, criteria_str, examples_str, 
+                criteria_ops_str, reviser_examples_str,
+                course_name, target_audience, course_objective_guidelines, 
+                course_background, llm
+            )
+            futures_map[future] = (key, df_slice)
+        
+        # Collect results
+        total_tasks = len(futures_map)
+        
+        if total_tasks == 0:
+            print(f"No valid slices to process for scope {scope}")
+            return []
+            
+        print(f"Processing {total_tasks} slices in parallel for scope {scope}")
+        
+        results = []
+        for future in as_completed(futures_map):
+            key, original_slice = futures_map[future]
+            try:
+                revised_slice = future.result()
+                results.append((original_slice, revised_slice))
+                print(f"✅ Completed processing slice '{key}'")
+            except Exception as e:
+                print(f"❌ Error processing slice '{key}': {e}")
+                # In case of error, use original slice
+                results.append((original_slice, original_slice))
+    
+    print(f"🏁 Completed parallel processing for scope {scope}: {len(results)} results")
+    return results
+
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "run_research_notes_checklist_and_reviser",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience, checklist_sheet_link, gc, llm = "gemini_2_flash"):
     """
     Run the research notes checklist agent and reviser agent with the provided parameters.
@@ -335,8 +486,35 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_worksheet, checklist_df = get_sheet_data_and_df(sheet = checklist_sheet, sheet_name = "Research Notes Checklist")
 
+    # Load the Course info sheet to get course objective guidelines and course background
+    course_info_worksheet, course_info_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Course info")
+    
+    # Extract course objective guidelines and course background
+    course_objective_guidelines = ""
+    course_background = ""
+    
+    if not course_info_df.empty:
+        if "Course Objective Guidelines" in course_info_df.columns:
+            course_objective_guidelines = str(course_info_df["Course Objective Guidelines"].iloc[0]) if not pd.isna(course_info_df["Course Objective Guidelines"].iloc[0]) else ""
+        if "Course Background" in course_info_df.columns:
+            course_background = str(course_info_df["Course Background"].iloc[0]) if not pd.isna(course_info_df["Course Background"].iloc[0]) else ""
+
     # Load the research notes sheet
     research_notes_sheet, research_notes_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Final Outline")
+
+    # Create/overwrite a hidden backup sheet to support Delete Step restore
+    backup_ws_name = "Backup Final Outline Sheet for Delete step of Research Notes Checklist"
+    print(f"📋 Creating backup sheet '{backup_ws_name}' for delete step functionality...")
+    backup_ws, _ = create_or_read_worksheet(sheet, backup_ws_name)
+    clear_worksheet(backup_ws)
+    save_to_sheet(backup_ws, research_notes_df)
+    format_worksheet(backup_ws)
+    # Hide the backup worksheet 
+    try:
+        hide_worksheet_by_name(sheet, backup_ws_name)
+        print(f"✅ Backup sheet created and hidden successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not hide backup sheet: {e}")
 
     if "order" not in research_notes_df.columns:
         research_notes_df["order"] = research_notes_df.index.astype(float)
@@ -378,91 +556,129 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
 
         # Extract criteria and examples together
         criteria_list = grp["Review Criteria"].tolist()
+        criteria_names = grp["Criteria Name"].tolist()
         examples_list = grp["Review Agent Examples"].tolist()
         
-        criteria_str = "\n".join(criteria_list)
+        # Build structured criteria format
+        criteria_with_separators = []
+        for i, (criteria_name, criteria) in enumerate(zip(criteria_names, criteria_list), 1):
+            criteria_with_separators.append(f"<criteria_{i}>\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n</criteria_{i}>")
+        
+        criteria_str = "\n\n".join(criteria_with_separators)
         
         # Build examples with structured format for each criteria
         examples_with_separators = []
-        for i, (criteria, example) in enumerate(zip(criteria_list, examples_list)):
+        for i, (criteria_name, criteria, example) in enumerate(zip(criteria_names, criteria_list, examples_list)):
             criteria_num = i + 1
-            examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria: {criteria}\n\n<example>\n\n{example}\n\n</example>\n\n</criteria_{criteria_num}>")
+            examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n\n<example>\n\n{example}\n\n</example>\n\n</criteria_{criteria_num}>")
         examples_str = "\n\n".join(examples_with_separators)
         
         # Build criteria with corrective operations for reviser agent
         criteria_with_ops = []
         for _, row in grp.iterrows():
+            criteria_name = row["Criteria Name"]
             criteria = row["Review Criteria"]
             corrective_ops = row["Corrective Operations"]
-            criteria_with_ops.append(f"<criteria>\n\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n</criteria>")
+            criteria_with_ops.append(f"<criteria>\n\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n</criteria>")
         
         criteria_ops_str = "\n\n".join(criteria_with_ops)
         
         # Build examples with structured format for reviser agent
         reviser_examples_with_separators = []
-        for i, (criteria, corrective_ops, reviser_example) in enumerate(zip(criteria_list, grp["Corrective Operations"].tolist(), grp["Reviser Agent Examples"].tolist())):
+        for i, (criteria_name, criteria, corrective_ops, reviser_example) in enumerate(zip(criteria_names, criteria_list, grp["Corrective Operations"].tolist(), grp["Reviser Agent Examples"].tolist())):
             criteria_num = i + 1
-            reviser_examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n<example>\n\n{reviser_example}\n\n</example>\n\n</criteria_{criteria_num}>")
+            reviser_examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n<example>\n\n{reviser_example}\n\n</example>\n\n</criteria_{criteria_num}>")
         
         reviser_examples_str = "\n\n".join(reviser_examples_with_separators)
 
-        for key, df_slice in iterate_scope(scope, research_notes_df, scope_to_selector):
+        # Choose processing method based on scope
+        if scope == "Global (full output)":
+            print(f"Using SEQUENTIAL processing for Global scope")
+            
+            # Keep existing sequential logic for Global scope
+            for key, df_slice in iterate_scope(scope, research_notes_df, scope_to_selector):
 
-            print(f"Processing {key} with {len(df_slice)} rows")
+                print(f"Processing {key} with {len(df_slice)} rows")
 
-            if df_slice.empty:
-                print(f"No data for {key}, skipping...")
-                continue
+                if df_slice.empty:
+                    print(f"No data for {key}, skipping...")
+                    continue
 
-            research_notes_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
+                research_notes_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
 
-            # Run the research notes checklist agent
-            failed_items = run_research_notes_checklist_agent(
-                course_name=course_name,
-                target_audience=target_audience,
-                research_notes=research_notes_str,
-                checklist=criteria_str,
-                examples=examples_str,
-                llm=llm
+                # Run the research notes checklist agent
+                failed_items = run_research_notes_checklist_agent(
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    course_objective_guidelines=course_objective_guidelines,
+                    course_background=course_background,
+                    research_notes=research_notes_str,
+                    checklist=criteria_str,
+                    examples=examples_str,
+                    llm=llm
+                )
+
+                print(f"Failed items for {key}: {failed_items}")
+
+                if not failed_items:
+                    print(f"All items passed for {key}.")
+                    continue
+
+                # Run the reviser agent with the failed items and criteria with corrective operations
+                revised_research_notes_df = run_reviser_agent(
+                    research_notes=research_notes_str,
+                    checklist_feedback=failed_items,
+                    criteria_with_ops=criteria_ops_str,
+                    reviser_examples=reviser_examples_str,
+                    df=df_slice,
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    course_objective_guidelines=course_objective_guidelines,
+                    course_background=course_background,
+                    llm=llm
+                )
+
+                print(f"Revised research notes for {key}: {revised_research_notes_df}")
+
+                # Merge the revised slice back into the main DataFrame
+                # Remove the original slice and replace with the revised version
+                # Remove the original slice from main DataFrame - but only indices that still exist
+                indices_to_drop = [idx for idx in df_slice.index if idx in research_notes_df.index]
+                if indices_to_drop:
+                    research_notes_df = research_notes_df.drop(indices_to_drop)
+                
+                # Add the revised slice back to main DataFrame
+                research_notes_df = pd.concat([research_notes_df, revised_research_notes_df], ignore_index=False)
+                
+                # Sort by the existing numeric 'order' column to maintain stable order
+                research_notes_df = research_notes_df.sort_values("order", kind="stable")
+                
+        else:
+            print(f"Using PARALLEL processing for {scope} scope")
+            
+            # Use new parallel processing for Topic, Subtopic, Learning Objective scopes
+            slice_results = process_rn_scope_slices_parallel(
+                scope, research_notes_df, scope_to_selector, 
+                criteria_str, examples_str, criteria_ops_str, 
+                reviser_examples_str, course_name, target_audience, 
+                course_objective_guidelines, course_background, llm
             )
-
-            print(f"Failed items for {key}: {failed_items}")
-
-            if not failed_items:
-                print(f"All items passed for {key}.")
-                continue
-
-            # Run the reviser agent with the failed items and criteria with corrective operations
-            revised_research_notes_df = run_reviser_agent(
-                research_notes=research_notes_str,
-                checklist_feedback=failed_items,
-                criteria_with_ops=criteria_ops_str,
-                reviser_examples=reviser_examples_str,
-                df=df_slice,
-                llm=llm
-            )
-
-            print(f"Revised research notes for {key}: {revised_research_notes_df}")
-
-            # Merge the revised slice back into the main DataFrame
-            # Remove the original slice and replace with the revised version
-            # print(f"🔄 Merging revised data back to main DataFrame...")
-            # print(f"Original slice indices: {list(df_slice.index)}")
-            # print(f"Revised DataFrame indices: {list(revised_research_notes_df.index)}")
             
-            # Remove the original slice from main DataFrame
-            research_notes_df = research_notes_df.drop(df_slice.index)
-            # print(f"Removed original slice from main DataFrame")
+            # Merge all parallel results back to main DataFrame
+            print(f"Merging {len(slice_results)} parallel results back to main DataFrame")
+            for original_slice, revised_slice in slice_results:
+                # Use existing safe merge logic for each result
+                indices_to_drop = [idx for idx in original_slice.index if idx in research_notes_df.index]
+                if indices_to_drop:
+                    research_notes_df = research_notes_df.drop(indices_to_drop)
+                
+                # Add the revised slice back to main DataFrame
+                research_notes_df = pd.concat([research_notes_df, revised_slice], ignore_index=False)
+                
+                # Sort by the existing numeric 'order' column to maintain stable order
+                research_notes_df = research_notes_df.sort_values("order", kind="stable")
             
-            # Add the revised slice back to main DataFrame
-            research_notes_df = pd.concat([research_notes_df, revised_research_notes_df], ignore_index=False)
-            # print(f"Added revised slice back to main DataFrame")
-            
-            # Sort by DataFrame index (block IDs) to maintain stable order
-            research_notes_df = research_notes_df.sort_index()
-            # print(f"Main DataFrame shape after merge and sort: {research_notes_df.shape}")
-
-            # print(revised_research_notes_df)
+            print(f"Completed merging parallel results for {scope} scope")
         
         progress.update()
         
@@ -503,16 +719,37 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
     # Save to sheet
     save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
     
-    # Parse the updated block_text column back to individual columns (optional final step)
+    # Parse the updated block_text column back to individual columns
     print("\n🔄 Parsing updated block_text content back to individual columns...")
     research_notes_df = parse_block_text_to_columns(research_notes_df)
+    
+    column_renames = {}
+    if 'order' in research_notes_df.columns:
+        column_renames['order'] = 'rn_order'
+    if 'block text' in research_notes_df.columns:
+        column_renames['block text'] = 'rn_block text'
+
+    if column_renames:
+        research_notes_df = research_notes_df.rename(columns=column_renames)
+    
     save_to_sheet(worksheet = research_notes_sheet, df = research_notes_df)
+    
+    # Hide working columns
+    columns_to_hide = []
+    if 'rn_order' in research_notes_df.columns:
+        columns_to_hide.append('rn_order')
+    if 'rn_block text' in research_notes_df.columns:
+        columns_to_hide.append('rn_block text')
+    
+    if columns_to_hide:
+        hide_columns_by_name(research_notes_sheet, columns_to_hide, research_notes_df)
+    
     print("✅ Block text parsing completed. Individual columns updated with revised content.")
     
     return
 
 
-# Block Text Parsing 
+# Block Text Parsing for Research Notes
 class BlockTextContent(BaseModel):
     topic: str = Field(description="The topic extracted from the block text.")
     subtopic: str = Field(description="The subtopic extracted from the block text.")
@@ -532,6 +769,13 @@ Block:
 {block}
 """
 
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "parse_block_text_row",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def parse_block_text_row(block_text_cell, index):
     """
     Parses a single block_text cell to extract Topic, Subtopic, Learning Objective, and Research Notes.
@@ -554,6 +798,13 @@ def parse_block_text_row(block_text_cell, index):
         print(f"Failed to parse block_text for row {index}: {e}")
         return None
 
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "parse_block_text_to_columns",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def parse_block_text_to_columns(df, max_workers=5):
     """
     Parses the block_text column and updates the individual Topic, Subtopic, Learning Objectives, and research_notes columns.
@@ -597,3 +848,42 @@ def parse_block_text_to_columns(df, max_workers=5):
     print(f"Successfully parsed block_text column and updated individual columns.")
     
     return df
+
+
+def delete_research_notes_checklist_and_reviser(sheet, worksheet_name="Final Outline"):
+    """Restore the Final Outline from the hidden backup created for the research notes checklist step,
+    then delete the backup sheet.
+    """
+    backup_ws_name = "Backup Final Outline Sheet for Delete step of Research Notes Checklist"
+
+    # Load current Final Outline and the backup
+    try:
+        final_ws, _ = get_sheet_data_and_df(sheet, worksheet_name)
+    except Exception:
+        # If Final Outline doesn't exist yet, nothing to restore into
+        print(f"⚠️ Final Outline sheet '{worksheet_name}' not found. Nothing to restore.")
+        return
+
+    try:
+        backup_ws, backup_df = get_sheet_data_and_df(sheet, backup_ws_name)
+        print(f"✅ Found backup sheet with {len(backup_df)} rows")
+    except Exception:
+        # No backup exists; nothing to do
+        print(f"⚠️ No backup worksheet found for research notes checklist delete step. Skipping restore.")
+        return
+
+    # Restore: overwrite Final Outline with backup
+    print(f"🔄 Restoring Final Outline from backup...")
+    clear_worksheet(final_ws)
+    if not backup_df.empty:
+        save_to_sheet(final_ws, backup_df)
+
+    # Delete backup sheet 
+    print(f"🗑️ Cleaning up backup sheet...")
+    try:
+        delete_worksheet(sheet, backup_ws_name)
+        print(f"✅ Backup sheet '{backup_ws_name}' deleted successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not delete backup sheet: {e}")
+
+    return

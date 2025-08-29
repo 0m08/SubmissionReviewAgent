@@ -80,8 +80,11 @@ def generate_checklist_for_question(course_name, target_audience,  task_name, ev
     """
 
 
-    # Format the checklist criteria
-    checklist_criteria = "\n".join([f"- {evidence}" for evidence in evidence_list])
+    # Format the checklist criteria with XML tags
+    checklist_criteria = ""
+    for i, evidence in enumerate(evidence_list, 1):
+        checklist_criteria += f"<criteria_{i}>\n- {evidence}\n</criteria_{i}>\n\n"
+    checklist_criteria = checklist_criteria.strip()  # Remove trailing newlines
 
     # Format the LLM prompt for the current task
     task_prompt = generate_review_checklist_prompt.format(
@@ -150,6 +153,12 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
     # Combine all topic slides into a single string
     slides = "\n\n".join(slides)
 
+    # Calculate total tasks for progress tracking
+    total_evaluation_tasks = len(unique_tasks) * len(assessment_df)
+    
+    # Initialize the progress tracker
+    progress = SmartProgressBar(total_tasks=total_evaluation_tasks, description="Percent complete:")
+
     for task_name in unique_tasks:
         # Extract review criteria for the current task
         evidence_list = checklist_df[checklist_df['Task'] == task_name]['Review Criteria'].tolist()
@@ -178,6 +187,11 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
                             f"Option A: {question_row['Option A']}\n"
                             f"Option B: {question_row['Option B']}\n"
                             if question_row['Question type'] == 'truefalse' else
+                            f"Option A: {question_row['Option A']}\n"
+                            f"Option B: {question_row['Option B']}\n"
+                            f"Option C: {question_row['Option C']}\n"
+                            f"Option D: {question_row['Option D']}\n"
+                            if question_row['Question type'] == 'select_all' else
                             "Matching Pairs:\n" + "\n".join(
                                 f"  - {pair.strip()}"
                                 for pair in question_row['Correct Answer'].splitlines()
@@ -199,8 +213,11 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
                 try:
                     response = future.result()
                     task_evaluation[f"Question {question_idx + 1}"] = response
+                    # Update progress for each completed question evaluation
+                    progress.update()
                 except Exception as exc:
                     print(f"Question {question_idx + 1} generated an exception: {exc}")
+                    progress.update()
 
         # Add the task evaluation to the main dictionary
         review_checklist_by_task[task_name] = task_evaluation
@@ -292,9 +309,6 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
     :param worksheet_name: The name of the worksheet.
     :return: None
     """
-    # Initialize progress bar with 4 major steps
-    progress = SmartProgressBar(total_tasks=4, description="Percent complete:", save_interval=5)
-    
     _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
     
     checklist_sheet_link = course_info_df['Checklist Link'][0]
@@ -306,20 +320,16 @@ def run_update_checklist_with_verdicts_preserve(sheet, worksheet_name, course_na
 
     # Load existing data into a DataFrame
     print(checklist_df)
-    progress.update()
     
     review_checklist_by_task = update_review_checklist(sheet, worksheet_name, course_name, target_audience, llm)
     print(review_checklist_by_task)
-    progress.update()
 
     # Update the checklist with verdicts
     updated_checklist_df = update_checklist_with_verdicts_preserve(checklist_df, review_checklist_by_task)
-    progress.update()
 
     #Save and format the updated checklist using helper functions
     save_to_sheet(checklist_sheet, updated_checklist_df)
     format_worksheet(checklist_sheet)
-    progress.update()
 
     print("Review Agent Checklist updated successfully!")
     return updated_checklist_df
@@ -338,4 +348,3 @@ def delete_review_agent_checklist(sheet, worksheet_name="Review Agent Checklist"
         checklist_df = checklist_df.drop(columns=question_cols)
         clear_worksheet(checklist_ws)
         save_to_sheet(checklist_ws, checklist_df)
-

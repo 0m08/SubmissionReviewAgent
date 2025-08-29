@@ -298,9 +298,9 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
         if 'research_notes' not in course_outline_with_lo_df.columns:
             course_outline_with_lo_df['research_notes'] = ''
 
-        # Check if this step is already done by checking last row of research notes column
-        if course_outline_with_lo_df.iloc[-1]['research_notes'] != '':
-            print('Research notes already populated')
+        # Check if this step is already done by checking if ALL rows have research_notes populated
+        if (course_outline_with_lo_df['research_notes'] != '').all():
+            print('Research notes already populated for all rows')
             return
 
         # Get context column count
@@ -452,9 +452,9 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
         if 'research_notes' not in course_outline_with_lo_df.columns:
             course_outline_with_lo_df['research_notes'] = ''
 
-        # Check if this step is already done by checking last row of research notes column
-        if course_outline_with_lo_df.iloc[-1]['research_notes'] != '':
-            print('Research notes already populated')
+        # Check if this step is already done by checking if ALL rows have research_notes populated
+        if (course_outline_with_lo_df['research_notes'] != '').all():
+            print('Research notes already populated for all rows')
             return
 
         # Get context column count

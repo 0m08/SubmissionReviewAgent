@@ -28,6 +28,9 @@ def load_vector_db_with_pydrive(course_name: str,
     local_chroma_root = os.path.join("/tmp", "temp_chroma_folder")
     local_chroma_path = os.path.join(local_chroma_root, f"{short_course_name}_chroma_research_db")
     sqlite_db_path = os.path.join(local_chroma_path, "chroma.sqlite3")
+    
+    # Initialize all_doc_chunk_list to None
+    all_doc_chunk_list = None
 
     # 1. Check local existence
     if os.path.exists(local_chroma_path) and os.path.exists(sqlite_db_path):
@@ -109,9 +112,42 @@ def load_vector_db_with_pydrive(course_name: str,
 
             # Ensure chroma.sqlite3 is present
             if not os.path.exists(sqlite_db_path):
-                raise FileNotFoundError(
-                    "chroma.sqlite3 was not found in the downloaded 'chroma_research_db' folder."
+                print("chroma.sqlite3 was not found in the downloaded 'chroma_research_db' folder.")
+                print("Recreating database...")
+                # Delete corrupted folder and recreate
+                drive.CreateFile({'id': chroma_folder_id}).Delete()
+                # Clear local path and recreate
+                import shutil
+                if os.path.exists(local_chroma_path):
+                    shutil.rmtree(local_chroma_path)
+                # Recreate the database
+                os.makedirs(local_chroma_path, exist_ok=True)
+                # Load the chunks
+                print("Loading the chunks...")
+                all_doc_chunk_list = get_all_chunks_as_docs(sheet=sheet)
+                # Create a brand-new Chroma DB locally
+                print("Creating new local Chroma DB...")
+                chroma_db = Chroma.from_documents(
+                    documents=all_doc_chunk_list,
+                    embedding=embedding_function,
+                    collection_name=short_course_name,
+                    persist_directory=local_chroma_path
                 )
+                print("New local Chroma DB created at:", local_chroma_path)
+                # Create new folder in drive
+                file_metadata = {
+                    'title': 'chroma_research_db',
+                    'parents': [{'id': vectorstore_folder_id}],
+                    'mimeType': 'application/vnd.google-apps.folder'
+                }
+                chroma_folder = drive.CreateFile(file_metadata)
+                chroma_folder.Upload()
+                chroma_folder_id = chroma_folder['id']
+                # Upload the newly created folder/files to Drive
+                print("Uploading new local Chroma DB to Google Drive...")
+                upload_folder_to_drive(local_chroma_path, chroma_folder_id, drive)
+                print("Upload complete.")
+                return chroma_db, all_doc_chunk_list
 
     # 2. Load the DB from the local path
     chroma_db = Chroma(
@@ -121,4 +157,9 @@ def load_vector_db_with_pydrive(course_name: str,
     )
     print("Successfully loaded the Chroma DB from local path.")
 
-    return chroma_db, None
+    # Load chunks for BM25 retriever if not already loaded
+    if all_doc_chunk_list is None:
+        print("Loading chunks for BM25 retriever...")
+        all_doc_chunk_list = get_all_chunks_as_docs(sheet=sheet)
+
+    return chroma_db, all_doc_chunk_list

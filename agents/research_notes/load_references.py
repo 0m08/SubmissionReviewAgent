@@ -240,7 +240,7 @@ def populate_reference_df_from_video_chunks_df(source, source_origin, title, ref
 
             docs = [
                 {
-                    "page_content": ''.join([r[f'text_{i}'] for i in range(text_col_count)]),
+                    "page_content": ''.join([str(r[f'text_{i}']) if pd.notna(r[f'text_{i}']) else '' for i in range(text_col_count)]),
                     "metadata": json.loads(r['metadata'])
                 }
                 for i, r in temp_df.iterrows()
@@ -323,7 +323,7 @@ def populate_reference_df_from_preliminary_research_df(source, source_origin, ti
             article_content_col_count = len([col for col in preliminary_research_df.columns if 'article_content_' in col])
             # Get article content
             article_content = ''.join(
-                [source_row[f'article_content_{i}'].values[0] for i in range(article_content_col_count) 
+                [str(source_row[f'article_content_{i}'].values[0]) if pd.notna(source_row[f'article_content_{i}'].values[0]) else '' for i in range(article_content_col_count) 
                     if f'article_content_{i}' in source_row.columns and i < len(source_row.columns)]
             )
 
