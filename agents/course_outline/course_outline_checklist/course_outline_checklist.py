@@ -76,9 +76,17 @@ The amount of course outline provided to you for evaluation will vary based on t
 Focus your evaluation on the specific course outline content provided in the <course_outline> section above, using the <base_outline> only as a reference context.
 
 Here are the checklist criteria to evaluate:
-<checklist>
+<checklist_criteria>
 {checklist}
-</checklist>
+</checklist_criteria>
+
+Critical Evaluation Instructions:
+- Be Extremely Strict in your evaluation. Do not pass any criteria unless they are fully and completely satisfied.
+- Read each review criteria text WORD BY WORD and understand exactly what it is asking for.
+- Do not make assumptions or interpret criteria loosely. Follow the exact wording and requirements stated in each criteria.
+- Each criteria has specific requirements that must be met - evaluate against those exact requirements, not general best practices.
+- Do not let overall quality of the content influence your judgment - focus solely on whether each specific criteria requirement is met.
+- Strictly evaluate every single criteria provided in the checklist. Do not skip or miss any criteria.
 
 Make sure to output in the following format:
 <analysis>
@@ -253,6 +261,7 @@ Notes:
 - These CRUD tools allow you to create, read, update, and delete blocks of text from the above course outline as needed.
 - You can only work with one block of text at a time. Each block of text is a separate entity identified by a unique ID - Block ID.
 - To implement some of the feedback, you may need to make edits to multiple blocks of text.
+- Preserve any existing enumeration prefixes (e.g., "I.", "A.", "1.") in Topics/Subtopics while revising if applicable.
 
 Corrective Operations:
 These are specific instructions for fixing failed criteria items. Match each failed criteria from the checklist feedback above with its corresponding corrective operation in the criteria section below. Only apply the corrective operations for criteria that actually failed - ignore corrective operations for criteria that passed the evaluation. Use these corrective operations in combination with the feedback to make the necessary revisions.
@@ -295,6 +304,7 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
         max_bucket_size=10,  # Controls the maximum burst size.
     )
 
+
     # Map LLM names to init_chat_model format
     llm_mapping = {
         "gpt5_thinking": "openai:gpt-5",  # Use gpt-5 with reasoning_effort="high"
@@ -309,7 +319,9 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
     # Add reasoning_effort parameter for thinking models
     init_params = {
         "rate_limiter": rate_limiter,
-        "max_retries": 20,
+        "max_retries": 30,        # Increased from 20 to 30 for better resilience
+        "timeout": 120,           # Add explicit timeout of 2 minutes
+        "request_timeout": 60,    # Add request timeout of 1 minute
     }
     
     if llm == "gpt5_thinking":
@@ -881,6 +893,7 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
         hide_columns_by_name(course_outline_sheet, columns_to_hide, course_outline_df)
     
     print("✅ Block text parsing completed. Individual columns updated with revised content.")
+    print(f"📊 Final result: {len(course_outline_df)} rows")
    
     return
 
@@ -919,7 +932,7 @@ def parse_co_block_text_row(block_text_cell, index):
     """
     try:
         # Use LLM + Pydantic to parse and validate
-        agent = Chain(llm="gemini_2_flash")
+        agent = Chain(llm="gemini_2_5_flash")
         agent.add_message(
             role="user",
             content=co_block_text_parsing_prompt.format(block=block_text_cell)
@@ -943,7 +956,7 @@ def parse_co_block_text_to_columns(df, max_workers=5):
     """
     Parses the block text column and updates the individual Topic, Subtopic, and Learning Objectives columns.
     :param df: The DataFrame to update.
-    :param max_workers: Number of parallel workers (default 5).
+    :param max_workers: Number of parallel workers .
     :return: The updated DataFrame.
     """
     # Check if block text column exists
