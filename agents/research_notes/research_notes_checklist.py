@@ -220,7 +220,6 @@ NOTES:
 - These CRUD tools allow you to create, read, update, and delete blocks of text from the above research notes as needed.
 - You can only work with one block of text at a time. Each block of text is a separate entity identified by a unique ID - Block ID.
 - To implement some of the feedback, you may need to make edits to multiple blocks of text.
-- Preserve any existing enumeration prefixes (e.g., "I.", "A.", "1.") in Topics/Subtopics while revising if applicable.
 
 Corrective Operations:
 These are specific instructions for fixing failed criteria items. Match each failed criteria from the checklist feedback above with its corresponding corrective operation in the criteria section below. Only apply the corrective operations for criteria that actually failed - ignore corrective operations for criteria that passed the evaluation. Use these corrective operations in combination with the feedback to make the necessary revisions.
