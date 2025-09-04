@@ -37,6 +37,8 @@ from services.helper_functions import iterate_scope
 
 import pandas as pd
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple
+import re
+
 from pydantic import BaseModel, Field
 
 
@@ -76,9 +78,17 @@ The amount of course outline provided to you for evaluation will vary based on t
 Focus your evaluation on the specific course outline content provided in the <course_outline> section above, using the <base_outline> only as a reference context.
 
 Here are the checklist criteria to evaluate:
-<checklist>
+<checklist_criteria>
 {checklist}
-</checklist>
+</checklist_criteria>
+
+Critical Evaluation Instructions:
+- Be Extremely Strict in your evaluation. Do not pass any criteria unless they are fully and completely satisfied.
+- Read each review criteria text WORD BY WORD and understand exactly what it is asking for.
+- Do not make assumptions or interpret criteria loosely. Follow the exact wording and requirements stated in each criteria.
+- Each criteria has specific requirements that must be met - evaluate against those exact requirements, not general best practices.
+- Do not let overall quality of the content influence your judgment - focus solely on whether each specific criteria requirement is met.
+- Strictly evaluate every single criteria provided in the checklist. Do not skip or miss any criteria.
 
 Make sure to output in the following format:
 <analysis>
@@ -224,7 +234,7 @@ Here are the review criteria with their corrective operations:
 {criteria_with_ops}
 </criteria_with_corrective_operations>
 
-Here are the revision examples that you can use as reference to understand the approach to revising the course outline:
+Here are the examples that you can use as reference to understand the approach to revising the course outline:
 <revision_examples>
 {reviser_examples}
 </revision_examples>
@@ -262,6 +272,232 @@ These examples show how to apply the corrections to the course outline. Use thes
 """
 
 
+course_outline_reviser_for_regenrate_tool_prompt = """You are responsible for producing a fully revised version of the course outline by applying the feedback provided in the checklist evaluation. 
+The goal is not to make small, localized edits, but to regenerate the entire outline so that it reflects a logical, instructionally sound sequence while addressing every issue identified in the feedback. The revised outline you produce will serve as the foundation for downstream course development steps, including the creation of research notes, slides, assessments, and other learner-facing content. Because of this, accuracy, completeness, and strict adherence to the required format are critical.
+
+This course outline is created for the following course:
+
+<course_info>
+Course Name: {course_name}
+
+Target Audience: {target_audience}
+
+Course Objective Guidelines: {course_objective_guidelines}
+
+Course Background: {course_background}
+</course_info>
+
+The following base outline was used as the foundation for developing the final course outline:
+<base_outline>
+{base_outline}
+</base_outline>
+
+Here is the current course outline that needs revision:
+<course_outline>
+{course_outline}
+</course_outline>
+
+Here is the checklist criteria for which the feedback was generated:
+<checklist_criteria>
+{checklist_criteria}
+</checklist_criteria>
+
+Here is the checklist feedback you must implement:
+<checklist_feedback>
+{checklist_feedback}
+</checklist_feedback>
+
+Course Outline Structure:
+
+The <course_outline> section provided to you for revision is composed of multiple blocks. 
+Each block represents one learning objective and contains the following elements:
+
+- Block ID: A unique identifier for the block (e.g., ###Block ID: 12). 
+
+- Topic: The high-level subject area. A course outline may contain multiple topics. 
+
+- Subtopic: A subdivision under a topic that groups related learning objectives together. 
+  Each topic may contain multiple subtopics.
+
+- Learning Objective: A single, specific instructional goal under the subtopic. 
+  Each block contains exactly one learning objective. Multiple learning objectives can share the same topic and subtopic, but they appear as separate blocks.
+
+Additional notes regarding the Course Outline Structure:
+- Topics and Subtopics may repeat across different blocks because multiple learning objectives can belong under the same category.
+- Together, all blocks form the complete course outline.
+- In your regenerated output, you must restructure these into a clean hierarchy:
+  Topic → Subtopic → list of Learning Objectives.
+- Do not include Block IDs in the regenerated outline.
+
+Critical Instructions:
+- Your task is to regenerate the entire course outline so that it fully implements the feedback.
+- Do not create any new learning objectives. Only reorder, regroup, or rename topics/subtopics if needed.
+- Preserve all original learning objective content, unless feedback requires removal.
+- The order of topics and subtopics must align with the intended instructional sequence in the <base_outline>.
+- If feedback refers to Block IDs, use the <course_outline> section to locate the referenced blocks before regenerating. These IDs are only provided for reference; they must not appear in your final output.
+- Your output must cover the entire outline, not just the changed parts. The result should be a complete, self-contained outline that requires no merging with the original.
+- Ensure that all learning objectives belonging to the same topic and subtopic are grouped together. They must not be split apart or interrupted by other topics/subtopics.
+
+Output Format Requirements:
+- Wrap the final result in <revised_outline> ... </revised_outline> tags.
+- Inside, organize the outline hierarchically in this structure:
+  Topic: [topic name]
+    Subtopic: [subtopic name]
+      Learning Objectives:
+        - [learning objective 1]
+        - [learning objective 2]
+        - [etc.]
+
+Example of correct output structure:
+
+<revised_outline>
+Topic: Topic 1 Name
+  Subtopic: Subtopic 1.1 Name
+    Learning Objectives:
+      - Learning objective 1.1.1
+      - Learning objective 1.1.2
+  Subtopic: Subtopic 1.2 Name
+    Learning Objectives:
+      - Learning objective 1.2.1
+  Subtopic: Subtopic 1.3 Name
+    Learning Objectives:
+      - Learning objective 1.3.1
+      - Learning objective 1.3.2
+
+Topic: Topic 2 Name
+  Subtopic: Subtopic 2.1 Name
+    Learning Objectives:
+      - Learning objective 2.1.1
+      - Learning objective 2.1.2
+  Subtopic: Subtopic 2.2 Name
+    Learning Objectives:
+      - Learning objective 2.2.1
+
+...and so on for all remaining topics and subtopics in the course.
+</revised_outline>
+
+Strictly produce your output in the following format:
+
+<output>
+
+<evaluation_breakdown>
+Use this section as your working space to think through the feedback before you regenerate the outline. This is not the final answer — it is where you plan, explore, and document how you will implement all the required changes stated in the feedback. It can include (but is not limited to):
+
+- Restating the feedback in your own words to confirm the requirement.
+- Identifying which parts of the <course_outline> are directly affected.
+- Considering possible reordering, regrouping, or renaming actions.
+- Deciding how to reorganize the outline to fix the issue while keeping it aligned with the <base_outline>.
+- Any additional considerations you find useful (e.g., edge cases, conflicts, assumptions, alternative options you evaluated, and why you chose one).
+
+This section is only for your internal reasoning and planning. Do not include or reference this section in the final output.
+</evaluation_breakdown>
+
+Based on your above planning, produce the whole revised version of the outline in the correct output format (stated in the 'Output Format Requirements' section) below:
+
+<revised_outline>
+(The whole revised outline)
+</revised_outline>
+
+</output>
+
+Here are the examples that you can use as reference to understand the approach to revising the course outline:
+<revision_examples>
+{examples}
+</revision_examples>
+"""
+
+
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "run_course_outline_regenerate_reviser_agent",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def run_course_outline_regenerate_reviser_agent(course_name, target_audience, course_objective_guidelines, course_background, base_outline, df_slice, checklist_criteria, checklist_feedback, reviser_examples, llm = "gemini_2_5_flash"):
+    """
+    Regenerate entire outline using the regeneration prompt and return a fresh DataFrame.
+    :param course_name: Name of the course for which the course outline is created.
+    :param target_audience: Target audience for the course.
+    :param course_objective_guidelines: Guidelines for the course objectives.
+    :param course_background: Background information about the course.
+    :param base_outline: The base outline used as foundation for developing the course.
+    :param df_slice: The DataFrame slice containing the course outline to regenerate.
+    :param checklist_criteria: The checklist criteria that failed evaluation.
+    :param checklist_feedback: The feedback from the checklist evaluation.
+    :param reviser_examples: Examples from Reviser Agent Examples column for the regeneration reviser.
+    :param llm: The language model to use for the regeneration.
+    :return: A new DataFrame with the regenerated course outline.
+    """
+    print("\n🔄 STARTING COURSE OUTLINE REGENERATION REVISER")
+    course_outline_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
+
+    regeneration_reviser_agent = Chain(llm=llm)
+
+    # # Format the prompt for debugging 
+    # formatted_prompt = course_outline_reviser_for_regenrate_tool_prompt.format(
+    #     course_name=course_name,
+    #     target_audience=target_audience,
+    #     course_objective_guidelines=course_objective_guidelines,
+    #     course_background=course_background,
+    #     base_outline=base_outline,
+    #     course_outline=course_outline_str,
+    #     checklist_criteria=checklist_criteria,
+    #     checklist_feedback=checklist_feedback,
+    #     examples=reviser_examples,
+    # )
+
+    # # Print the formatted prompt for debugging
+    # print("\n🔍 COURSE OUTLINE REGENERATION REVISER PROMPT BEING SENT TO LLM:\n")
+    # print(formatted_prompt)
+    # print("\n" + "=" * 100 + "\n")
+
+    regeneration_reviser_agent.add_message(
+        role="user",
+        content=course_outline_reviser_for_regenrate_tool_prompt.format(
+            course_name=course_name,
+            target_audience=target_audience,
+            course_objective_guidelines=course_objective_guidelines,
+            course_background=course_background,
+            base_outline=base_outline,
+            course_outline=course_outline_str,
+            checklist_criteria=checklist_criteria,
+            checklist_feedback=checklist_feedback,
+            examples=reviser_examples,
+        )
+    )
+    response = regeneration_reviser_agent.run()
+    
+    # Print the raw LLM response for debugging
+    print("\n🤖 REGENERATION REVISER LLM RESPONSE:\n")
+    print(str(response))
+    print("\n" + "=" * 100 + "\n")
+
+    revised_outline_text = extract_revised_outline_section(str(response))
+    if not revised_outline_text:
+        print("⚠️ Regeneration reviser did not return <revised_outline> section. Keeping original content.")
+        return df_slice
+
+    new_df = parse_revised_outline_to_df(revised_outline_text, llm=llm)
+    if new_df.empty:
+        print("⚠️ Parsed revised outline is empty. Keeping original content.")
+        return df_slice
+
+    # Rebuild working columns (order, block text)
+    new_df = new_df.reset_index(drop=True)
+    new_df['order'] = new_df.index.astype(float)
+    new_df['block text'] = ''
+    for index, row in new_df.iterrows():
+        bt = ""
+        bt += f"###Block ID: {index}\n"
+        bt += f"####**Topic:**\n{row['Topic']}\n"
+        bt += f"####**Subtopic:**\n{row['Subtopic']}\n"
+        bt += f"####**Learning Objective:**\n{row['Learning Objectives']}\n"
+        new_df.at[index, 'block text'] = bt
+
+    print(f"✅ Regeneration reviser produced {len(new_df)} rows.")
+    return new_df
+
+
 @traceable(metadata={
     "agent_name": "course_outline",
     "step_name": "Checklist Based Review and Revise Agents",
@@ -295,6 +531,7 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
         max_bucket_size=10,  # Controls the maximum burst size.
     )
 
+
     # Map LLM names to init_chat_model format
     llm_mapping = {
         "gpt5_thinking": "openai:gpt-5",  # Use gpt-5 with reasoning_effort="high"
@@ -309,7 +546,7 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
     # Add reasoning_effort parameter for thinking models
     init_params = {
         "rate_limiter": rate_limiter,
-        "max_retries": 20,
+        "max_retries": 30,       
     }
     
     if llm == "gpt5_thinking":
@@ -549,6 +786,12 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
     checklist_sheet = gc.open_by_url(checklist_sheet_link)
     checklist_worksheet, checklist_df = get_sheet_data_and_df(sheet = checklist_sheet, sheet_name = "Course Outline Checklist")
 
+    # Ensure Tools column exists and is normalized
+    if "Tools" not in checklist_df.columns:
+        checklist_df["Tools"] = ""
+    else:
+        checklist_df["Tools"] = checklist_df["Tools"].fillna("")
+
     # Load the Course info sheet to get course objective guidelines and course background
     course_info_worksheet, course_info_df = get_sheet_data_and_df(sheet = sheet, sheet_name = "Course info")
     
@@ -634,62 +877,50 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
         print(f"🔄 STARTING REVIEW-REVISE LOOP {loop_num}")
         print(f"{'='*80}")
         
+        # Split groups by Tools
+        non_regen_groups = []
+        regen_groups = []
         for (task, scope), grp in task_scope_groups:
-            
-            print(f"Loop {loop_num} - Running checklist for Task: {task}, Scope: {scope}")
+            tools_values = grp.get("Tools", pd.Series(dtype=str)).fillna("").tolist()
+            if any(val == "Regenerate Entire Output" for val in tools_values):
+                regen_groups.append(((task, scope), grp))
+            else:
+                non_regen_groups.append(((task, scope), grp))
 
-            # Extract criteria and examples together
+        # Phase A: Non-regeneration groups
+        print(f"📌 Loop {loop_num} Phase A — {len(non_regen_groups)} group(s)")
+        for (task, scope), grp in non_regen_groups:
+            print(f"Loop {loop_num} Phase A - Task: {task}, Scope: {scope}")
+            # Build strings inline 
             criteria_list = grp["Review Criteria"].tolist()
             criteria_names = grp["Criteria Name"].tolist()
             examples_list = grp["Review Agent Examples"].tolist()
-            
-            # Build structured criteria format
             criteria_with_separators = []
             for i, (criteria_name, criteria) in enumerate(zip(criteria_names, criteria_list), 1):
                 criteria_with_separators.append(f"<criteria_{i}>\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n</criteria_{i}>")
-            
             criteria_str = "\n\n".join(criteria_with_separators)
-            
-            # Build examples with structured format for each criteria
             examples_with_separators = []
             for i, (criteria_name, criteria, example) in enumerate(zip(criteria_names, criteria_list, examples_list)):
                 criteria_num = i + 1
                 examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n\n<example>\n\n{example}\n\n</example>\n\n</criteria_{criteria_num}>")
             examples_str = "\n\n".join(examples_with_separators)
-            
-            # Build criteria with corrective operations for reviser agent
             criteria_with_ops = []
             for _, row in grp.iterrows():
                 criteria_name = row["Criteria Name"]
                 criteria = row["Review Criteria"]
                 corrective_ops = row["Corrective Operations"]
                 criteria_with_ops.append(f"<criteria>\n\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n</criteria>")
-            
             criteria_ops_str = "\n\n".join(criteria_with_ops)
-            
-            # Build examples with structured format for reviser agent
             reviser_examples_with_separators = []
             for i, (criteria_name, criteria, corrective_ops, reviser_example) in enumerate(zip(criteria_names, criteria_list, grp["Corrective Operations"].tolist(), grp["Reviser Agent Examples"].tolist())):
                 criteria_num = i + 1
                 reviser_examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n<example>\n\n{reviser_example}\n\n</example>\n\n</criteria_{criteria_num}>")
-            
             reviser_examples_str = "\n\n".join(reviser_examples_with_separators)
-
-            # Choose processing method based on scope
             if scope == "Global (full output)":
-                print(f"Loop {loop_num} - Using SEQUENTIAL processing for Global scope")
-                
                 for key, df_slice in iterate_scope(scope, course_outline_df, scope_to_selector):
-
-                    print(f"Loop {loop_num} - Processing {key} with {len(df_slice)} rows")
-
                     if df_slice.empty:
-                        print(f"No data for {key}, skipping...")
                         continue
-
                     course_outline_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
-
-                    # Run the course outline checklist agent
                     failed_items = run_course_outline_checklist_agent(
                         course_name=course_name,
                         target_audience=target_audience,
@@ -701,15 +932,10 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
                         examples=examples_str,
                         llm=llm
                     )
-
-                    print(f"Failed items for {key}: {failed_items}")
-
                     if not failed_items:
-                        print(f"All items passed for {key}.")
                         continue
-
-                    # Run the reviser agent with the failed items and criteria with corrective operations
-                    revised_course_outline_df = run_course_outline_reviser_agent(
+                    print("🔧 Revising via CRUD tools path — Global scope")
+                    revised_df = run_course_outline_reviser_agent(
                         course_outline=course_outline_str,
                         checklist_feedback=failed_items,
                         criteria_with_ops=criteria_ops_str,
@@ -722,51 +948,148 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
                         base_outline=base_outline,
                         llm=llm
                     )
-
-                    print(f"Revised course outline for {key}: {revised_course_outline_df}")
-
-                    # Merge the revised slice back into the main DataFrame
-                    # Remove the original slice and replace with the revised version
-                    # Remove the original slice from main DataFrame - but only indices that still exist
+                    # Merge back
                     indices_to_drop = [idx for idx in df_slice.index if idx in course_outline_df.index]
                     if indices_to_drop:
                         course_outline_df = course_outline_df.drop(indices_to_drop)
-                    
-                    # Add the revised slice back to main DataFrame
-                    course_outline_df = pd.concat([course_outline_df, revised_course_outline_df], ignore_index=False)
-                    
-                    # Sort by the existing numeric 'order' column
+                    course_outline_df = pd.concat([course_outline_df, revised_df], ignore_index=False)
                     course_outline_df = course_outline_df.sort_values("order", kind="stable")
-                    
             else:
-                print(f"Loop {loop_num} - Using PARALLEL processing for {scope} scope")
-                
-                # Use parallel processing for Topic, Subtopic, Learning Objective scopes
+                print("🔧 Revising via CRUD tools path (Tools column blank) — Parallel scope")
                 slice_results = process_co_scope_slices_parallel(
                     scope, course_outline_df, scope_to_selector, 
                     criteria_str, examples_str, criteria_ops_str, 
                     reviser_examples_str, course_name, target_audience, 
                     course_objective_guidelines, course_background, base_outline, llm
                 )
-                
-                # Merge all parallel results back to main DataFrame
-                print(f"Loop {loop_num} - Merging {len(slice_results)} parallel results back to main DataFrame")
                 for original_slice, revised_slice in slice_results:
-                    # Use existing safe merge logic for each result
                     indices_to_drop = [idx for idx in original_slice.index if idx in course_outline_df.index]
                     if indices_to_drop:
                         course_outline_df = course_outline_df.drop(indices_to_drop)
-                    
-                    # Add the revised slice back to main DataFrame
                     course_outline_df = pd.concat([course_outline_df, revised_slice], ignore_index=False)
-                    
-                    # Sort by the existing numeric 'order' column
                     course_outline_df = course_outline_df.sort_values("order", kind="stable")
-                
-                print(f"Loop {loop_num} - Completed merging parallel results for {scope} scope")
-
             progress.update()
+
+        # Finalize and save after Phase A 
+        print(f"📝 Loop {loop_num} Phase A: Parsing block text to columns...")
+        course_outline_df = parse_co_block_text_to_columns(course_outline_df)
         
+        print(f"🗑️ Loop {loop_num} Phase A: Clearing order and block text columns...")
+        columns_to_drop = []
+        if 'order' in course_outline_df.columns:
+            columns_to_drop.append('order')
+        if 'block text' in course_outline_df.columns:
+            columns_to_drop.append('block text')
+        if columns_to_drop:
+            course_outline_df = course_outline_df.drop(columns=columns_to_drop)
+        
+        print(f"🔄 Loop {loop_num} Phase A: Generating order and block text columns...")
+        course_outline_df["order"] = course_outline_df.index.astype(float)
+        if 'block text' not in course_outline_df.columns:
+            course_outline_df['block text'] = ''
+        for index, row in course_outline_df.iterrows():
+            bt = ""
+            bt += f"###Block ID: {index}\n"
+            bt += f"####**Topic:**\n{row['Topic']}\n"
+            bt += f"####**Subtopic:**\n{row['Subtopic']}\n"
+            bt += f"####**Learning Objective:**\n{row['Learning Objectives']}\n"
+            course_outline_df.at[index, 'block text'] = bt
+        
+        print(f"💾 Loop {loop_num} Phase A: Saving to sheet...")
+        course_outline_sheet.clear()
+        save_to_sheet(worksheet=course_outline_sheet, df=course_outline_df)
+
+        # Phase B: Regeneration groups (always Global)
+        print(f"📌 Loop {loop_num} Phase B — {len(regen_groups)} group(s)")
+        for (task, scope), grp in regen_groups:
+            if scope != "Global (full output)":
+                print(f"⚠️ Skipping regeneration group with non-Global scope: {scope}")
+                continue
+            
+            criteria_list = grp["Review Criteria"].tolist()
+            criteria_names = grp["Criteria Name"].tolist()
+            examples_list = grp["Review Agent Examples"].tolist()
+            reviser_examples_list = grp["Reviser Agent Examples"].tolist()
+            
+            # Build criteria string for checklist agent
+            criteria_with_separators = []
+            for i, (criteria_name, criteria) in enumerate(zip(criteria_names, criteria_list), 1):
+                criteria_with_separators.append(f"<criteria_{i}>\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n</criteria_{i}>")
+            criteria_str = "\n\n".join(criteria_with_separators)
+            
+            # Build examples string for checklist agent
+            examples_with_separators = []
+            for i, (criteria_name, criteria, example) in enumerate(zip(criteria_names, criteria_list, examples_list)):
+                criteria_num = i + 1
+                examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria name: {criteria_name}\nReview Criteria: {criteria}\n\n<example>\n\n{example}\n\n</example>\n\n</criteria_{criteria_num}>")
+            examples_str = "\n\n".join(examples_with_separators)
+            
+            # Build reviser examples string for regeneration reviser agent 
+            reviser_examples_str = "\n\n".join(reviser_examples_list)
+            for key, df_slice in iterate_scope(scope, course_outline_df, scope_to_selector):
+                if df_slice.empty:
+                    continue
+                course_outline_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
+                failed_items = run_course_outline_checklist_agent(
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    course_objective_guidelines=course_objective_guidelines,
+                    course_background=course_background,
+                    base_outline=base_outline,
+                    course_outline=course_outline_str,
+                    checklist=criteria_str,
+                    examples=examples_str,
+                    llm=llm
+                )
+                if not failed_items:
+                    continue
+                # Regeneration reviser path
+                print("♻️ Revising via Regenerate Entire Output tool — Global scope")
+                regenerated_df = run_course_outline_regenerate_reviser_agent(
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    course_objective_guidelines=course_objective_guidelines,
+                    course_background=course_background,
+                    base_outline=base_outline,
+                    df_slice=df_slice,
+                    checklist_criteria=criteria_str,
+                    checklist_feedback=failed_items,
+                    reviser_examples=reviser_examples_str,
+                    llm=llm
+                )
+                course_outline_df = regenerated_df
+
+        # Finalize and save after Phase B 
+        print(f"📝 Loop {loop_num} Phase B: Parsing block text to columns...")
+        course_outline_df = parse_co_block_text_to_columns(course_outline_df)
+        
+        print(f"🗑️ Loop {loop_num} Phase B: Clearing order and block text columns...")
+        columns_to_drop = []
+        if 'order' in course_outline_df.columns:
+            columns_to_drop.append('order')
+        if 'block text' in course_outline_df.columns:
+            columns_to_drop.append('block text')
+        if columns_to_drop:
+            course_outline_df = course_outline_df.drop(columns=columns_to_drop)
+        
+        if loop_num < 2:
+            print(f"🔄 Loop {loop_num} Phase B: Generating order and block text columns for next loop...")
+            course_outline_df["order"] = course_outline_df.index.astype(float)
+            if 'block text' not in course_outline_df.columns:
+                course_outline_df['block text'] = ''
+            for index, row in course_outline_df.iterrows():
+                bt = ""
+                bt += f"###Block ID: {index}\n"
+                bt += f"####**Topic:**\n{row['Topic']}\n"
+                bt += f"####**Subtopic:**\n{row['Subtopic']}\n"
+                bt += f"####**Learning Objective:**\n{row['Learning Objectives']}\n"
+                course_outline_df.at[index, 'block text'] = bt
+        
+        print(f"💾 Loop {loop_num} Phase B: Saving to sheet...")
+        course_outline_sheet.clear()
+        save_to_sheet(worksheet=course_outline_sheet, df=course_outline_df)
+
+
         # Inter-loop processing after Loop 1
         if loop_num == 1:
             print(f"\n🔄 COMPLETING LOOP 1 - PARSING AND CLEANUP")
@@ -881,6 +1204,7 @@ def run_course_outline_checklist_and_reviser(sheet, course_name, target_audience
         hide_columns_by_name(course_outline_sheet, columns_to_hide, course_outline_df)
     
     print("✅ Block text parsing completed. Individual columns updated with revised content.")
+    print(f"📊 Final result: {len(course_outline_df)} rows")
    
     return
 
@@ -919,7 +1243,7 @@ def parse_co_block_text_row(block_text_cell, index):
     """
     try:
         # Use LLM + Pydantic to parse and validate
-        agent = Chain(llm="gemini_2_flash")
+        agent = Chain(llm="gemini_2_5_flash")
         agent.add_message(
             role="user",
             content=co_block_text_parsing_prompt.format(block=block_text_cell)
@@ -943,7 +1267,7 @@ def parse_co_block_text_to_columns(df, max_workers=5):
     """
     Parses the block text column and updates the individual Topic, Subtopic, and Learning Objectives columns.
     :param df: The DataFrame to update.
-    :param max_workers: Number of parallel workers (default 5).
+    :param max_workers: Number of parallel workers .
     :return: The updated DataFrame.
     """
     # Check if block text column exists
@@ -982,6 +1306,89 @@ def parse_co_block_text_to_columns(df, max_workers=5):
     
     return df
 
+
+
+# Regenerate full output tool reviser agent
+class RevisedSubtopic(BaseModel):
+    subtopic_name: str = Field(description="The name of the subtopic")
+    learning_objectives: List[str] = Field(description="List of learning objectives under this subtopic")
+
+
+class RevisedTopic(BaseModel):
+    topic_name: str = Field(description="The name of the topic")
+    subtopics: List[RevisedSubtopic] = Field(description="List of subtopics under this topic")
+
+
+class RevisedOutline(BaseModel):
+    topics: List[RevisedTopic] = Field(description="Complete list of topics with their subtopics and learning objectives")
+
+
+def extract_revised_outline_section(text):
+    """
+    Extract content inside <revised_outline>...</revised_outline> tags.
+    :param text: The full LLM response text.
+    :return: The inner content between the tags
+    """
+    if not text:
+        return ""
+    match = re.search(r"<revised_outline>([\s\S]*?)</revised_outline>", str(text))
+    return match.group(1).strip() if match else ""
+
+
+# Parsing prompt for revised outline 
+revised_outline_parsing_prompt = """You are an expert parser for hierarchical course outline text. Given a course outline in a hierarchical format, extract the following structured data:
+
+- topics: A list where each item contains:
+  - topic_name: The text after 'Topic:'
+  - subtopics: A list where each item contains:
+    - subtopic_name: The text after 'Subtopic:'
+    - learning_objectives: A list of bullet entries that appear under 'Learning Objectives:' for that subtopic
+
+Important rules:
+- Preserve the exact text as it appears in the outline. Do not paraphrase, reformat, or invent any content.
+- Only extract what is present in the input. If a section is missing, return an empty list for that part.
+- Ignore any numbering or bullets when filling learning objectives; return the raw text without the leading dash.
+
+Outline:
+{outline}
+"""
+
+
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Checklist Based Review and Revise Agents",
+    "function_name": "parse_revised_outline_to_df",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def parse_revised_outline_to_df(revised_outline_text: str, llm: str = "gemini_2_5_flash") -> pd.DataFrame:
+    """
+    Parse hierarchical revised outline text to DataFrame with Topic, Subtopic, Learning Objectives.
+    :param revised_outline_text: The content extracted from within <revised_outline> tags.
+    :param llm: The language model to use for structured parsing.
+    :return: DataFrame with Topic, Subtopic, Learning Objectives columns.
+    """
+    if not revised_outline_text:
+        return pd.DataFrame(columns=["Topic", "Subtopic", "Learning Objectives"]) 
+
+    agent = Chain(llm=llm)
+    agent.add_message(
+        role="user",
+        content=revised_outline_parsing_prompt.format(outline=revised_outline_text)
+    )
+    agent.structured_output = RevisedOutline
+    response = agent.run()
+
+    topics: List[RevisedTopic] = response.topics if hasattr(response, "topics") else []
+    rows = []
+    for topic in topics:
+        for sub in topic.subtopics:
+            for lo in sub.learning_objectives:
+                rows.append({
+                    "Topic": topic.topic_name,
+                    "Subtopic": sub.subtopic_name,
+                    "Learning Objectives": str(lo).lstrip("- ").strip(),
+                })
+    return pd.DataFrame(rows, columns=["Topic", "Subtopic", "Learning Objectives"]) 
 
 
 def delete_course_outline_checklist_and_reviser(sheet, worksheet_name="Final Outline"):

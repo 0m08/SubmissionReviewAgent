@@ -767,6 +767,27 @@ def extract_transcript_segment(transcript, start_sec, end_sec):
     return filtered
 
 
+def strip_enumeration_prefix(text: str) -> str:
+    """
+    Strip enumeration prefixes from text for grouping purposes.
+    Examples:
+    - "I. Introduction to Airflow" -> "Introduction to Airflow"
+    - "A. What is Airflow" -> "What is Airflow"
+    - "1. Basic concepts" -> "Basic concepts"
+    - "Introduction to Airflow" -> "Introduction to Airflow" (unchanged)
+    """
+    if not isinstance(text, str):
+        return str(text) if text is not None else ""
+    
+    text = text.strip()
+    # Match common enumeration patterns: Roman numerals, letters, numbers followed by period or parenthesis
+    import re
+    pattern = r'^(?:[IVXLCDM]+\.?|[A-Z]\.?|[0-9]+\.?|\([IVXLCDM]+\)|\([A-Z]\)|\([0-9]+\))\s+'
+    match = re.match(pattern, text, re.IGNORECASE)
+    if match:
+        return text[match.end():].strip()
+    return text
+
 
 #Iterator that yields exactly the slice required for the checklist agents based on the scope
 def iterate_scope(
@@ -816,5 +837,29 @@ def iterate_scope(
     else:
         # Assume list/tuple → groupby
         group_cols = list(selector)
-        for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
-            yield key, grp
+        
+        # Check if we're grouping by Topic/Subtopic columns that might have enumeration prefixes
+        needs_prefix_normalization = any(col in ['Topic', 'Subtopic'] for col in group_cols)
+        
+        if needs_prefix_normalization:
+            # Create temporary normalized columns for grouping
+            temp_df = data_df.copy()
+            normalized_cols = []
+            
+            for col in group_cols:
+                if col in ['Topic', 'Subtopic']:
+                    normalized_col = f"_normalized_{col}"
+                    temp_df[normalized_col] = temp_df[col].apply(strip_enumeration_prefix)
+                    normalized_cols.append(normalized_col)
+                else:
+                    normalized_cols.append(col)
+            
+            # Group by normalized columns but yield original data
+            for key, grp in temp_df.groupby(normalized_cols, dropna=False, sort=False):
+                # Drop the temporary normalized columns from the result
+                original_grp = grp.drop(columns=[c for c in grp.columns if c.startswith('_normalized_')])
+                yield key, original_grp
+        else:
+            # Standard groupby for non-Topic/Subtopic columns
+            for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
+                yield key, grp

@@ -1,7 +1,11 @@
 from googleapiclient.discovery import build
 import os
+from dotenv import load_dotenv
 from utils.decorator_helpers import cycle_api_keys_decorator
 from langsmith import traceable
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 gcloud_yt_search_api_keys = [

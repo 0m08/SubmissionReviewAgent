@@ -59,9 +59,17 @@ Here's the research notes to evaluate:
 </research_notes>
 
 Here are the checklist criteria to evaluate:
-<checklist>
+<checklist_criteria>
 {checklist}
-</checklist>
+</checklist_criteria>
+
+Critical Evaluation Instructions:
+- Be Extremely Strict in your evaluation. Do not pass any criteria unless they are fully and completely satisfied.
+- Read each review criteria text WORD BY WORD and understand exactly what it is asking for.
+- Do not make assumptions or interpret criteria loosely. Follow the exact wording and requirements stated in each criteria.
+- Each criteria has specific requirements that must be met - evaluate against those exact requirements, not general best practices.
+- Do not let overall quality of the content influence your judgment - focus solely on whether each specific criteria requirement is met.
+- Strictly evaluate every single criteria provided in the checklist. Do not skip or miss any criteria.
 
 Make sure to output in the following format:
 <analysis>
