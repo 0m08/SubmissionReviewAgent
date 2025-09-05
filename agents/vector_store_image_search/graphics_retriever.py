@@ -280,16 +280,36 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
         except Exception as e:
             print(f"❌ CLIP text embedding→image search failed: {e}")
 
-    # === Sort and Deduplicate ===
-    print("Ranking and filtering results...")
+    # === Sort and Deduplicate with Topic Diversity ===
+    print("Ranking and filtering results with topic diversity...")
     results = []
-    for result in sorted(combined_results, key=lambda x: x["similarity"]):
+    seen_phashes = set()
+    seen_topics = set()
+    
+    # Sort by similarity first
+    sorted_results = sorted(combined_results, key=lambda x: x["similarity"])
+    
+    for result in sorted_results:
         metadata = result["metadata"]
+        
+        # Skip if visually duplicate
         phash = metadata.get("phash")
         if phash and phash in seen_phashes:
             continue
         if phash:
             seen_phashes.add(phash)
+        
+        # Check topic diversity for v2 (when topic_name is available)
+        topic_name = metadata.get("topic_name")
+        if topic_name:
+            # Count how many results we already have from this topic
+            current_topic_count = sum(1 for r in results if r["metadata"].get("topic_name") == topic_name)
+            
+            # Allow maximum 1 result per topic to ensure maximum diversity
+            if current_topic_count >= 1:
+                continue
+            
+            seen_topics.add(topic_name)
 
         try:
             image_file_id = metadata["image_id"]
@@ -313,6 +333,14 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
             print(f"Failed to load image {metadata.get('image_id')}: {e}")
             continue
 
+    # Debug: Show topic distribution
+    if results:
+        topic_counts = {}
+        for result in results:
+            topic = result["metadata"].get("topic_name", "Unknown")
+            topic_counts[topic] = topic_counts.get(topic, 0) + 1
+        print(f"Topic distribution: {topic_counts}")
+    
     print(f"Returning {len(results)} results.")
     return results
 
