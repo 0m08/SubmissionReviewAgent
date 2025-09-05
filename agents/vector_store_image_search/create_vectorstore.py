@@ -15,6 +15,7 @@ import tempfile
 from typing import List
 import cohere
 import base64
+import shutil
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -57,6 +58,27 @@ def chroma_db_exists(drive, parent_folder_id):
     }).GetList()
 
     return bool(chroma_folder_list)
+
+
+def cleanup_existing_vectorstore(drive, parent_folder_id):
+    """
+    Delete existing vectorstore to free up quota space before creating a new one.
+    """
+    try:
+        vectorstore_folder_list = drive.ListFile({
+            'q': f"title='Vectorstore files' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        }).GetList()
+
+        if vectorstore_folder_list:
+            vectorstore_folder_id = vectorstore_folder_list[0]['id']
+            print(f"Found existing 'Vectorstore files' folder. Deleting to free up quota...")
+            drive.CreateFile({'id': vectorstore_folder_id}).Delete()
+            print("Existing vectorstore deleted successfully.")
+            return True
+        return False
+    except Exception as e:
+        print(f"Warning: Could not delete existing vectorstore: {e}")
+        return False
 
 
 def upload_folder_to_drive(local_folder_path, parent_drive_folder_id, drive):
@@ -137,19 +159,29 @@ def get_image_embedding_from_file(image: Image.Image) -> List[float]:
     """
     Save a PIL image to a temporary file and extract the embedding using Cohere's embed-v4.0.
     """
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
-        image.save(tmp_file.name, format="JPEG")
-        with open(tmp_file.name, "rb") as f:
-            enc_img = base64.b64encode(f.read()).decode("utf-8")
-            enc_img = f"data:image/jpeg;base64,{enc_img}"
+    temp_file_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+            temp_file_path = tmp_file.name
+            image.save(tmp_file.name, format="JPEG")
+            with open(tmp_file.name, "rb") as f:
+                enc_img = base64.b64encode(f.read()).decode("utf-8")
+                enc_img = f"data:image/jpeg;base64,{enc_img}"
 
-    response = co.embed(
-        model="embed-v4.0",
-        images=[enc_img],
-        input_type="image",
-        embedding_types=["float"],
-    )
-    return response.embeddings.float[0]
+        response = co.embed(
+            model="embed-v4.0",
+            images=[enc_img],
+            input_type="image",
+            embedding_types=["float"],
+        )
+        return response.embeddings.float[0]
+    finally:
+        # Clean up temporary file
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as cleanup_error:
+                print(f"Warning: Could not clean up temp file {temp_file_path}: {cleanup_error}")
 
 
 def download_image_from_drive(drive, file_id):
@@ -160,6 +192,7 @@ def download_image_from_drive(drive, file_id):
     :param file_id: ID of the file to download.
     :return: PIL Image object or None if download fails.
     """
+    temp_path = None
     try:
         file = drive.CreateFile({'id': file_id})
         file.FetchMetadata(fields='title, mimeType')
@@ -172,14 +205,18 @@ def download_image_from_drive(drive, file_id):
         with Image.open(temp_path) as img:
             pil_img = img.convert("RGB").copy()  # ensure it's fully loaded before file is closed
 
-        # Optionally delete temp file
-        os.remove(temp_path)
-
         return pil_img  # Return actual PIL Image
 
     except Exception as e:
         print(f"Failed to download image {file_id}: {e}")
         return None
+    finally:
+        # Always clean up temp file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as cleanup_error:
+                print(f"Warning: Could not clean up temp file {temp_path}: {cleanup_error}")
 
 
 
@@ -218,6 +255,13 @@ def process_image_embedding(row, folder_id, drive):
 def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', version='v1'):
     valid_sheets = [ws.title for ws in spreadsheet.worksheets() if is_valid_folderid(ws.title)]
     print("Valid sheets to process:", valid_sheets, "\n")
+
+    # Check if vectorstore already exists and clean it up to avoid quota issues
+    if version == 'v2':
+        db_exists = chroma_db_exists(drive, root_folder_id)
+        if db_exists:
+            print("Vectorstore already exists. Cleaning up existing vectorstore to free quota space...")
+            cleanup_existing_vectorstore(drive, root_folder_id)
 
     file_list = drive.ListFile({
         'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -367,6 +411,14 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
     print("Uploading to Drive...")
     upload_folder_to_drive(local_chroma_path, vectorstore_folder_id, drive)
     print("Upload complete.\n All embeddings processed successfully.")
+    
+    # Clean up temporary files to free up space
+    import shutil
+    try:
+        shutil.rmtree(local_chroma_root)
+        print(f"Cleaned up temporary directory: {local_chroma_root}")
+    except Exception as e:
+        print(f"Warning: Could not clean up temporary directory: {e}")
     
     
 def update_vectorstore(spreadsheet, drive):
@@ -534,6 +586,13 @@ def update_vectorstore(spreadsheet, drive):
 
     print("Uploading updated vectorstore to Drive...")
     upload_folder_to_drive(local_chroma_path, parent_folder_id, drive)
+
+    # Clean up temporary files to free up space
+    try:
+        shutil.rmtree(local_chroma_root)
+        print(f"Cleaned up temporary directory: {local_chroma_root}")
+    except Exception as e:
+        print(f"Warning: Could not clean up temporary directory: {e}")
 
     print("Update complete. Both collections are synced.")
 
