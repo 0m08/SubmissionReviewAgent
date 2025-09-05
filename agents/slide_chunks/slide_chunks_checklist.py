@@ -9,6 +9,10 @@ from services.sheets_service import (
     delete_worksheet,
     clear_all_filters,
     hide_columns_by_name,
+    get_worksheet_names,
+    safe_get_sheet_data_and_df,
+    hide_worksheet_by_name,
+    create_or_read_worksheet,
 )
 import json
 import streamlit as st
@@ -166,10 +170,9 @@ def get_learning_objectives(scope, df_slice, sheet, gc):
     """
     try:
         # Get the Final Outline sheet from the same workbook
-        try:
-            _, outline_df = get_sheet_data_and_df(sheet=sheet, sheet_name="Final Outline")
-        except Exception as e:
-            print(f"⚠️ Could not access Final Outline sheet: {e}")
+        _, outline_df = safe_get_sheet_data_and_df(sheet, "Final Outline")
+        if outline_df.empty:
+            print("⚠️ Final Outline sheet not found or empty")
             return f"Learning objectives unavailable for scope '{scope}'. Ensure content is educationally sound and aligned with course goals."
         
         # Handle column name variations
@@ -717,7 +720,7 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
         print("Ordered DataFrame by 'order' column before parsing")
     
     # Clear the worksheet first to handle row deletions properly
-    slide_chunks_sheet.clear()
+    clear_worksheet(slide_chunks_sheet)
     
     # Save to sheet
     save_to_sheet(worksheet = slide_chunks_sheet, df = slide_chunks_df)
@@ -954,14 +957,9 @@ def create_backup_slide_chunks(sheet):
         return
     
     # Check if backup already exists, if yes, delete it first
-    sheet_names = [ws.title for ws in sheet.worksheets()]
+    sheet_names = get_worksheet_names(sheet)
     if backup_name in sheet_names:
-        try:
-            existing_backup = sheet.worksheet(backup_name)
-            sheet.del_worksheet(existing_backup)
-            print(f"Deleted existing backup sheet '{backup_name}'")
-        except Exception as e:
-            print(f"Error deleting existing backup: {e}")
+        delete_worksheet(sheet, backup_name)
     
     # Get the original worksheet
     try:
@@ -974,17 +972,7 @@ def create_backup_slide_chunks(sheet):
     backup_ws = original_ws.duplicate(new_sheet_name=backup_name)
     
     # Hide the backup sheet
-    sheet.batch_update({
-        'requests': [{
-            'updateSheetProperties': {
-                'properties': {
-                    'sheetId': backup_ws.id,
-                    'hidden': True
-                },
-                'fields': 'hidden'
-            }
-        }]
-    })
+    hide_worksheet_by_name(sheet, backup_name)
     
     print(f"✅ Created and hid backup sheet: '{backup_name}'")
 
@@ -996,7 +984,7 @@ def delete_slide_chunks_checklist(sheet):
     backup_name = "Backup Slide Chunks Sheet for Delete step of Slide Chunks Checklist"
     
     # Check if backup exists
-    sheet_names = [ws.title for ws in sheet.worksheets()]
+    sheet_names = get_worksheet_names(sheet)
     if backup_name not in sheet_names:
         print(f"Backup sheet '{backup_name}' not found. Cannot restore.")
         return
@@ -1010,14 +998,14 @@ def delete_slide_chunks_checklist(sheet):
         backup_data = backup_ws.get_all_values()
         
         # Clear the current Slide Chunks sheet
-        slide_chunks_ws.clear()
+        clear_worksheet(slide_chunks_ws)
         
         # Copy data from backup to Slide Chunks
         if backup_data:
             slide_chunks_ws.update(backup_data)
         
         # Delete the backup sheet
-        sheet.del_worksheet(backup_ws)
+        delete_worksheet(sheet, backup_name)
         
         # Set flag to prevent immediate recreation of backup
         st.session_state["just_deleted_checklist"] = True

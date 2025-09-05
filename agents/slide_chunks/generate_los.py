@@ -6,8 +6,10 @@ from services.sheets_service import (
     get_sheet_data_and_df,
     save_to_sheet,
     clear_worksheet,
+    delete_worksheet,
+    get_worksheet_names,
+    hide_worksheet_by_name,
 )
-from gspread_dataframe import set_with_dataframe
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
@@ -835,7 +837,7 @@ def run_learning_objectives_agent(sheet, worksheet_name, course_name, target_aud
         slide_chunks_df = pd.concat(ordered_topic_dfs, ignore_index=True)
 
         # Write once to Google Sheets after all processing
-        set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
+        save_to_sheet(slide_chunks_sheet, slide_chunks_df)
         print("\n✅ All Topics Processed and Updated in Google Sheets 🚀\n")
 
 def create_backup_slide_chunks_for_learning_objectives(sheet):
@@ -851,14 +853,9 @@ def create_backup_slide_chunks_for_learning_objectives(sheet):
         return
     
     # Check if backup already exists, if yes, delete it first
-    sheet_names = [ws.title for ws in sheet.worksheets()]
+    sheet_names = get_worksheet_names(sheet)
     if backup_name in sheet_names:
-        try:
-            existing_backup = sheet.worksheet(backup_name)
-            sheet.del_worksheet(existing_backup)
-            print(f"Deleted existing backup sheet '{backup_name}'")
-        except Exception as e:
-            print(f"Error deleting existing backup: {e}")
+        delete_worksheet(sheet, backup_name)
     
     # Get the original worksheet
     try:
@@ -871,17 +868,7 @@ def create_backup_slide_chunks_for_learning_objectives(sheet):
     backup_ws = original_ws.duplicate(new_sheet_name=backup_name)
     
     # Hide the backup sheet
-    sheet.batch_update({
-        'requests': [{
-            'updateSheetProperties': {
-                'properties': {
-                    'sheetId': backup_ws.id,
-                    'hidden': True
-                },
-                'fields': 'hidden'
-            }
-        }]
-    })
+    hide_worksheet_by_name(sheet, backup_name)
     
     print(f"✅ Created and hid backup sheet: '{backup_name}'")
 
@@ -893,7 +880,7 @@ def delete_learning_objectives_slide_chunks(sheet, worksheet_name="Slide Chunks"
     backup_name = "Backup Slide Chunks Sheet for Delete step of Learning Objectives"
     
     # Check if backup exists
-    sheet_names = [ws.title for ws in sheet.worksheets()]
+    sheet_names = get_worksheet_names(sheet)
     if backup_name not in sheet_names:
         print(f"Backup sheet '{backup_name}' not found. Cannot restore.")
         return
@@ -907,14 +894,14 @@ def delete_learning_objectives_slide_chunks(sheet, worksheet_name="Slide Chunks"
         backup_data = backup_ws.get_all_values()
         
         # Clear the current Slide Chunks sheet
-        slide_chunks_ws.clear()
+        clear_worksheet(slide_chunks_ws)
         
         # Copy data from backup to Slide Chunks
         if backup_data:
             slide_chunks_ws.update(backup_data)
         
         # Delete the backup sheet
-        sheet.del_worksheet(backup_ws)
+        delete_worksheet(sheet, backup_name)
         
         # Set flag to prevent immediate recreation of backup
         st.session_state["just_deleted_learning_objectives"] = True
