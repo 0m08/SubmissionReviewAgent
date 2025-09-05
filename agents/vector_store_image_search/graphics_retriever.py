@@ -12,25 +12,25 @@ import base64
 import tempfile
 
 
-def load_central_chroma_db(embedding_function, drive, central_folder_id):
-    """
-    Load the shared Chroma DB collections from Google Drive.
-    :param embedding_function: Function to compute text embeddings.
-    :param drive: Google Drive instance.
-    :param central_folder_id: ID of the central folder containing the Chroma DB.
-    :return: Dictionary with 'text' and 'image' collections.
-    """
+def load_central_chroma_db(embedding_function, drive, root_folder_id):
+    """Load the shared Chroma DB collections from Google Drive."""
 
-
-    # Local DB folder (shared by both collections)
     local_chroma_root = "/tmp/temp_chroma_folder"
     local_chroma_path = os.path.join(local_chroma_root, "chroma_graphics_db")
     os.makedirs(local_chroma_root, exist_ok=True)
 
-    # Search for the shared Chroma DB folder
+    # Locate Vectorstore files folder
+    vectorstore_list = drive.ListFile({
+        'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    }).GetList()
+    if not vectorstore_list:
+        raise FileNotFoundError("'Vectorstore files' folder not found in Drive.")
+    vectorstore_folder_id = vectorstore_list[0]['id']
+
+    # Search for chroma db folder
     print("Searching for 'chroma_graphics_db' in Drive...")
     file_list = drive.ListFile({
-        'q': f"title='chroma_graphics_db' and '{central_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
 
     if not file_list:
@@ -126,7 +126,8 @@ def _safe_iter_clip_results(clip_results):
 
 
 def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.Image] = None,
-                       drive=None, k: int = 5, filters=None) -> List[Dict[str, any]]:
+                       drive=None, k: int = 5, filters=None,
+                       root_folder_id: str = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH') -> List[Dict[str, any]]:
     assert query or query_image, "Please provide a query or an image."
 
     def match_filters(metadata):
@@ -142,12 +143,20 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
             selected_types = [t.lower() for t in filters["image_type"]]
             if not any(sel in metadata_types for sel in selected_types):
                 return False
+        if filters.get("course_name") and metadata.get("course_name") and \
+                filters["course_name"].lower() not in metadata["course_name"].lower():
+            return False
+        if filters.get("topic_name") and metadata.get("topic_name") and \
+                filters["topic_name"].lower() not in metadata["topic_name"].lower():
+            return False
+        if filters.get("stock_type") and metadata.get("stock_type") and \
+                metadata["stock_type"].lower() != filters["stock_type"].lower():
+            return False
         return True
 
     print("Loading Chroma DBs...")
     embedding_function = get_embedding_model()
-    central_folder_id = '1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2'
-    dbs = load_central_chroma_db(embedding_function, drive, central_folder_id)
+    dbs = load_central_chroma_db(embedding_function, drive, root_folder_id)
 
     seen_phashes = set()
     combined_results = []

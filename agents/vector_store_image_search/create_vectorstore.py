@@ -36,9 +36,13 @@ def is_valid_folderid(title):
 
 def chroma_db_exists(drive, parent_folder_id):
     """
-    Checks whether chroma_research_db exists inside Vectorstore files in the specified parent folder.
-    Returns True if both folders exist.
+    Checks whether a Chroma DB exists inside ``Vectorstore files`` in the specified
+    parent folder.
+
+    This function mirrors the folder structure used by the vectorstore builder:
+    ``Vectorstore files`` → ``chroma_graphics_db``.
     """
+
     vectorstore_folder_list = drive.ListFile({
         'q': f"title='Vectorstore files' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
@@ -49,7 +53,7 @@ def chroma_db_exists(drive, parent_folder_id):
     vectorstore_folder_id = vectorstore_folder_list[0]['id']
 
     chroma_folder_list = drive.ListFile({
-        'q': f"title='chroma_research_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
 
     return bool(chroma_folder_list)
@@ -196,19 +200,27 @@ def process_image_embedding(row, folder_id, drive):
             'folder_id': folder_id,
             'embedding_type': 'image'
         }
+
+        # Optional v2 metadata
+        if 'Course Name' in row:
+            metadata['course_name'] = row['Course Name']
+        if 'Topic Name' in row:
+            metadata['topic_name'] = row['Topic Name']
+        if 'Stock/Non Stock' in row:
+            metadata['stock_type'] = row['Stock/Non Stock']
+
         return row.name, image_vector, metadata
     except Exception as e:
         print(f"Error embedding image ID {row['Image ID']}: {e}")
         return None, None, None
 
 
-def build_vectorstore_and_upload(spreadsheet, drive):
+def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', version='v1'):
     valid_sheets = [ws.title for ws in spreadsheet.worksheets() if is_valid_folderid(ws.title)]
     print("Valid sheets to process:", valid_sheets, "\n")
 
-    parent_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
     file_list = drive.ListFile({
-        'q': f"title='Vectorstore files' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
 
     if file_list:
@@ -217,7 +229,7 @@ def build_vectorstore_and_upload(spreadsheet, drive):
     else:
         folder_metadata = {
             'title': 'Vectorstore files',
-            'parents': [{'id': parent_folder_id}],
+            'parents': [{'id': root_folder_id}],
             'mimeType': 'application/vnd.google-apps.folder'
         }
         new_folder = drive.CreateFile(folder_metadata)
@@ -243,6 +255,8 @@ def build_vectorstore_and_upload(spreadsheet, drive):
 
     print("Embedding model and Chroma DB initialized.\n")
 
+    required_cols_v2 = {'Image Description', 'Course Name', 'Topic Name', 'Stock/Non Stock'}
+
     for sheet in spreadsheet.worksheets():
         if not is_valid_folderid(sheet.title):
             continue
@@ -252,8 +266,12 @@ def build_vectorstore_and_upload(spreadsheet, drive):
 
         df = pd.DataFrame(sheet.get_all_records())
 
-        if 'Image Description' not in df.columns:
-            print(f"Sheet '{folder_id}' missing 'Image Description'. Skipping.\n")
+        required_cols = {'Image Description'}
+        if version == 'v2':
+            required_cols = required_cols_v2
+
+        if any(col not in df.columns for col in required_cols):
+            print(f"Sheet '{folder_id}' missing required columns. Skipping.\n")
             continue
 
         for col in ['vectorized', 'embedding_ts', 'image_vectorized', 'image_embedding_ts', 'fully_vectorized']:
@@ -267,17 +285,27 @@ def build_vectorstore_and_upload(spreadsheet, drive):
 
         if not rows_to_vectorize.empty:
             new_texts = rows_to_vectorize['Image Description'].tolist()
-            new_metadatas = rows_to_vectorize.apply(lambda row: {
-                'image_id': row['Image ID'],
-                'name': row['Image Name'],
-                'drive_url': row['Image Link'],
-                'mime_type': row['MimeType'],
-                'description': row['Image Description'],
-                'image_type': row['Image Type'],
-                'image_title': row['Image Title'],
-                'folder_id': folder_id,
-                'embedding_type': 'text'
-            }, axis=1).tolist()
+            def build_metadata(row):
+                meta = {
+                    'image_id': row['Image ID'],
+                    'name': row['Image Name'],
+                    'drive_url': row['Image Link'],
+                    'mime_type': row['MimeType'],
+                    'description': row['Image Description'],
+                    'image_type': row['Image Type'],
+                    'image_title': row['Image Title'],
+                    'folder_id': folder_id,
+                    'embedding_type': 'text'
+                }
+                if 'Course Name' in row:
+                    meta['course_name'] = row['Course Name']
+                if 'Topic Name' in row:
+                    meta['topic_name'] = row['Topic Name']
+                if 'Stock/Non Stock' in row:
+                    meta['stock_type'] = row['Stock/Non Stock']
+                return meta
+
+            new_metadatas = rows_to_vectorize.apply(build_metadata, axis=1).tolist()
 
             BATCH_SIZE = 5000
             for i in range(0, len(new_texts), BATCH_SIZE):

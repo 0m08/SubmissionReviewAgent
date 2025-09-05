@@ -38,6 +38,13 @@ sheet = st.session_state.get("sheet")
 st.markdown("## SkillCat Graphics Search Tool")
 st.markdown("Use this tool to search and retrieve relevant images based on text queries.")
 
+# Version toggle
+version = st.radio("Version", ["v1", "v2"], index=0)
+if version == "v2":
+    root_folder_id = "1IMGr4d8lwux5R_cAWfhVjBV0fTFdWvNi"
+else:
+    root_folder_id = "1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH"
+
 
 # --- Define task visibility by role ---
 authenticated_roles = {
@@ -90,7 +97,7 @@ if task in ["Create Vectorstore", "Update Vectorstore"]:
 
     sheet = st.session_state.get("sheet")
 
-central_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
+central_folder_id = root_folder_id
 
 
 # -------------------- Task: Create Vectorstore -------------------- #
@@ -104,7 +111,7 @@ if task == "Create Vectorstore":
         else:
             if st.button("Create Vectorstore"):
                 with st.spinner("⏳ Building and uploading Vectorstore..."):
-                    build_vectorstore_and_upload(sheet, drive)
+                    build_vectorstore_and_upload(sheet, drive, root_folder_id=root_folder_id, version=version)
                 st.success("Vectorstore built and uploaded successfully!")
                 st.session_state["chroma_created"] = True
 
@@ -132,7 +139,10 @@ elif task == "Update Vectorstore":
 
             if update_required:
                 with st.spinner("Updating vectorstore... This may take a few minutes."):
-                    update_vectorstore(sheet, drive)
+                    if version == "v2":
+                        build_vectorstore_and_upload(sheet, drive, root_folder_id=root_folder_id, version=version)
+                    else:
+                        update_vectorstore(sheet, drive)
                 st.success("Vectorstore updated.")
             else:
                 st.info("No updates needed. Vectorstore is up to date.")
@@ -220,6 +230,17 @@ elif task == "Search Images":
         if image_title_keyword:
             filters["image_title"] = image_title_keyword
 
+        if version == "v2":
+            course_name = st.text_input("Course Name")
+            if course_name:
+                filters["course_name"] = course_name
+            topic_name = st.text_input("Topic Name")
+            if topic_name:
+                filters["topic_name"] = topic_name
+            stock_type = st.selectbox("Stock Type", ["All", "Stock", "Non Stock"], index=0)
+            if stock_type != "All":
+                filters["stock_type"] = stock_type
+
     # === Search Mode Toggles ===
     use_graph = st.toggle("Agent Mode", value=False)
 
@@ -242,7 +263,8 @@ elif task == "Search Images":
                         k=k,
                         llm="gemini_2_flash",
                         max_turns=3,
-                        filters=filters
+                        filters=filters,
+                        root_folder_id=root_folder_id
                     )
                 else:
                     results = graphics_retriever(
@@ -250,7 +272,8 @@ elif task == "Search Images":
                         query_image=query_image,
                         drive=drive,
                         k=k,
-                        filters=filters
+                        filters=filters,
+                        root_folder_id=root_folder_id
                     )
                     # results =web_image_search_tool(query=query, k=k)
 
