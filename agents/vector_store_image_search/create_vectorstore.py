@@ -256,12 +256,7 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
     valid_sheets = [ws.title for ws in spreadsheet.worksheets() if is_valid_folderid(ws.title)]
     print("Valid sheets to process:", valid_sheets, "\n")
 
-    # Check if vectorstore already exists and clean it up to avoid quota issues
-    if version == 'v2':
-        db_exists = chroma_db_exists(drive, root_folder_id)
-        if db_exists:
-            print("Vectorstore already exists. Cleaning up existing vectorstore to free quota space...")
-            cleanup_existing_vectorstore(drive, root_folder_id)
+    
 
     file_list = drive.ListFile({
         'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -284,6 +279,22 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
     local_chroma_root = "/tmp/temp_chroma_folder"
     local_chroma_path = os.path.join(local_chroma_root, "chroma_graphics_db")
     os.makedirs(local_chroma_path, exist_ok=True)
+
+    # Check if we need to download existing vectorstore
+    db_exists = chroma_db_exists(drive, root_folder_id)
+    if db_exists:
+        print("Found existing vectorstore. Downloading for incremental update...")
+        # Find the chroma_graphics_db folder
+        chroma_folder_list = drive.ListFile({
+            'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        }).GetList()
+        
+        if chroma_folder_list:
+            chroma_folder_id = chroma_folder_list[0]['id']
+            download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
+            print("Downloaded existing vectorstore for incremental update.")
+        else:
+            print("Vectorstore folder not found, creating new one.")
 
     embedding_function = get_embedding_model()
     chroma_db = Chroma(
@@ -409,6 +420,17 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
     print("Chroma DB persisted locally.")
 
     print("Uploading to Drive...")
+    
+    # If this was an incremental update, remove old vectorstore first
+    if db_exists:
+        print("Removing old vectorstore before uploading updated version...")
+        chroma_folder_list = drive.ListFile({
+            'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        }).GetList()
+        if chroma_folder_list:
+            drive.CreateFile({'id': chroma_folder_list[0]['id']}).Delete()
+            print("Old vectorstore removed.")
+    
     upload_folder_to_drive(local_chroma_path, vectorstore_folder_id, drive)
     print("Upload complete.\n All embeddings processed successfully.")
     
