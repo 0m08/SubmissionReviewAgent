@@ -255,8 +255,9 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
         vectorstore_folder_id = new_folder['id']
         print("Created 'Vectorstore files' folder.\n")
 
+    # Create version-specific local path to avoid cache conflicts
     local_chroma_root = "/tmp/temp_chroma_folder"
-    local_chroma_path = os.path.join(local_chroma_root, "chroma_graphics_db")
+    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
     os.makedirs(local_chroma_path, exist_ok=True)
 
     # Check if we need to download existing vectorstore
@@ -429,8 +430,9 @@ def update_vectorstore(spreadsheet, drive):
     """
     print("Starting vectorstore update...")
     parent_folder_id = '1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2'
+    # Create version-specific local path to avoid cache conflicts
     local_chroma_root = "/tmp/temp_chroma_folder"
-    local_chroma_path = os.path.join(local_chroma_root, "chroma_graphics_db")
+    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{parent_folder_id}")
     os.makedirs(local_chroma_root, exist_ok=True)
 
     print("Downloading existing Chroma DB from Drive...")

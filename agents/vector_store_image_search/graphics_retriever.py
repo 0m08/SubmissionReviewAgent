@@ -15,8 +15,9 @@ import tempfile
 def load_central_chroma_db(embedding_function, drive, root_folder_id):
     """Load the shared Chroma DB collections from Google Drive."""
 
+    # Create version-specific local path to avoid cache conflicts
     local_chroma_root = "/tmp/temp_chroma_folder"
-    local_chroma_path = os.path.join(local_chroma_root, "chroma_graphics_db")
+    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
     os.makedirs(local_chroma_root, exist_ok=True)
 
     # Locate Vectorstore files folder
