@@ -58,28 +58,7 @@ def chroma_db_exists(drive, parent_folder_id):
     }).GetList()
 
     return bool(chroma_folder_list)
-
-
-def cleanup_existing_vectorstore(drive, parent_folder_id):
-    """
-    Delete existing vectorstore to free up quota space before creating a new one.
-    """
-    try:
-        vectorstore_folder_list = drive.ListFile({
-            'q': f"title='Vectorstore files' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        }).GetList()
-
-        if vectorstore_folder_list:
-            vectorstore_folder_id = vectorstore_folder_list[0]['id']
-            print(f"Found existing 'Vectorstore files' folder. Deleting to free up quota...")
-            drive.CreateFile({'id': vectorstore_folder_id}).Delete()
-            print("Existing vectorstore deleted successfully.")
-            return True
-        return False
-    except Exception as e:
-        print(f"Warning: Could not delete existing vectorstore: {e}")
-        return False
-
+    
 
 def upload_folder_to_drive(local_folder_path, parent_drive_folder_id, drive):
     folder_name = os.path.basename(local_folder_path)
