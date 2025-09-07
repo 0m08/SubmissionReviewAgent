@@ -58,7 +58,7 @@ def chroma_db_exists(drive, parent_folder_id):
     }).GetList()
 
     return bool(chroma_folder_list)
-    
+
 
 def upload_folder_to_drive(local_folder_path, parent_drive_folder_id, drive):
     folder_name = os.path.basename(local_folder_path)
@@ -414,7 +414,6 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
     print("Upload complete.\n All embeddings processed successfully.")
     
     # Clean up temporary files to free up space
-    import shutil
     try:
         shutil.rmtree(local_chroma_root)
         print(f"Cleaned up temporary directory: {local_chroma_root}")
