@@ -142,7 +142,7 @@ elif task == "Update Vectorstore":
                     if version == "v2":
                         build_vectorstore_and_upload(sheet, drive, root_folder_id=root_folder_id, version=version)
                     else:
-                        update_vectorstore(sheet, drive)
+                        update_vectorstore(sheet, drive, root_folder_id=root_folder_id)
                 st.success("Vectorstore updated.")
             else:
                 st.info("No updates needed. Vectorstore is up to date.")

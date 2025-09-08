@@ -414,30 +414,30 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
     upload_folder_to_drive(local_chroma_path, vectorstore_folder_id, drive)
     print("Upload complete.\n All embeddings processed successfully.")
     
-    # Clean up temporary files to free up space
+    # Clean up temporary files to free up space (only this version's directory)
     try:
-        shutil.rmtree(local_chroma_root)
-        print(f"Cleaned up temporary directory: {local_chroma_root}")
+        shutil.rmtree(local_chroma_path)
+        print(f"Cleaned up temporary directory: {local_chroma_path}")
     except Exception as e:
         print(f"Warning: Could not clean up temporary directory: {e}")
     
     
-def update_vectorstore(spreadsheet, drive):
+def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2'):
     """
     Update Chroma DB with new text and image embeddings from Google Sheets and upload to Drive.
     :param spreadsheet: Google Sheets instance.
     :param drive: Google Drive instance.
+    :param root_folder_id: Root folder ID for version-specific operations.
     """
     print("Starting vectorstore update...")
-    parent_folder_id = '1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2'
     # Create version-specific local path to avoid cache conflicts
     local_chroma_root = "/tmp/temp_chroma_folder"
-    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{parent_folder_id}")
+    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
     os.makedirs(local_chroma_root, exist_ok=True)
 
     print("Downloading existing Chroma DB from Drive...")
     file_list = drive.ListFile({
-        'q': f"title='chroma_graphics_db' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        'q': f"title='chroma_graphics_db' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
 
     if not file_list:
@@ -587,12 +587,12 @@ def update_vectorstore(spreadsheet, drive):
     drive.CreateFile({'id': chroma_folder_id}).Delete()
 
     print("Uploading updated vectorstore to Drive...")
-    upload_folder_to_drive(local_chroma_path, parent_folder_id, drive)
+    upload_folder_to_drive(local_chroma_path, root_folder_id, drive)
 
-    # Clean up temporary files to free up space
+    # Clean up temporary files to free up space (only this version's directory)
     try:
-        shutil.rmtree(local_chroma_root)
-        print(f"Cleaned up temporary directory: {local_chroma_root}")
+        shutil.rmtree(local_chroma_path)
+        print(f"Cleaned up temporary directory: {local_chroma_path}")
     except Exception as e:
         print(f"Warning: Could not clean up temporary directory: {e}")
 
