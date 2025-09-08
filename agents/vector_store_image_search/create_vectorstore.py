@@ -15,6 +15,7 @@ import tempfile
 from typing import List
 import cohere
 import base64
+import time
 import shutil
 from dotenv import load_dotenv
 
@@ -61,7 +62,8 @@ def chroma_db_exists(drive, parent_folder_id):
 
 
 def upload_folder_to_drive(local_folder_path, parent_drive_folder_id, drive):
-    folder_name = os.path.basename(local_folder_path)
+    # Always use 'chroma_graphics_db' as the folder name in Google Drive for consistency
+    folder_name = "chroma_graphics_db"
 
     # Step 1: Create a folder on Drive
     folder_metadata = {
@@ -260,35 +262,77 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
     local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
     os.makedirs(local_chroma_path, exist_ok=True)
 
-    # Check if we need to download existing vectorstore
-    db_exists = chroma_db_exists(drive, root_folder_id)
-    if db_exists:
-        print("Found existing vectorstore. Downloading for incremental update...")
-        # Find the chroma_graphics_db folder
-        chroma_folder_list = drive.ListFile({
-            'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        }).GetList()
-        
-        if chroma_folder_list:
-            chroma_folder_id = chroma_folder_list[0]['id']
+    # Check if existing DB exists and download it for continuation
+    existing_db_downloaded = False
+    chroma_folder_list = drive.ListFile({
+        'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    }).GetList()
+    
+    # Try to download existing DB with error handling for version compatibility
+    if chroma_folder_list:
+        print("Found existing Chroma DB on Drive. Attempting to download for continuation...")
+        chroma_folder_id = chroma_folder_list[0]['id']
+        try:
             download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
-            print("Downloaded existing vectorstore for incremental update.")
-        else:
-            print("Vectorstore folder not found, creating new one.")
+            existing_db_downloaded = True
+            print("Existing DB downloaded successfully.\n")
+        except Exception as e:
+            print(f"⚠️  Failed to download existing DB due to version compatibility: {e}")
+            print("   Starting fresh - existing DB will be overwritten.")
+            # Clear the local directory to ensure clean start
+            if os.path.exists(local_chroma_path):
+                shutil.rmtree(local_chroma_path)
+            os.makedirs(local_chroma_path, exist_ok=True)
+            existing_db_downloaded = True
 
     embedding_function = get_embedding_model()
-    chroma_db = Chroma(
-        embedding_function=embedding_function,
-        collection_name="text_embeddings",
-        persist_directory=local_chroma_path
-    )
-    image_chroma_db = Chroma(
-        embedding_function=None,
-        collection_name="image_embeddings",
-        persist_directory=local_chroma_path
-    )
-
-    print("Embedding model and Chroma DB initialized.\n")
+    
+    # Try to initialize Chroma DB with error handling for version compatibility
+    try:
+        chroma_db = Chroma(
+            embedding_function=embedding_function,
+            collection_name="text_embeddings",
+            persist_directory=local_chroma_path
+        )
+        image_chroma_db = Chroma(
+            embedding_function=None,
+            collection_name="image_embeddings",
+            persist_directory=local_chroma_path
+        )
+        print("Embedding model and Chroma DB initialized.\n")
+    except Exception as e:
+        print(f"⚠️  ChromaDB initialization failed due to version compatibility: {e}")
+        print("   Starting fresh with clean database...")
+        
+        # Clear the local directory completely with retry logic
+        if os.path.exists(local_chroma_path):
+            # Try multiple times with delays to handle file locks
+            for attempt in range(3):
+                try:
+                    shutil.rmtree(local_chroma_path)
+                    break
+                except PermissionError:
+                    if attempt < 2:
+                        print(f"   File locked, retrying in 1 second... (attempt {attempt + 1}/3)")
+                        time.sleep(1)
+                    else:
+                        print("   Could not clear directory, creating new path...")
+                        local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}_{int(time.time())}")
+                        break
+        os.makedirs(local_chroma_path, exist_ok=True)
+        
+        # Initialize fresh Chroma DB instances with consistent collection names
+        chroma_db = Chroma(
+            embedding_function=embedding_function,
+            collection_name="text_embeddings",
+            persist_directory=local_chroma_path
+        )
+        image_chroma_db = Chroma(
+            embedding_function=None,
+            collection_name="image_embeddings",
+            persist_directory=local_chroma_path
+        )
+        print("Fresh Chroma DB instances created with consistent collection names.\n")
 
     required_cols_v2 = {'Image Description', 'Course Name', 'Topic Name', 'Stock/Non Stock'}
 
@@ -312,6 +356,16 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
         for col in ['vectorized', 'embedding_ts', 'image_vectorized', 'image_embedding_ts', 'fully_vectorized']:
             if col not in df.columns:
                 df[col] = ''
+
+        # ----------- QUICK SHEET-LEVEL CHECK -----------
+        # Check if entire sheet is already processed (fast check)
+        if 'fully_vectorized' in df.columns:
+            fully_processed_count = (df['fully_vectorized'] == 'TRUE').sum()
+            total_rows = len(df[df['Image Description'].str.strip().astype(bool)])
+            
+            if fully_processed_count == total_rows and total_rows > 0:
+                print(f"✅ Sheet '{folder_id}' already fully processed ({fully_processed_count}/{total_rows} rows). Skipping.\n")
+                continue
 
         # ----------- TEXT EMBEDDING SECTION -----------
         mask_to_vectorize = (df['vectorized'] != 'TRUE') & df['Image Description'].str.strip().astype(bool)
@@ -347,7 +401,83 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
                 batch_texts = new_texts[i:i + BATCH_SIZE]
                 batch_metadatas = new_metadatas[i:i + BATCH_SIZE]
                 print(f"Adding text batch {i//BATCH_SIZE + 1} ({len(batch_texts)} items)...")
-                chroma_db.add_texts(texts=batch_texts, metadatas=batch_metadatas)
+                try:
+                    chroma_db.add_texts(texts=batch_texts, metadatas=batch_metadatas)
+                except Exception as e:
+                    print(f"⚠️  ChromaDB add_texts failed due to version compatibility: {e}")
+                    print("   Preserving data and recreating Chroma DB...")
+                    
+                    # Get existing data before recreation to preserve it
+                    existing_text_data = []
+                    existing_image_data = []
+                    
+                    try:
+                        # Get all existing text embeddings
+                        existing_text_docs = chroma_db.get(include=["metadatas", "documents"])
+                        existing_text_data = list(zip(existing_text_docs["documents"], existing_text_docs["metadatas"]))
+                        
+                        # Get all existing image embeddings
+                        existing_image_docs = image_chroma_db.get(include=["metadatas", "embeddings"])
+                        existing_image_data = list(zip(existing_image_docs["embeddings"], existing_image_docs["metadatas"]))
+                        
+                        print(f"   Preserving {len(existing_text_data)} text embeddings and {len(existing_image_data)} image embeddings...")
+                    except:
+                        print("   No existing data to preserve.")
+                    
+                    # Close existing Chroma instances to release file locks
+                    try:
+                        del chroma_db
+                        del image_chroma_db
+                    except:
+                        pass
+                    
+                    # Clear the local directory completely
+                    if os.path.exists(local_chroma_path):
+                        # Try multiple times with delays to handle file locks
+                        for attempt in range(3):
+                            try:
+                                shutil.rmtree(local_chroma_path)
+                                break
+                            except PermissionError:
+                                if attempt < 2:
+                                    print(f"   File locked, retrying in 1 second... (attempt {attempt + 1}/3)")
+                                    time.sleep(1)
+                                else:
+                                    print("   Could not clear directory, creating new path...")
+                                    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}_{int(time.time())}")
+                                    break
+                    os.makedirs(local_chroma_path, exist_ok=True)
+                    
+                    # Recreate Chroma DB instances with SAME collection names
+                    chroma_db = Chroma(
+                        embedding_function=embedding_function,
+                        collection_name="text_embeddings",
+                        persist_directory=local_chroma_path
+                    )
+                    image_chroma_db = Chroma(
+                        embedding_function=None,
+                        collection_name="image_embeddings",
+                        persist_directory=local_chroma_path
+                    )
+                    
+                    # Restore existing data
+                    if existing_text_data:
+                        print("   Restoring existing text embeddings...")
+                        for doc, metadata in existing_text_data:
+                            chroma_db.add_texts(texts=[doc], metadatas=[metadata])
+                    
+                    if existing_image_data:
+                        print("   Restoring existing image embeddings...")
+                        for embedding, metadata in existing_image_data:
+                            image_chroma_db._collection.add(
+                                embeddings=[embedding],
+                                metadatas=[metadata],
+                                documents=["image_embedding_only"],
+                                ids=[f"img_{metadata['image_id']}"]
+                            )
+                    
+                    print("   Data preserved and Chroma DB recreated. Retrying add_texts...")
+                    chroma_db.add_texts(texts=batch_texts, metadatas=batch_metadatas)
 
             # Update text vectorized flags
             now = datetime.now().isoformat()
@@ -372,16 +502,99 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
                     idx, image_vector, metadata = future.result()
                     if image_vector is not None:
                         print(f"Image ID processed: {metadata['image_id']} (row {idx})")
-                        image_chroma_db._collection.add(
-                            embeddings=[image_vector],
-                            metadatas=[metadata],
-                            documents=["image_embedding_only"],
-                            ids=[f"img_{metadata['image_id']}"]
-                        )
-                        df.at[idx, 'image_vectorized'] = 'TRUE'
-                        df.at[idx, 'image_embedding_ts'] = datetime.now().isoformat()
-                    else:
-                        print(f"Skipping image at row {idx} due to processing failure.")
+                        try:
+                            image_chroma_db._collection.add(
+                                embeddings=[image_vector],
+                                metadatas=[metadata],
+                                documents=["image_embedding_only"],
+                                ids=[f"img_{metadata['image_id']}"]
+                            )
+                            df.at[idx, 'image_vectorized'] = 'TRUE'
+                            df.at[idx, 'image_embedding_ts'] = datetime.now().isoformat()
+                        except Exception as e:
+                            print(f"⚠️  ChromaDB image add failed due to version compatibility: {e}")
+                            print("   Preserving data and recreating Chroma DB...")
+                            
+                            # Get existing data before recreation to preserve it
+                            existing_text_data = []
+                            existing_image_data = []
+                            
+                            try:
+                                # Get all existing text embeddings
+                                existing_text_docs = chroma_db.get(include=["metadatas", "documents"])
+                                existing_text_data = list(zip(existing_text_docs["documents"], existing_text_docs["metadatas"]))
+                                
+                                # Get all existing image embeddings
+                                existing_image_docs = image_chroma_db.get(include=["metadatas", "embeddings"])
+                                existing_image_data = list(zip(existing_image_docs["embeddings"], existing_image_docs["metadatas"]))
+                                
+                                print(f"   Preserving {len(existing_text_data)} text embeddings and {len(existing_image_data)} image embeddings...")
+                            except:
+                                print("   No existing data to preserve.")
+                            
+                            # Close existing Chroma instances to release file locks
+                            try:
+                                del chroma_db
+                                del image_chroma_db
+                            except:
+                                pass
+                            
+                            # Clear the local directory completely
+                            if os.path.exists(local_chroma_path):
+                                # Try multiple times with delays to handle file locks
+                                for attempt in range(3):
+                                    try:
+                                        shutil.rmtree(local_chroma_path)
+                                        break
+                                    except PermissionError:
+                                        if attempt < 2:
+                                            print(f"   File locked, retrying in 1 second... (attempt {attempt + 1}/3)")
+                                            time.sleep(1)
+                                        else:
+                                            print("   Could not clear directory, creating new path...")
+                                            local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}_{int(time.time())}")
+                                            break
+                            os.makedirs(local_chroma_path, exist_ok=True)
+                            
+                            # Recreate Chroma DB instances with SAME collection names
+                            chroma_db = Chroma(
+                                embedding_function=embedding_function,
+                                collection_name="text_embeddings",
+                                persist_directory=local_chroma_path
+                            )
+                            image_chroma_db = Chroma(
+                                embedding_function=None,
+                                collection_name="image_embeddings",
+                                persist_directory=local_chroma_path
+                            )
+                            
+                            # Restore existing data
+                            if existing_text_data:
+                                print("   Restoring existing text embeddings...")
+                                for doc, metadata in existing_text_data:
+                                    chroma_db.add_texts(texts=[doc], metadatas=[metadata])
+                            
+                            if existing_image_data:
+                                print("   Restoring existing image embeddings...")
+                                for embedding, metadata in existing_image_data:
+                                    image_chroma_db._collection.add(
+                                        embeddings=[embedding],
+                                        metadatas=[metadata],
+                                        documents=["image_embedding_only"],
+                                        ids=[f"img_{metadata['image_id']}"]
+                                    )
+                            
+                            print("   Data preserved and Chroma DB recreated. Retrying image add...")
+                            image_chroma_db._collection.add(
+                                embeddings=[image_vector],
+                                metadatas=[metadata],
+                                documents=["image_embedding_only"],
+                                ids=[f"img_{metadata['image_id']}"]
+                            )
+                            df.at[idx, 'image_vectorized'] = 'TRUE'
+                            df.at[idx, 'image_embedding_ts'] = datetime.now().isoformat()
+                        else:
+                            print(f"Skipping image at row {idx} due to processing failure.")
 
 
         # ---- COMBINED STATUS ----
@@ -393,26 +606,39 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
         save_to_sheet(sheet, df)
         print(f"Sheet '{folder_id}' updated.\n")
 
-    chroma_db.persist()
-    print("Text collection count before persist:", chroma_db._collection.count())
-    print("Image collection count before persist:", image_chroma_db._collection.count())
-    image_chroma_db.persist()
-    print("Chroma DB persisted locally.")
+        # Persist locally after each sheet for safety (no Drive upload)
+        print(f"💾 Persisting ChromaDB locally after sheet '{folder_id}'...")
+        chroma_db.persist()
+        image_chroma_db.persist()
+        print(f"✅ Local persistence complete for sheet '{folder_id}'")
 
-    print("Uploading to Drive...")
+    print("🎉 All embeddings processed successfully! Now uploading final ChromaDB to Drive...")
     
-    # If this was an incremental update, remove old vectorstore first
-    if db_exists:
-        print("Removing old vectorstore before uploading updated version...")
-        chroma_folder_list = drive.ListFile({
-            'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        }).GetList()
-        if chroma_folder_list:
-            drive.CreateFile({'id': chroma_folder_list[0]['id']}).Delete()
-            print("Old vectorstore removed.")
-    
-    upload_folder_to_drive(local_chroma_path, vectorstore_folder_id, drive)
-    print("Upload complete.\n All embeddings processed successfully.")
+    # Final upload of complete ChromaDB to Drive
+    try:
+        print("📤 Uploading final ChromaDB to Drive...")
+        
+        # Final persist before upload
+        chroma_db.persist()
+        image_chroma_db.persist()
+        
+        # If this was an incremental update, remove old vectorstore first
+        if existing_db_downloaded:
+            print("Removing old vectorstore before uploading updated version...")
+            chroma_folder_list = drive.ListFile({
+                'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            }).GetList()
+            if chroma_folder_list:
+                drive.CreateFile({'id': chroma_folder_list[0]['id']}).Delete()
+                print("Old vectorstore removed.")
+        
+        upload_folder_to_drive(local_chroma_path, vectorstore_folder_id, drive)
+        print("✅ Final ChromaDB uploaded successfully to Drive!")
+    except Exception as e:
+        print(f"❌ Final upload failed: {e}")
+        print("💾 Your complete ChromaDB is safely stored locally at:")
+        print(f"   {local_chroma_path}")
+        print("💡 You can manually upload it later or use a different service account.")
     
     # Clean up temporary files to free up space (only this version's directory)
     try:
@@ -538,6 +764,12 @@ def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xT
 
         save_to_sheet(sheet, df)
         print(f"Sheet '{folder_id}' updated.")
+        
+        # Persist locally after each sheet for safety (no Drive upload)
+        print(f"💾 Persisting ChromaDB locally after sheet '{folder_id}'...")
+        chroma_db.persist()
+        image_chroma_db.persist()
+        print(f"✅ Local persistence complete for sheet '{folder_id}'")
 
     # ----------- DEDUPLICATION: ID + URL -----------
     print("Removing duplicates by image_id or drive_url...")
@@ -578,16 +810,23 @@ def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xT
         chroma_db.delete(ids=phash_duplicates)
         print(f"Removed {len(phash_duplicates)} visually duplicate entries.")
 
-    # ----------- PERSIST + UPLOAD -----------
-    print("\nPersisting local DBs...")
+    # ----------- FINAL PERSIST + UPLOAD -----------
+    print("\nFinal persist and upload...")
     chroma_db.persist()
     image_chroma_db.persist()
 
-    print("Removing old DB folder from Drive...")
-    drive.CreateFile({'id': chroma_folder_id}).Delete()
-
-    print("Uploading updated vectorstore to Drive...")
-    upload_folder_to_drive(local_chroma_path, root_folder_id, drive)
+    # Final upload of complete ChromaDB to Drive
+    try:
+        print("📤 Uploading final ChromaDB to Drive...")
+        print("Removing old DB folder from Drive...")
+        drive.CreateFile({'id': chroma_folder_id}).Delete()
+        upload_folder_to_drive(local_chroma_path, root_folder_id, drive)
+        print("✅ Final ChromaDB uploaded successfully to Drive!")
+    except Exception as e:
+        print(f"❌ Final upload failed: {e}")
+        print("💾 Your complete ChromaDB is safely stored locally at:")
+        print(f"   {local_chroma_path}")
+        print("💡 You can manually upload it later or use a different service account.")
 
     # Clean up temporary files to free up space (only this version's directory)
     try:
