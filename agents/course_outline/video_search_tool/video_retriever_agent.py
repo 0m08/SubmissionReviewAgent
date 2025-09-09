@@ -1,349 +1,178 @@
-import time
-import random
-from tqdm import tqdm
-from typing import List, Optional, Dict
-from services.llm_service import llm_with_retry
-from modules.chain import Chain, xml_check_and_fix
+from modules.chain import Chain
+from services.llm_service import csv_list_parser
+from agents.course_outline.video_search_tool.youtube_search_tool import search_youtube_videos
+from agents.course_outline.video_search_tool.video_retriever import get_compression_retriever, load_video_vector_db_retriever
 from services.smart_progress_bar import SmartProgressBar
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
-from agents.course_outline.video_search_tool.video_retriever import video_retriever
 
-video_retriever_agent_prompt = """
-You are an expert technical video evaluator, tasked with selecting relevant videos for both:
-1. Specific learning objectives (when context is provided)
-2. General search queries (when no context exists)
+retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
-GENERAL GUIDELINES:
-- For learning objectives: Prioritize direct instructional matches
-- For general queries: Accept broader conceptual matches
-- With context: Maintain alignment with provided topic/subtopic
-- Without context: Focus on query intent
+Here are the details of this task you should know:
 
-CONTEXT USAGE (when available):
-1. Learning Objectives:
-   - Use context to identify prerequisite knowledge
-   - Ensure videos connect specific objectives to broader topics
+<course_details>
+We are creating a course with following details -
+Course Name: {course_name}
+Target audience: {target_audience}
+Course outline:
+{course_outline}
+</course_details>
 
-2. General Queries:
-   - Use context to disambiguate terms
-   - Narrow results to relevant subdomains
 
-Your primary goal is to identify videos that match or are reasonably close to the search query intent.
-You should be flexible in accepting videos that are conceptually related, even if not a perfect match.
-Only return no videos if they are completely unrelated to the query domain.
+<current_focus>
+Within this course, the current focus is to retrieve relevant videos for learning objectives for the following topic, subtopic and this specific learning objective:
+Topic: {topic_name}
+Subtopic: {subtopic_name}
+Learning objective: {learning_objective}
+</current_focus>
 
-For each search turn, you will receive:
-- The search query used to retrieve results
-- A list of video search results with metadata (title, description, source)
+Your task is to retrieve the best results for the given learning objective while keeping the topic, subtopic and the overall course context in mind. 
 
-Your responsibilities are as follows:
 
----
+Thus, formulate a search query that can effectively retrieve the relevant information.
 
-1. FLEXIBLE CONTENT EVALUATION
-   - Prioritize finding useful videos over perfect matches
-   - Accept videos that demonstrate related concepts or broader applications
-   - Use video metadata (title, description, channel) to understand content
-   - Consider partial matches as valid if they serve similar learning objectives
+Best practices for formulating search query:
+- The search query you create in most cases can be same / very similar to the learning objective.
+- The search query will be executed in a vectorstore (similarity search). Thus, you can employ techniques such as query expansion, query decomposition, HyDE, etc. incase the simple query is not yeilding good results.
+- The topic and subtopic can be used to provide additional context to the learning objective, if the learning objective if looked in isolation is vague / too generic.For example, if the learning objective is "Recognize its placement within the condenser", the "it" is vague. But if we know the topic is "Refrigeration Components" and the subtopic is "Reversing Valve", we can infer that "it" refers to the "Reversing Valve". 
+- Thus, the search query can be modified to "Recognize the placement of the Reversing Valve within the condenser".
+- Evolve and adapt your search queries incase they don't yeild relevant results or incase you need some more surrounding information to cover the LO properly.
+- If initial queries don't yield perfect matches, try broader queries or related concepts to ensure you find at least one relevant video.
 
----
-
-2. WHEN TO TERMINATE (Return Videos)
-
-You MUST set verdict = TERMINATE and return videos if:
-- Any video reasonably addresses the query (even partially)
-- Videos cover similar concepts that would be useful for the query
-- The content is in the same domain and could help understand the topic
-- Only continue if videos are completely irrelevant to the domain
-
----
-
-3. WHEN TO REFINE (Continue Searching)
-
-Only set verdict = CONTINUE if:
-- Videos are completely unrelated to HVAC/technical domain
-- Content is about entirely different subjects
-- No conceptual overlap exists with query intent
-- When refining, maintain original learning objectives
-
----
-
-4. QUERY REFINEMENT GUIDELINES
-
-If refinement is absolutely necessary:
-  - Keep core learning objectives intact
-  - Only modify to clarify, not change subject
-  - Add context rather than replace concepts
-  - Preserve technical terminology
-  - Follow original query format/style
-
----
-
-5. FINAL FALLBACK
-
-After 3 attempts, return ANY videos that are:
-- In the same technical domain
-- Cover related concepts
-- Could be useful for similar learning objectives
-Only return empty if content is completely non-technical/unrelated
-
----
-
-RESPONSE FORMAT:
-
-Respond using these exact tags:
-
+Present yout output in the following format:
 <observations>
-[Note how videos relate to query, even if partially]
-[Highlight any useful aspects of imperfect matches]
+[Place your observations of the step taken within these tags. It is ok for this section to be quite long and comprehensive.
+Start by analysing each and every doc and then formulate overall observations.]
 </observations>
-
 <verdict>
-["TERMINATE" if videos are relevant or conceptually close
- "CONTINUE" ONLY if completely irrelevant]
+[Based on your observations so far, decide whether to continue with retrieval or to stop. Verdict should be one of these - TERMINATE or CONTINUE]
 </verdict>
-
-<selected_indexes>
-[Include ALL videos that could be useful, even partial matches]
-[Empty only if absolutely no relevant content]
-</selected_indexes>
-
+<selected_video_ids>
+[Put the ids of all the docs that are highly relevant for the current LO we are focussing on. Each doc id should be in a new line. New doc ids should be appended to the same list.]
+</selected_video_ids>
 <action>
-[If CONTINUE: specific reason why all videos fail]
-[If TERMINATE: note how videos meet needs]
+[In case the verdict is to CONTINUE, think and ideate how / what query to create next to get relevant retrievals for the current LO. If verdict is to terminate, leave this blank.]
 </action>
-
 <query>
-[If CONTINUE: minimal refinement preserving intent]
-[If TERMINATE: original query or "Accepted partial matches"]
+[If continue, then place the query within these tags, else leave this as blank.]
 </query>
+<search_on>
+["VECTOR STORE" or "YOUTUBE SEARCH". Only choose youtube search if multiple queries against vector store did not retrieve relevant docs. Leave blank if no query.]
+</search_on>
+
+Remember, your goal is to retrieve the best information possible for the given learning objective. Be mindful of the docs you select. Make sure you follow the output format.
 """
 
-# -------------------- Helper Functions -------------------- #
-def parse_selected_indexes(index_string: str) -> List[int]:
-    """Parse string like '0, 2' into a list of integers."""
-    try:
-        return [int(i.strip()) for i in index_string.split(",") if i.strip().isdigit()]
-    except Exception:
-        return []
 
-# -------------------- Video Retriever Agent -------------------- #
-def video_retriever_agent(
-    query: str,
+def get_docs_as_string(docs, all_docs):
+    """
+    This function wraps the docs in a readable manner while removing any duplicate docs.
+
+    :param docs: The docs to be wrapped.
+    :param all_docs: The list of all docs.
+    :return: The docs as a string and the updated list of all docs.
+    """
+    docs_as_string = ''
+    for doc in docs:
+        if doc in all_docs:
+            # Still add to doc string but don't add actual content
+            doc_id = all_docs.index(doc)
+            docs_as_string += f'============= Doc id: {doc_id} =============\n'
+            docs_as_string += 'Page content not added since this doc is repeating and has already appeared earlier.\n\n'
+        else:
+            docs_as_string += f'============= Doc id: {len(all_docs)} =============\n'
+            docs_as_string += doc.page_content + '\n\n'
+            all_docs.append(doc)
+
+    # Replace {} with {{}}
+    docs_as_string = docs_as_string.replace('{', '{{')
+    docs_as_string = docs_as_string.replace('}', '}}')
+
+    return docs_as_string, all_docs
+
+
+def retrieve_relevant_docs(
+    course_name,
+    target_audience,
+    course_outline,
     drive,
-    llm,
-    k: int = 20,
-    max_turns: int = 3,
-    filters: Optional[Dict] = None,
-    verbose: bool = True,
-     context: Optional[Dict] = None
-) -> List[Dict]:
-    """
-    LLM-driven agent to evaluate videos and optionally refine queries.
-    Returns relevant videos with metadata.
-    """
+    topic_name,
+    subtopic_name,
+    learning_objective,
+    max_turns=3,
+    llm='gemini_2_flash'
+):
 
-     # Initialize context if not provided
-    context = context or {}
+    retriver_agent = Chain(llm=llm, tags=['verdict', 'selected_video_ids', 'action', 'query', 'search_on'])
+    central_folder_id = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
 
-    chain = Chain(
-        llm=llm,
-        tags=["observations", "verdict", "selected_indexes", "action", "query"],
-        use_xml_checker=True
+    compression_retriever = get_compression_retriever(
+        central_folder_id, drive,
+        retriever_1_weight=0.5,
+        retriever_2_weight=0.5
     )
 
-    # Add context to the system prompt
-    enhanced_prompt = video_retriever_agent_prompt
+    retriver_agent.add_message(
+        role='system',
+        content=retriver_agent_system_prompt.format(
+            course_name=course_name,
+            target_audience=target_audience,
+            course_outline=course_outline,
+            topic_name=topic_name,
+            subtopic_name=subtopic_name,
+            learning_objective=learning_objective
+        )
+    )
+    all_docs = []
 
-    if context:
-        # Only add context header if we actually have context items
-        context_items = []
+    # List to store selected doc ids
+    selected_video_ids = []
 
-        if context.get('topic'):
-            context_items.append(f"- Broad Topic: {context['topic']}")
-        if context.get('subtopic'):
-            context_items.append(f"- Subtopic: {context['subtopic']}")
-
-        if context_items:
-            enhanced_prompt += "\n\nCONTEXTUAL INFORMATION:\n"
-            enhanced_prompt += "\n".join(context_items)
-
-            # Adaptive guidance based on query type
-            if "learning objective" in query.lower() or "lo" in query.lower():
-                enhanced_prompt += "\nUse this context to better understand the learning objective."
-            else:
-                enhanced_prompt += "\nUse this context to better understand the search query scope."
-
-    original_query = query
-    chain.add_message(role="system", content=video_retriever_agent_prompt)
+    # For first user message, query is same as LO
+    query = learning_objective
 
     for turn in range(max_turns):
-        if verbose:
-            print(f"\nTurn {turn + 1}: Query = '{query}'")
-
-        # Retrieve top-k videos using your existing video_retriever
-        results = video_retriever(query=query, drive=drive, k=k, filters=filters)
-        if not results:
-            print("No videos retrieved.")
-            return []
-
-        # Prepare prompt content
-        video_list_str = "\n".join(
-            [f"{i}: {v['video_title']} ({v['channel']})" for i, v in enumerate(results)]
-        )
-        user_prompt = f"""
-Original query: {original_query}
-Candidate videos:
-{video_list_str}
-"""
-        chain.add_message(role="user", content=user_prompt)
-
-        # Call LLM
-        llm_raw = llm_with_retry(chain.messages_list, llm_name=llm)
-        if hasattr(llm_raw, "content"):
-            raw_text = llm_raw.content
-        elif isinstance(llm_raw, dict):
-            raw_text = llm_raw.get("content") or llm_raw.get("text", "")
-        else:
-            raw_text = llm_raw
-
-        # Validate XML
-        if chain.use_xml_checker:
-            content = xml_check_and_fix(raw_text, llm=llm)
-        else:
-            content = raw_text
-        chain.add_message(role="ai", content=content)
-
-        # Extract XML tags
+        # --- Use compression retriever first ---
+        print(f"[DEBUG] Turn {turn+1}: Using compression retriever for '{query}'")
         try:
-            llm_response = chain.extract_text_in_tags(content)
+            docs = compression_retriever.invoke(query)
         except Exception as e:
-            print("Failed to parse LLM response.")
-            print("Raw content:\n", content)
-            raise e
+            print(f"[ERROR] Compression retriever failed: {e}")
+            docs = []
 
-        verdict = llm_response.get("verdict", "").strip().upper()
-        if verbose:
-            print(f"Verdict: {verdict}")
+        
+        docs_as_string, all_docs = get_docs_as_string(docs, all_docs)
 
-        if verdict == "TERMINATE":
-            selected_indexes = parse_selected_indexes(llm_response.get("selected_indexes", ""))
-            selected_videos = [results[i] for i in selected_indexes if i < len(results)]
-            return selected_videos
+        retriver_agent.add_message(
+            role='user',
+            content=f'Query: {query}\n\nRetrieved_docs:\n{docs_as_string}'
+        )
 
-        # Otherwise, refine query
-        query = llm_response.get("query", "").strip()
-        if not query:
-            print("LLM returned CONTINUE but no refined query. Ending.")
-            return []
+        response = retriver_agent.run()
 
-    print("Max turns reached. No videos selected.")
-    return []
+        # Collect agent-selected IDs
+        new_ids = csv_list_parser.invoke(response['selected_video_ids'])
+        for doc_id in new_ids:
+            if doc_id not in selected_video_ids:
+                selected_video_ids.append(doc_id)
 
+        if selected_video_ids:
+            print(f"[DEBUG] Found {len(selected_video_ids)} relevant videos at turn {turn+1}. Terminating early.")
+            return selected_video_ids, all_docs
 
+        # --- Otherwise, refine and check if YouTube search is requested ---
+        query = response.get('query', query)
+        search_on = response.get('search_on', '')
 
-
-def run_video_search_for_los(
-    sheet,
-    worksheet_name: str,
-    drive,
-    llm,
-    k: int = 10,
-    max_turns: int = 3,
-    filters: Optional[Dict] = None,
-    verbose: bool = True,
-    max_workers: int = 10
-):
-    """
-    Run video search for each Learning Objective (LO) in the Google Sheet.
-    Each LO is processed in parallel, using SmartProgressBar for progress updates.
-    Saves intermediate results after every few LOs and a final save.
-    """
-
-    # -------------------- Read the sheet -------------------- #
-    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(
-        sheet=sheet,
-        sheet_name=worksheet_name
-    )
-
-    if "Learning Objectives" not in course_outline_with_lo_df.columns:
-        raise ValueError("Sheet must contain a column named 'Learning Objectives'")
-
-    pair_column = "youtube_videos"
-    if pair_column not in course_outline_with_lo_df.columns:
-        course_outline_with_lo_df[pair_column] = ""
-
-    # -------------------- Prepare tasks -------------------- #
-    # Prepare tasks with context
-    task_list = []
-    for row_index, row in course_outline_with_lo_df.iterrows():
-        lo = row['Learning Objectives']
-        if not isinstance(lo, str) or not lo.strip():
-            continue
-        if row.get(pair_column) and row[pair_column].strip():
-            continue
-
-        context = {
-            'topic': row.get('Topic', ''),
-            'subtopic': row.get('Subtopic', '')
-        }
-        task_list.append((row_index, lo.strip(), context))
-
-    total_tasks = len(task_list)
-
-    print(f"Starting video search for {total_tasks} Learning Objectives...")
-
-    # -------------------- Progress bar -------------------- #
-    save_interval = 10
-    progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=save_interval)
-
-    # -------------------- Parallel processing -------------------- #
-    futures_map = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for row_index, lo, context in task_list:
-            def task_fn(lo=lo):
-                time.sleep(random.uniform(0.8, 1.6))  # staggered delay to reduce API pressure
-                videos = video_retriever_agent(
-                    query=lo,
-                    drive=drive,
-                    llm=llm,
-                    k=k,
-                    max_turns=max_turns,
-                    filters=filters,
-                    verbose=verbose,
-                    context=context
-                )
-                video_urls = [v.get("video_url", v.get("url", "")) for v in videos]
-                return video_urls
-
-            future = executor.submit(task_fn)
-            futures_map[future] = (row_index, lo)
-
-        for future in tqdm(as_completed(futures_map), total=total_tasks):
-            row_index, lo = futures_map[future]
+        if "youtube search" in search_on.lower():
+            print(f"[DEBUG] Turn {turn+1}: Using YouTube search retriever for query '{query}'")
             try:
-                video_urls = future.result()
-                video_str = "\n".join(video_urls) if video_urls else "No result"
-                course_outline_with_lo_df.at[row_index, pair_column] = video_str
-
-                # Save after each LO
-                save_to_sheet(course_outline_with_lo_sheet, course_outline_with_lo_df)
-                if verbose:
-                    print(f"Processed LO: '{lo}' in row {row_index + 1}")
-
-                # Progress bar update
-                progress.update()
-                if progress.should_save():
-                    print(f"Saving intermediate results after {progress.completed_count} LOs.")
-                    save_to_sheet(course_outline_with_lo_sheet, course_outline_with_lo_df)
-
+                yt_search_retriever = search_youtube_videos(query, max_results=5)
+                docs = yt_search_retriever.invoke(query)
             except Exception as e:
-                print(f"Error processing LO '{lo}' (row {row_index + 1}): {e}")
+                print(f"[ERROR] YouTube retriever failed: {e}")
+                docs = []
 
-    # -------------------- Final save -------------------- #
-    print("All LOs processed. Saving final results.")
-    save_to_sheet(course_outline_with_lo_sheet, course_outline_with_lo_df)
+            # NOTE: Not passing through get_docs_as_string here
+            return docs, all_docs
 
-    return course_outline_with_lo_df[pair_column].tolist()
-    
+    print(f"[DEBUG] Returning {len(all_docs)} total docs, {len(selected_video_ids)} selected IDs")
+    return selected_video_ids, all_docs

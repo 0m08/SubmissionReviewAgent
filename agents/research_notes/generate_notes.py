@@ -10,6 +10,7 @@ from services.youtube_video_loader import convert_time_to_sec, get_video_id_from
 import re
 import pandas as pd
 
+
 generate_research_notes_prompt = """You are an expert educational content developer tasked with creating comprehensive research notes for a specific subtopic within a larger course. Your goal is to produce well-structured, engaging, and educational notes that align precisely with the given learning objectives while considering the overall course structure and target audience.
 
 Before we begin, please review the following course information:
@@ -228,6 +229,7 @@ Important Rules and Constraints:
 - Format exactly as shown in the output example: start/end timestamps and indented line-by-line transcript with single quotes and exact spacing.
 """
 
+
 def generate_transcript_chunks(course_name, target_audience, course_outline, subtopic_and_los, relevant_documents, llm='gemini_2_flash'):
     """
     This function extracts relevant transcript chunks aligned with each learning objective.
@@ -418,13 +420,13 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                             if start_match and end_match:
                                 start_time = start_match.group(1)
                                 end_time = end_match.group(1)
-                                separator = '&' if '?' in ref else '?'
-                                link_with_params = f"{ref}{separator}start={start_time}&end={end_time}"
+                                link_with_params = f"https://www.youtube.com/embed/{video_id}?start={start_time}&end={end_time}"
                                 research_notes = f"Link: {link_with_params}\nVideo_Id: {video_id}\n{research_notes}"
                         elif ref_type == "Google Drive Video":
                             match = re.search(r'/d/([\w-]+)', ref)
                             file_id = match.group(1) if match else ''
                             research_notes = f"Link: {ref}\nVideo_ID: {file_id}\n{research_notes}"
+
 
                 # Update the df row with research notes
                 course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
@@ -518,35 +520,43 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                         # Case: Youtube Video + Video usage - custom transcript formatting
                         elif ref_type == "Youtube Video" and ref_usage == "Video":
                             def format_youtube_video_notes(ref, context):
-                                
-                                # Extract video id from the link
-                                video_id_match = re.search(r"v=([\w-]+)", ref)
+                                # ✅ Extract video id from embed link
+                                video_id_match = re.search(r"/embed/([\w-]+)", ref)
                                 video_id = video_id_match.group(1) if video_id_match else ''
-                                
-                                # Extract start/end parameters from the link
+
+                                # ✅ Extract start/end parameters directly from the Reference link
                                 start_match = re.search(r"[?&]start=(\d+)", ref)
                                 end_match = re.search(r"[?&]end=(\d+)", ref)
                                 start = start_match.group(1) if start_match else ''
                                 end = end_match.group(1) if end_match else ''
-                                
-                                # Convert transcript timestamps to seconds
+
+                                # ✅ Convert transcript timestamps (MM:SS → seconds)
                                 pattern = r"- '([\d:]+)': (.+)"
                                 def mmss_to_sec(ts):
                                     parts = ts.split(":")
-                                    if len(parts) == 2:
-                                        return str(int(parts[0])*60 + int(parts[1]))
-                                    elif len(parts) == 3:
-                                        return str(int(parts[0])*3600 + int(parts[1])*60 + int(parts[2]))
+                                    if len(parts) == 2:  # MM:SS
+                                        return str(int(parts[0]) * 60 + int(parts[1]))
+                                    elif len(parts) == 3:  # HH:MM:SS
+                                        return str(int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]))
                                     return ts
+
                                 transcript_lines = []
                                 for match in re.finditer(pattern, context):
                                     sec = mmss_to_sec(match.group(1))
                                     text = match.group(2)
                                     transcript_lines.append(f"  - '{sec}': {text}")
                                 transcript = '\n'.join(transcript_lines)
-                                
-                                # Format the research notes
-                                return f"Link: {ref}\nVideo_Id: {video_id}\nStart: {start}\nEnd: {end}\nTranscript:\n{transcript}"
+
+                                # ✅ Format the research notes — always keep Reference start/end
+                                return (
+                                    f"Link: {ref}\n"
+                                    f"Video_Id: {video_id}\n"
+                                    f"Start: {start}\n"
+                                    f"End: {end}\n"
+                                    f"Transcript:\n{transcript}"
+                                )
+
+
                             future = executor.submit(format_youtube_video_notes, ref, context)
                         
                         # All other cases, use generate_research_notes
@@ -615,6 +625,3 @@ def delete_research_notes(sheet, worksheet_name="Final Outline"):
         df = df.drop(columns=["research_notes"])
         clear_worksheet(ws)
         save_to_sheet(ws, df)
-
-
-

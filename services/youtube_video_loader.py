@@ -388,6 +388,50 @@ def load_transcripts_from_csv():
     
     return transcripts_dict
 
+
+@st.cache_data
+def load_video_chunks_from_csv():
+    """
+    Reads the entire video chunks CSV into a dictionary {video_id -> list of chunk_data}.
+    :param: None
+    :return: dict
+    """
+    VIDEO_CHUNKS_CSV = "assets/video_chunks.csv"
+
+    if not os.path.isfile(VIDEO_CHUNKS_CSV):
+        print("CSV File not found")
+        return {}
+
+    video_chunks_dict = {}
+
+    with open(VIDEO_CHUNKS_CSV, mode="r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+
+        for row in reader:
+            video_id = row["video_id"]
+
+            # Parse metadata JSON safely
+            try:
+                metadata = json.loads(row["metadata"])
+            except Exception:
+                metadata = {}
+
+            chunk_data = {
+                "video_id": video_id,
+                "video_title": row.get("video_title", ""),
+                "chapter_title": row.get("chapter_title", ""),
+                "metadata": metadata,
+                "text": row.get("text_0", ""),
+            }
+
+            if video_id not in video_chunks_dict:
+                video_chunks_dict[video_id] = []
+            video_chunks_dict[video_id].append(chunk_data)
+
+    return video_chunks_dict
+
+
+
 @traceable
 def get_transcript_with_fallback(video_id: str, return_text_only=False):
     """

@@ -1,10 +1,20 @@
 import os
+from modules.chain import Chain, xml_check_and_fix
+from services.llm_service import llm_with_retry
 from typing import List, Dict, Optional
 from langchain.vectorstores import Chroma
-from langchain.vectorstores import Chroma
 from services.embedding_service import get_embedding_model
+from langchain.retrievers import EnsembleRetriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from langchain_cohere import CohereRerank
+from langchain.retrievers import ContextualCompressionRetriever
+import pickle
+from langchain_community.retrievers import BM25Retriever
+from typing import List, Optional, Dict, Any
+from langchain.schema import Document
+import tempfile
+import streamlit as st
+
 
 def load_video_chroma_db(embedding_function, drive, central_folder_id):
     """
@@ -28,6 +38,7 @@ def load_video_chroma_db(embedding_function, drive, central_folder_id):
 
     if not file_list:
         raise FileNotFoundError("'chroma_video_db' not found in Drive.")
+
     chroma_folder_id = file_list[0]['id']
     print(f"Found Chroma folder ID: {chroma_folder_id}")
 
@@ -37,7 +48,7 @@ def load_video_chroma_db(embedding_function, drive, central_folder_id):
         download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
         print(f"Downloaded to local path: {local_chroma_path}")
     else:
-        print("Using existing local Chroma DB copy.")
+        print("Using existing local Chroma DB.")
 
     # Load video embeddings collection
     video_chroma = Chroma(
@@ -49,75 +60,458 @@ def load_video_chroma_db(embedding_function, drive, central_folder_id):
     return video_chroma
 
 
-def video_retriever(query: str, drive=None, k: int = 10, filters: Optional[Dict] = None) -> List[Dict]:
+def load_video_vector_db_retriever(drive):
     """
-    Retrieve relevant HVAC video chunks based on a text query.
-    Returns results per chunk, sorted from most relevant to least relevant.
-    Constructs YouTube embed URLs with start and end times from metadata,
-    and includes the transcript from text_0.
+    Load the vector database retriever.
+    :param course_name: The name of the course.
+    :param course_drive_folder_id: The ID of the folder containing the vector database.
+    :param drive: Authenticated GoogleDrive instance (PyDrive2).
+    :param sheet: The Google Sheets object.
+    :return: Loaded vector database retriever object.
     """
-    central_folder_id = '1cUBmd1H1hBHSLohnAF68VJTEU9XcFXFK'
-    if not query:
-        raise ValueError("Please provide a text query.")
 
-    # Load embedding model and video Chroma DB
-    embedding_function = get_embedding_model()
-    video_db = load_video_chroma_db(embedding_function, drive, central_folder_id)
+    central_folder_id = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
+    embedding_model = get_embedding_model()
 
-    # Helper to filter metadata
-    def match_filters(metadata):
-        if not filters:
-            return True
-        for key, val in filters.items():
-            if key in metadata and val.lower() not in str(metadata[key]).lower():
+    chroma_db = load_video_chroma_db(embedding_model, drive, central_folder_id)
+    vector_db_retriever = chroma_db.as_retriever(
+        search_kwargs = {
+            "k": 20,
+        }
+    )
+    print("Loaded vector database retriever.")
+
+    return chroma_db, vector_db_retriever
+
+
+def load_bm25_retriever_with_pydrive(central_folder_id: str, drive):
+    """
+    Load the BM25 retriever from a pickle file stored in Google Drive.
+
+    Optimization:
+    - If the file is already downloaded, skip the download process.
+    - If missing, download the file from Google Drive.
+
+    :param root_folder_id: The ID of the root folder containing 'Pickle files'.
+    :param drive: Authenticated GoogleDrive instance (PyDrive2).
+    :param all_doc_chunk_list: The list of all document chunks.
+    :return: Loaded BM25 retriever object.
+    """
+    local_pickle_path = "/tmp/bm25_retriever.pkl"
+
+    # Check if already downloaded
+    if os.path.exists(local_pickle_path):
+        print("BM25 retriever already exists locally. Skipping download.")
+    else:
+        print("BM25 retriever not found locally. Downloading from Google Drive...")
+
+        # Locate 'Pickle files' folder
+        query_pickle_folder = (
+            f"title='Pickle files' and '{central_folder_id}' in parents "
+            f"and mimeType='application/vnd.google-apps.folder'"
+        )
+        pickle_folders = drive.ListFile({'q': query_pickle_folder}).GetList()
+
+        if not pickle_folders:
+            print(f"No folder named 'Pickle files' found in folder ID {central_folder_id}.")
+            file_metadata = {
+                'title': 'Pickle files',
+                'parents': [{'id': central_folder_id}],
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            pickle_folder = drive.CreateFile(file_metadata)
+            pickle_folder.Upload()
+            pickle_folder_id = pickle_folder['id']
+            print(f"Created 'Pickle files' folder with ID {pickle_folder_id}.")
+        else:
+            pickle_folder = pickle_folders[0]
+            pickle_folder_id = pickle_folder['id']
+
+        # Locate 'bm25_research_db.pkl' inside 'Pickle files'
+        query_bm25 = (
+            f"title='bm25_research_db.pkl' and '{pickle_folder_id}' in parents"
+        )
+        bm25_files = drive.ListFile({'q': query_bm25}).GetList()
+        if not bm25_files:
+            print("bm25_research_db.pkl not found under 'Pickle files'.")
+            
+            embedding_function = get_embedding_model()
+            video_db = load_video_chroma_db(embedding_function, drive, central_folder_id)
+            all_docs = video_db.get()
+            documents = [
+                Document(page_content=all_docs['documents'][i], metadata=all_docs['metadatas'][i] or {})
+                for i in range(len(all_docs['ids']))
+                ]
+            # Create the bm_25 retriever
+            bm_25_retriever = BM25Retriever.from_documents(documents, k = 20, )
+
+            # Save as pickle file locally
+            with open(local_pickle_path, 'wb') as file:
+                pickle.dump(bm_25_retriever, file)
+
+            # Upload the pickle file to Google Drive
+            file_metadata = {
+                'title': 'bm25_research_db.pkl',
+                'parents': [{'id': pickle_folder_id}]
+            }
+            bm25_file = drive.CreateFile(file_metadata)
+            bm25_file.SetContentFile(local_pickle_path)
+            bm25_file.Upload()
+            print("bm25_research_db.pkl uploaded to Google Drive.")
+            return bm_25_retriever
+
+        else:
+            print("bm25_research_db.pkl found under 'Pickle files'")
+
+            bm25_file = bm25_files[0]
+            bm25_file.GetContentFile(local_pickle_path)
+
+    # Load the retriever from the pickle file
+    with open(local_pickle_path, 'rb') as file:
+        bm_25_retriever = pickle.load(file)
+    print("Successfully loaded the BM25 retriever from Google Drive.")
+
+    return bm_25_retriever
+
+
+def get_ensemble_retriever(central_folder_id, drive, retriever_1_weight = 0.5, retriever_2_weight = 0.5):
+    """
+    Get the ensemble retriever.
+
+    :param course_name: The name of the course.
+    :param root_folder_id: The ID of the root folder containing 'Pickle files' and 'Vectorstore files'.
+    :param drive: Authenticated GoogleDrive instance (PyDrive2).
+    :param sheet: The Google Sheets object.
+    :param retriever_1_weight: The weight of the BM25 retriever.
+    :param retriever_2_weight: The weight of the vector database retriever.
+    :return: Ensemble retriever object.
+    """
+    with st.spinner(text = "Loading the embedding vectorstore...", show_time = True):
+        _, vector_db_retriever = load_video_vector_db_retriever(drive)
+
+    with st.spinner(text = "Loading the bm25 vectorstore...", show_time = True):
+        bm_25_retriever = load_bm25_retriever_with_pydrive(central_folder_id, drive)
+
+    ensemble_retriever = EnsembleRetriever(
+        retrievers = [bm_25_retriever, vector_db_retriever],
+        weights = [retriever_1_weight, retriever_2_weight],
+    )
+    return ensemble_retriever
+
+
+def get_compression_retriever(central_folder_id, drive, retriever_1_weight = 0.5, retriever_2_weight = 0.5):
+    """
+    Get the compression retriever.
+
+    :param: course_name: The name of the course.
+    :param: root_folder_id: The ID of the root folder containing 'Pickle files' and 'Vectorstore files'.
+    :param: drive: Authenticated GoogleDrive instance (PyDrive2).
+    :param: sheet: The Google Sheets object.
+    :param: retriever_1_weight: The weight of the BM25 retriever.
+    :param: retriever_2_weight: The weight of the vector database retriever.
+    :return: Compression retriever object.
+    """
+
+    ensemble_retriever = get_ensemble_retriever(central_folder_id, drive, retriever_1_weight, retriever_2_weight)
+
+    compressor = CohereRerank(
+        model="rerank-v3.5",
+        top_n=15,
+    )
+
+    compression_retriever = ContextualCompressionRetriever(
+        base_compressor = compressor, base_retriever = ensemble_retriever
+    )
+
+    return compression_retriever
+
+
+def doc_matches_filters(metadata: dict, filters: Dict[str, Any]) -> bool:
+    for key, expected in filters.items():
+        actual = metadata.get(key)
+
+        # Handle published year
+        if key == "published" and isinstance(expected, int):
+            try:
+                actual_year = int(str(actual)[:4])
+                if actual_year != expected:
+                    return False
+            except Exception:
                 return False
-        return True
 
-    print("Searching video embeddings for query:", query)
+        elif isinstance(expected, str) and isinstance(actual, str):
+            if actual.strip().lower() != expected.strip().lower():
+                return False
+
+        else:
+            if actual != expected:
+                return False
+
+    return True
+
+
+def video_retriever(
+    query: str,
+    drive,
+    k: int = 10,
+    filters: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Returns up to `k` video metadata dicts, including:
+    - 'url', 'video_id', 'start_time', 'end_time'
+    - 'channel', 'published', etc.
+    - 'transcript' 
+    """
+
+    central_folder_id = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
+    compression_retriever = get_compression_retriever(
+        central_folder_id=central_folder_id,
+        drive=drive,
+        retriever_1_weight=0.5,
+        retriever_2_weight=0.5,
+    )
+
+    docs = compression_retriever.invoke(query)
+
+    results: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    for doc in docs:
+        if len(results) >= k:
+            break
+
+        metadata = getattr(doc, "metadata", {}) or {}
+        vid_id = metadata.get("video_id")
+        if not vid_id or vid_id in seen:
+            continue
+
+        if filters and not doc_matches_filters(metadata, filters):
+            continue
+
+        def _to_int_or_none(v):
+            try:
+                return int(float(v)) if v is not None and str(v) != "" else None
+            except Exception:
+                return None
+
+        start_sec = _to_int_or_none(metadata.get("start_time")) or 0
+        end_sec = _to_int_or_none(metadata.get("end_time"))
+        transcript = metadata.get("text_0", "Transcript not available.")
+
+
+        if end_sec is not None:
+            url = f"https://www.youtube.com/embed/{vid_id}?start={start_sec}&end={end_sec}"
+        else:
+            url = f"https://www.youtube.com/embed/{vid_id}?start={start_sec}"
+
+        seen.add(vid_id)
+
+        result = {
+            "url": url,
+            "video_id": vid_id,
+            "start_time": start_sec,
+            "end_time": end_sec,
+            "transcript": transcript,
+        }
+        result.update(metadata)  # Add channel, published, video_title, etc.
+        results.append(result)
+
+    return results
+
+
+video_search_retriever_agent_prompt = """
+You are an expert in HVAC video evaluation, tasked with selecting the most relevant video(s) to match a given query.
+
+Your goal is to identify videos that best match the intent of the search query based on their content, not just metadata or similarity scores.
+If the retrieved videos do not adequately cover the query, you should refine the search query to improve results.
+
+For each search turn, you will receive:
+- The search query used to retrieve results
+- A list of video search results with metadata (title, description, source)
+
+Your responsibilities are as follows:
+
+---
+
+1. VISUAL AND CONTEXTUAL INSPECTION
+   - Evaluate whether each video clearly demonstrates or explains the concept in the query.
+   - Use video metadata (title, description, channel) only as supporting information.
+   - Ignore similarity score if the content does not actually match the instructional intent.
+  
+
+---
+
+2. IF RELEVANT VIDEOS ARE FOUND
+
+If you found any clearly relevant and matching videos, mark them and set verdict = TERMINATE.
+Do not suggest refinements if a usable set of results has already been found.
+Videos that are close to the search query with the same intent are acceptable.
+
+---
+
+3. IF RESULTS ARE POOR OR IRRELEVANT
+
+   - Determine why:
+       * Is the query vague or too general?
+       * Does the content mismatch the instructional intent?
+       * Are domain terms missing or ambiguous?
+   - Suggest a refined query keeping intent intact.
+
+- When refining:
+  - Disambiguate vague terms
+  - Add context (e.g., "commercial electrical panel wiring tutorial")
+  - Clarify content type (e.g., "training video", "troubleshooting guide", "installation walkthrough")
+  - Preserve the **intent and scope** of the original query
+  - Since most of the queries used are learning objective for a certain course, when requerying, make sure to follow the format of the original query
+
+---
+
+4. IF AFTER 3 REFINED ATTEMPTS NO MATCH IS FOUND
+
+- Set verdict to "TERMINATE" and return the closely found and retrieved videos only return "NONE" if:
+  - The query is fundamentally unrelated to video content
+  - All refinements have failed to yield even loosely related results
+  - The subject cannot be represented in video form
+
+---
+
+Important Considerations:
+When evaluating videos, consider the following guidelines:
+1. Focus on the instructional intent of the query, not just keyword matches.
+2. Use metadata only to support your content evaluation.
+3. Be decisive: either select relevant videos or refine the query.
+4. Maintain the original intent when refining queries.
+5. Limit to 3 refinement attempts before terminating.
+6. If no relevant videos are found after 3 attempts, return "NONE".
+7. If the initial query yields relevant results, do not refine further.
+
+RESPONSE FORMAT:
+
+Respond using these exact tags:
+
+<observations>
+Summarize what you observed in the video results and their relevance.
+</observations>
+
+<verdict>
+["TERMINATE" if you're confident in your video selection(s) or none are good at all, otherwise "CONTINUE" only if the videos are totally irrelevant]
+</verdict>
+
+<selected_indexes>
+[If TERMINATE: return the indexes of selected videos from the list above, e.g., "0", "1". Leave blank if CONTINUE.]
+</selected_indexes>
+
+<action>
+[If CONTINUE: explain what is wrong with the current query and how you'll refine it.
+ If TERMINATE: briefly state that the query was sufficient, or that no relevant videos were found after exhaustive attempts.]
+</action>
+
+<query>
+[If CONTINUE: provide your improved, more precise search query.
+ If TERMINATE: repeat the original query to confirm no refinement was needed or indicate failure after 3 attempts.]
+</query>
+"""
+
+def parse_selected_indexes(index_string):
+    """
+    Safely extract index list from string like '0, 2' or '1'
+    :param index_string: String to parse.
+    :return: List of indexes.
+    """
     try:
-        # Search top k*5 chunks to ensure enough results after filtering
-        raw_results = video_db.similarity_search_with_score(query, k=k*5)
-
-        final_results = []
-        for doc, score in raw_results:
-            metadata = doc.metadata or {}
-            if not match_filters(metadata):
-                continue
-
-            chunk_id = metadata.get("chunk_id") or f"{metadata.get('video_id', 'unknown')}_0"
-            vid_id = metadata.get("video_id")
-            start_sec = metadata.get("start_time") or 0
-            end_sec = metadata.get("end_time") or None
-
-            if vid_id:
-                if end_sec is not None:
-                    video_url = f"https://www.youtube.com/embed/{vid_id}?start={start_sec}&end={end_sec}"
-                else:
-                    video_url = f"https://www.youtube.com/embed/{vid_id}?start={start_sec}"
-            else:
-                video_url = "#"
-
-            transcript = metadata.get("text_0", "Transcript not available.")
-
-            final_results.append({
-                "similarity": score,
-                "chunk_id": chunk_id,
-                "video_id": vid_id,
-                "video_title": metadata.get("video_title") or "Untitled",
-                "chapter_title": metadata.get("chapter_title") or "",
-                "start_time": start_sec,
-                "end_time": end_sec,
-                "video_url": video_url,
-                "channel": metadata.get("channel"),
-                "transcript": transcript
-            })
-
-        # Sort by similarity descending and return top k chunks
-        final_results = sorted(final_results, key=lambda x: x["similarity"], reverse=True)[:k]
-
-        print(f"Found {len(final_results)} matching video chunks.")
-        return final_results
-
-    except Exception as e:
-        print(f"Error during video similarity search: {e}")
+        return [int(i.strip()) for i in index_string.split(",") if i.strip().isdigit()]
+    except:
         return []
+    
+def video_search_retriever_agent(
+    query: str,
+    drive,
+    llm,
+    k: int = 10,
+    max_turns: int = 3,
+    filters: Optional[Dict] = None,
+    verbose: bool = True,
+    context: Optional[Dict] = None  # kept for API compatibility; ignored
+) -> List[Dict]:
+    """
+    LLM-driven agent to evaluate videos for general search queries only.
+    Returns relevant videos with metadata.
+    """
+
+    # NOTE: context is intentionally ignored to focus solely on search queries
+    if verbose and context:
+        print("Note: 'context' provided but ignored; agent is search-query only.")
+
+    chain = Chain(
+        llm=llm,
+        tags=["observations", "verdict", "selected_indexes", "action", "query"],
+        use_xml_checker=True
+    )
+
+    # Use the cleaned prompt that only targets general search queries
+    chain.add_message(role="system", content=video_search_retriever_agent_prompt)
+
+    original_query = query
+
+    for turn in range(max_turns):
+        if verbose:
+            print(f"\nTurn {turn + 1}: Query = '{query}'")
+
+        # Retrieve top-k videos using your existing retriever
+        results = video_retriever(query=query, drive=drive, k=k, filters=filters)
+        if not results:
+            print("No videos retrieved.")
+            return []
+
+        # Prepare prompt content (no context/learning-objective injection)
+        video_list_str = "\n".join(
+            [f"{i}: {v['video_title']} ({v.get('channel', 'Unknown Channel')})" for i, v in enumerate(results)]
+        )
+        user_prompt = f"""
+Original query: {original_query}
+Candidate videos:
+{video_list_str}
+"""
+        chain.add_message(role="user", content=user_prompt)
+
+        # Call LLM
+        llm_raw = llm_with_retry(chain.messages_list, llm_name=llm)
+        if hasattr(llm_raw, "content"):
+            raw_text = llm_raw.content
+        elif isinstance(llm_raw, dict):
+            raw_text = llm_raw.get("content") or llm_raw.get("text", "")
+        else:
+            raw_text = llm_raw
+
+        # Validate XML
+        if chain.use_xml_checker:
+            content = xml_check_and_fix(raw_text, llm=llm)
+        else:
+            content = raw_text
+        chain.add_message(role="ai", content=content)
+
+        # Extract XML tags
+        try:
+            llm_response = chain.extract_text_in_tags(content)
+        except Exception as e:
+            print("Failed to parse LLM response.")
+            print("Raw content:\n", content)
+            raise e
+
+        verdict = llm_response.get("verdict", "").strip().upper()
+        if verbose:
+            print(f"Verdict: {verdict}")
+
+        if verdict == "TERMINATE":
+            selected_indexes = parse_selected_indexes(llm_response.get("selected_indexes", ""))
+            selected_videos = [results[i] for i in selected_indexes if 0 <= i < len(results)]
+            return selected_videos
+
+        # Otherwise, refine query (still allowed for search queries)
+        query = llm_response.get("query", "").strip()
+        if not query:
+            print("LLM returned CONTINUE but no refined query. Ending.")
+            return []
+
+    print("Max turns reached. No videos selected.")
+    return []
