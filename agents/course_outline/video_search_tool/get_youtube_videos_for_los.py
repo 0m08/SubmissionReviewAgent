@@ -4,7 +4,7 @@ import tqdm as tqdm
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import create_and_populate_columns
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 from agents.course_outline.video_search_tool.video_retriever_agent import retrieve_relevant_docs
 
 def task_fn(task, course_name, target_audience, course_outline, drive, max_turns, llm):
@@ -209,3 +209,12 @@ def run_video_search_for_los(
     print("All LOs processed. Saving final results.")
     save_to_sheet(course_outline_with_lo_sheet, course_outline_with_lo_df)
     return course_outline_with_lo_df["youtube_videos"].tolist()
+
+
+def delete_youtube_videos(sheet, worksheet_name="Final Outline"):
+    """Remove the youtube_videos column from the worksheet."""
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if "youtube_videos" in df.columns:
+        df = df.drop(columns=["youtube_videos"])
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)

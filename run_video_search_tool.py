@@ -170,20 +170,40 @@ elif task == "Search Videos":
                 st.subheader(f"Top {len(results)} Videos")
 
                 for idx, video_data in enumerate(results):
-                    # Access top-level fields
                     video_title = video_data.get("video_title", f"Video {idx+1}")
-                    video_url = video_data.get("video_url", "#")
-                    channel = video_data.get("channel", "Unknown")
+                    video_id    = video_data.get("video_id")
+                    start_sec   = int(video_data.get("start_time") or 0)
+                    end_sec     = video_data.get("end_time")
+                    end_sec     = int(end_sec) if end_sec is not None else None
 
-                    # Display video inline if URL is valid
-                    if video_url.startswith("http"):
-                        st.video(video_url)  # Embed the YouTube video
+                    # Build YouTube embed URL
+                    base = f"https://www.youtube.com/embed/{video_id}"
+                    params = [f"start={start_sec}"]
+                    if end_sec is not None:
+                        params.append(f"end={end_sec}")
+                    params += ["controls=0", "modestbranding=1", "rel=0", "fs=0", "disablekb=1", "playsinline=1"]
+                    iframe_url = base + "?" + "&".join(params)
 
-                    # Clickable title below video
-                    st.markdown(f"[{video_title}]({video_url})", unsafe_allow_html=True)
+                    # Render iframe directly
+                    st.markdown(
+                        f"""
+                        <iframe src="{iframe_url}" width="640" height="360" frameborder="0" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen></iframe>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                    # Clickable title (to the same embed URL)
+                    st.markdown(f"[{video_title}]({iframe_url})", unsafe_allow_html=True)
+                    st.caption(f"Channel: {video_data.get('channel','Unknown')}")
+
+                    # Collapsible transcript
+                    with st.expander("Show Transcript"):
+                        st.write(video_data.get("transcript","Transcript not available."))
+
+                    st.markdown("---")
+
 
             else:
                 st.warning("No videos found.")
-
-
-
