@@ -1,8 +1,7 @@
 from modules.chain import Chain
 from services.llm_service import csv_list_parser
 from agents.course_outline.video_search_tool.youtube_search_tool import search_youtube_videos
-from agents.course_outline.video_search_tool.video_retriever import get_compression_retriever, load_video_vector_db_retriever
-from services.smart_progress_bar import SmartProgressBar
+from agents.course_outline.video_search_tool.video_retriever import get_compression_retriever
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
 
@@ -100,6 +99,20 @@ def retrieve_relevant_docs(
     max_turns=3,
     llm='gemini_2_flash'
 ):
+    
+    """
+    This function retrieves relevant docs for a given learning objective using a retriever agent.
+    :param course_name: The name of the course.
+    :param target_audience: The target audience of the course.
+    :param course_outline: The outline of the course.
+    : param drive: Authenticated GoogleDrive instance (PyDrive2).
+    : param topic_name: The name of the topic.
+    : param subtopic_name: The name of the subtopic.
+    : param learning_objective: The learning objective.
+    : param max_turns: The maximum number of turns for the agent.
+    : param llm: The LLM to be used.
+    : return: List of selected video ids and all docs retrieved during the process.
+    """
 
     retriver_agent = Chain(llm=llm, tags=['verdict', 'selected_video_ids', 'action', 'query', 'search_on'])
     central_folder_id = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'

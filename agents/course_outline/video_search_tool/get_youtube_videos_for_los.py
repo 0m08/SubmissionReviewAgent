@@ -1,151 +1,11 @@
-from modules.chain import Chain
 import time
 import random
-import json
-import re
 import tqdm as tqdm
-from langchain.schema import Document
-from agents.course_outline.video_search_tool.video_retriever import load_video_vector_db_retriever
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from agents.course_outline.video_search_tool.video_retriever_agent import retrieve_relevant_docs
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import create_and_populate_columns
-
-
-video_intelligence_agent_system_prompt = """
-You are a Video Intelligence Agent. Your task is to find the absolute best video segment(s) that directly and concisely address a specific Learning Objective (LO).
-
-STEPS:
-1. ANALYZE the provided Learning Objective (LO).
-2. REVIEW the full transcript for each candidate YouTube video. The transcript is provided as a series of sequential chunks, each with its start and end timestamps. 
-3. FOR EACH VIDEO, your goal is to find the SINGLE BEST CONTIGUOUS SEGMENT that teaches the LO. Do not simply return the first mention. A segemt can include timestamps from multiple chunks, as long as they are the best fit for the LO.
-    - Look for the segment where the explanation is most clear, direct, and comprehensive.
-    - The segment should be concise. Avoid including long intros, tangents, or conclusions that are not relevant. Do not cut short a perfect explanation just to save time. Thta's why you can include start time from one chunk and end time from a later chunk.
-    - If the concept is explained perfectly in a 2-minute segment, do not return a 10-minute segment.
-4. SELECT THE BEST VIDEO: Compare the best segments from all videos. Choose the one video whose segment best fulfills the LO. Only consider multiple videos if a single video is insufficient to cover the LO fully.
-5. If no exact segment is found but a whole video is broadly relevant, return the full video instead.
-
-OUTPUT FORMAT:
-Wrap your results in the following tags:
-
-<analysis>
-Explain which video segment is best and why.
-</analysis>
-
-<verdict>
-One sentence with the chosen video_id and reason.
-</verdict>
-
-<best_video_segments>
-{
-  "best_video_segments": [
-    {
-      "video_id": "<video_id>",
-      "start": <start_seconds>,
-      "end": <end_seconds>
-    }
-  ]
-}
-</best_video_segments>
-"""
-
-
-def get_chunks_by_video(chroma_db, video_id):
-    """
-    Fetch all transcript chunks for a given video_id from Chroma.
-    """
-    results = chroma_db.get(
-        where={"video_id": video_id},
-        include=["metadatas", "documents"]
-    )
-
-    docs = []
-    for text, metadata in zip(results["documents"], results["metadatas"]):
-        docs.append(Document(page_content=text, metadata=metadata))
-
-    # Sort by start_time
-    return sorted(docs, key=lambda d: d.metadata.get("start_time", 0))
-
-
-def get_full_video_transcript(video_id, chroma_db):
-    """
-    Retrieve and combine transcript for a given video_id into a list of dicts.
-    """
-    docs_sorted = get_chunks_by_video(chroma_db, video_id)
-
-    transcript = []
-    for d in docs_sorted:
-        transcript.append({
-            "start_time": d.metadata.get("start_time", 0),
-            "end_time": d.metadata.get("end_time", None),
-            "text": d.metadata.get("text_0", "")
-        })
-    return transcript
-
-
-def refine_video_selection(lo, candidate_video_ids, chroma_db, llm="gemini_2_flash"):
-    """
-    Given an LO and candidate video_ids, analyze full transcripts and return structured JSON.
-    """
-    # Build transcripts dict
-    transcripts = {}
-    for vid in candidate_video_ids:
-        transcripts[vid] = get_full_video_transcript(vid, chroma_db)
-
-    # Initialize agent
-    refiner_agent = Chain(llm=llm, tags=["analysis", "verdict", "best_video_segments"])
-    refiner_agent.add_message(
-        role="system",
-        content=video_intelligence_agent_system_prompt
-    )
-    refiner_agent.add_message(
-        role="user",
-        content=f"Learning Objective:\n{lo}\n\nCandidate transcripts:\n{json.dumps(transcripts, indent=2)}"
-    )
-
-    # Run model
-    response = refiner_agent.run()
-
-    # Normalize to string
-    if hasattr(response, "content"):
-        text = response.content
-    elif isinstance(response, dict) and "content" in response:
-        text = response["content"]
-    else:
-        text = str(response)
-
-    # --- Extract inner content of <best_video_segments> ---
-    match = re.search(r"<best_video_segments>\s*(.*?)\s*</best_video_segments>", text, re.DOTALL | re.IGNORECASE)
-    if not match:
-        raise ValueError(f"Could not find <best_video_segments> JSON block in response:\n{text}")
-
-    best_segments_raw = match.group(1).strip()
-
-    # --- Normalize escapes ---
-    # Remove leading/trailing quotes if LLM returned it as a string literal
-    if best_segments_raw.startswith('"') and best_segments_raw.endswith('"'):
-        best_segments_raw = best_segments_raw[1:-1]
-
-    # Replace escaped newlines and quotes
-    best_segments_raw = best_segments_raw.encode("utf-8").decode("unicode_escape")
-
-    # Parse JSON safely
-    try:
-        best_segments_data = json.loads(best_segments_raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Model did not return valid JSON inside <best_video_segments>:\n{best_segments_raw}") from e
-
-    # Return unified structure with analysis + verdict text + parsed JSON
-    analysis_match = re.search(r"<analysis>\s*(.*?)\s*</analysis>", text, re.DOTALL | re.IGNORECASE)
-    verdict_match = re.search(r"<verdict>\s*(.*?)\s*</verdict>", text, re.DOTALL | re.IGNORECASE)
-
-    return {
-        "analysis": analysis_match.group(1).strip() if analysis_match else "",
-        "verdict": verdict_match.group(1).strip() if verdict_match else "",
-        "best_video_segments": best_segments_data.get("best_video_segments", [])
-    }
-
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from agents.course_outline.video_search_tool.video_retriever_agent import retrieve_relevant_docs
 
 def task_fn(task, course_name, target_audience, course_outline, drive, max_turns, llm):
     """
@@ -217,6 +77,11 @@ def task_fn(task, course_name, target_audience, course_outline, drive, max_turns
 
     return video_urls, new_context_chunks
 
+
+
+from services.helper_functions import create_and_populate_columns
+
+
 def run_video_search_for_los(
     course_name: str,
     target_audience: str,
@@ -227,11 +92,21 @@ def run_video_search_for_los(
     llm,
     max_turns: int = 3,
     verbose: bool = True,
-    max_workers: int = 10
+    
 ):
     """
     Safe version: always rebuilds all context columns from scratch.
     Skips rows where youtube_videos column already has video URLs.
+    :param course_name: The name of the course.
+    :param target_audience: The target audience of the course.
+    :param course_outline: The outline of the course.
+    :param sheet: The Google Sheets object.
+    :param worksheet_name: The name of the worksheet containing learning objectives.
+    : param drive: Authenticated GoogleDrive instance (PyDrive2).
+    : param llm: The LLM to be used.
+    : param max_turns: The maximum number of turns for the agent.
+    : param verbose: Whether to print progress messages.
+    : return: List of youtube_videos column values after processing.
     """
     course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(
         sheet=sheet,
@@ -249,7 +124,7 @@ def run_video_search_for_los(
         lo = row.get("Learning Objectives")
         if not isinstance(lo, str) or not lo.strip():
             continue
-        # 🚨 Skip rows that already have YouTube videos
+        # Skip rows that already have YouTube videos
         if row.get("youtube_videos") and str(row["youtube_videos"]).strip():
             continue
         task_list.append({
@@ -261,7 +136,7 @@ def run_video_search_for_los(
 
     total_tasks = len(task_list)
     print(f"Starting video retrieval for {total_tasks} Learning Objectives...")
-
+    max_workers = 10
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for task in task_list:

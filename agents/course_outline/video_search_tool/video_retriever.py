@@ -1,19 +1,17 @@
 import os
-from modules.chain import Chain, xml_check_and_fix
-from services.llm_service import llm_with_retry
-from typing import List, Dict, Optional
-from langchain.vectorstores import Chroma
-from services.embedding_service import get_embedding_model
-from langchain.retrievers import EnsembleRetriever
-from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
-from langchain_cohere import CohereRerank
-from langchain.retrievers import ContextualCompressionRetriever
 import pickle
-from langchain_community.retrievers import BM25Retriever
-from typing import List, Optional, Dict, Any
-from langchain.schema import Document
-import tempfile
 import streamlit as st
+from modules.chain import Chain
+from langchain.schema import Document
+from langchain_cohere import CohereRerank
+from langchain.vectorstores import Chroma
+from typing import List, Optional, Dict, Any
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from services.embedding_service import get_embedding_model
+from langchain.retrievers import ContextualCompressionRetriever
+from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
+
 
 
 def load_video_chroma_db(embedding_function, drive, central_folder_id):
@@ -412,6 +410,7 @@ Summarize what you observed in the video results and their relevance.
 </query>
 """
 
+
 def parse_selected_indexes(index_string):
     """
     Safely extract index list from string like '0, 2' or '1'
@@ -422,6 +421,7 @@ def parse_selected_indexes(index_string):
         return [int(i.strip()) for i in index_string.split(",") if i.strip().isdigit()]
     except:
         return []
+
     
 def video_search_retriever_agent(
     query: str,
@@ -431,24 +431,27 @@ def video_search_retriever_agent(
     max_turns: int = 3,
     filters: Optional[Dict] = None,
     verbose: bool = True,
-    context: Optional[Dict] = None  # kept for API compatibility; ignored
 ) -> List[Dict]:
     """
-    LLM-driven agent to evaluate videos for general search queries only.
-    Returns relevant videos with metadata.
+    Agent that uses LLM to iteratively refine video search queries and select relevant videos.
+        :param query: Initial search query.
+        :param drive: Authenticated PyDrive2 instance.
+        :param llm: Language model instance with chat/completion interface.
+        :param k: Number of top videos to retrieve each turn.
+        :param max_turns: Maximum number of refinement turns.
+        :param filters: Optional metadata filters to apply to retrieved videos.
+        :param verbose: Whether to print debug info.
+        :return: List of selected video metadata dicts.
     """
-
-    # NOTE: context is intentionally ignored to focus solely on search queries
-    if verbose and context:
-        print("Note: 'context' provided but ignored; agent is search-query only.")
+    
 
     chain = Chain(
         llm=llm,
         tags=["observations", "verdict", "selected_indexes", "action", "query"],
-        use_xml_checker=True
+        use_xml_checker=False
     )
 
-    # Use the cleaned prompt that only targets general search queries
+    # Add system prompt
     chain.add_message(role="system", content=video_search_retriever_agent_prompt)
 
     original_query = query
@@ -457,13 +460,13 @@ def video_search_retriever_agent(
         if verbose:
             print(f"\nTurn {turn + 1}: Query = '{query}'")
 
-        # Retrieve top-k videos using your existing retriever
+        # Retrieve top-k videos
         results = video_retriever(query=query, drive=drive, k=k, filters=filters)
         if not results:
             print("No videos retrieved.")
             return []
 
-        # Prepare prompt content (no context/learning-objective injection)
+        # Build candidate list prompt
         video_list_str = "\n".join(
             [f"{i}: {v['video_title']} ({v.get('channel', 'Unknown Channel')})" for i, v in enumerate(results)]
         )
@@ -474,23 +477,31 @@ Candidate videos:
 """
         chain.add_message(role="user", content=user_prompt)
 
-        # Call LLM
-        llm_raw = llm_with_retry(chain.messages_list, llm_name=llm)
-        if hasattr(llm_raw, "content"):
-            raw_text = llm_raw.content
-        elif isinstance(llm_raw, dict):
-            raw_text = llm_raw.get("content") or llm_raw.get("text", "")
-        else:
-            raw_text = llm_raw
+        # Run the chain
+        response = chain.run(query=user_prompt)
 
-        # Validate XML
-        if chain.use_xml_checker:
-            content = xml_check_and_fix(raw_text, llm=llm)
+        # Debug: inspect the raw response
+        print(f"Debug: Type of response = {type(response)}")
+        print(f"Debug: Response content = {response}")
+
+        # Normalize the response
+        if isinstance(response, dict):
+            if "output" in response:
+                content = response["output"]
+            elif "text" in response:
+                content = response["text"]
+            else:
+                raise ValueError(f"Unexpected response format: {response}")
         else:
-            content = raw_text
+            content = response
+
+        # Join list outputs into a string
+        if isinstance(content, list):
+            content = "\n".join(content)
+
         chain.add_message(role="ai", content=content)
 
-        # Extract XML tags
+        # Extract tags
         try:
             llm_response = chain.extract_text_in_tags(content)
         except Exception as e:
@@ -507,7 +518,7 @@ Candidate videos:
             selected_videos = [results[i] for i in selected_indexes if 0 <= i < len(results)]
             return selected_videos
 
-        # Otherwise, refine query (still allowed for search queries)
+        # Otherwise refine query
         query = llm_response.get("query", "").strip()
         if not query:
             print("LLM returned CONTINUE but no refined query. Ending.")
@@ -515,3 +526,4 @@ Candidate videos:
 
     print("Max turns reached. No videos selected.")
     return []
+
