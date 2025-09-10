@@ -7,12 +7,11 @@ from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 from services.sheets_service import get_sheet_data_and_df
 from services.drive_service import login_with_service_account
-from agents.course_outline.video_search_tool.video_retriever import video_retriever
-from agents.course_outline.video_search_tool.video_retriever_agent import video_retriever_agent
 from agents.course_outline.video_search_tool.update_video_vectorstore import update_video_vectorstore
+from agents.course_outline.video_search_tool.video_retriever import video_retriever, video_search_retriever_agent
 from agents.course_outline.video_search_tool.create_video_vectorstore import create_video_vectorstore, chroma_db_exists
 
-
+llm_model = st.session_state.get("llm_model", "gemini_2_flash") or "gemini_2_flash"
 # --------------------- Auth --------------------- #
 load_dotenv()
 key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
@@ -141,7 +140,6 @@ elif task == "Search Videos":
         
         if channel_filter and channel_filter != "All":
             filters["channel"] = channel_filter
-    
 
     use_agent = st.toggle("Agent Mode", value=False)
 
@@ -151,12 +149,13 @@ elif task == "Search Videos":
         else:
             with st.spinner("Searching videos..."):
                 if use_agent:
-                    results = video_retriever_agent(
+                    results = video_search_retriever_agent(
                         query=query,
                         drive=drive,
-                        llm ='gemini_2_flash',
+                        llm=llm_model,
                         k=num_results,
                         filters=filters
+
                     )
                 else:
                     results = video_retriever(
@@ -164,7 +163,7 @@ elif task == "Search Videos":
                         drive=drive,
                         k=num_results,
                         filters=filters
-                    )
+                        )
 
             # Display Results
             if results:

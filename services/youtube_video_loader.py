@@ -23,6 +23,8 @@ import base64
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 from bs4 import BeautifulSoup
+from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
+
 
 
 ### YT video link loader
@@ -387,6 +389,72 @@ def load_transcripts_from_csv():
             )
     
     return transcripts_dict
+
+
+
+
+@st.cache_data
+def load_video_chunks_from_local_or_drive(
+    _drive,  # underscore tells Streamlit: "don't hash this"
+    target_folder_name="Video Chunks",
+    local_root="/tmp/temp_video_folder",
+    csv_filename="video_chunks.csv"
+):
+    """
+    Downloads a Google Drive folder containing the CSV (if not already local), 
+    then loads the CSV into a dict {video_id -> list of chunk_data}.
+    """
+
+    central_folder_id = '1SoJDL08Wa7sQq9bCsHcB1bNzSzKj3Z1y'
+
+
+    local_folder_path = os.path.join(local_root, target_folder_name)
+    local_csv_path = os.path.join(local_folder_path, csv_filename)
+    os.makedirs(local_root, exist_ok=True)
+
+    # Search for target folder in Drive
+    folder_list = _drive.ListFile({
+        'q': f"title='{target_folder_name}' and '{central_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    }).GetList()
+
+    if not folder_list:
+        raise FileNotFoundError(f"Folder '{target_folder_name}' not found in Drive under parent {central_folder_id}")
+
+    target_folder_id = folder_list[0]['id']
+
+    # Download if missing locally
+    if not os.path.exists(local_csv_path):
+        download_folder_from_drive(target_folder_id, local_folder_path, _drive)
+
+    if not os.path.isfile(local_csv_path):
+        raise FileNotFoundError(f"'{csv_filename}' not found locally at {local_csv_path}")
+
+    # Read CSV
+    video_chunks_dict = {}
+    with open(local_csv_path, mode="r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            video_id = row["video_id"]
+
+            try:
+                metadata = json.loads(row["metadata"])
+            except Exception:
+                metadata = {}
+
+            chunk_data = {
+                "video_id": video_id,
+                "video_title": row.get("video_title", ""),
+                "chapter_title": row.get("chapter_title", ""),
+                "metadata": metadata,
+                "text": row.get("text_0", ""),
+            }
+
+            if video_id not in video_chunks_dict:
+                video_chunks_dict[video_id] = []
+            video_chunks_dict[video_id].append(chunk_data)
+
+    return video_chunks_dict
+
 
 @traceable
 def get_transcript_with_fallback(video_id: str, return_text_only=False):
