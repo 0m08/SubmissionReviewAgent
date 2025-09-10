@@ -21,11 +21,9 @@ from langsmith import traceable
 import pandas as pd
 from services.helper_functions import extract_drive_file_id
 from services.web_page_loaders import get_docs_from_url
-from services.youtube_video_loader import get_yt_chapters_chunks_as_docs, get_video_id_from_url, convert_time, get_transcript_with_fallback, get_transcript_assemblyai_drive
+from services.youtube_video_loader import get_video_id_from_url, convert_time, get_transcript_with_fallback, get_transcript_assemblyai_drive
 import json
-import tempfile
 import os
-import subprocess
 import gspread
 import base64
 import re

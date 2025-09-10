@@ -226,8 +226,10 @@ pipeline_sections = [
                 "depends_on": ["Check Video Relevance"],
                 "args": {
                     "sheet": "sheet",
+                    "drive":"drive",
                     "videos_research_worksheet_name": "Videos Research",
                     "video_chunks_worksheet_name": "Video Chunks",
+                    
                     "llm": llm_model,
                 },
                 "estimated_time": "~ 10 - 20 minutes",

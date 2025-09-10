@@ -1,6 +1,6 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.youtube_video_loader import get_transcript_with_fallback, load_video_chunks_from_csv
+from services.youtube_video_loader import get_transcript_with_fallback, load_video_chunks_from_local_or_drive
 from services.youtube_video_loader import get_yt_chapters_chunks_as_docs
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -435,7 +435,7 @@ def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm 
 
 
 
-def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_worksheet_name, llm="gemini_2_flash"):
+def run_chunk_videos(sheet, drive, videos_research_worksheet_name, video_chunks_worksheet_name, llm="gemini_2_flash"):
     """
     This function chunks all the videos marked as relevant
 
@@ -463,8 +463,8 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
     # Get video_transcript column count
     video_transcript_col_count = len([col for col in videos_research_df.columns if 'video_transcript_' in col])
 
-    # Load cached chunks from CSV once
-    video_chunks_dict = load_video_chunks_from_csv()
+    # ✅ Load cached chunks from CSV once
+    video_chunks_dict = load_video_chunks_from_local_or_drive(drive)
 
     # Inline constants (no new helper functions)
     MAX_CELL_SAFE = 45000
@@ -483,7 +483,7 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
                 print(f"Skip. Already analyzed video {index}: {video_title}")
                 continue
 
-            # If cached in CSV → use chunks
+            # ✅ If cached in CSV → use chunks
             if video_id in video_chunks_dict:
                 print(f"Loaded chunks from CSV for video {index}: {video_title}")
                 chunks = video_chunks_dict[video_id]
@@ -501,7 +501,7 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
                 previous_full_text = " ".join(previous_texts).strip()
                 is_first_new_chunk = True
 
-                # Write new chunks; merge previous text ONLY into first chunk
+                # 🆕 Write new chunks; merge previous text ONLY into first chunk
                 for chunk in chunks:
                     page_content = chunk.get('text', '') or ''
                     chapter_title = chunk.get('chapter_title', '')
