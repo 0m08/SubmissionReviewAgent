@@ -49,22 +49,13 @@ Feedback Generation Guidelines
 - If a reviewer comment includes an example or suggestion, include it to make your feedback more practical and concrete for the reporter.
 - Keep all feedback relevant, actionable, and as concise as possible.
 
-Example feedback formatting:
-
-Title | AI Feedback  
-Learning Objectives Visibility | Improve the LO slide by adding a distinct background behind learning objectives to ensure they stand out and are easy to read.  
-Title Slide Contrast | Increase visibility of buttons and key text on the title slide by placing them on a white background block for better clarity.  
-Simplify Visuals | Reduce unnecessary visual elements to highlight key messages and avoid confusing learners.  
-Adjust Timing | Modify animation speeds to allow learners adequate time to absorb each point without feeling rushed.  
-
-
 For each unticked (not fulfilled) item, the agent should generate one row with:
 Title (headline): A concise (2-3 word) subheading that summarizes what the feedback is about. Do not use the original checklist criterion as the heading—instead, create a small subheading capturing the specific issue.
 AI Feedback: A concise, constructive summary specifying what the reporter should do to address the unmet criterion, using clear and actionable guidance.
 
 - Use this exact format for every item:
 
-<Title (headline)>:
+<Title (headline)>
 <AI Feedback>
 """
 
@@ -243,7 +234,7 @@ def run_update_quality_scores(spreadsheet):
 
     source_sheet_id = spreadsheet.id
     course_name = extract_course_name(spreadsheet.title)
-    task_logs_sheet_id = "1kjoSahNBf6gaTNcLDnq1bxpenFjrHcm6rMgRPPBgU1A"
+    task_logs_sheet_id = "1LSdFMKnRCr6sdukD-12bIJtYTigFVZfNzNxib0Yqebc"
 
     # STEP 1: Get all stage sheets
     stage_sheets = get_stage_sheets(spreadsheet)
