@@ -648,12 +648,13 @@ def build_vectorstore_and_upload(spreadsheet, drive, root_folder_id='1QS6PmCESfg
         print(f"Warning: Could not clean up temporary directory: {e}")
     
     
-def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2'):
+def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xTI0wr66IZmGL2', version='v1'):
     """
     Update Chroma DB with new text and image embeddings from Google Sheets and upload to Drive.
     :param spreadsheet: Google Sheets instance.
     :param drive: Google Drive instance.
     :param root_folder_id: Root folder ID for version-specific operations.
+    :param version: Version ('v1' or 'v2') to determine required columns.
     """
     print("Starting vectorstore update...")
     # Create version-specific local path to avoid cache conflicts
@@ -662,12 +663,23 @@ def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xT
     os.makedirs(local_chroma_root, exist_ok=True)
 
     print("Downloading existing Chroma DB from Drive...")
+    # First find the 'Vectorstore files' folder
+    vectorstore_files_list = drive.ListFile({
+        'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    }).GetList()
+
+    if not vectorstore_files_list:
+        raise FileNotFoundError("'Vectorstore files' folder not found in Drive. Please create a vectorstore first.")
+    
+    vectorstore_folder_id = vectorstore_files_list[0]['id']
+    
+    # Then find the 'chroma_graphics_db' folder inside it
     file_list = drive.ListFile({
-        'q': f"title='chroma_graphics_db' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     }).GetList()
 
     if not file_list:
-        raise FileNotFoundError("'chroma_graphics_db' folder not found in Drive.")
+        raise FileNotFoundError("'chroma_graphics_db' folder not found in Drive. Please create a vectorstore first.")
     
     chroma_folder_id = file_list[0]['id']
     download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
@@ -693,8 +705,15 @@ def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xT
         print(f"\nScanning sheet '{folder_id}'...")
 
         df = pd.DataFrame(sheet.get_all_records())
-        if 'Image Description' not in df.columns:
-            print(f"Sheet '{folder_id}' missing 'Image Description'. Skipping.")
+        
+        # Define required columns based on version
+        required_cols_v2 = {'Image Description', 'Course Name', 'Topic Name', 'Stock/Non Stock'}
+        required_cols = {'Image Description'}
+        if version == 'v2':
+            required_cols = required_cols_v2
+
+        if any(col not in df.columns for col in required_cols):
+            print(f"Sheet '{folder_id}' missing required columns. Skipping.\n")
             continue
 
         # Ensure necessary columns
@@ -718,7 +737,10 @@ def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xT
                 'image_type': row['Image Type'],
                 'image_title': row['Image Title'],
                 'folder_id': folder_id,
-                'embedding_type': 'text'
+                'embedding_type': 'text',
+                **({'course_name': row['Course Name']} if 'Course Name' in row else {}),
+                **({'topic_name': row['Topic Name']} if 'Topic Name' in row else {}),
+                **({'stock_type': row['Stock/Non Stock']} if 'Stock/Non Stock' in row else {})
             }, axis=1).tolist()
 
             BATCH_SIZE = 5000
@@ -820,7 +842,7 @@ def update_vectorstore(spreadsheet, drive, root_folder_id='1w5gJD_ALnqbRwl9XH0xT
         print("📤 Uploading final ChromaDB to Drive...")
         print("Removing old DB folder from Drive...")
         drive.CreateFile({'id': chroma_folder_id}).Delete()
-        upload_folder_to_drive(local_chroma_path, root_folder_id, drive)
+        upload_folder_to_drive(local_chroma_path, vectorstore_folder_id, drive)
         print("✅ Final ChromaDB uploaded successfully to Drive!")
     except Exception as e:
         print(f"❌ Final upload failed: {e}")

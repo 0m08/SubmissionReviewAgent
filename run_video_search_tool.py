@@ -38,11 +38,11 @@ if "role" not in st.session_state:
 role = st.session_state.role
 task_options = []
 
-if role in ["Admin Team", "Innovation Team"]:
+if role == "Admin":
     task_options = ["Create Vectorstore", "Update Vectorstore", "Search Videos"]
-elif role == "Content Team":
+elif role == "Managers":
     task_options = ["Update Vectorstore", "Search Videos"]
-elif role == "Visual Designer Team":
+elif role == "Visual Designer":
     task_options = ["Search Videos"]
 else:
     st.warning("Your role does not have access to any tasks.")

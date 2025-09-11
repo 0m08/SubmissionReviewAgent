@@ -19,11 +19,6 @@ from PIL import Image
 # Load Google credentials
 load_dotenv()
 
-# Check if we should use OAuth 2.0 or service account
-# If OAuth credentials are provided, use OAuth 2.0; otherwise use service account
-oauth_client_id = os.getenv("OAUTH_CLIENT_ID")
-oauth_client_secret = os.getenv("OAUTH_CLIENT_SECRET")
-use_oauth2 = bool(oauth_client_id and oauth_client_secret)
 
 # ----------------- Streamlit App ----------------- #
 
@@ -62,11 +57,11 @@ role = st.session_state.role
 # Determine tasks based on role
 task_options = []
 
-if role in ["Admin Team", "Innovation Team"]:
+if role == "Admin":
     task_options = ["Create Vectorstore", "Update Vectorstore", "Search Images"]
-elif role == "Content Team":  # Content Team
+elif role == "Managers":  # Managers
     task_options = ["Update Vectorstore", "Search Images"]
-elif role == "Visual Designer Team":  # Visual Designer Team
+elif role == "Visual Designer":  # Visual Designer
     task_options = ["Search Images"]
 else:
     st.warning("Your role does not have access to any tasks.")
@@ -135,10 +130,8 @@ elif task == "Update Vectorstore":
 
             if update_required:
                 with st.spinner("Updating vectorstore... This may take a few minutes."):
-                    if version == "v2":
-                        build_vectorstore_and_upload(sheet, drive, root_folder_id=root_folder_id, version=version)
-                    else:
-                        update_vectorstore(sheet, drive, root_folder_id=root_folder_id)
+                    # Use update_vectorstore for both versions with correct root_folder_id and version
+                    update_vectorstore(sheet, drive, root_folder_id=root_folder_id, version=version)
                 st.success("Vectorstore updated.")
             else:
                 st.info("No updates needed. Vectorstore is up to date.")

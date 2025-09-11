@@ -87,10 +87,13 @@ def login():
                     drive = GoogleDrive(gauth)
 
                     # Service account for Sheets
-                    key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
-                    sa_json = key_bytes.decode()
-                    sa_dict = json.loads(sa_json)
-                    gc = gspread.service_account_from_dict(sa_dict)
+                    # key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
+                    # sa_json = key_bytes.decode()
+                    # sa_dict = json.loads(sa_json)
+                    # gc = gspread.service_account_from_dict(sa_dict)
+                   
+                    # OAuth authentication for Sheets (using same credentials as Drive)
+                    gc = gspread.authorize(gauth.credentials)
 
                     # Get user email and role
                     try:
