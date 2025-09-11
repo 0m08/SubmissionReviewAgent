@@ -1,35 +1,176 @@
 from pydrive2.auth import GoogleAuth
 import os
+import json
+import tempfile
+import gspread
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 
-def login_with_service_account(path = None, json_str = None):
+def login_with_service_account(path=None, json_str=None, user_email=None):
     """
     Google Drive service with a service account.
     note: for the service account to work, you need to share the folder or
     files with the service account email.
 
+    :param path: Path to service account JSON file
+    :param json_str: Service account JSON as string
+    :param user_email: Email of user to impersonate (for domain-wide delegation)
     :return: google auth
     """
     if path:
         settings = {
-                    "client_config_backend": "service",
-                    "service_config": {
-                        "client_json_file_path": path,
-                    }
-                }
+            "client_config_backend": "service",
+            "service_config": {
+                "client_json_file_path": path,
+            }
+        }
     elif json_str:
         settings = {
-                    "client_config_backend": "service",
-                    "service_config": {
-                        "client_json": json_str,
-                    }
-                }
+            "client_config_backend": "service",
+            "service_config": {
+                "client_json": json_str,
+            }
+        }
 
     # Create instance of GoogleAuth
     gauth = GoogleAuth(settings=settings)
-    # Authenticate
-    gauth.ServiceAuth()
+    
+    # If user_email is provided, use domain-wide delegation
+    if user_email:
+        # Parse the service account JSON to get the client_email
+        if json_str:
+            sa_info = json.loads(json_str)
+        else:
+            with open(path, 'r') as f:
+                sa_info = json.load(f)
+        
+        # Set up delegation
+        gauth.ServiceAuth()
+        # Create credentials with delegation        
+        credentials = service_account.Credentials.from_service_account_info(
+            sa_info,
+            scopes=['https://www.googleapis.com/auth/drive']
+        )
+        
+        # Delegate to the specified user
+        delegated_credentials = credentials.with_subject(user_email)
+        
+        # Build the Drive service
+        service = build('drive', 'v3', credentials=delegated_credentials)
+        
+        # Set the service in gauth for compatibility
+        gauth.service = service
+        
+    else:
+        # Regular service account authentication
+        gauth.ServiceAuth()
+    
     return gauth
+
+
+def login_with_oauth2(client_id=None, client_secret=None, credentials_file=None):
+    """
+    Google Drive service with OAuth 2.0 user authentication.
+    This uses a regular user account with storage quota instead of a service account.
+    
+    :param client_id: OAuth 2.0 client ID from environment variables
+    :param client_secret: OAuth 2.0 client secret from environment variables
+    :param credentials_file: Path to store/load user credentials
+    :return: google auth
+    """
+    if not client_id or not client_secret:
+        raise ValueError("Both client_id and client_secret must be provided")
+    
+    # Create config dynamically from environment variables
+    config = {
+        "installed": {
+            "client_id": client_id,
+            "project_id": "your-project-id",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_secret": client_secret,
+            "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"]
+        }
+    }
+    
+    # Write config to temporary file
+    temp_config_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    json.dump(config, temp_config_file)
+    temp_config_file.close()
+    
+    settings = {
+        "client_config_backend": "file",
+        "client_config_file": temp_config_file.name,
+        "save_credentials": False,  # Don't save credentials
+        "get_refresh_token": False,  # Don't get refresh token
+        "oauth_scope": ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
+    }
+    
+    # Create instance of GoogleAuth
+    gauth = GoogleAuth(settings=settings)
+    
+    # Always authenticate (no saved credentials check)
+    gauth.LocalWebserverAuth()
+    
+    # Clean up temporary file
+    try:
+        os.unlink(temp_config_file.name)
+    except:
+        pass
+    
+    return gauth
+
+
+def get_oauth_credentials_for_gspread(client_id=None, client_secret=None):
+    """
+    Get OAuth 2.0 credentials that can be used with gspread.
+    Returns the credentials object that can be used with gspread.oauth()
+    
+    :param client_id: OAuth 2.0 client ID from environment variables
+    :param client_secret: OAuth 2.0 client secret from environment variables
+    :return: credentials object for gspread
+    """
+    if not client_id or not client_secret:
+        raise ValueError("Both client_id and client_secret must be provided")
+    
+    # Create config for gspread
+    config = {
+        "installed": {
+            "client_id": client_id,
+            "project_id": "your-project-id",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_secret": client_secret,
+            "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"]
+        }
+    }
+    
+    # Write config to temporary file
+    temp_config_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    json.dump(config, temp_config_file)
+    temp_config_file.close()
+    
+    # Create temporary file for authorized user credentials
+    temp_auth_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    temp_auth_file.close()
+    
+    # Use gspread's oauth method with temporary files
+    gc = gspread.oauth(
+        credentials_filename=temp_config_file.name,
+        authorized_user_filename=temp_auth_file.name
+    )
+    
+    # Clean up temporary files
+    try:
+        os.unlink(temp_config_file.name)
+        os.unlink(temp_auth_file.name)
+    except:
+        pass
+    
+    return gc
 
 
 # Example helper function to recursively download a folder from Google Drive

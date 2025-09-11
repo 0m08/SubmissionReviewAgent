@@ -32,25 +32,17 @@ st.markdown("## SkillCat HVAC Video Search Tool")
 st.markdown("Use this tool to create, update, and search for HVAC videos based on text queries.")
 
 # --------------------- Roles & Task Selection --------------------- #
-authenticated_roles = {
-    "Editor": "Editor",
-    "Admin": "Admin",
-    "Content Head": "ch",
-    "Instructional Designer": "id",
-    "Video Designer": "vd",
-}
-
 if "role" not in st.session_state:
     st.session_state.role = None
 
 role = st.session_state.role
 task_options = []
 
-if role in ["Editor", "Admin"]:
+if role in ["Admin Team", "Innovation Team"]:
     task_options = ["Create Vectorstore", "Update Vectorstore", "Search Videos"]
-elif role == "Content Head":
+elif role == "Content Team":
     task_options = ["Update Vectorstore", "Search Videos"]
-elif role in ["Instructional Designer", "Video Designer"]:
+elif role == "Visual Designer Team":
     task_options = ["Search Videos"]
 else:
     st.warning("Your role does not have access to any tasks.")

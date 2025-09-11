@@ -4,7 +4,7 @@ from agents.vector_store_image_search.create_vectorstore import build_vectorstor
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
 from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
-from services.drive_service import login_with_service_account
+from services.drive_service import login_with_service_account, login_with_oauth2
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
 from dotenv import load_dotenv
@@ -16,21 +16,27 @@ import requests
 from io import BytesIO
 from PIL import Image
 
-# Load Google Service Account credentials
+# Load Google credentials
 load_dotenv()
-key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
-sa_json = key_bytes.decode()
-sa_dict = json.loads(sa_json)
-gauth = login_with_service_account(json_str=sa_json)
-gauth.ServiceAuth()
-drive = GoogleDrive(gauth)
-gc = gspread.service_account_from_dict(sa_dict)
 
+# Check if we should use OAuth 2.0 or service account
+# If OAuth credentials are provided, use OAuth 2.0; otherwise use service account
+oauth_client_id = os.getenv("OAUTH_CLIENT_ID")
+oauth_client_secret = os.getenv("OAUTH_CLIENT_SECRET")
+use_oauth2 = bool(oauth_client_id and oauth_client_secret)
 
 # ----------------- Streamlit App ----------------- #
 
-st.session_state["drive"] = drive
-st.session_state["gc"] = gc
+# Use pre-authenticated credentials from login
+if "drive" in st.session_state and "gc" in st.session_state:
+    # Use existing authentication from login
+    drive = st.session_state["drive"]
+    gc = st.session_state["gc"]
+    
+else:
+    # Fallback: authenticate here if not done during login
+    st.error("❌ Authentication not found. Please log out and log in again.")
+    st.stop()
 
 sheet = st.session_state.get("sheet")
 
@@ -47,14 +53,6 @@ else:
 
 
 # --- Define task visibility by role ---
-authenticated_roles = {
-    "Editor": "Editor",
-    "Admin": "Admin",
-    "Content Head": "ch", 
-    "Instructional Designer": "id", 
-    "Visual Designer": "vd",
-}
-
 # Initialize session state for role if not already set
 if "role" not in st.session_state:
     st.session_state.role = None
@@ -64,14 +62,12 @@ role = st.session_state.role
 # Determine tasks based on role
 task_options = []
 
-if role in ["Editor", "Admin"]:
+if role in ["Admin Team", "Innovation Team"]:
     task_options = ["Create Vectorstore", "Update Vectorstore", "Search Images"]
-elif role == "Content Head":  # Content Head
+elif role == "Content Team":  # Content Team
     task_options = ["Update Vectorstore", "Search Images"]
-elif role in ["Instructional Designer", "Visual Designer"]:  # Instructional or Visual Designer
+elif role == "Visual Designer Team":  # Visual Designer Team
     task_options = ["Search Images"]
-
-
 else:
     st.warning("Your role does not have access to any tasks.")
 
@@ -88,7 +84,7 @@ if task in ["Create Vectorstore", "Update Vectorstore"]:
 
     if sheet_url:
         try:
-            gc = gspread.service_account_from_dict(sa_dict)
+            # Use the already initialized gc from the authentication setup above
             sheet = gc.open_by_url(sheet_url)
             st.session_state["sheet"] = sheet
             st.success("Sheet loaded successfully.")
