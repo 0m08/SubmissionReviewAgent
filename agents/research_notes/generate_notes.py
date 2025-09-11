@@ -209,23 +209,14 @@ Now, follow these steps to identify and extract the relevant chunk from the give
      • Do not add any commentary, notes, or tags in the output
 </extract_relevant_chunk>
 
-Then, provide your final answer in the <output> tags using EXACTLY this format: 
 <output>
-Start: [timestamp number only]
-End: [timestamp number only]
-Transcript:
-- '[timestamp]': [transcript text]
-- '[timestamp]': [transcript text]
-- '[timestamp]': [transcript text]
-</output> 
-
-
+Paste your final result here using the format shown above. Only one chunk should be returned for the single learning objective. Do not include anything else outside the output.
+</output>
 
 Note: Strictly remember to always enclose your final output of timestamped transcript chunk inside the <output> .... </output> tags as shown above.
 
 Important Rules and Constraints:
 
-- You MUST include the <output></output> tags around your final answer.
 - Do not paraphrase, rephrase, or summarize the transcript in the output.  
 - Do not generate new sentences or explanations — all output must be copied directly from the provided transcript lines.
 - Only include the single most relevant chunk that clearly and directly supports the learning objective.
