@@ -207,6 +207,11 @@ def process_image_embedding(row, folder_id, drive):
         if not isinstance(local_img, Image.Image):
             return None, None, None
         image_vector = get_image_embedding_from_file(local_img)
+        
+        # Compute perceptual hash for duplicate detection
+        phash = str(imagehash.phash(local_img))
+
+        
         metadata = {
             'image_id': row['Image ID'],
             'name': row['Image Name'],
@@ -216,7 +221,8 @@ def process_image_embedding(row, folder_id, drive):
             'image_type': row['Image Type'],
             'image_title': row['Image Title'],
             'folder_id': folder_id,
-            'embedding_type': 'image'
+            'embedding_type': 'image',
+            'phash': phash
         }
 
         # Optional v2 metadata

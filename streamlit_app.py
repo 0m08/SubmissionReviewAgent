@@ -63,8 +63,20 @@ def login():
         clicked = clickable_images(
             [img_b64], 
             titles=["Login with Google"],
-            div_style={"display": "flex", "justify-content": "center"},
-            img_style={"cursor": "pointer", "height": "60px"},
+            div_style={
+                "display": "flex", 
+                "justify-content": "center",
+                "background-color": "white",
+                "border": "2px solid #dadce0",
+                "border-radius": "8px",
+                "padding": "8px 16px",
+                "box-shadow": "0 2px 4px rgba(0,0,0,0.1)"
+            },
+            img_style={
+                "cursor": "pointer", 
+                "height": "60px",
+                "border-radius": "4px"
+            },
         )
 
         if clicked == 0:  # Image clicked
