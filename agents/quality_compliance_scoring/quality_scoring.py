@@ -177,8 +177,12 @@ def process_and_save_stage(sheet, spreadsheet):
         for row in data:
             item_type = str(row.get('Checklist Item Type', '')).strip().lower()
             criteria = row.get('Checklist Criteria', '')
-            reviewer_status = row.get(col)
-            is_checked = str(reviewer_status).strip().lower() == 'true'
+
+            reviewer_status = str(row.get(col)).strip().lower()
+            if reviewer_status not in ['true', 'false']:
+                continue  # Skip if reviewer checkbox is missing
+
+            is_checked = reviewer_status == 'true'
 
             if not is_checked:
                 issue_text = criteria
