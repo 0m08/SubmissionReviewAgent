@@ -287,14 +287,15 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
     seen_phashes = set()
     seen_image_ids = set()
     seen_drive_urls = set()
+    seen_filenames = set()
     seen_topics = set()
     
     # Sort by similarity first
     sorted_results = sorted(combined_results, key=lambda x: x["similarity"])
     
-    for result in sorted_results:
+    for i, result in enumerate(sorted_results):
         metadata = result["metadata"]
-        
+                
         # Skip if visually duplicate
         phash = metadata.get("phash")
         if phash and phash in seen_phashes:
@@ -309,12 +310,20 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
         if image_id:
             seen_image_ids.add(image_id)
         
-        # Skip if same drive_url already seen (fallback deduplication)
+        # Skip if same drive_url already seen
         drive_url = metadata.get("drive_url")
         if drive_url and drive_url in seen_drive_urls:
             continue
         if drive_url:
             seen_drive_urls.add(drive_url)
+        
+        # Skip if same filename already seen
+        filename = metadata.get("name") or metadata.get("image_title")
+        if filename and filename in seen_filenames:
+            print(f"Skipping duplicate by filename: {filename}")
+            continue
+        if filename:
+            seen_filenames.add(filename)
         
         # Check topic diversity for v2 (when topic_name is available)
         # topic_name = metadata.get("topic_name")
