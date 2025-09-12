@@ -264,17 +264,17 @@ def generate_transcript_chunks(course_name, target_audience, course_outline, sub
     "function_name": "run_research_notes_agent_for_all_rows",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def run_research_notes_agent_for_all_rows(sheet, drive, worksheet_name, course_name, target_audience, llm='gemini_2_flash'):
+def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, target_audience, llm='gemini_2_flash', _drive=None):
     """
-    This function is used to generate research_notes for all rows.
+    Generate research_notes for all rows in the course outline.
 
-    :param sheet: The sheet object.
-    :param worksheet_name: The worksheet name.
-    :param course_name: The name of the course.
-    :param target_audience: The target audience of the course.
-    :param llm: The language model to use.
-    :param _drive: Google Drive client (required for loading video transcripts).
-    :return: None    
+    :param sheet: Google Sheet object
+    :param worksheet_name: Name of the worksheet
+    :param course_name: Course name
+    :param target_audience: Target audience
+    :param llm: Language model to use
+    :param _drive: Google Drive client (required for loading video transcripts)
+    :return: None
     """
 
     def format_chunks_to_transcript(chunks):
@@ -297,36 +297,22 @@ def run_research_notes_agent_for_all_rows(sheet, drive, worksheet_name, course_n
         print(f"Failed to read 'Outline Stage' from 'Course Info' sheet: {e}")
         outline_stage = None
 
-    if outline_stage == "final":
-
-        # Read the sheet and df
-        course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(
-            sheet=sheet, 
-            sheet_name=worksheet_name
-        )
-
-        # Create column for research notes if not already present
+    # Common function for both stages
+    def process_rows(course_outline_with_lo_sheet, course_outline_with_lo_df):
+        # Ensure research_notes column exists
         if 'research_notes' not in course_outline_with_lo_df.columns:
             course_outline_with_lo_df['research_notes'] = ''
 
-        # Check if this step is already done by checking if ALL rows have research_notes populated
         if (course_outline_with_lo_df['research_notes'] != '').all():
             print('Research notes already populated for all rows')
             return
 
-        # Get context column count
         context_col_count = len([col for col in course_outline_with_lo_df.columns if 'context_' in col])
+        course_outline_with_lo = get_outline_with_los(course_outline_with_lo_df, include_learning_objectives=True)
 
-        # Get the course outline with lo
-        course_outline_with_lo = get_outline_with_los(
-            df=course_outline_with_lo_df,
-            include_learning_objectives=True
-        )
+        # Load all transcripts once
+        video_chunks_dict = load_video_chunks_from_local_or_drive(_drive) if _drive else {}
 
-        # Load all video chunks once (if Drive client is provided)
-        video_chunks_dict = load_video_chunks_from_local_or_drive(drive)
-
-        # Prepare for parallel processing
         futures_map = {}
         with ThreadPoolExecutor(max_workers=5) as executor:
             for index, row in course_outline_with_lo_df.iterrows():
@@ -334,58 +320,72 @@ def run_research_notes_agent_for_all_rows(sheet, drive, worksheet_name, course_n
                     print(f'Skipping row {index}. Already populated')
                     continue
 
-                # Construct the context by joining all the context_n values
-                context = ''.join(
-                    [row[f'context_{i}'] for i in range(context_col_count)]
-                )
+                # Build fallback context
+                context = ''.join([row[f'context_{i}'] for i in range(context_col_count)])
 
-                required_cols = ["References", "Reference type", "Reference usage"]
-                if all(col in row.index for col in required_cols):
-                    ref = str(row["References"]).strip()
-                    ref_type = str(row["Reference type"]).strip()
-                    ref_usage = str(row["Reference usage"]).strip()
+                ref = str(row.get("References", "")).strip()
+                ref_type = str(row.get("Reference type", "")).strip()
+                ref_usage = str(row.get("Reference usage", "")).strip()
 
-                    # Case: YouTube or Google Drive Video + Video usage
-                    if ref and (ref_type == "Youtube Video" or ref_type == "Google Drive Video") and ref_usage == "Video":
-                        try:
-                            if ref_type == "Youtube Video":
-                                video_id = get_video_id_from_url(ref)
-                                if video_id in video_chunks_dict:
-                                    chunks = video_chunks_dict[video_id]
-                                    full_transcript = format_chunks_to_transcript(chunks)
-                                else:
-                                    full_transcript = ""
-                            else:  # Google Drive Video
-                                match = re.search(r'/d/([\w-]+)', ref)
-                                video_id = match.group(1) if match else ''
-                                if video_id in video_chunks_dict:
-                                    chunks = video_chunks_dict[video_id]
-                                    full_transcript = format_chunks_to_transcript(chunks)
-                                else:
-                                    full_transcript = ""
+                future = None
 
+                if ref and ref_type and ref_usage:
+                    # YouTube Video
+                    if ref_type == "Youtube Video":
+                        video_id = get_video_id_from_url(ref)
+                        chunks = video_chunks_dict.get(video_id, [])
+                        transcript_text = format_chunks_to_transcript(chunks)
+
+                        if ref_usage == "Video":
                             future = executor.submit(
                                 generate_transcript_chunks,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-                                relevant_documents=full_transcript,
+                                relevant_documents=transcript_text,
                                 llm=llm
                             )
-                        except Exception as e:
-                            print(f"Failed to load transcript for video {ref}: {e}")
+                        elif ref_usage == "Content":
                             future = executor.submit(
                                 generate_research_notes,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-                                relevant_documents=context,
-                                llm=llm,
+                                relevant_documents=transcript_text,
+                                llm=llm
                             )
-                    else:
-                        # All other cases → use research notes with context
+
+                    # Google Drive Video
+                    elif ref_type == "Google Drive Video":
+                        match = re.search(r'/d/([\w-]+)', ref)
+                        file_id = match.group(1) if match else ''
+                        chunks = video_chunks_dict.get(file_id, [])
+                        transcript_text = format_chunks_to_transcript(chunks)
+
+                        if ref_usage == "Video":
+                            future = executor.submit(
+                                generate_transcript_chunks,
+                                course_name=course_name,
+                                target_audience=target_audience,
+                                course_outline=course_outline_with_lo,
+                                subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
+                                relevant_documents=transcript_text,
+                                llm=llm
+                            )
+                        elif ref_usage == "Content":
+                            future = executor.submit(
+                                generate_research_notes,
+                                course_name=course_name,
+                                target_audience=target_audience,
+                                course_outline=course_outline_with_lo,
+                                subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
+                                relevant_documents=transcript_text,
+                                llm=llm
+                            )
+
+                    elif ref_type == "Web Article" and ref_usage == "Content":
                         future = executor.submit(
                             generate_research_notes,
                             course_name=course_name,
@@ -395,8 +395,9 @@ def run_research_notes_agent_for_all_rows(sheet, drive, worksheet_name, course_n
                             relevant_documents=context,
                             llm=llm,
                         )
-                else:
-                    # No reference columns → fallback to context
+
+                # Fallback when no reference is provided
+                if not future:
                     future = executor.submit(
                         generate_research_notes,
                         course_name=course_name,
@@ -404,27 +405,26 @@ def run_research_notes_agent_for_all_rows(sheet, drive, worksheet_name, course_n
                         course_outline=course_outline_with_lo,
                         subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
                         relevant_documents=context,
-                        llm=llm,
+                        llm=llm
                     )
 
                 futures_map[future] = index
 
             # Collect results
             total_tasks = len(futures_map)
-            save_interval = 5
-            progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=save_interval)
+            progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=5)
 
             for future in tqdm(as_completed(futures_map), total=total_tasks):
                 index = futures_map[future]
                 research_notes = future.result()
 
-                # ✅ Post-process for YouTube or Google Drive videos
+                # Post-process links
                 row = course_outline_with_lo_df.iloc[index]
                 ref = str(row.get("References", "")).strip()
                 ref_type = row.get("Reference type")
                 ref_usage = row.get("Reference usage")
 
-                if ref and ref_type and ref_usage and (ref_type == "Youtube Video" or ref_type == "Google Drive Video") and ref_usage == "Video":
+                if ref and ref_type and ref_usage and (ref_type in ["Youtube Video", "Google Drive Video"]) and ref_usage == "Video":
                     if ref_type == "Youtube Video":
                         video_id = get_video_id_from_url(ref)
                         start_match = re.search(r'Start: (\d+)', research_notes)
@@ -439,92 +439,27 @@ def run_research_notes_agent_for_all_rows(sheet, drive, worksheet_name, course_n
                         file_id = match.group(1) if match else ''
                         research_notes = f"Link: {ref}\nVideo_ID: {file_id}\n{research_notes}"
 
-                # Save result to dataframe
-                course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
-                progress.update()
-
-                if progress.should_save():
-                    print(f"Saving partial progress after {progress.completed_count} tasks.")
-                    save_to_sheet(worksheet=course_outline_with_lo_sheet, df=course_outline_with_lo_df)
-
-        print('All rows processed. Saving final DataFrame to sheet.')
-        save_to_sheet(worksheet=course_outline_with_lo_sheet, df=course_outline_with_lo_df)
-        return
-
-    elif outline_stage == "initial":
-        course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(
-            sheet=sheet, 
-            sheet_name=worksheet_name
-        )
-        if 'research_notes' not in course_outline_with_lo_df.columns:
-            course_outline_with_lo_df['research_notes'] = ''
-        if (course_outline_with_lo_df['research_notes'] != '').all():
-            print('Research notes already populated for all rows')
-            return
-        context_col_count = len([col for col in course_outline_with_lo_df.columns if 'context_' in col])
-        course_outline_with_lo = get_outline_with_los(df=course_outline_with_lo_df, include_learning_objectives=True)
-        futures_map = {}
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            for index, row in course_outline_with_lo_df.iterrows():
-                if row['research_notes'] != '':
-                    print(f'Skipping row {index}. Already populated')
-                    continue
-                context = ''.join([row[f'context_{i}'] for i in range(context_col_count)])
-                required_cols = ["References", "Reference type", "Reference usage"]
-                if all(col in row.index for col in required_cols):
-                    ref = str(row["References"]).strip()
-                    ref_type = str(row["Reference type"]).strip()
-                    ref_usage = str(row["Reference usage"]).strip()
-                    if ref and ref_type and ref_usage:
-                        if ref_type == "Web Article" and ref_usage == "Content":
-                            future = executor.submit(generate_research_notes, course_name, target_audience, course_outline_with_lo, row['Subtopic'] + '\n\n' + row['Learning Objectives'], context, llm)
-                        elif ref_type == "Youtube Video" and ref_usage == "Content":
-                            future = executor.submit(generate_research_notes, course_name, target_audience, course_outline_with_lo, row['Subtopic'] + '\n\n' + row['Learning Objectives'], context, llm)
-                        elif ref_type == "Youtube Video" and ref_usage == "Video":
-                            def format_youtube_video_notes(ref, context):
-                                video_id_match = re.search(r"/embed/([\w-]+)", ref)
-                                video_id = video_id_match.group(1) if video_id_match else ''
-                                start_match = re.search(r"[?&]start=(\d+)", ref)
-                                end_match = re.search(r"[?&]end=(\d+)", ref)
-                                start = start_match.group(1) if start_match else ''
-                                end = end_match.group(1) if end_match else ''
-                                pattern = r"- '([\d:]+)': (.+)"
-                                def mmss_to_sec(ts):
-                                    parts = ts.split(":")
-                                    if len(parts) == 2: return str(int(parts[0]) * 60 + int(parts[1]))
-                                    elif len(parts) == 3: return str(int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]))
-                                    return ts
-                                transcript_lines = []
-                                for match in re.finditer(pattern, context):
-                                    sec = mmss_to_sec(match.group(1))
-                                    text = match.group(2)
-                                    transcript_lines.append(f"  - '{sec}': {text}")
-                                transcript = '\n'.join(transcript_lines)
-                                return (f"Link: {ref}\nVideo_Id: {video_id}\nStart: {start}\nEnd: {end}\nTranscript:\n{transcript}")
-                            future = executor.submit(format_youtube_video_notes, ref, context)
-                        else:
-                            future = executor.submit(generate_research_notes, course_name, target_audience, course_outline_with_lo, row['Subtopic'] + '\n\n' + row['Learning Objectives'], context, llm)
-                    else:
-                        future = executor.submit(generate_research_notes, course_name, target_audience, course_outline_with_lo, row['Subtopic'] + '\n\n' + row['Learning Objectives'], context, llm)
-                else:
-                    future = executor.submit(generate_research_notes, course_name, target_audience, course_outline_with_lo, row['Subtopic'] + '\n\n' + row['Learning Objectives'], context, llm)
-                futures_map[future] = index
-            total_tasks = len(futures_map)
-            save_interval = 5
-            progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=save_interval)
-            for future in tqdm(as_completed(futures_map), total=total_tasks):
-                index = futures_map[future]
-                research_notes = future.result()
                 course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
                 progress.update()
                 if progress.should_save():
                     print(f'Saving partial progress after {progress.completed_count} tasks.')
                     save_to_sheet(worksheet=course_outline_with_lo_sheet, df=course_outline_with_lo_df)
+
         print('All rows processed. Saving final DataFrame to sheet.')
         save_to_sheet(worksheet=course_outline_with_lo_sheet, df=course_outline_with_lo_df)
+
+    # Run for both stages
+    if outline_stage == "final":
+        course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet, worksheet_name)
+        process_rows(course_outline_with_lo_sheet, course_outline_with_lo_df)
+        return
+    elif outline_stage == "initial":
+        course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(sheet, worksheet_name)
+        process_rows(course_outline_with_lo_sheet, course_outline_with_lo_df)
         return
     else:
         raise ValueError(f"Unknown outline stage: {outline_stage}")
+
 
 
 
