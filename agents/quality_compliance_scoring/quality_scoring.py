@@ -26,24 +26,37 @@ drive = GoogleDrive(gauth)
 gc = gspread.service_account_from_dict(sa_dict)
 
 
+
 generate_llm_feedback_prompt_template = """
-You are an instructional design reviewer helping a course creator improve their course materials.
+You are an instructional design reviewer helping a course creator improve their course materials. Your task is to generate targeted, actionable feedback based on a quality checklist review.
+The following issues were found in the {issue_type} checklist items for the {stage} stage of the course {course}, created by {creator}.
 
-The following issues were found in the **{issue_type}** checklist items for the **{stage}** stage of the course **{course}**, created by **{creator}**.
-
-Here is the list of problematic checklist items:
+Here is the list of problematic checklist items and any associated reviewer comments:
 {issues}
 
-For each checklist item above, do the following:
-- Extract a short 2–4 word heading that summarizes the main idea
-- Write helpful, friendly, and clear feedback under that heading
+There might be reviewer comments, which may be placed randomly for the whole topic. Use them to inform your feedback.
+{comments}
+Your goal is to provide clear, specific feedback that the course creator can use to address each unmet criterion.
+
+Feedback Generation Guidelines
+- Focus strictly on unticked items only (i.e., only generate feedback for unmet criteria).
+- Use reviewer comments wherever available; if a comment addresses an unticked item, use it as the primary basis for feedback (including specific examples or suggestions if mentioned).
+- Don't just blatantly copy the comments and paste them. Use them to give summarised feedback.
+- Headings should not be the checklist criteria, but short issue-based subheadings that relate to the feedback.
+- Use clear, direct, and specific language.
+- Be professional, helpful, and focused entirely on actionable improvements.
+- Do not insert general feedback—only specific, relevant feedback tied to each unticked item.
+- If a reviewer comment includes an example or suggestion, include it to make your feedback more practical and concrete for the reporter.
+- Keep all feedback relevant, actionable, and as concise as possible.
+
+For each unticked (not fulfilled) item, the agent should generate one row with:
+Title (headline): A concise (2-3 word) subheading that summarizes what the feedback is about. Do not use the original checklist criterion as the heading—instead, create a small subheading capturing the specific issue.
+AI Feedback: A concise, constructive summary specifying what the reporter should do to address the unmet criterion, using clear and actionable guidance.
+
 - Use this exact format for every item:
 
-<Short Heading>:
-<Specific, constructive feedback in paragraph form>
-
-Write feedback in plain English that directly helps the creator improve this checklist item.
-Be direct but supportive. Avoid repeating the full checklist item.
+<Title (headline)>
+<AI Feedback>
 """
 
 
@@ -53,6 +66,7 @@ def generate_llm_feedback_from_issues(
     stage: str,
     creator: str,
     course: str,
+    comments: str = "",   # ✅ added comments parameter
     llm: str = "gemini_2_flash"
 ) -> Optional[str]:
     if not issues:
@@ -62,13 +76,13 @@ def generate_llm_feedback_from_issues(
     agent = Chain(llm=llm) 
 
     formatted_prompt = generate_llm_feedback_prompt_template.format(
-    creator=creator,
-    course=course,
-    stage=stage,
-    issue_type=issue_type,
-    issues="\n".join(f"- {i}" for i in issues)
-)
-
+        creator=creator,
+        course=course,
+        stage=stage,
+        issue_type=issue_type,
+        issues="\n".join(f"- {i}" for i in issues),
+        comments=comments or "No reviewer comments provided."   # ✅ inject comments
+    )
 
     agent.add_message(role='user', content=formatted_prompt)
 
@@ -85,6 +99,7 @@ def generate_llm_feedback_from_issues(
     except Exception as e:
         print(f"LLM failed to generate feedback: {e}")
         return None
+
 
 
 def extract_course_name(title: str) -> str:
@@ -155,22 +170,34 @@ def process_and_save_stage(sheet, spreadsheet):
 
         topic_count += 1
 
+        # Identify comments column for this topic
+        comment_col_name = f"Topic {topic_number}\nComments"
+        has_comments = comment_col_name in header_row
+
         for row in data:
             item_type = str(row.get('Checklist Item Type', '')).strip().lower()
             criteria = row.get('Checklist Criteria', '')
             reviewer_status = row.get(col)
             is_checked = str(reviewer_status).strip().lower() == 'true'
 
-            if item_type == 'basic':
-                total_basic += 1
-                if not is_checked:
+            if not is_checked:
+                issue_text = criteria
+                if has_comments and row.get(comment_col_name):
+                    issue_text = f"{criteria}  (Reviewer comment: {row.get(comment_col_name).strip()})"
+
+                if item_type == 'basic':
+                    total_basic += 1
                     total_basic_issues += 1
-                    all_basic_issue_texts.append(criteria)
-            elif item_type == 'critical':
-                total_critical += 1
-                if not is_checked:
+                    all_basic_issue_texts.append(issue_text)
+                elif item_type == 'critical':
+                    total_critical += 1
                     total_critical_issues += 1
-                    all_critical_issue_texts.append(criteria)
+                    all_critical_issue_texts.append(issue_text)
+            else:
+                if item_type == 'basic':
+                    total_basic += 1
+                elif item_type == 'critical':
+                    total_critical += 1
 
     basic_quality = 100.0 if total_basic == 0 else round((1 - total_basic_issues / total_basic) * 100, 2)
     critical_quality = 100.0 if total_critical == 0 else round((1 - total_critical_issues / total_critical) * 100, 2)
@@ -198,6 +225,8 @@ def process_and_save_stage(sheet, spreadsheet):
         "LLM Feedback - Basic": basic_feedback.strip(),
         "LLM Feedback - Critical": critical_feedback.strip()
     }
+
+
 
 
 def run_update_quality_scores(spreadsheet):
@@ -296,5 +325,3 @@ def run_update_quality_scores(spreadsheet):
 
     save_to_sheet(task_ws, task_df)
     print("Task Logs sheet updated.")
-
-
