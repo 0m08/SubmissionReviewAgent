@@ -285,6 +285,8 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
     print("Ranking and filtering results...")
     results = []
     seen_phashes = set()
+    seen_image_ids = set()
+    seen_drive_urls = set()
     seen_topics = set()
     
     # Sort by similarity first
@@ -299,6 +301,20 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
             continue
         if phash:
             seen_phashes.add(phash)
+        
+        # Skip if same image_id already seen (prevents duplicates from different sources)
+        image_id = metadata.get("image_id")
+        if image_id and image_id in seen_image_ids:
+            continue
+        if image_id:
+            seen_image_ids.add(image_id)
+        
+        # Skip if same drive_url already seen (fallback deduplication)
+        drive_url = metadata.get("drive_url")
+        if drive_url and drive_url in seen_drive_urls:
+            continue
+        if drive_url:
+            seen_drive_urls.add(drive_url)
         
         # Check topic diversity for v2 (when topic_name is available)
         # topic_name = metadata.get("topic_name")
