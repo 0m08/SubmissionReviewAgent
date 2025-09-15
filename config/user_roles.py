@@ -17,6 +17,7 @@ email_to_role_mapping = {
     "nancy@skillcatapp.com": "Admin",
     "om@skillcatapp.com": "Admin",
     "niket@skillcatapp.com": "Admin",
+    "pniket7@gmail.com": "Admin",
     
     # Managers - Access to all pages, but cannot create vectorstore in Image Search and Video Search
     "tiffany@skillcatapp.com": "Managers",

@@ -91,16 +91,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     st.error("OAuth credentials not found. Please set OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET environment variables.")
                     st.stop()
                 
-                # OAuth authentication for Drive
-                gauth = login_with_oauth2(
-                    client_id=oauth_client_id,
-                    client_secret=oauth_client_secret,
-                    credentials_file="credentials.json"
-                )
-                drive = GoogleDrive(gauth)
-
-                # OAuth authentication for Sheets (using same credentials as Drive)
-                gc = gspread.authorize(gauth.credentials)
+                # Use existing authenticated clients from session if available
+                if "drive" in st.session_state and "gc" in st.session_state:
+                    drive = st.session_state["drive"]
+                    gc = st.session_state["gc"]
+                else:
+                    st.stop()
                 sheet = gc.open_by_url(sheet_link)
                 course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 

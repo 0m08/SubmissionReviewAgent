@@ -5,6 +5,16 @@ import tempfile
 import gspread
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+from google_auth_httplib2 import AuthorizedHttp
+from oauth2client.client import OAuth2Credentials
+
+# Common OAuth scopes used across the app
+GOOGLE_OAUTH_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets",
+]
 
 
 def login_with_service_account(path=None, json_str=None, user_email=None):
@@ -171,6 +181,97 @@ def get_oauth_credentials_for_gspread(client_id=None, client_secret=None):
         pass
     
     return gc
+
+
+# ================================
+# Web OAuth flow for Streamlit
+# ================================
+
+def _build_web_client_config(client_id: str, client_secret: str, redirect_uri: str) -> dict:
+    """Create a Google OAuth "web" client config dict for google-auth-oauthlib."""
+    return {
+        "web": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            # It's fine to include the single redirect URI we intend to use here
+            "redirect_uris": [redirect_uri],
+        }
+    }
+
+
+def get_google_oauth_authorization_url(client_id: str, client_secret: str, redirect_uri: str):
+    """
+    Initialize the web OAuth flow and return (authorization_url, state).
+    The caller should persist the returned "state" in session and verify it on callback.
+    """
+    client_config = _build_web_client_config(client_id, client_secret, redirect_uri)
+    flow = Flow.from_client_config(
+        client_config=client_config,
+        scopes=GOOGLE_OAUTH_SCOPES,
+        redirect_uri=redirect_uri,
+    )
+    authorization_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    return authorization_url, state
+
+
+def exchange_code_for_credentials(client_id: str, client_secret: str, redirect_uri: str, code: str) -> Credentials:
+    """
+    Exchange an authorization code for Google OAuth credentials.
+    """
+    client_config = _build_web_client_config(client_id, client_secret, redirect_uri)
+    flow = Flow.from_client_config(
+        client_config=client_config,
+        scopes=GOOGLE_OAUTH_SCOPES,
+        redirect_uri=redirect_uri,
+    )
+    # Fetch tokens using the "code" directly 
+    flow.fetch_token(code=code)
+    return flow.credentials
+
+
+def init_clients_from_credentials(creds: Credentials):
+    """
+    Given google.oauth2.credentials.Credentials, initialize:
+      - PyDrive2 GoogleAuth + GoogleDrive
+      - gspread client
+    Returns (gauth, drive, gc)
+    """
+    
+    # Convert google.oauth2.credentials.Credentials to oauth2client format
+    oauth2_creds = OAuth2Credentials(
+        access_token=creds.token,
+        client_id=creds.client_id,
+        client_secret=creds.client_secret,
+        refresh_token=creds.refresh_token,
+        token_expiry=creds.expiry,
+        token_uri=creds.token_uri,
+        user_agent=None,
+        revoke_uri=None,
+        scopes=creds.scopes
+    )
+    
+    gauth = GoogleAuth()
+    gauth.credentials = oauth2_creds
+    # Ensure HTTP is authorized for PyDrive2 operations
+    gauth.http = AuthorizedHttp(creds)
+
+    drive = None
+    try:
+        from pydrive2.drive import GoogleDrive
+        drive = GoogleDrive(gauth)
+    except Exception:
+        # Defer failures to callers that actually need Drive
+        drive = None
+
+    gc = gspread.authorize(creds)
+    return gauth, drive, gc
 
 
 # Example helper function to recursively download a folder from Google Drive

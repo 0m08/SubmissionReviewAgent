@@ -1,6 +1,11 @@
 import streamlit as st
 import time
-from services.drive_service import login_with_oauth2
+from services.drive_service import (
+    login_with_oauth2,  # kept for legacy CLI/local usage
+    get_google_oauth_authorization_url,
+    exchange_code_for_credentials,
+    init_clients_from_credentials,
+)
 from pydrive2.drive import GoogleDrive
 import gspread
 import base64
@@ -42,6 +47,60 @@ def login():
     """Direct Google OAuth authentication - no username/password required."""
     st.header("SkillCat AI Agents Ecosystem")
     
+    # Handle OAuth callback first (when Google redirects back with ?code=...)
+    load_dotenv()
+    params = st.query_params
+    oauth_client_id = os.getenv("OAUTH_CLIENT_ID")
+    oauth_client_secret = os.getenv("OAUTH_CLIENT_SECRET")
+    redirect_uri = (
+        os.getenv("OAUTH_REDIRECT_URI")
+        or os.getenv("OAUTH_REDIRECT_URI_LIGHTNING")
+        or os.getenv("OAUTH_REDIRECT_URI_LOCAL")
+        or "http://localhost:8501"
+    )
+
+    if "code" in params and oauth_client_id and oauth_client_secret:
+        code = params.get("code")
+        state_received = params.get("state")
+        state_expected = st.session_state.get("oauth_state")
+
+        if state_expected and state_received and state_received != state_expected:
+            st.error("Authentication state mismatch. Please try logging in again.")
+            st.query_params.clear()
+            st.stop()
+
+        try:
+            creds = exchange_code_for_credentials(
+                client_id=oauth_client_id,
+                client_secret=oauth_client_secret,
+                redirect_uri=redirect_uri,
+                code=code,
+            )
+            gauth, drive, gc = init_clients_from_credentials(creds)
+
+            about = drive.GetAbout()
+            user_email = about.get('user', {}).get('emailAddress', '')
+
+            if user_email:
+                user_info = get_user_info(user_email)
+                if user_info["is_authorized"]:
+                    st.session_state["drive"] = drive
+                    st.session_state["gc"] = gc
+                    st.session_state["oauth_authenticated"] = True
+                    st.session_state["role"] = user_info["role"]
+                    st.session_state["user_email"] = user_email
+                    st.session_state["user_pages"] = user_info["pages"]
+                    st.session_state.pop("oauth_state", None)
+                    st.query_params.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Access denied. Email {user_email} is not authorized to access this application.")
+            else:
+                st.error("Could not retrieve user email. Please try again.")
+        except Exception as e:
+            st.error(f"Authentication failed: {e}")
+            st.stop()
+    
     # role_choice = st.text_input("Enter your login name: ")
     # password = st.text_input("Enter the password: ")
     # if st.button("Log in"):
@@ -80,6 +139,18 @@ def login():
         )
 
         if clicked == 0:  # Image clicked
+            if oauth_client_id and oauth_client_secret:
+                auth_url, state = get_google_oauth_authorization_url(
+                    client_id=oauth_client_id,
+                    client_secret=oauth_client_secret,
+                    redirect_uri=redirect_uri,
+                )
+                st.session_state["oauth_state"] = state
+                st.markdown(
+                    f'<meta http-equiv="refresh" content="0; url={auth_url}">',
+                    unsafe_allow_html=True,
+                )
+                st.stop()
             try:
                 load_dotenv()
 
