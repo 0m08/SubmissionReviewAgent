@@ -216,6 +216,7 @@ def graphics_retriever_agent(
     filters: dict = None,
     verbose: bool = True,
     definition: str | None = None,
+    root_folder_id: str = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH',
 ):
     """
     LLM-driven image selection agent using actual image objects and a multi-turn refinement process.
@@ -243,7 +244,7 @@ def graphics_retriever_agent(
             print(f"\nTurn {turn + 1}: Query = '{query}'")
 
         # Step 1: Retrieve top-k image metadata + PIL objects
-        results = graphics_retriever(query, query_image, drive=drive, k=k, filters=filters)
+        results = graphics_retriever(query, query_image, drive=drive, k=k, filters=filters, root_folder_id=root_folder_id)
 
         if not results:
             print("No results returned.")

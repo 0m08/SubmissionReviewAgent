@@ -1,6 +1,6 @@
 from modules.chain import Chain
 from tqdm import tqdm
-from services.youtube_video_loader import get_transcript_with_fallback
+from services.youtube_video_loader import get_transcript_with_fallback, load_video_chunks_from_local_or_drive
 from services.youtube_video_loader import get_yt_chapters_chunks_as_docs
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -435,7 +435,7 @@ def run_classify_video(sheet, worksheet_name, course_name, target_audience, llm 
 
 
 
-def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_worksheet_name, llm = "gemini_2_flash"):
+def run_chunk_videos(sheet, drive, videos_research_worksheet_name, video_chunks_worksheet_name, llm="gemini_2_flash"):
     """
     This function chunks all the videos marked as relevant
 
@@ -448,7 +448,7 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
 
     # Read or create dataframes
     videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet, videos_research_worksheet_name)
-    video_chunks_sheet, video_chunks_df = create_or_read_worksheet(sheet, video_chunks_worksheet_name, rows = 1000, cols = 20)
+    video_chunks_sheet, video_chunks_df = create_or_read_worksheet(sheet, video_chunks_worksheet_name, rows=1000, cols=20)
 
     if 'video_id' not in video_chunks_df.columns:
         video_chunks_df['video_id'] = ''
@@ -463,105 +463,190 @@ def run_chunk_videos(sheet, videos_research_worksheet_name, video_chunks_workshe
     # Get video_transcript column count
     video_transcript_col_count = len([col for col in videos_research_df.columns if 'video_transcript_' in col])
 
-    # Prepare for parallel processing
+    # ✅ Load cached chunks from CSV once
+    video_chunks_dict = load_video_chunks_from_local_or_drive(drive)
+
+    # Inline constants (no new helper functions)
+    MAX_CELL_SAFE = 45000
+
     futures_map = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
-        # Submit tasks for each row
         for index, row in videos_research_df.iterrows():
-
             video_id = row['video_id']
             video_title = row['title']
 
-            # Skip verdict is marked as irrelevant or blank
+            # Skip irrelevant or already processed videos
             if 'irrelevant' in row['video_verdict'].lower() or row['video_verdict'] == '':
                 print(f"Skip. Not relevant video {index}: {video_title}")
                 continue
-
-            # Skip if already analyzed
             if video_id in video_chunks_df['video_id'].values:
                 print(f"Skip. Already analyzed video {index}: {video_title}")
                 continue
 
-            # Get the transcript
-            timestamped_transcript = json.loads(
-                ''.join(
-                    [row[f'video_transcript_{i}'] for i in range(video_transcript_col_count)]
-                )
-            )            
+            # ✅ If cached in CSV → use chunks
+            if video_id in video_chunks_dict:
+                print(f"Loaded chunks from CSV for video {index}: {video_title}")
+                chunks = video_chunks_dict[video_id]
+                chapter_summaries = []
 
-            # Submit the task
-            future = executor.submit(
-                get_yt_chapters_chunks_as_docs,
-                video_id,
-                video_title,
-                timestamped_transcript,
-                llm
-            )
+                # Since we skip already-analyzed videos above, there should be no existing rows
+                # for this video_id in the current DF. But we keep the pattern so it's safe if you change logic later.
+                existing_rows = video_chunks_df[video_chunks_df['video_id'] == video_id]
+                previous_texts = []
+                text_columns = [col for col in existing_rows.columns if col.startswith("text_")]
+                for _, row_ in existing_rows.iterrows():
+                    prev_text = " ".join([str(row_[col]) for col in text_columns if pd.notnull(row_[col])])
+                    if prev_text:
+                        previous_texts.append(prev_text)
+                previous_full_text = " ".join(previous_texts).strip()
+                is_first_new_chunk = True
 
-            # Map the Future to the index
-            futures_map[future] = index
+                # 🆕 Write new chunks; merge previous text ONLY into first chunk
+                for chunk in chunks:
+                    page_content = chunk.get('text', '') or ''
+                    chapter_title = chunk.get('chapter_title', '')
+                    channel_title = video_id_to_channel_title.get(video_id, row.get('channel_title', 'Unknown'))
+                    metadata = {**chunk.get('metadata', {}), 'channel': channel_title}
 
-        # Collect the results as they complete
-        total_tasks = len(futures_map)
-        save_interval = 5  # how often to save (in number of completed tasks)
-        if total_tasks == 0:
-            print('All relevant videos chunked. Skipping this step')
-            return
+                    # Merge once
+                    if is_first_new_chunk and previous_full_text:
+                        text_to_write = (previous_full_text + " " + page_content).strip()
+                        is_first_new_chunk = False
+                    else:
+                        text_to_write = page_content
 
-        # Initialize the progress tracker
-        progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
+                    # Truncate ONLY metadata and summaries (body text is chunked by create_and_populate_columns)
+                    metadata_json = json.dumps(metadata)
+                    if len(metadata_json) > MAX_CELL_SAFE:
+                        metadata_json = metadata_json[:MAX_CELL_SAFE] + "... [TRUNCATED]"
 
-        # Now, pass only the futures (the keys) to as_completed:
-        for future in tqdm(as_completed(futures_map), total=total_tasks):
-            index = futures_map[future]  # retrieve the index
-            yt_docs = future.result()
-            
-            if yt_docs:
-                # Populate videos research df
-                videos_research_df.loc[index, 'chapter_summaries'] = yt_docs[0].metadata.get('chapter_summaries', '')
+                    new_row = {
+                        'video_id': video_id,
+                        'video_title': chunk.get('video_title', video_title),
+                        'chapter_title': chapter_title,
+                        'metadata': metadata_json,
+                        'text_0': ''  # Placeholder
+                    }
 
-                # Populate video chunks df
-                for doc in yt_docs:
-                    # Correct: get the chapter title from the doc metadata
-                    chapter_title = doc.metadata.get('chapter_title', '')
-                    # Correct: get the channel title from the mapping
-                    channel_title = video_id_to_channel_title.get(videos_research_df.loc[index, 'video_id'], row.get('channel_title', 'Unknown'))
-                    video_chunks_df = pd.concat([
-                        video_chunks_df,
-                        pd.DataFrame({
-                            'video_id': [videos_research_df.loc[index, 'video_id']],
-                            'video_title': [videos_research_df.loc[index, 'title']],
-                            'chapter_title': [chapter_title],
-                            'metadata': [json.dumps({**doc.metadata, 'channel': channel_title})],
-                            'text_0': ['']
-                        })
-                    ], ignore_index=True)
+                    video_chunks_df = pd.concat([video_chunks_df, pd.DataFrame([new_row])], ignore_index=True)
 
                     video_chunks_df = create_and_populate_columns(
-                        df = video_chunks_df,
-                        text = doc.page_content,
-                        specific_index = video_chunks_df.shape[0] - 1,
-                        col_base_name = "text"
+                        df=video_chunks_df,
+                        text=text_to_write,
+                        specific_index=video_chunks_df.shape[0] - 1,
+                        col_base_name="text"
                     )
 
-            # Update progress
+                    chapter_summaries.append(metadata.get('chapter_summaries', ''))
+
+                # Truncate ONLY the summaries cell if too long
+                chapter_summaries_cell = "\n\n".join(chapter_summaries)
+                if len(chapter_summaries_cell) > MAX_CELL_SAFE:
+                    chapter_summaries_cell = chapter_summaries_cell[:MAX_CELL_SAFE] + "... [TRUNCATED]"
+                videos_research_df.loc[index, 'chapter_summaries'] = chapter_summaries_cell
+
+            else:
+                # 👇 Fallback to LLM
+                timestamped_transcript = json.loads(
+                    ''.join([row[f'video_transcript_{i}'] for i in range(video_transcript_col_count)])
+                )
+
+                future = executor.submit(
+                    get_yt_chapters_chunks_as_docs,
+                    video_id,
+                    video_title,
+                    timestamped_transcript,
+                    llm
+                )
+                futures_map[future] = index
+
+        # Save after processing cached CSV chunks
+        print('Saving progress from CSV-loaded chunks...')
+        save_to_sheet(worksheet=videos_research_sheet, df=videos_research_df)
+        save_to_sheet(worksheet=video_chunks_sheet, df=video_chunks_df)
+
+        # Process LLM results
+        total_tasks = len(futures_map)
+        if total_tasks == 0:
+            print('All videos processed. No LLM calls required.')
+            format_worksheet(video_chunks_sheet)
+            return
+
+        progress = SmartProgressBar(total_tasks=total_tasks, description="Processing with LLM", save_interval=5)
+
+        for future in tqdm(as_completed(futures_map), total=total_tasks):
+            index = futures_map[future]
+            yt_docs = future.result()
+
+            if yt_docs:
+                # Truncate ONLY the summaries cell if too long
+                first_summary = yt_docs[0].metadata.get('chapter_summaries', '')
+                if len(first_summary) > MAX_CELL_SAFE:
+                    first_summary = first_summary[:MAX_CELL_SAFE] + "... [TRUNCATED]"
+                videos_research_df.loc[index, 'chapter_summaries'] = first_summary
+
+                # Because of the "already analyzed" skip earlier, we only enter here
+                # for brand-new videos, so there shouldn't be existing rows for this video_id.
+                # Still safe to keep a previous-merge pattern (it will be empty).
+                video_id = videos_research_df.loc[index, 'video_id']
+                existing_rows = video_chunks_df[video_chunks_df['video_id'] == video_id]
+                previous_texts = []
+                text_columns = [col for col in existing_rows.columns if col.startswith("text_")]
+                for _, row_ in existing_rows.iterrows():
+                    prev_text = " ".join([str(row_[col]) for col in text_columns if pd.notnull(row_[col])])
+                    if prev_text:
+                        previous_texts.append(prev_text)
+                previous_full_text = " ".join(previous_texts).strip()
+                is_first_new_chunk = True
+
+                for doc in yt_docs:
+                    chapter_title = doc.metadata.get('chapter_title', '')
+                    channel_title = video_id_to_channel_title.get(
+                        video_id,
+                        videos_research_df.loc[index].get('channel_title', 'Unknown')
+                    )
+
+                    # Merge once
+                    if is_first_new_chunk and previous_full_text:
+                        text_to_write = (previous_full_text + " " + doc.page_content).strip()
+                        is_first_new_chunk = False
+                    else:
+                        text_to_write = doc.page_content
+
+                    meta_with_channel = {**doc.metadata, 'channel': channel_title}
+                    metadata_json = json.dumps(meta_with_channel)
+                    if len(metadata_json) > MAX_CELL_SAFE:
+                        metadata_json = metadata_json[:MAX_CELL_SAFE] + "... [TRUNCATED]"
+
+                    new_row = {
+                        'video_id': video_id,
+                        'video_title': videos_research_df.loc[index, 'title'],
+                        'chapter_title': chapter_title,
+                        'metadata': metadata_json,
+                        'text_0': ''  # Placeholder
+                    }
+
+                    video_chunks_df = pd.concat([video_chunks_df, pd.DataFrame([new_row])], ignore_index=True)
+
+                    video_chunks_df = create_and_populate_columns(
+                        df=video_chunks_df,
+                        text=text_to_write,
+                        specific_index=video_chunks_df.shape[0] - 1,
+                        col_base_name="text"
+                    )
+
             progress.update()
-
-            # Check if we should save
             if progress.should_save():
-                print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
-                save_to_sheet(worksheet = video_chunks_sheet, df = video_chunks_df)
+                print(f'Saving partial progress after {progress.completed_count} tasks...')
+                save_to_sheet(worksheet=videos_research_sheet, df=videos_research_df)
+                save_to_sheet(worksheet=video_chunks_sheet, df=video_chunks_df)
 
-    # Final save to sheet after all tasks
-    print('All rows processed. Saving final DataFrame to sheet.')
-    save_to_sheet(worksheet = videos_research_sheet, df = videos_research_df)
-    save_to_sheet(worksheet = video_chunks_sheet, df = video_chunks_df)
-    
-    # Format the newly created sheet
+    print('All videos processed. Final save...')
+    save_to_sheet(worksheet=videos_research_sheet, df=videos_research_df)
+    save_to_sheet(worksheet=video_chunks_sheet, df=video_chunks_df)
     format_worksheet(video_chunks_sheet)
-
     return
+
 
 
 def delete_video_transcripts(sheet, worksheet_name="Videos Research"):

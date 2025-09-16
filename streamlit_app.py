@@ -1,22 +1,33 @@
 import streamlit as st
 import time
+from services.drive_service import (
+    login_with_oauth2,  # kept for legacy CLI/local usage
+    get_google_oauth_authorization_url,
+    exchange_code_for_credentials,
+    init_clients_from_credentials,
+)
+from pydrive2.drive import GoogleDrive
+import gspread
+import base64
+import json
+import os
+from dotenv import load_dotenv
+from streamlit_clickable_images import clickable_images
+from utils.role_utils import get_user_info
+
 # from jira import JIRA
-# import os
-# from dotenv import load_dotenv
 
 # load_dotenv()
+# Helper to load image as base64
+def load_image_as_base64(path):
+    with open(path, "rb") as f:
+        data = f.read()
+    return "data:image/png;base64," + base64.b64encode(data).decode()
 
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
     st.session_state.role = None
 
-authenticated_roles = {
-    "Editor": "Editor",
-    "Admin": "Admin",
-    "Content Head": "ch", 
-    "Instructional Designer": "id", 
-    "Visual Designer": "vd",
-}
 
 # skillcat_logo_image = Image.open("assets/SkillCat-Logo.png")
 # skillcat_helmet_image = Image.open("assets/SkillCat-Helmet.png")
@@ -33,28 +44,190 @@ authenticated_roles = {
 #######################
 
 def login():
-    """A simple 'Login' page as a function. 
-       Called if user is not logged in."""
+    """Direct Google OAuth authentication - no username/password required."""
     st.header("SkillCat AI Agents Ecosystem")
-    role_choice = st.text_input("Enter your login name: ")
-    password = st.text_input("Enter the password: ")
-    if st.button("Log in"):
-        if role_choice in authenticated_roles:
-            if password == authenticated_roles[role_choice]:
-                st.success("Logging in")
-                st.session_state.role = role_choice
+    
+    # Handle OAuth callback first (when Google redirects back with ?code=...)
+    load_dotenv()
+    params = st.query_params
+    oauth_client_id = os.getenv("OAUTH_CLIENT_ID")
+    oauth_client_secret = os.getenv("OAUTH_CLIENT_SECRET")
+    redirect_uri = (
+        os.getenv("OAUTH_REDIRECT_URI")
+        or os.getenv("OAUTH_REDIRECT_URI_LIGHTNING")
+        or os.getenv("OAUTH_REDIRECT_URI_LOCAL")
+        or "http://localhost:8501"
+    )
+
+    if "code" in params and oauth_client_id and oauth_client_secret:
+        code = params.get("code")
+        state_received = params.get("state")
+        state_expected = st.session_state.get("oauth_state")
+
+        if state_expected and state_received and state_received != state_expected:
+            st.error("Authentication state mismatch. Please try logging in again.")
+            st.query_params.clear()
+            st.stop()
+
+        try:
+            creds = exchange_code_for_credentials(
+                client_id=oauth_client_id,
+                client_secret=oauth_client_secret,
+                redirect_uri=redirect_uri,
+                code=code,
+            )
+            gauth, drive, gc = init_clients_from_credentials(creds)
+
+            about = drive.GetAbout()
+            user_email = about.get('user', {}).get('emailAddress', '')
+
+            if user_email:
+                user_info = get_user_info(user_email)
+                if user_info["is_authorized"]:
+                    st.session_state["drive"] = drive
+                    st.session_state["gc"] = gc
+                    st.session_state["oauth_authenticated"] = True
+                    st.session_state["role"] = user_info["role"]
+                    st.session_state["user_email"] = user_email
+                    st.session_state["user_pages"] = user_info["pages"]
+                    st.session_state.pop("oauth_state", None)
+                    st.query_params.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Access denied. Email {user_email} is not authorized to access this application.")
             else:
-                st.error("Failed to authenticate. Wrong passsword. Try again.")
-                time.sleep(2)
-        else:
-            st.error("Failed to authenticate. Wrong user name. Try again.")
-            time.sleep(2)
-        st.rerun()
+                st.error("Could not retrieve user email. Please try again.")
+        except Exception as e:
+            st.error(f"Authentication failed: {e}")
+            st.stop()
+    
+    # role_choice = st.text_input("Enter your login name: ")
+    # password = st.text_input("Enter the password: ")
+    # if st.button("Log in"):
+    #     if role_choice in authenticated_roles:
+    #         if password == authenticated_roles[role_choice]:
+    #             st.success("Logging in...")
+    #             st.session_state.role = role_choice
+    
+    st.info("🔐 Click below to authenticate and access the AI Agents")
+
+    # Load Google login button from assets folder
+    image_path = os.path.join(
+        os.path.dirname(__file__), "assets", "google-login-button.png"
+    )
+    img_b64 = load_image_as_base64(image_path)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        clicked = clickable_images(
+            [img_b64], 
+            titles=["Login with Google"],
+            div_style={
+                "display": "flex", 
+                "justify-content": "center",
+                "background-color": "white",
+                "border": "2px solid #dadce0",
+                "border-radius": "8px",
+                "padding": "8px 16px",
+                "box-shadow": "0 2px 4px rgba(0,0,0,0.1)"
+            },
+            img_style={
+                "cursor": "pointer", 
+                "height": "60px",
+                "border-radius": "4px"
+            },
+        )
+
+        if clicked == 0:  # Image clicked
+            if oauth_client_id and oauth_client_secret:
+                auth_url, state = get_google_oauth_authorization_url(
+                    client_id=oauth_client_id,
+                    client_secret=oauth_client_secret,
+                    redirect_uri=redirect_uri,
+                )
+                st.session_state["oauth_state"] = state
+                st.markdown(
+                    f'<meta http-equiv="refresh" content="0; url={auth_url}">',
+                    unsafe_allow_html=True,
+                )
+                st.stop()
+            try:
+                load_dotenv()
+
+                # Check if OAuth credentials are available
+                oauth_client_id = os.getenv("OAUTH_CLIENT_ID")
+                oauth_client_secret = os.getenv("OAUTH_CLIENT_SECRET")
+
+                if oauth_client_id and oauth_client_secret:
+                    st.info("🔐 Logging you in...")
+
+                    # OAuth authentication for Drive
+                    gauth = login_with_oauth2(
+                        client_id=oauth_client_id,
+                        client_secret=oauth_client_secret,
+                        credentials_file="credentials.json"
+                    )
+                    drive = GoogleDrive(gauth)
+
+                    # Service account for Sheets
+                    # key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
+                    # sa_json = key_bytes.decode()
+                    # sa_dict = json.loads(sa_json)
+                    # gc = gspread.service_account_from_dict(sa_dict)
+                   
+                    # OAuth authentication for Sheets (using same credentials as Drive)
+                    gc = gspread.authorize(gauth.credentials)
+
+                    # Get user email and role
+                    try:
+                        # Get user info from Google Drive API
+                        about = drive.GetAbout()
+                        user_email = about.get('user', {}).get('emailAddress', '')
+                        
+                        if user_email:
+                            # Get user role and page access
+                            user_info = get_user_info(user_email)
+                            
+                            if user_info["is_authorized"]:
+                                # Store in session state
+                                st.session_state["drive"] = drive
+                                st.session_state["gc"] = gc
+                                st.session_state["oauth_authenticated"] = True
+                                st.session_state["role"] = user_info["role"]
+                                st.session_state["user_email"] = user_email
+                                st.session_state["user_pages"] = user_info["pages"]
+                                
+                                st.success(f"✅ Authentication successful! Welcome {user_info['role']} - {user_email}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Access denied. Email {user_email} is not authorized to access this application.")
+                                st.session_state["oauth_authenticated"] = False
+                        else:
+                            st.error("❌ Could not retrieve user email. Please try again.")
+                            st.session_state["oauth_authenticated"] = False
+                    except Exception as e:
+                        st.error(f"❌ Error getting user information: {str(e)}")
+                        st.session_state["oauth_authenticated"] = False
+
+                else:
+                    st.error("❌ OAuth credentials not configured. Please contact administrator.")
+                    st.session_state["oauth_authenticated"] = False
+
+            except Exception as e:
+                st.error(f"Authentication failed: {e}")
+                st.session_state["oauth_authenticated"] = False
+    
+    # else:
+    #     st.error("Failed to authenticate. Wrong passsword. Try again.")
+    #     time.sleep(2)
+    # else:
+    #     st.error("Failed to authenticate. Wrong user name. Try again.")
+    #     time.sleep(2)
+    # st.rerun()
 
 
 def logout():
-    """Immediately logs the user out by clearing role."""
-    # st.session_state.role = None
+    """Immediately logs the user out by clearing role and authentication."""
     # Delete all the items in Session state
     for key in st.session_state.keys():
         del st.session_state[key]
@@ -183,22 +356,38 @@ video_search_tool_page = st.Page(
 # We'll build a dictionary of pages for the "logged in" scenario,
 # plus one for the "logged out" scenario.
 
+# role_based_page_access_dict = {
+#     "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+#     "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+#     "Content Head": [course_outline_page, research_notes_page, quality_compliance_scoring_page, video_search_tool_page],
+#     "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+#     "Visual Designer": [graphics_definition_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+# }
 
-role_based_page_access_dict = {
-        "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
-    "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
-    "Content Head": [course_outline_page, research_notes_page, quality_compliance_scoring_page, video_search_tool_page],
-    "Instructional Designer": [research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
-    "Visual Designer": [graphics_definition_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
+# Create a mapping from page names to actual page objects
+page_name_to_object = {
+    "course_outline_page": course_outline_page,
+    "research_notes_page": research_notes_page,
+    "slide_chunks_page": slide_chunks_page,
+    "graphics_definition_page": graphics_definition_page,
+    "assessments_generation_page": assessments_generation_page,
+    "graphics_search_page": graphics_search_page,
+    "vectorstore_page": vectorstore_page,
+    "get_images_page": get_images_page,
+    "quality_compliance_scoring_page": quality_compliance_scoring_page,
+    "video_search_tool_page": video_search_tool_page,
 }
 
 
-if st.session_state.role in authenticated_roles:
-    # The user is logged in (role != None)
+if st.session_state.role:
+    # The user is logged in with a valid role
     page_dict = {}
 
     account_pages = [list_of_agents_page, about_agents_page, logout_page]
-    user_pages = role_based_page_access_dict[st.session_state.role]
+    
+    # Get user's accessible pages based on their role
+    user_page_names = st.session_state.get("user_pages", [])
+    user_pages = [page_name_to_object[page_name] for page_name in user_page_names if page_name in page_name_to_object]
 
     page_dict["Account"] = account_pages
     page_dict["Agents and Tools"] = user_pages

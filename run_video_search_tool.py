@@ -7,12 +7,11 @@ from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 from services.sheets_service import get_sheet_data_and_df
 from services.drive_service import login_with_service_account
-from agents.course_outline.video_search_tool.video_retriever import video_retriever
-from agents.course_outline.video_search_tool.video_retriever_agent import video_retriever_agent
 from agents.course_outline.video_search_tool.update_video_vectorstore import update_video_vectorstore
+from agents.course_outline.video_search_tool.video_retriever import video_retriever, video_search_retriever_agent
 from agents.course_outline.video_search_tool.create_video_vectorstore import create_video_vectorstore, chroma_db_exists
 
-
+llm_model = st.session_state.get("llm_model", "gemini_2_flash") or "gemini_2_flash"
 # --------------------- Auth --------------------- #
 load_dotenv()
 key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
@@ -32,25 +31,17 @@ st.markdown("## SkillCat HVAC Video Search Tool")
 st.markdown("Use this tool to create, update, and search for HVAC videos based on text queries.")
 
 # --------------------- Roles & Task Selection --------------------- #
-authenticated_roles = {
-    "Editor": "Editor",
-    "Admin": "Admin",
-    "Content Head": "ch",
-    "Instructional Designer": "id",
-    "Video Designer": "vd",
-}
-
 if "role" not in st.session_state:
     st.session_state.role = None
 
 role = st.session_state.role
 task_options = []
 
-if role in ["Editor", "Admin"]:
+if role == "Admin":
     task_options = ["Create Vectorstore", "Update Vectorstore", "Search Videos"]
-elif role == "Content Head":
+elif role == "Managers":
     task_options = ["Update Vectorstore", "Search Videos"]
-elif role in ["Instructional Designer", "Video Designer"]:
+elif role == "Visual Designer":
     task_options = ["Search Videos"]
 else:
     st.warning("Your role does not have access to any tasks.")
@@ -141,7 +132,6 @@ elif task == "Search Videos":
         
         if channel_filter and channel_filter != "All":
             filters["channel"] = channel_filter
-    
 
     use_agent = st.toggle("Agent Mode", value=False)
 
@@ -151,12 +141,13 @@ elif task == "Search Videos":
         else:
             with st.spinner("Searching videos..."):
                 if use_agent:
-                    results = video_retriever_agent(
+                    results = video_search_retriever_agent(
                         query=query,
                         drive=drive,
-                        llm ='gemini_2_flash',
+                        llm=llm_model,
                         k=num_results,
                         filters=filters
+
                     )
                 else:
                     results = video_retriever(
@@ -164,27 +155,47 @@ elif task == "Search Videos":
                         drive=drive,
                         k=num_results,
                         filters=filters
-                    )
+                        )
 
             # Display Results
             if results:
                 st.subheader(f"Top {len(results)} Videos")
 
                 for idx, video_data in enumerate(results):
-                    # Access top-level fields
                     video_title = video_data.get("video_title", f"Video {idx+1}")
-                    video_url = video_data.get("video_url", "#")
-                    channel = video_data.get("channel", "Unknown")
+                    video_id    = video_data.get("video_id")
+                    start_sec   = int(video_data.get("start_time") or 0)
+                    end_sec     = video_data.get("end_time")
+                    end_sec     = int(end_sec) if end_sec is not None else None
 
-                    # Display video inline if URL is valid
-                    if video_url.startswith("http"):
-                        st.video(video_url)  # Embed the YouTube video
+                    # Build YouTube embed URL
+                    base = f"https://www.youtube.com/embed/{video_id}"
+                    params = [f"start={start_sec}"]
+                    if end_sec is not None:
+                        params.append(f"end={end_sec}")
+                    params += ["controls=0", "modestbranding=1", "rel=0", "fs=0", "disablekb=1", "playsinline=1"]
+                    iframe_url = base + "?" + "&".join(params)
 
-                    # Clickable title below video
-                    st.markdown(f"[{video_title}]({video_url})", unsafe_allow_html=True)
+                    # Render iframe directly
+                    st.markdown(
+                        f"""
+                        <iframe src="{iframe_url}" width="640" height="360" frameborder="0" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen></iframe>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                    # Clickable title (to the same embed URL)
+                    st.markdown(f"[{video_title}]({iframe_url})", unsafe_allow_html=True)
+                    st.caption(f"Channel: {video_data.get('channel','Unknown')}")
+
+                    # Collapsible transcript
+                    with st.expander("Show Transcript"):
+                        st.write(video_data.get("transcript","Transcript not available."))
+
+                    st.markdown("---")
+
 
             else:
                 st.warning("No videos found.")
-
-
-

@@ -23,6 +23,7 @@ class SearchState(TypedDict, total=False):
     images: List[Dict[str, Any]]
     verdict: str
     turn: int
+    root_folder_id: str
 
 
 # --- Helper to parse index strings ---
@@ -44,6 +45,7 @@ def retriever_node(state: SearchState) -> SearchState:
         drive=state["drive"],
         k=state.get("k", 5),
         filters=state.get("filters"),
+        root_folder_id=state.get("root_folder_id"),
     )
     state["results"] = results
     return state
@@ -153,6 +155,7 @@ def run_graphics_search_graph(
     llm: str = "gemini_2_flash",
     max_turns: int = 3,
     filters: Dict[str, Any] | None = None,
+    root_folder_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     app = build_graph()
 
@@ -164,6 +167,7 @@ def run_graphics_search_graph(
         "filters": filters,
         "max_turns": max_turns,
         "turn": 1,
+        "root_folder_id": root_folder_id,
     })
 
     return final_state.get("images", [])

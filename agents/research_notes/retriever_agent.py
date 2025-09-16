@@ -16,15 +16,14 @@ from services.helper_functions import create_and_populate_columns, get_outline_w
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
+import urllib.parse as urlparse
 from langsmith import traceable
 import pandas as pd
 from services.helper_functions import extract_drive_file_id
 from services.web_page_loaders import get_docs_from_url
-from services.youtube_video_loader import get_yt_chapters_chunks_as_docs, get_video_id_from_url, convert_time, get_transcript_with_fallback, get_transcript_assemblyai_drive
+from services.youtube_video_loader import get_video_id_from_url, convert_time, get_transcript_with_fallback, get_transcript_assemblyai_drive
 import json
-import tempfile
 import os
-import subprocess
 import gspread
 import base64
 import re
@@ -529,24 +528,37 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
 
                         # Separate into video or web link
                         if 'youtube.com' in source_link:
-                            # Check if start and end parameters exist in the URL
-                            if 'start=' in source_link and 'end=' in source_link:
-                                video_links.append(source_link)  # Keep the full URL with timestamps
+                            parsed = urlparse.urlparse(source_link)
+                            query = urlparse.parse_qs(parsed.query)
+                            vid_id = query.get('v', [None])[0]
+
+                            if vid_id:  # Only proceed if video ID found
+                                # Extract start/end from URL
+                                start_time = query.get('start', [None])[0]
+                                end_time = query.get('end', [None])[0]
+
+                                # If not in URL, check metadata
+                                if (start_time is None or end_time is None) and hasattr(context_doc, 'metadata'):
+                                    start_time = start_time or context_doc.metadata.get('start_time')
+                                    end_time = end_time or context_doc.metadata.get('end_time')
+
+                                # Build embed link
+                                params = []
+                                if start_time is not None:
+                                    params.append(f"start={start_time}")
+                                if end_time is not None:
+                                    params.append(f"end={end_time}")
+
+                                embed_url = f"https://www.youtube.com/embed/{vid_id}"
+                                if params:
+                                    embed_url += "?" + "&".join(params)
+
+                                video_links.append(embed_url)
                             else:
-                                # If no timestamps in URL, check if they exist in metadata
-                                if hasattr(context_doc, 'metadata'):
-                                    start_time = context_doc.metadata.get('start_time')
-                                    end_time = context_doc.metadata.get('end_time')
-                                    if start_time is not None and end_time is not None:
-                                        # Add timestamps to the URL
-                                        separator = '&' if '?' in source_link else '?'
-                                        video_links.append(f"{source_link}{separator}start={start_time}&end={end_time}")
-                                    else:
-                                        video_links.append(source_link)
-                                else:
-                                    video_links.append(source_link)
+                                video_links.append(source_link)  # fallback if no vid id
                         else:
                             web_links.append(source_link)
+
             else:
                 print(f'Skipping doc id {doc_id} as it is not an integer')
                 continue

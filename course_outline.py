@@ -86,7 +86,7 @@ from services.helper_functions import delete_final_outline
 from agents.research_notes.load_references import delete_all_references
 from agents.research_notes.retriever_agent import delete_retriever_context
 from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import map_original_outline_to_revised_outline_for_all_topics
-from agents.course_outline.video_search_tool.video_retriever_agent import run_video_search_for_los
+from agents.course_outline.video_search_tool.get_youtube_videos_for_los import run_video_search_for_los, delete_youtube_videos
 
 from agents.research_notes.load_references import load_references
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
@@ -226,8 +226,10 @@ pipeline_sections = [
                 "depends_on": ["Check Video Relevance"],
                 "args": {
                     "sheet": "sheet",
+                    "drive":"drive",
                     "videos_research_worksheet_name": "Videos Research",
                     "video_chunks_worksheet_name": "Video Chunks",
+                    
                     "llm": llm_model,
                 },
                 "estimated_time": "~ 10 - 20 minutes",
@@ -1033,6 +1035,9 @@ pipeline_sections.append({
             "func": run_video_search_for_los,
             "depends_on": ["Get relevant references for Learning Objectives"],
             "args": {
+                "course_name": "course_name",
+                "target_audience": "target_audience",
+                "course_outline": "course_outline",
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",
                 "drive": "drive",
@@ -1040,15 +1045,13 @@ pipeline_sections.append({
             },
             "estimated_time": "~ 10 - 20 minutes",
             "description": "Searches for relevant HVAC videos based on the learning objectives in the Final Outline sheet.",
-            # "delete_func": delete_retriever_context,
-            # "delete_args": {
-            #     "sheet": "sheet",
-            #     "worksheet_name": "Final Outline",
-            # }
+            "delete_func": delete_youtube_videos,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+            }
         },
     ]
 })
 
 agent_ui(step_name="Course Outline", pipeline_sections=pipeline_sections, outline_finalized=outline_finalized)
-
-

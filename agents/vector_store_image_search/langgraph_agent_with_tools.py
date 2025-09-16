@@ -29,12 +29,16 @@ class SearchState(TypedDict, total=False):
     used_vector_search: bool
     used_web_search: bool
     should_terminate: bool
+    root_folder_id: str
 
 # --- Tool functions ---
 @tool
-def run_vector_tool(query: str, drive: Any, k: int, query_image: Any = None) -> List[Dict[str, Any]]:
+def run_vector_tool(query: str, drive: Any, k: int, query_image: Any = None,
+                    filters: Dict[str, Any] | None = None,
+                    root_folder_id: str = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH') -> List[Dict[str, Any]]:
     """Search for images using vector search and return top k results."""
-    return graphics_retriever(query=query, query_image=query_image, drive=drive, k=k)
+    return graphics_retriever(query=query, query_image=query_image, drive=drive, k=k,
+                               filters=filters, root_folder_id=root_folder_id)
 
 @tool
 def run_web_tool(query: Optional[str] = None, query_image: Optional[Image.Image] = None, k: int = 5) -> List[Dict[str, Any]]:
@@ -52,7 +56,9 @@ def custom_tool_node(state: SearchState) -> SearchState:
             "query": state["query"],
             "query_image": state.get("query_image"),
             "drive": state["drive"],
-            "k": state["k"]
+            "k": state["k"],
+            "filters": state.get("filters"),
+            "root_folder_id": state.get("root_folder_id"),
         }
         state["used_vector_search"] = True
     elif not state.get("used_web_search", False) and state.get("query"):
@@ -96,6 +102,7 @@ def agent_node(state: SearchState) -> SearchState:
             max_turns=1,
             verbose=True,
             definition=state.get("definition"),
+            root_folder_id=state.get("root_folder_id"),
         )
         state["images"] = results
         state["used_vector_search"] = True
@@ -241,6 +248,7 @@ def run_graphics_search_graph(
     max_turns: int = 3,
     filters: Dict[str, Any] | None = None,
     definition: str | None = None,
+    root_folder_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     memory = MemorySaver()
     app = build_graph().with_config(checkpointer=memory)
@@ -255,6 +263,7 @@ def run_graphics_search_graph(
         "definition": definition,
         "max_turns": max_turns,
         "turn": 1,
+        "root_folder_id": root_folder_id,
     }
 
     final_state = app.invoke(initial_state)
