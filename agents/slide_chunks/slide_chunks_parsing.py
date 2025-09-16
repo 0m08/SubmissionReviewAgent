@@ -8,6 +8,7 @@ from services.sheets_service import (
     save_to_sheet,
     format_worksheet,
     delete_worksheet,
+    get_worksheet_names,
 )
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
@@ -147,3 +148,10 @@ def delete_slide_chunks_sheet(sheet, worksheet_name="Slide Chunks"):
     :return: None
     """
     delete_worksheet(sheet, worksheet_name)
+    
+    # Delete the checklist backup sheet if it exists
+    backup_name = "Backup Slide Chunks Sheet for Delete step of Slide Chunks Checklist"
+    sheet_names = get_worksheet_names(sheet)
+    if backup_name in sheet_names:
+        delete_worksheet(sheet, backup_name)
+        print(f"🗑️ Deleted backup sheet '{backup_name}' when deleting slide chunks sheet")
