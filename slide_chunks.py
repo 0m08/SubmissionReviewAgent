@@ -58,6 +58,11 @@ pipeline_sections = [
                 "estimated_time": "5-10 minutes",
                 "description": "This function parses the slide_chunks column in the Final Outline sheet, extracts structured slide data, and writes it to the Slide Chunks sheet."
             },
+                ]
+    },
+    {
+        "section_name": "Section 2: Checklist Review",
+        "steps": [
             {
                 "name": "Slide Chunks Checklist Review and Revise",
                 "func": run_slide_chunks_checklist_and_reviser,
@@ -81,57 +86,39 @@ pipeline_sections = [
                 "estimated_time": "15-30 minutes",
                 "description": "This function reviews and revises the parsed slide chunks based on a checklist to ensure quality and compliance."
             },
-            # {
-            #     "name": "Research Notes Parsing",
-            #     "func": run_research_notes_parsing,
-            #     "depends_on": ["Slide Chunks Parsing"],
-            #     "args": {
-            #         "sheet": "sheet",
-            #         "worksheet_name": "Research Notes",
-            #     },
-            #
-            #     "delete_func": delete_slide_chunks_sheet,
-            #     "delete_args": {
-            #         "sheet": "sheet",
-            #         "worksheet_name": "Slide Chunks",
-            #     },
-            #
-            #     "estimated_time": "10-20 minutes",
-            #     "description": "This function parses the research notes from the `Research Notes` sheet and extracts slide chunks in the `Slide Chunks` sheet.",
-            # },
-        ]
+            ]
     },
 
-    {
-        "section_name": "Section 2: Learning Objectives Slide Generation",
-        "steps": [
+    # {
+    #     "section_name": "Section 2: Learning Objectives Slide Generation",
+    #     "steps": [
 
-            {
-                "name": "Generate Learning Objectives",
-                "func": run_learning_objectives_agent,
-                "depends_on": ['Slide Chunks Checklist Review and Revise'],
-                "args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks",
-                    "course_name": "course_name",
-                    "target_audience": "target_audience",
-                    "llm":"gemini_2_flash"
-                },
-                "pre_exec_func": create_backup_slide_chunks_for_learning_objectives,
-                "pre_exec_args": {
-                    "sheet": "sheet"
-                },
-                "delete_func": delete_learning_objectives_slide_chunks,
-                "delete_args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks",
-                },
+    #         {
+    #             "name": "Generate Learning Objectives",
+    #             "func": run_learning_objectives_agent,
+    #             "depends_on": ['Slide Chunks Checklist Review and Revise'],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Slide Chunks",
+    #                 "course_name": "course_name",
+    #                 "target_audience": "target_audience",
+    #                 "llm":"gemini_2_flash"
+    #             },
+    #             "pre_exec_func": create_backup_slide_chunks_for_learning_objectives,
+    #             "pre_exec_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #             "delete_func": delete_learning_objectives_slide_chunks,
+    #             "delete_args": {
+    #                 "sheet": "sheet",
+    #                 "worksheet_name": "Slide Chunks",
+    #             },
 
-                "estimated_time": "< 1 minute",
-                "description": "This function generates slide content based on the reviewed and revised slide chunks.",
-            },
-        ]
-    },
+    #             "estimated_time": "< 1 minute",
+    #             "description": "This function generates slide content based on the reviewed and revised slide chunks.",
+    #         },
+    #     ]
+    # },
 
             
             # {

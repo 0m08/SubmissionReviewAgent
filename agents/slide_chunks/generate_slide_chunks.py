@@ -1,4 +1,4 @@
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet, delete_worksheet, get_worksheet_names
 from modules.chain import Chain
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
@@ -463,9 +463,15 @@ def delete_slide_chunks_generation(sheet, worksheet_name="Final Outline"):
     :param worksheet_name: The worksheet name (default 'Final Outline').
     :return: None
     """
-    from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save_to_sheet
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     if "slide_chunks" in df.columns:
         df = df.drop(columns=["slide_chunks"])
         clear_worksheet(ws)
         save_to_sheet(ws, df)
+    
+    # Delete the checklist backup sheet if it exists
+    backup_name = "Backup Slide Chunks Sheet for Delete step of Slide Chunks Checklist"
+    sheet_names = get_worksheet_names(sheet)
+    if backup_name in sheet_names:
+        delete_worksheet(sheet, backup_name)
+        print(f"🗑️ Deleted backup sheet '{backup_name}' when deleting slide chunks generation")

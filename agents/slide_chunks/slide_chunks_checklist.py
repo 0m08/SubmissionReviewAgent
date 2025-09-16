@@ -40,7 +40,8 @@ import pandas as pd
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple
 from pydantic import BaseModel, Field
 from services.helper_functions import iterate_scope
-
+import services.crud_text_block_tools as crud_tools
+    
 def process_single_slide_chunk_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, sheet, gc, global_max_index, llm):
     """
     Process a single topic slice: review → revise (if needed) → return result
@@ -149,7 +150,14 @@ def process_slide_chunk_scope_slices_parallel(scope, slide_chunks_df, scope_to_s
         print(f"No slices found for scope {scope}")
         return []
     print(f"Found {len(all_slices)} slices for scope {scope}")
-    args_list = [(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, sheet, gc, global_max_index, llm) for key, df_slice in all_slices]
+    
+    # Ensure parent relationship is set for all slices to enable full DataFrame context in CRUD tools
+    enhanced_slices = []
+    for key, df_slice in all_slices:
+        df_slice_with_parent = ensure_parent_relationship(df_slice, slide_chunks_df)
+        enhanced_slices.append((key, df_slice_with_parent))
+    
+    args_list = [(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, sheet, gc, global_max_index, llm) for key, df_slice in enhanced_slices]
     results = []
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(process_single_slide_chunk_slice, *args) for args in args_list]
@@ -214,7 +222,7 @@ def get_learning_objectives(scope, df_slice, sheet, gc):
                             objectives.append(f"• {subtopic}: {match.iloc[0][learning_obj_col].strip()}")
                 
                 if objectives:
-                    return f"Learning Objectives for '{topic}':\n" + "\n".join(objectives) + "\n\nEnsure content works cohesively toward these objectives."
+                    return f"Learning Objectives for '{topic}':\n" + "\n".join(objectives) + ""
         
         elif scope == "Global (full output)":
             # All learning objectives
@@ -377,7 +385,8 @@ IMPORTANT: Never change or remove these headers (Block ID, Topic, Subtopic, Slid
 NOTES:
 - Make use of the given set of CRUD block text tools to make the necessary revisions. 
 - If creating new slide using create_blocks, ensure to follow the correct format and maintain the headers required for revision.
-- The first slide of each topic must always be a "Transition" slide. Do not create or insert any "Content" slide before the first "Transition" slide of a topic. Also, the last slide of the topic must be a "Summary" slide.
+- The first slide of each topic must always be a "Learning Objectives" slide. Do not create or insert any type of slide before the first "Learning Objectives" slide of a topic. Also, the last slide of the topic must be a "Topic Summary" slide.
+- The first slide of each sub-topic must always be a "Transition" slide. Do not create or insert any "Content" slide before the first "Transition" slide of a sub-topic. Also, the last slide of the sub-topic must be a "Summary" slide.
 - These CRUD tools allow you to create, read, update, and delete blocks of text from the above slide chunk as needed.
 - You can only work with one block of text at a time. Each block of text is a separate entity identified by a unique ID - Block ID.
 - To implement some of the feedback, you may need to make edits to multiple blocks of text.
@@ -388,8 +397,6 @@ These are specific instructions for fixing failed criteria items. Match each fai
 Revision Examples:
 These examples show how to apply the corrections to the slides. Use these examples as reference to understand the approach to revising the research notes. Only refer the examples of the criteria that failed.
 """
-
-
 
 def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, reviser_examples, df, learning_objective, global_max_index=None, llm = "gemini_2_flash"):
     """
@@ -410,7 +417,7 @@ def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, revis
     # Store global max index in DataFrame attributes for CRUD tools to access
     if global_max_index is not None:
         df.attrs['global_max_index'] = global_max_index
-        print(f"✅ Set global_max_index in df.attrs: {global_max_index}")
+        # print(f"✅ Set global_max_index in df.attrs: {global_max_index}")
         
     rate_limiter = InMemoryRateLimiter(
         requests_per_second=1,  # <-- Super slow! We can only make a request once every 10 seconds!!
@@ -509,6 +516,19 @@ def fix_block_ids_in_text(df):
     return df
 
 
+def ensure_parent_relationship(df_slice, parent_df):
+    """
+    Ensure that DataFrame slices maintain reference to parent DataFrame.
+    This is crucial for the CRUD tools to access the full context when assigning order values.
+    """
+    if hasattr(df_slice, '_parent'):
+        return df_slice
+    
+    # Set parent reference for CRUD tools to access full DataFrame context
+    df_slice._parent = parent_df
+    return df_slice
+
+
 def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, checklist_sheet_link, gc, llm = "gemini_2_flash"):
     """
     Run the slide chunks checklist agent and reviser agent with the provided parameters.
@@ -531,7 +551,8 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
 
     print(slide_chunks_df)
     if "order" not in slide_chunks_df.columns:
-        slide_chunks_df["order"] = slide_chunks_df.index.astype(float)
+        # Ensure order starts from 1 (not 0)
+        slide_chunks_df["order"] = slide_chunks_df.index.astype(float) + 1
 
     # Ensure block text column exists and all rows have block text
     if 'block text' not in slide_chunks_df.columns:
@@ -675,11 +696,11 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
             slide_chunks_df = slide_chunks_df.sort_index()
             print(f"Main DataFrame shape after merge: {slide_chunks_df.shape}")
 
-            # --- Remove deleted blocks ---
-            # deleted_indices = set(df_slice.index) - set(revised_slide_chunks_df.index)
-            # if deleted_indices:
-            #     print(f"🗑️ Removing deleted blocks: {deleted_indices}")
-            #     slide_chunks_df = slide_chunks_df.drop(index=deleted_indices)
+            # Check for deleted blocks
+            deleted_indices = set(df_slice.index) - set(revised_slide_chunks_df.index)
+            if deleted_indices:
+                print(f"🗑️ Removing deleted blocks from main DataFrame: {deleted_indices}")
+                slide_chunks_df = slide_chunks_df.drop(index=deleted_indices, errors='ignore')
 
             # Note: Block IDs already fixed in parallel process
         progress.update()
@@ -750,6 +771,9 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
 
     print("✅ Block text parsing completed. Individual columns updated with revised content.")
     print("✅ Slide chunks parsing completed. Slide Type, Slide Chunk Title, and Slide Chunk columns updated.")
+    
+    # Reset global block ID counter for next run
+    crud_tools._global_block_id_counter = None
     
     return
 
