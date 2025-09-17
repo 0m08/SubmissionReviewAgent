@@ -3,12 +3,14 @@ import os
 import requests
 from io import BytesIO
 from PIL import Image
+import imagehash
 from services.embedding_service import get_embedding_model
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from langchain_chroma import Chroma
 from services.drive_service import download_folder_from_drive
 from typing import Optional, List, Dict, Union
 import base64
+import hashlib
 import tempfile
 
 
@@ -285,45 +287,34 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
     print("Ranking and filtering results...")
     results = []
     seen_phashes = set()
+    seen_content_hashes = set()
     seen_image_ids = set()
     seen_drive_urls = set()
     seen_filenames = set()
     seen_topics = set()
     
     # Sort by similarity first
-    sorted_results = sorted(combined_results, key=lambda x: x["similarity"])
+    sorted_results = sorted(combined_results, key=lambda x: x['similarity'])
     
     for i, result in enumerate(sorted_results):
-        metadata = result["metadata"]
-                
-        # Skip if visually duplicate
-        phash = metadata.get("phash")
-        if phash and phash in seen_phashes:
-            continue
-        if phash:
-            seen_phashes.add(phash)
+        metadata = result['metadata']
         
-        # Skip if same image_id already seen (prevents duplicates from different sources)
-        image_id = metadata.get("image_id")
+        image_id = metadata.get('image_id')
         if image_id and image_id in seen_image_ids:
             continue
-        if image_id:
-            seen_image_ids.add(image_id)
         
-        # Skip if same drive_url already seen
-        drive_url = metadata.get("drive_url")
+        drive_url = metadata.get('drive_url')
         if drive_url and drive_url in seen_drive_urls:
             continue
-        if drive_url:
-            seen_drive_urls.add(drive_url)
         
-        # Skip if same filename already seen
-        filename = metadata.get("name") or metadata.get("image_title")
+        filename = metadata.get('name') or metadata.get('image_title')
         if filename and filename in seen_filenames:
             print(f"Skipping duplicate by filename: {filename}")
             continue
-        if filename:
-            seen_filenames.add(filename)
+        
+        existing_phash = metadata.get('phash')
+        if existing_phash and existing_phash in seen_phashes:
+            continue
         
         # Check topic diversity for v2 (when topic_name is available)
         # topic_name = metadata.get("topic_name")
@@ -336,13 +327,40 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
         #         continue
         #     
         #     seen_topics.add(topic_name)
-
+        
         try:
-            image_file_id = metadata["image_id"]
-            pil_image = download_image_from_drive(drive, image_file_id)
+            if not image_id:
+                continue
+        
+            pil_image = download_image_from_drive(drive, image_id)
             if not pil_image:
                 continue
-
+        
+            phash_value = existing_phash
+            if not phash_value:
+                try:
+                    phash_value = str(imagehash.phash(pil_image))
+                except Exception as hash_error:
+                    print(f"Failed to compute pHash for {image_id}: {hash_error}")
+                    phash_value = None
+        
+            if phash_value:
+                if phash_value in seen_phashes:
+                    continue
+                seen_phashes.add(phash_value)
+                metadata.setdefault('phash', phash_value)
+            else:
+                try:
+                    content_signature = hashlib.md5(pil_image.tobytes()).hexdigest()
+                except Exception as digest_error:
+                    print(f"Failed to fingerprint image {image_id}: {digest_error}")
+                    content_signature = None
+        
+                if content_signature:
+                    if content_signature in seen_content_hashes:
+                        continue
+                    seen_content_hashes.add(content_signature)
+        
             results.append({
                 "similarity": result["similarity"],
                 "image": pil_image,
@@ -351,10 +369,17 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
                     "source": result["source"]
                 }
             })
-
+        
+            if image_id:
+                seen_image_ids.add(image_id)
+            if drive_url:
+                seen_drive_urls.add(drive_url)
+            if filename:
+                seen_filenames.add(filename)
+        
             if len(results) >= k:
                 break
-
+        
         except Exception as e:
             print(f"Failed to load image {metadata.get('image_id')}: {e}")
             continue
