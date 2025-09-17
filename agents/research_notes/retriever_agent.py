@@ -10,9 +10,12 @@ from services.sheets_service import (
     clear_worksheet,
     delete_worksheet,
     get_worksheet_names,
+    create_or_read_worksheet,
 )
 from tqdm import tqdm
 from services.helper_functions import create_and_populate_columns, get_outline_with_los, normalize_youtube_url, extract_transcript_segment
+from services.youtube_video_loader import convert_time_to_sec
+import json
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
@@ -333,6 +336,74 @@ def relevant_link_selection_if_multiple_matching_reference_links(course_name, ta
     return response['text']
 
 
+def get_transcript_from_video_chunks_csv(video_id):
+    """
+    Fetch transcript from local video_chunks.csv file.
+    Reconstructs full transcript from video chunks and converts to seconds format.
+    
+    Args:
+        video_id (str): YouTube video ID to search for
+        
+    Returns:
+        list: List of transcript segments in format [{"timestamp": "seconds", "text": "content"}]
+        None: If video not found or error occurs
+    """
+    try:
+        import pandas as pd
+        
+        # Read the video chunks CSV
+        csv_path = "assets/video_chunks.csv"
+        df = pd.read_csv(csv_path)
+        
+        # Filter for the specific video_id
+        video_chunks = df[df['video_id'] == video_id]
+        
+        if video_chunks.empty:
+            print(f"Video {video_id} not found in video_chunks.csv")
+            return None
+        
+        # Reconstruct transcript from chunks
+        transcript_segments = []
+        
+        for _, chunk in video_chunks.iterrows():
+            try:
+                # Parse metadata to get timing info
+                metadata = json.loads(chunk['metadata'])
+                start_time = metadata.get('start_time', 0)
+                end_time = metadata.get('end_time', start_time)
+                
+                # Get text content
+                text_content = str(chunk['text_0']).strip()
+                
+                if text_content and text_content != 'nan':
+                    # Convert start_time to seconds (it should already be in seconds)
+                    timestamp_seconds = int(start_time)
+                    
+                    transcript_segments.append({
+                        "timestamp": str(timestamp_seconds),
+                        "text": text_content,
+                        "start_time": start_time  # Add this for sorting
+                    })
+                    
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                print(f"Error processing chunk for video {video_id}: {e}")
+                continue
+        
+        # Sort by start_time to ensure chronological order
+        transcript_segments.sort(key=lambda x: x['start_time'])
+        
+        if transcript_segments:
+            print(f"Successfully loaded {len(transcript_segments)} chunks for video {video_id} from video_chunks.csv")
+            return transcript_segments
+        else:
+            print(f"No valid transcript segments found for video {video_id}")
+            return None
+            
+    except Exception as e:
+        print(f"Error reading video_chunks.csv: {e}")
+        return None
+
+
 @traceable(metadata={
     "agent_name": "research_notes",
     "step_name": "Retriever",
@@ -351,46 +422,66 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
         ref = str(row["References"]).strip()
         ref_type = str(row["Reference type"]).strip()
         ref_usage = str(row["Reference usage"]).strip()
-        if ref and ref_type in ["Web Article", "Youtube Video"] and ref_usage:
+        
+        # Process Web Article with "Content" usage - use actual article content
+        if ref and ref_type == "Web Article" and ref_usage == "Content":
             context_chunks = []
-            # Use Web Loader
-            if ref_type == "Web Article":
-                try:
-                    docs = get_docs_from_url(ref, query="")
-                    for doc in docs:
-                        # If chunk is too large, further split
-                        if len(doc.page_content) > 49000:
-                            # Use create_and_populate_columns on a temp df
-                            temp_df = pd.DataFrame({"dummy": [""]})
-                            temp_df = create_and_populate_columns(temp_df, doc.page_content, 0, "context", 49000)
-                            for col in temp_df.columns:
-                                if col.startswith("context_"):
-                                    context_chunks.append(temp_df.at[0, col])
-                        else:
-                            context_chunks.append(doc.page_content)
-                except Exception as e:
-                    print(f"Error using web loader for row {index}: {e}")
-            # Use YouTube Loader
-            elif ref_type == "Youtube Video":
-                try:
-                    video_id = get_video_id_from_url(ref)
+            try:
+                docs = get_docs_from_url(ref, query="")
+                for doc in docs:
+                    # If chunk is too large, further split
+                    if len(doc.page_content) > 49000:
+                        # Use create_and_populate_columns on a temp df
+                        temp_df = pd.DataFrame({"dummy": [""]})
+                        temp_df = create_and_populate_columns(temp_df, doc.page_content, 0, "context", 49000)
+                        for col in temp_df.columns:
+                            if col.startswith("context_"):
+                                context_chunks.append(temp_df.at[0, col])
+                    else:
+                        context_chunks.append(doc.page_content)
+            except Exception as e:
+                print(f"Error using web loader for row {index}: {e}")
+
+            context_combined = "\n\n".join(context_chunks)
+            return index, context_combined, "", "", "", "", ""
+        
+        # Process YouTube Video with "Video" or "Content" usage - use actual video transcript
+        elif ref and ref_type == "Youtube Video" and ref_usage in ["Video", "Content"]:
+            context_chunks = []
+            try:
+                video_id = get_video_id_from_url(ref)
+                
+                # NEW: First try video chunks CSV fallback
+                transcript = get_transcript_from_video_chunks_csv(video_id)
+                
+                # If not found in video chunks CSV, fall back to existing methods
+                if not transcript:
+                    print(f"Video {video_id} not found in video_chunks.csv, trying other methods...")
                     transcript = get_transcript_with_fallback(video_id, return_text_only=False)
-                    
-                    if not transcript:
-                        print(f"No transcript returned for video {video_id}")
-                    
-                    # Format each segment as "- '{timestamp}': {text}"
-                    lines = [f"- '{item['timestamp']}': {item['text']}" for item in transcript]
-                    transcript_text = '\n'.join(lines)
-                    # Split and fill context_n columns
-                    
-                    temp_df = pd.DataFrame({"dummy": [""]})
-                    temp_df = create_and_populate_columns(temp_df, transcript_text, 0, "context", 49000)
-                    for col in temp_df.columns:
-                        if col.startswith("context_"):
-                            context_chunks.append(temp_df.at[0, col])
-                except Exception as e:
-                    print(f"Error using YouTube loader for row {index}: {e}")
+                
+                if not transcript:
+                    print(f"No transcript returned for video {video_id}")
+                
+                # Format each segment as "- '{seconds}': {text}" (convert timestamp to seconds)
+                lines = []
+                for item in transcript:
+                    # Convert timestamp from HH:MM:SS to seconds (if needed)
+                    if ':' in item['timestamp']:
+                        total_seconds = convert_time_to_sec(item['timestamp'])
+                    else:
+                        # Already in seconds format from video chunks CSV
+                        total_seconds = item['timestamp']
+                    lines.append(f"- '{total_seconds}': {item['text']}")
+                transcript_text = '\n'.join(lines)
+                # Split and fill context_n columns
+                
+                temp_df = pd.DataFrame({"dummy": [""]})
+                temp_df = create_and_populate_columns(temp_df, transcript_text, 0, "context", 49000)
+                for col in temp_df.columns:
+                    if col.startswith("context_"):
+                        context_chunks.append(temp_df.at[0, col])
+            except Exception as e:
+                print(f"Error using YouTube loader for row {index}: {e}")
 
             context_combined = "\n\n".join(context_chunks)
             return index, context_combined, "", "", "", "", ""
@@ -444,8 +535,13 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
             try:
                 # Assume ref is a Google Drive file link or ID
                 transcript = get_transcript_assemblyai_drive(ref)
-                # transcript is already formatted for context_n columns
-                context_combined = '\n'.join([f"- '{item['timestamp']}': {item['text']}" for item in transcript])
+                # transcript is already formatted for context_n columns (convert timestamp to seconds)
+                lines = []
+                for item in transcript:
+                    # Convert timestamp from HH:MM:SS to seconds
+                    total_seconds = convert_time_to_sec(item['timestamp'])
+                    lines.append(f"- '{total_seconds}': {item['text']}")
+                context_combined = '\n'.join(lines)
                 return index, context_combined, "", "", "", "", ""
             except Exception as e:
                 print(f"AssemblyAI fallback failed for Drive Video: {e}")
@@ -641,6 +737,11 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
             # Skip if already populated
             if row['context_0'] != '':
                 continue
+            
+            # Skip if References column is not empty
+            if str(row.get("References", "")).strip():
+                continue
+                
             futures.append(
                 executor.submit(
                     process_single_row,
@@ -927,6 +1028,194 @@ def manual_input_review_context(sheet, worksheet_name):
     else:
         print("Context is reviewed")
         return True
+
+
+@traceable(metadata={
+    "agent_name": "research_notes",
+    "step_name": "Generate Context from Provided References",
+    "function_name": "run_reference_based_context_generator_for_all_rows",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sheet, worksheet_name, course_name, target_audience, llm):
+    """
+    This function generates context_n columns for rows with provided references.
+
+    :param root_folder_id: The root folder ID for Google Drive.
+    :param drive: The Google Drive client.
+    :param sheet: The Google Sheet object.
+    :param worksheet_name: The name of the worksheet.
+    :param course_name: The name of the course.
+    :param target_audience: The target audience of the course.
+    :param llm: The language model to use.
+    """
+    
+    # Read the sheet
+    course_outline_with_lo_sheet, course_outline_with_lo_df = get_sheet_data_and_df(
+        sheet=sheet,
+        sheet_name=worksheet_name
+    )
+    
+    # BACKUP: Store current context_n state for ALL rows
+    backup_data = []
+    for index, row in course_outline_with_lo_df.iterrows():
+        backup_row = {"row_index": index}
+        # Store all context_n columns for this row 
+        for col in course_outline_with_lo_df.columns:
+            if col.startswith('context_'):
+                backup_row[col] = row[col]
+        backup_data.append(backup_row)
+    
+    # Create backup DataFrame and save to hidden sheet
+    if backup_data:
+        backup_df = pd.DataFrame(backup_data)
+        backup_ws, _ = create_or_read_worksheet(sheet, "Context Column Backup")
+        save_to_sheet(backup_ws, backup_df)
+        format_worksheet(backup_ws)
+        hide_worksheet_by_name(sheet, "Context Column Backup")
+    
+    # Check if this step is already done
+    rows_with_refs = course_outline_with_lo_df[
+        course_outline_with_lo_df["References"].astype(str).str.strip() != ""
+    ]
+    
+    if rows_with_refs.empty:
+        print('No rows with references found')
+        return
+    
+    # Check if all rows with references have context_0 populated
+    if (rows_with_refs['context_0'] != '').all():
+        print('Context already populated for all rows with references')
+        return
+    
+    # Load the vector retriever (for fallback cases)
+    compression_retriever = get_compression_retriever(
+        course_name=course_name,
+        root_folder_id=root_folder_id,
+        drive=drive,
+        sheet=sheet,
+        retriever_1_weight=0.5,
+        retriever_2_weight=0.5
+    )
+    
+    # Load the web retriever
+    web_search_retriever = get_web_search_retriever()
+    
+    # Get the course outline
+    course_outline = get_outline_with_los(
+        df=course_outline_with_lo_df,
+        include_learning_objectives=False
+    )
+    
+    # Prepare for parallel processing
+    futures = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit tasks for each row with references
+        for index, row in course_outline_with_lo_df.iterrows():
+            # Only process rows with references
+            if not str(row.get("References", "")).strip():
+                continue
+                
+            futures.append(
+                executor.submit(
+                    process_single_row,
+                    index,
+                    row,
+                    compression_retriever,
+                    web_search_retriever,
+                    course_name,
+                    target_audience,
+                    course_outline,
+                    llm
+                )
+            )
+    
+    # Collect the results as they complete
+    save_interval = 1
+    total_tasks = len(futures)
+    
+    # Initialize the progress tracker
+    progress = SmartProgressBar(total_tasks=total_tasks, description="Percent complete", save_interval=save_interval)
+    
+    for future in tqdm(as_completed(futures), total=total_tasks):
+        index, context, source_links, as_is_sources, content_sources, web_links, video_links = future.result()
+        
+        # Clear ALL context_n columns for this row first
+        for col in course_outline_with_lo_df.columns:
+            if col.startswith('context_'):
+                course_outline_with_lo_df.at[index, col] = ""
+        
+        # Update the row in the DataFrame with new content
+        course_outline_with_lo_df = create_and_populate_columns(
+            df=course_outline_with_lo_df,
+            text=context,
+            specific_index=index,
+            col_base_name='context',
+            chunk_size=49000
+        )
+        
+        # Update the source links columns
+        course_outline_with_lo_df.at[index, 'source_links'] = source_links
+        course_outline_with_lo_df.at[index, 'as_is_sources'] = as_is_sources
+        course_outline_with_lo_df.at[index, 'content_sources'] = content_sources
+        course_outline_with_lo_df.at[index, 'web_links'] = web_links
+        course_outline_with_lo_df.at[index, 'video_links'] = video_links
+        
+        # Update progress
+        progress.update()
+        
+        # Check if we should save
+        if progress.should_save():
+            print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
+            save_to_sheet(worksheet=course_outline_with_lo_sheet, df=course_outline_with_lo_df)
+    
+    # Final save to sheet after all tasks
+    print('All rows processed. Saving final DataFrame to sheet.')
+    save_to_sheet(worksheet=course_outline_with_lo_sheet, df=course_outline_with_lo_df)
+    format_worksheet(course_outline_with_lo_sheet)
+    
+    return
+
+
+def delete_reference_based_context(sheet, worksheet_name="Final Outline"):
+    """Restore context_n columns for ALL rows to their previous state."""
+    
+    # Read current sheet
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    
+    # Read backup from hidden sheet
+    try:
+        backup_ws = sheet.worksheet("Context Column Backup")
+        backup_df = pd.DataFrame(backup_ws.get_all_records())
+        
+        # Restore context_n columns for ALL rows
+        for _, backup_row in backup_df.iterrows():
+            index = backup_row["row_index"]
+            if index in df.index:
+                # First, clear ALL context_n columns for this row
+                for col in df.columns:
+                    if col.startswith('context_'):
+                        df.at[index, col] = ""
+                
+                # Then restore only the columns that existed in backup
+                for col in backup_row.index:
+                    if col.startswith('context_'):
+                        df.at[index, col] = backup_row[col]
+        
+        # Delete the backup sheet
+        delete_worksheet(sheet, "Context Column Backup")
+        
+    except Exception as e:
+        print(f"Could not restore backup: {e}")
+        # Fallback: just clear context_n columns for rows with references
+        for index, row in df.iterrows():
+            if str(row.get("References", "")).strip():
+                for col in df.columns:
+                    if col.startswith('context_'):
+                        df.at[index, col] = ""
+    
+    # Save the restored sheet
+    clear_worksheet(ws)
+    save_to_sheet(ws, df)
 
 
 def delete_retriever_context(sheet, worksheet_name="Final Outline"):

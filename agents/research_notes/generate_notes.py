@@ -255,7 +255,10 @@ def generate_transcript_chunks(course_name, target_audience, course_outline, sub
     )
 
     response = generate_transcript_chunks_agent.run()
-    return response['output']
+    
+    # Extract only the content inside <extract_relevant_chunk> tags
+    match = re.search(r'<extract_relevant_chunk>(.*?)</extract_relevant_chunk>', response['output'], re.DOTALL)
+    return match.group(1).strip()
 
 
 @traceable(metadata={
@@ -332,56 +335,51 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                 if ref and ref_type and ref_usage:
                     # YouTube Video
                     if ref_type == "Youtube Video":
-                        video_id = get_video_id_from_url(ref)
-                        chunks = video_chunks_dict.get(video_id, [])
-                        transcript_text = format_chunks_to_transcript(chunks)
-
                         if ref_usage == "Video":
+                            # Use the context that was already retrieved and processed
                             future = executor.submit(
                                 generate_transcript_chunks,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-                                relevant_documents=transcript_text,
+                                relevant_documents=context,
                                 llm=llm
                             )
                         elif ref_usage == "Content":
+                            # Use the context that was already retrieved and processed
                             future = executor.submit(
                                 generate_research_notes,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-                                relevant_documents=transcript_text,
+                                relevant_documents=context,
                                 llm=llm
                             )
 
                     # Google Drive Video
                     elif ref_type == "Google Drive Video":
-                        match = re.search(r'/d/([\w-]+)', ref)
-                        file_id = match.group(1) if match else ''
-                        chunks = video_chunks_dict.get(file_id, [])
-                        transcript_text = format_chunks_to_transcript(chunks)
-
                         if ref_usage == "Video":
+                            # Use the context that was already retrieved and processed
                             future = executor.submit(
                                 generate_transcript_chunks,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-                                relevant_documents=transcript_text,
+                                relevant_documents=context,
                                 llm=llm
                             )
                         elif ref_usage == "Content":
+                            # Use the context that was already retrieved and processed
                             future = executor.submit(
                                 generate_research_notes,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
-                                relevant_documents=transcript_text,
+                                relevant_documents=context,
                                 llm=llm
                             )
 
