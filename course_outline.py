@@ -1033,7 +1033,7 @@ pipeline_sections.append({
         {
             "name": "Retrieve relevant HVAC Videos for Learning Objectives",
             "func": run_video_search_for_los,
-            "depends_on": ["Get relevant references for Learning Objectives"],
+            "depends_on": ["Retrieve relevant references for Learning Objectives"],
             "args": {
                 "course_name": "course_name",
                 "target_audience": "target_audience",
