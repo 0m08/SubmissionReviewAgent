@@ -142,7 +142,13 @@ elif task == "Update Vectorstore":
 
 elif task == "Search Images":
     st.markdown("#### Choose Query Type")
-    st.info("Search for images using text queries or by uploading an image. If you are using an image, you can either upload it from your device or paste a URL to an image from the web or Google Drive.")
+    st.info("""
+    **Search for images using text queries or by uploading an image.** 
+    
+    - **Text Search**: Enter descriptive terms (e.g., "HVAC duct", "electrical panel", "safety equipment")
+    - **Image Search**: Upload an image or paste a URL to find similar images
+    - **Note**: A search query is required - filters work as additional refinements on top of your search
+    """)
     search_mode = st.selectbox("Search by:", ["Text", "Image"])
 
     query = None
@@ -150,7 +156,11 @@ elif task == "Search Images":
     
 
     if search_mode == "Text":
-        query = st.text_input("Enter your search query", placeholder="e.g., ventilation duct")
+        query = st.text_input(
+            "Enter your search query", 
+            placeholder="e.g., HVAC duct, electrical panel, safety equipment",
+            help="Required: Enter descriptive terms for the images you want to find. Use specific technical terms for better results."
+        )
 
     else:
         image_source = st.selectbox("Select image input method", ["Upload", "Paste URL"])
@@ -210,23 +220,54 @@ elif task == "Search Images":
 
     filters = {}
     with st.expander("Apply Filters (Optional)", expanded=False):
-        st.caption("Narrow your search by file type or title.")
-        selected_mime_types = st.multiselect("Mime type", options=["image/png", "image/jpeg", "image/webp", "image/gif"])
+        st.caption("Narrow your search by file type, title, or course-specific criteria.")
+        st.info("💡 **Tip**: Filters work as refinements on top of your search query. You still need to enter a search term above.")
+        
+        # MIME Type Filter
+        selected_mime_types = st.multiselect(
+            "Mime type", 
+            options=["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/bmp", "image/tiff", "image/svg+xml"],
+            help="Select one or more image file types to include in results"
+        )
         if selected_mime_types:
             filters["mime_type"] = selected_mime_types
 
-        image_title_keyword = st.text_input("Image Title Keyword")
+        # Image Title Filter
+        image_title_keyword = st.text_input(
+            "Image Title Keyword", 
+            placeholder="e.g., diagram, schematic, photo",
+            help="Enter the image title (partial matching, case-insensitive)"
+        )
         if image_title_keyword:
             filters["image_title"] = image_title_keyword
 
         if version == "v2":
-            course_name = st.text_input("Course Name")
+            
+            # Course Name Filter
+            course_name = st.text_input(
+                "Course Name", 
+                placeholder="e.g., HVAC, Electrical, Plumbing",
+                help="Enter the course name (partial matching, case-insensitive). Example: 'HVAC' will match 'Advanced HVAC Systems'"
+            )
             if course_name:
                 filters["course_name"] = course_name
-            topic_name = st.text_input("Topic Name")
+                
+            # Topic Name Filter
+            topic_name = st.text_input(
+                "Topic Name", 
+                placeholder="e.g., ventilation, safety, installation",
+                help=" Enter the topic name (partial matching, case-insensitive). Example: 'ventilation' will match 'HVAC Ventilation Systems'"
+            )
             if topic_name:
                 filters["topic_name"] = topic_name
-            stock_type = st.selectbox("Stock Type", ["All", "Stock", "Non Stock"], index=0)
+                
+            # Stock Type Filter
+            stock_type = st.selectbox(
+                "Stock Type", 
+                ["All", "Stock", "Non Stock"], 
+                index=0,
+                help="Select image source type: 'Stock' for stock images, 'Non Stock' for custom images, or 'All' for both types"
+            )
             if stock_type != "All":
                 filters["stock_type"] = stock_type
 
