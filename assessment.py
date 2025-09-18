@@ -32,7 +32,7 @@ pipeline_sections = [
                     "worksheet_name": "Slide Chunks",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash"
+                    "llm": "gemini_2_5_flash"
                 },
                 "delete_func": delete_assessment_questions,
                 "delete_args": {
@@ -54,7 +54,7 @@ pipeline_sections = [
                     "worksheet_name": "Slide Chunks",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash"
+                    "llm": "gemini_2_5_flash"
                 },
                 "delete_func": delete_final_assessment,
                 "delete_args": {
@@ -76,7 +76,7 @@ pipeline_sections = [
                     "worksheet_name": 'Slide Chunks',
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash"
+                    "llm": "gemini_2_5_flash"
                 },
                 "delete_func": delete_assessment_checklist,
                 "delete_args": {
@@ -97,7 +97,7 @@ pipeline_sections = [
                     "worksheet_name": 'Review Agent Checklist',
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_flash"
+                    "llm": "gemini_2_5_flash"
                 },
                 "delete_func": delete_review_agent_checklist,
                 "delete_args": {
