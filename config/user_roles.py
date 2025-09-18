@@ -76,7 +76,7 @@ role_page_access = {
     "Instructional Designer": [
         "research_notes_page", "slide_chunks_page", 
         "assessments_generation_page", "vectorstore_page", 
-        "video_search_tool_page"
+        "video_search_tool_page", "quality_compliance_scoring_page"
     ],
     "Visual Designer": [
         "graphics_definition_page", "graphics_search_page", "vectorstore_page", "get_images_page", 

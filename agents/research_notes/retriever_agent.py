@@ -336,10 +336,10 @@ def relevant_link_selection_if_multiple_matching_reference_links(course_name, ta
     return response['text']
 
 
-def get_transcript_from_video_chunks_csv(video_id):
+def get_transcript_from_youtube_transcript_csv(video_id):
     """
-    Fetch transcript from local video_chunks.csv file.
-    Reconstructs full transcript from video chunks and converts to seconds format.
+    Fetch transcript from local youtube_transcript.csv file.
+    Reconstructs full transcript from JSON arrays and converts to seconds format.
     
     Args:
         video_id (str): YouTube video ID to search for
@@ -351,56 +351,60 @@ def get_transcript_from_video_chunks_csv(video_id):
     try:
         import pandas as pd
         
-        # Read the video chunks CSV
-        csv_path = "assets/video_chunks.csv"
+        # Read the youtube transcript CSV
+        csv_path = "assets/youtube_transcript.csv"
         df = pd.read_csv(csv_path)
         
         # Filter for the specific video_id
-        video_chunks = df[df['video_id'] == video_id]
+        video_row = df[df['video_id'] == video_id]
         
-        if video_chunks.empty:
-            print(f"Video {video_id} not found in video_chunks.csv")
+        if video_row.empty:
+            print(f"Video {video_id} not found in youtube_transcript.csv")
             return None
         
-        # Reconstruct transcript from chunks
+        # Reconstruct transcript from JSON arrays in transcript columns
         transcript_segments = []
         
-        for _, chunk in video_chunks.iterrows():
-            try:
-                # Parse metadata to get timing info
-                metadata = json.loads(chunk['metadata'])
-                start_time = metadata.get('start_time', 0)
-                end_time = metadata.get('end_time', start_time)
-                
-                # Get text content
-                text_content = str(chunk['text_0']).strip()
-                
-                if text_content and text_content != 'nan':
-                    # Convert start_time to seconds (it should already be in seconds)
-                    timestamp_seconds = int(start_time)
+        # Process all transcript columns (transcript_0 through transcript_4)
+        transcript_columns = ['transcript_0', 'transcript_1', 'transcript_2', 'transcript_3', 'transcript_4']
+        
+        for col in transcript_columns:
+            if col in video_row.columns and pd.notna(video_row[col].iloc[0]):
+                try:
+                    # Parse JSON array from transcript column
+                    transcript_data = json.loads(video_row[col].iloc[0])
                     
-                    transcript_segments.append({
-                        "timestamp": str(timestamp_seconds),
-                        "text": text_content,
-                        "start_time": start_time  # Add this for sorting
-                    })
-                    
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
-                print(f"Error processing chunk for video {video_id}: {e}")
-                continue
+                    for segment in transcript_data:
+                        # Convert HH:MM:SS timestamp to seconds
+                        timestamp_str = segment.get('timestamp', '00:00')
+                        timestamp_seconds = convert_time_to_sec(timestamp_str)
+                        
+                        # Get text content
+                        text_content = str(segment.get('text', '')).strip()
+                        
+                        if text_content and text_content != 'nan':
+                            transcript_segments.append({
+                                "timestamp": str(timestamp_seconds),
+                                "text": text_content,
+                                "start_time": timestamp_seconds  # Add this for sorting
+                            })
+                            
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    print(f"Error processing transcript column {col} for video {video_id}: {e}")
+                    continue
         
         # Sort by start_time to ensure chronological order
         transcript_segments.sort(key=lambda x: x['start_time'])
         
         if transcript_segments:
-            print(f"Successfully loaded {len(transcript_segments)} chunks for video {video_id} from video_chunks.csv")
+            print(f"Successfully loaded {len(transcript_segments)} segments for video {video_id} from youtube_transcript.csv")
             return transcript_segments
         else:
             print(f"No valid transcript segments found for video {video_id}")
             return None
             
     except Exception as e:
-        print(f"Error reading video_chunks.csv: {e}")
+        print(f"Error reading youtube_transcript.csv: {e}")
         return None
 
 
@@ -451,12 +455,12 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
             try:
                 video_id = get_video_id_from_url(ref)
                 
-                # NEW: First try video chunks CSV fallback
-                transcript = get_transcript_from_video_chunks_csv(video_id)
+                #First try youtube transcripts CSV fallback
+                transcript = get_transcript_from_youtube_transcript_csv(video_id)
                 
-                # If not found in video chunks CSV, fall back to existing methods
+                # If not found in youtube transcript CSV, fall back to existing methods
                 if not transcript:
-                    print(f"Video {video_id} not found in video_chunks.csv, trying other methods...")
+                    print(f"Video {video_id} not found in youtube_transcript.csv, trying other methods...")
                     transcript = get_transcript_with_fallback(video_id, return_text_only=False)
                 
                 if not transcript:
