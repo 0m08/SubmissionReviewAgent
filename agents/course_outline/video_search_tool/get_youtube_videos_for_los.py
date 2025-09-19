@@ -1,6 +1,6 @@
 import time
 import random
-import tqdm as tqdm
+from tqdm import tqdm
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import create_and_populate_columns

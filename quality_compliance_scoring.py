@@ -1,14 +1,9 @@
 import streamlit as st
 from agents.quality_compliance_scoring.quality_scoring import run_update_quality_scores
-import streamlit as st
-
-
 import os
-import re
 import json
 import base64
 import gspread
-import streamlit as st
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 from services.drive_service import login_with_service_account
