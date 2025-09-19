@@ -1,6 +1,14 @@
 from typing import Annotated, Union
 import pandas as pd
 import re
+import threading
+import itertools
+# ─────────────────────────────────────────────────────────────────────────
+# TOOL 1  ▸  create_block
+# ─────────────────────────────────────────────────────────────────────────
+# Global atomic counter for block IDs
+_block_id_lock = threading.Lock()
+_global_block_id_counter = None
 
 # If you're using LangChain‑v0.2+, the two imports below are the same:
 from langchain.tools import tool
@@ -10,15 +18,15 @@ from langgraph.prebuilt import InjectedState
 # INTERNAL HELPERS  (not exposed as tools)
 # ─────────────────────────────────────────────────────────────────────────
 def _ensure_order_column(df: pd.DataFrame) -> None:
-    """Create an 'order' column if missing; values are numeric."""
+    """Create an 'order' column if missing; values are numeric starting from 1."""
     if "order" not in df.columns:
-        df["order"] = df.index.astype(float)
+        df["order"] = df.index.astype(float) + 1  # Start from 1, not 0
 
 
 def _recompute_dense_order(df: pd.DataFrame) -> None:
-    """Compact the order column to 0,1,2,… **without touching the index**."""
+    """Compact the order column to 1,2,3,… **without touching the index**."""
     df.sort_values("order", inplace=True)
-    df["order"] = range(len(df))
+    df["order"] = range(1, len(df) + 1)  # Start from 1, not 0
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -78,30 +86,101 @@ def create_block(
     elif insert_after_block_id not in df.index:
         raise IndexError("insert_after_block_id not found")
 
-    # Allocate fresh block ID
-    if hasattr(df, 'attrs') and 'global_max_index' in df.attrs:
-        new_id = df.attrs['global_max_index'] + 1
-        df.attrs['global_max_index'] = new_id  # Update for next creation
-    else:
-        new_id = df.index.max() + 1 if not df.empty else 0
+    # Thread-safe, process-wide block ID allocation and order assignment
+    global _global_block_id_counter
+    with _block_id_lock:
+        if _global_block_id_counter is None:
+            # Use global_max_index from DataFrame attrs if available
+            if hasattr(df, 'attrs') and 'global_max_index' in df.attrs:
+                start_id = int(df.attrs['global_max_index']) + 1
+            else:
+                # Try to get the parent DataFrame if df is a slice
+                full_df = getattr(df, '_parent', None)
+                if full_df is not None and isinstance(full_df, pd.DataFrame):
+                    start_id = int(full_df.index.max()) + 1
+                else:
+                    start_id = int(df.index.max()) + 1 if len(df) > 0 else 0
+            _global_block_id_counter = itertools.count(start_id)
+        new_id = next(_global_block_id_counter)
+        print(f"Allocated Block ID: {new_id}")
 
-    print(f"Allocated Block ID: {new_id}")
+        # Compute ordering key with full DataFrame context awareness
+        # Get the full DataFrame to check for existing order values
+        full_df = getattr(df, '_parent', None)
+        if full_df is not None and isinstance(full_df, pd.DataFrame) and 'order' in full_df.columns:
+            context_df = full_df  # Use full DataFrame for order conflict checking
+        else:
+            context_df = df  # Fallback to current slice if no parent available
+            
+        if insert_after_block_id is None:  # prepend
+            first_order = df["order"].min() if len(df) else 1
+            proposed_order = first_order - 1
+            
+            # Handle the first block case and ensure orders start from 1
+            if proposed_order < 1:
+                # This is the case where we're adding before the very first slide
+                new_order = (first_order + proposed_order) / 2
+                # But ensure it's positive and greater than 0
+                if new_order <= 0:
+                    new_order = first_order / 2 
+                print(f"First block case: first_order={first_order}, proposed_order={proposed_order}, using new_order={new_order}")
+            else:
+                # Check if proposed order exists in full context
+                if proposed_order in context_df["order"].values:
+                    new_order = (first_order + proposed_order) / 2
+                    print(f"Order conflict detected: {proposed_order} exists in full DF. Using midpoint: {new_order}")
+                else:
+                    new_order = proposed_order
+                
+        else:  # insert after X
+            prev_order = df.at[insert_after_block_id, "order"]
+            
+            # Find the next order value in the FULL context, not just the slice
+            next_orders_in_context = context_df[context_df["order"] > prev_order]["order"]
+            
+            if not next_orders_in_context.empty:
+                following = next_orders_in_context.min()
+                proposed_order = (prev_order + following) / 2
+                
+                # Check if proposed order exists in full context
+                if proposed_order in context_df["order"].values:
+                    # Find an even smaller gap
+                    gap = (following - prev_order) / 2
+                    new_order = prev_order + gap
+                    
+                    # If still conflicts, make progressively smaller gaps
+                    iteration = 0
+                    while new_order in context_df["order"].values and iteration < 10:
+                        gap = gap / 2
+                        new_order = prev_order + gap
+                        iteration += 1
+                        
+                    print(f"Order conflict resolved after {iteration} iterations: {new_order}")
+                else:
+                    new_order = proposed_order
+            else:
+                # Appending at the end - find next safe order after prev_order
+                proposed_order = prev_order + 1
+                
+                # Check if proposed order exists in full context
+                while proposed_order in context_df["order"].values:
+                    proposed_order += 1  # Keep incrementing until we find a free slot
+                
+                new_order = proposed_order
+                    
+        print(f"Assigned order value: {new_order} (using full DataFrame context)")
+        
+        # Add new row in‑place
+        df.loc[new_id, ["block text", "order"]] = [block_text, new_order]
 
-    # Compute ordering key
-    if insert_after_block_id is None:                    # prepend
-        first_order = df["order"].min() if len(df) else 0
-        new_order = first_order - 1
-    else:                                                # insert after X
-        prev_order = df.at[insert_after_block_id, "order"]
-        following = df[df["order"] > prev_order]["order"].min()
-        new_order = (prev_order + following) / 2 if pd.notna(following) else prev_order + 1
+        # Re‑densify if gaps shrink too much (simple check)
+        if len(df) > 1 and (df["order"].diff().abs().min() < 1e-9):
+            _recompute_dense_order(df)
 
-    # Add new row in‑place
-    df.loc[new_id, ["block text", "order"]] = [block_text, new_order]
-
-    # Re‑densify if gaps shrink too much
-    if (df["order"].diff().abs().min() < 1e-9):
-        _recompute_dense_order(df)
+        # Sort DataFrame by order column to maintain proper ordering after block creation
+        if "order" in df.columns and len(df) > 1:
+            df.sort_values("order", inplace=True)
+            print(f"📋 Sorted DataFrame by 'order' column after creating block {new_id}")
 
     return f"✅ Created block {new_id}."
 
@@ -196,5 +275,7 @@ def delete_block(
     
     if block_id not in df.index:
         raise IndexError("block_id not found")
+    
+    # Delete from current DataFrame slice
     df.drop(block_id, inplace=True)
     return f"🗑️ Deleted block {block_id}."

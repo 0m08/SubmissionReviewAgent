@@ -4,7 +4,7 @@ from agents.vector_store_image_search.create_vectorstore import build_vectorstor
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from agents.vector_store_image_search.langgraph_agent_with_tools import run_graphics_search_graph
 from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
-from services.drive_service import login_with_service_account
+from services.drive_service import login_with_service_account, login_with_oauth2
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
 from pydrive2.drive import GoogleDrive
 from dotenv import load_dotenv
@@ -16,21 +16,22 @@ import requests
 from io import BytesIO
 from PIL import Image
 
-# Load Google Service Account credentials
+# Load Google credentials
 load_dotenv()
-key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
-sa_json = key_bytes.decode()
-sa_dict = json.loads(sa_json)
-gauth = login_with_service_account(json_str=sa_json)
-gauth.ServiceAuth()
-drive = GoogleDrive(gauth)
-gc = gspread.service_account_from_dict(sa_dict)
 
 
 # ----------------- Streamlit App ----------------- #
 
-st.session_state["drive"] = drive
-st.session_state["gc"] = gc
+# Use pre-authenticated credentials from login
+if "drive" in st.session_state and "gc" in st.session_state:
+    # Use existing authentication from login
+    drive = st.session_state["drive"]
+    gc = st.session_state["gc"]
+    
+else:
+    # Fallback: authenticate here if not done during login
+    st.error("❌ Authentication not found. Please log out and log in again.")
+    st.stop()
 
 sheet = st.session_state.get("sheet")
 
@@ -38,16 +39,15 @@ sheet = st.session_state.get("sheet")
 st.markdown("## SkillCat Graphics Search Tool")
 st.markdown("Use this tool to search and retrieve relevant images based on text queries.")
 
+# Version toggle
+version = st.radio("Version", ["v1", "v2"], index=0)
+if version == "v2":
+    root_folder_id = "1IMGr4d8lwux5R_cAWfhVjBV0fTFdWvNi"
+else:
+    root_folder_id = "1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH"
+
 
 # --- Define task visibility by role ---
-authenticated_roles = {
-    "Editor": "Editor",
-    "Admin": "Admin",
-    "Content Head": "ch", 
-    "Instructional Designer": "id", 
-    "Visual Designer": "vd",
-}
-
 # Initialize session state for role if not already set
 if "role" not in st.session_state:
     st.session_state.role = None
@@ -57,14 +57,12 @@ role = st.session_state.role
 # Determine tasks based on role
 task_options = []
 
-if role in ["Editor", "Admin"]:
+if role == "Admin":
     task_options = ["Create Vectorstore", "Update Vectorstore", "Search Images"]
-elif role == "Content Head":  # Content Head
+elif role == "Managers":  # Managers
     task_options = ["Update Vectorstore", "Search Images"]
-elif role in ["Instructional Designer", "Visual Designer"]:  # Instructional or Visual Designer
+elif role == "Visual Designer":  # Visual Designer
     task_options = ["Search Images"]
-
-
 else:
     st.warning("Your role does not have access to any tasks.")
 
@@ -81,7 +79,7 @@ if task in ["Create Vectorstore", "Update Vectorstore"]:
 
     if sheet_url:
         try:
-            gc = gspread.service_account_from_dict(sa_dict)
+            # Use the already initialized gc from the authentication setup above
             sheet = gc.open_by_url(sheet_url)
             st.session_state["sheet"] = sheet
             st.success("Sheet loaded successfully.")
@@ -90,7 +88,7 @@ if task in ["Create Vectorstore", "Update Vectorstore"]:
 
     sheet = st.session_state.get("sheet")
 
-central_folder_id = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'
+central_folder_id = root_folder_id
 
 
 # -------------------- Task: Create Vectorstore -------------------- #
@@ -104,7 +102,7 @@ if task == "Create Vectorstore":
         else:
             if st.button("Create Vectorstore"):
                 with st.spinner("⏳ Building and uploading Vectorstore..."):
-                    build_vectorstore_and_upload(sheet, drive)
+                    build_vectorstore_and_upload(sheet, drive, root_folder_id=root_folder_id, version=version)
                 st.success("Vectorstore built and uploaded successfully!")
                 st.session_state["chroma_created"] = True
 
@@ -132,7 +130,8 @@ elif task == "Update Vectorstore":
 
             if update_required:
                 with st.spinner("Updating vectorstore... This may take a few minutes."):
-                    update_vectorstore(sheet, drive)
+                    # Use update_vectorstore for both versions with correct root_folder_id and version
+                    update_vectorstore(sheet, drive, root_folder_id=root_folder_id, version=version)
                 st.success("Vectorstore updated.")
             else:
                 st.info("No updates needed. Vectorstore is up to date.")
@@ -143,7 +142,13 @@ elif task == "Update Vectorstore":
 
 elif task == "Search Images":
     st.markdown("#### Choose Query Type")
-    st.info("Search for images using text queries or by uploading an image. If you are using an image, you can either upload it from your device or paste a URL to an image from the web or Google Drive.")
+    st.info("""
+    **Search for images using text queries or by uploading an image.** 
+    
+    - **Text Search**: Enter descriptive terms (e.g., "HVAC duct", "electrical panel", "safety equipment")
+    - **Image Search**: Upload an image or paste a URL to find similar images
+    - **Note**: A search query is required - filters work as additional refinements on top of your search
+    """)
     search_mode = st.selectbox("Search by:", ["Text", "Image"])
 
     query = None
@@ -151,7 +156,11 @@ elif task == "Search Images":
     
 
     if search_mode == "Text":
-        query = st.text_input("Enter your search query", placeholder="e.g., ventilation duct")
+        query = st.text_input(
+            "Enter your search query", 
+            placeholder="e.g., HVAC duct, electrical panel, safety equipment",
+            help="Required: Enter descriptive terms for the images you want to find. Use specific technical terms for better results."
+        )
 
     else:
         image_source = st.selectbox("Select image input method", ["Upload", "Paste URL"])
@@ -211,14 +220,56 @@ elif task == "Search Images":
 
     filters = {}
     with st.expander("Apply Filters (Optional)", expanded=False):
-        st.caption("Narrow your search by file type or title.")
-        selected_mime_types = st.multiselect("Mime type", options=["image/png", "image/jpeg", "image/webp", "image/gif"])
+        st.caption("Narrow your search by file type, title, or course-specific criteria.")
+        st.info("💡 **Tip**: Filters work as refinements on top of your search query. You still need to enter a search term above.")
+        
+        # MIME Type Filter
+        selected_mime_types = st.multiselect(
+            "Mime type", 
+            options=["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/bmp", "image/tiff", "image/svg+xml"],
+            help="Select one or more image file types to include in results"
+        )
         if selected_mime_types:
             filters["mime_type"] = selected_mime_types
 
-        image_title_keyword = st.text_input("Image Title Keyword")
+        # Image Title Filter
+        image_title_keyword = st.text_input(
+            "Image Title Keyword", 
+            placeholder="e.g., diagram, schematic, photo",
+            help="Enter the image title (partial matching, case-insensitive)"
+        )
         if image_title_keyword:
             filters["image_title"] = image_title_keyword
+
+        if version == "v2":
+            
+            # Course Name Filter
+            course_name = st.text_input(
+                "Course Name", 
+                placeholder="e.g., HVAC, Electrical, Plumbing",
+                help="Enter the course name (partial matching, case-insensitive). Example: 'HVAC' will match 'Advanced HVAC Systems'"
+            )
+            if course_name:
+                filters["course_name"] = course_name
+                
+            # Topic Name Filter
+            topic_name = st.text_input(
+                "Topic Name", 
+                placeholder="e.g., ventilation, safety, installation",
+                help=" Enter the topic name (partial matching, case-insensitive). Example: 'ventilation' will match 'HVAC Ventilation Systems'"
+            )
+            if topic_name:
+                filters["topic_name"] = topic_name
+                
+            # Stock Type Filter
+            stock_type = st.selectbox(
+                "Stock Type", 
+                ["All", "Stock", "Non Stock"], 
+                index=0,
+                help="Select image source type: 'Stock' for stock images, 'Non Stock' for custom images, or 'All' for both types"
+            )
+            if stock_type != "All":
+                filters["stock_type"] = stock_type
 
     # === Search Mode Toggles ===
     use_graph = st.toggle("Agent Mode", value=False)
@@ -242,7 +293,8 @@ elif task == "Search Images":
                         k=k,
                         llm="gemini_2_flash",
                         max_turns=3,
-                        filters=filters
+                        filters=filters,
+                        root_folder_id=root_folder_id
                     )
                 else:
                     results = graphics_retriever(
@@ -250,7 +302,8 @@ elif task == "Search Images":
                         query_image=query_image,
                         drive=drive,
                         k=k,
-                        filters=filters
+                        filters=filters,
+                        root_folder_id=root_folder_id
                     )
                     # results =web_image_search_tool(query=query, k=k)
 

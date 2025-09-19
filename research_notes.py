@@ -10,7 +10,12 @@ def noop(*args, **kwargs):
     """Placeholder delete function for manual steps."""
     return
 
-#from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
+from agents.research_notes.retriever_agent import (
+    run_retriever_agent_for_all_rows,
+    run_reference_based_context_generator_for_all_rows,
+    delete_retriever_context,
+    delete_reference_based_context,
+)
 from agents.research_notes.generate_notes import (
     run_research_notes_agent_for_all_rows,
     delete_research_notes,
@@ -85,9 +90,30 @@ pipeline_sections = [
             #     "description": "Gathers relevant context needed for the research.",
             # },
             {
+                "name": "Generate Context from Provided References",
+                "func": run_reference_based_context_generator_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "root_folder_id": "root_folder_id",
+                    "drive": "drive",
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_2_5_flash",
+                },
+                "estimated_time": "~ 5-10 minutes",
+                "description": "Generates context for rows with provided references.",
+                "delete_func": delete_reference_based_context,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                }
+            },
+            {
                 "name": "Researcher",
                 "func": run_research_notes_agent_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Generate Context from Provided References"],
                 "args": {
                     "sheet": "sheet",
                     "worksheet_name": "Final Outline",

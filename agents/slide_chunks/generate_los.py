@@ -6,8 +6,10 @@ from services.sheets_service import (
     get_sheet_data_and_df,
     save_to_sheet,
     clear_worksheet,
+    delete_worksheet,
+    get_worksheet_names,
+    hide_worksheet_by_name,
 )
-from gspread_dataframe import set_with_dataframe
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
@@ -767,15 +769,12 @@ def process_topic(topic, slide_chunks_df, course_name, target_audience, llm):
         "Subtopic": "",  # Leave blank
         "Slide Type": "Learning Objectives Slide",
         "Slide Chunk Title": "Learning Objectives",
-        **{col: "" for col in slide_chunks_df.columns if col not in ["Topic", "Subtopic", "Slide Type", "Slide Chunk Title", "slide_chunk"]},  # Keep other columns empty
-        "learning_objectives_added_slide_chunk": learning_objectives  # Store the generated learning objectives
+        **{col: "" for col in slide_chunks_df.columns if col not in ["Topic", "Subtopic", "Slide Type", "Slide Chunk Title", "Slide Chunk"]},  # Keep other columns empty
+        "Slide Chunk": learning_objectives  # Store the generated learning objectives directly in Slide Chunk
     }
 
     # Insert Learning Objectives row at the top of the topic
     topic_df = pd.concat([pd.DataFrame([learning_objectives_row]), topic_df], ignore_index=True)
-
-    # Ensure all existing slide rows have correct "slide_chunk" values
-    topic_df.loc[1:, "learning_objectives_added_slide_chunk"] = topic_df.loc[1:, "Slide Chunk"]
 
     return topic, topic_df
 
@@ -801,14 +800,14 @@ def run_learning_objectives_agent(sheet, worksheet_name, course_name, target_aud
     # Load Slide Chunks Data
     slide_chunks_sheet, slide_chunks_df = get_sheet_data_and_df(sheet, worksheet_name)
 
-    # If learning_objectives in slide_chunks_df.columns skip processing
-    if "learning_objectives_added_slide_chunk" in slide_chunks_df.columns and not slide_chunks_df["learning_objectives_added_slide_chunk"].isnull().all():
+    # Check if learning objectives already exist by looking for Learning Objectives Slide rows
+    learning_objectives_exist = ((slide_chunks_df["Slide Type"] == "Learning Objectives Slide") & 
+                                (slide_chunks_df["Slide Chunk Title"] == "Learning Objectives") & 
+                                (slide_chunks_df["Subtopic"] == "")).any()
+    
+    if learning_objectives_exist:
         print("Learning Objectives already processed. Skipping.")
         return
-
-    # Ensure "slide_chunk" column exists (new column to store Learning Objectives)
-    if "learning_objectives_added_slide_chunk" not in slide_chunks_df.columns:
-        slide_chunks_df["learning_objectives_added_slide_chunk"] = ""
 
     # Process each unique topic
     unique_topics = slide_chunks_df["Topic"].unique()
@@ -838,22 +837,76 @@ def run_learning_objectives_agent(sheet, worksheet_name, course_name, target_aud
         slide_chunks_df = pd.concat(ordered_topic_dfs, ignore_index=True)
 
         # Write once to Google Sheets after all processing
-        set_with_dataframe(slide_chunks_sheet, slide_chunks_df)
+        save_to_sheet(slide_chunks_sheet, slide_chunks_df)
         print("\n✅ All Topics Processed and Updated in Google Sheets 🚀\n")
 
+def create_backup_slide_chunks_for_learning_objectives(sheet):
+    """
+    Create a backup of the 'Slide Chunks' sheet before running the Learning Objectives step.
+    """
+    backup_name = "Backup Slide Chunks Sheet for Delete step of Learning Objectives"
+    
+    # Check if we just performed a delete operation - if so, don't create new backup
+    if st.session_state.get("just_deleted_learning_objectives", False):
+        st.session_state["just_deleted_learning_objectives"] = False
+        print(f"Skipping backup creation - just restored from backup")
+        return
+    
+    # Check if backup already exists, if yes, delete it first
+    sheet_names = get_worksheet_names(sheet)
+    if backup_name in sheet_names:
+        delete_worksheet(sheet, backup_name)
+    
+    # Get the original worksheet
+    try:
+        original_ws = sheet.worksheet("Slide Chunks")
+    except Exception as e:
+        print(f"Error: 'Slide Chunks' sheet not found: {e}")
+        return
+    
+    # Duplicate the worksheet
+    backup_ws = original_ws.duplicate(new_sheet_name=backup_name)
+    
+    # Hide the backup sheet
+    hide_worksheet_by_name(sheet, backup_name)
+    
+    print(f"✅ Created and hid backup sheet: '{backup_name}'")
 
 def delete_learning_objectives_slide_chunks(sheet, worksheet_name="Slide Chunks"):
-    """Remove the learning objectives column and Learning Objectives rows from the Slide Chunks sheet."""
-    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    """
+    Delete function for the Learning Objectives step.
+    Restores the 'Slide Chunks' sheet from backup and deletes the backup.
+    """
+    backup_name = "Backup Slide Chunks Sheet for Delete step of Learning Objectives"
     
-    # Remove Learning Objectives rows
-    df = df[~((df["Slide Type"] == "Learning Objectives Slide") & 
-              (df["Slide Chunk Title"] == "Learning Objectives") & 
-              (df["Subtopic"] == ""))]
+    # Check if backup exists
+    sheet_names = get_worksheet_names(sheet)
+    if backup_name not in sheet_names:
+        print(f"Backup sheet '{backup_name}' not found. Cannot restore.")
+        return
     
-    # Remove the learning objectives column
-    if "learning_objectives_added_slide_chunk" in df.columns:
-        df = df.drop(columns=["learning_objectives_added_slide_chunk"])
-    
-    clear_worksheet(ws)
-    save_to_sheet(ws, df)
+    try:
+        # Get worksheets
+        slide_chunks_ws = sheet.worksheet(worksheet_name)
+        backup_ws = sheet.worksheet(backup_name)
+        
+        # Get data from backup
+        backup_data = backup_ws.get_all_values()
+        
+        # Clear the current Slide Chunks sheet
+        clear_worksheet(slide_chunks_ws)
+        
+        # Copy data from backup to Slide Chunks
+        if backup_data:
+            slide_chunks_ws.update(backup_data)
+        
+        # Delete the backup sheet
+        delete_worksheet(sheet, backup_name)
+        
+        # Set flag to prevent immediate recreation of backup
+        st.session_state["just_deleted_learning_objectives"] = True
+        
+        print(f"✅ Restored '{worksheet_name}' from backup and deleted '{backup_name}'")
+        
+    except Exception as e:
+        print(f"Error during delete operation: {e}")

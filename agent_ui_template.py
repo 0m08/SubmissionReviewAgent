@@ -6,7 +6,7 @@ import traceback
 import re
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
-from services.drive_service import login_with_service_account
+from services.drive_service import login_with_oauth2
 from datetime import datetime
 import os
 from langtrace_python_sdk import langtrace # Must precede any llm module imports
@@ -83,25 +83,20 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 if os.environ.get('LANGTRACE_ON', 'false') == "true":
                     langtrace.init(api_key = os.environ.get('LANGTRACE_API_KEY'))
 
-                # --- decode the secret ---
-                key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
-                sa_json = key_bytes.decode()
-                sa_dict   = json.loads(sa_json)        # <‑ real newlines intact
-                # sa_dict = json.loads(os.environ["GDRIVE_SA_JSON"])   # injected secret
-                # print("Service Account JSON: ", sa_dict)
-                # with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-                #     json.dump(sa_dict, tmp)
-                #     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
-                #     # print(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-
-                # with open(os.environ["GOOGLE_APPLICATION_CREDENTIALS"], "r") as f:
-                #     st.write(f"Service Account JSON: {f.read()}")
-                gauth = login_with_service_account(json_str = sa_json)
-                gauth.ServiceAuth()
-                drive = GoogleDrive(gauth)
-
-                gc = gspread.service_account_from_dict(sa_dict)
-                # gc = gspread.service_account(filename=os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+                # --- OAuth2 for both Google Drive and Google Sheets ---
+                oauth_client_id = os.environ.get("OAUTH_CLIENT_ID")
+                oauth_client_secret = os.environ.get("OAUTH_CLIENT_SECRET")
+                
+                if not oauth_client_id or not oauth_client_secret:
+                    st.error("OAuth credentials not found. Please set OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET environment variables.")
+                    st.stop()
+                
+                # Use existing authenticated clients from session if available
+                if "drive" in st.session_state and "gc" in st.session_state:
+                    drive = st.session_state["drive"]
+                    gc = st.session_state["gc"]
+                else:
+                    st.stop()
                 sheet = gc.open_by_url(sheet_link)
                 course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 

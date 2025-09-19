@@ -9,6 +9,10 @@ from services.sheets_service import (
     delete_worksheet,
     clear_all_filters,
     hide_columns_by_name,
+    get_worksheet_names,
+    safe_get_sheet_data_and_df,
+    hide_worksheet_by_name,
+    create_or_read_worksheet,
 )
 import json
 import streamlit as st
@@ -31,13 +35,219 @@ from pydantic import Field
 from langgraph.prebuilt import InjectedState
 from langgraph.prebuilt.chat_agent_executor import AgentState
 import pandas as pd
-from services.crud_text_block_tools import create_block, read_blocks, update_block, delete_block 
-
-
+from services.crud_text_block_tools import create_block, read_blocks, update_block, delete_block
 import pandas as pd
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple
 from pydantic import BaseModel, Field
 from services.helper_functions import iterate_scope
+import services.crud_text_block_tools as crud_tools
+    
+def process_single_slide_chunk_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, sheet, gc, global_max_index, llm):
+    """
+    Process a single topic slice: review → revise (if needed) → return result
+    This function runs in parallel for scope-based processing.
+    """
+    print(f"🔄 Processing topic slice '{key}' with {len(df_slice)} rows in parallel")
+    if df_slice.empty:
+        print(f"Empty slice '{key}', returning original")
+        return key, None, df_slice, global_max_index
+    
+    slide_chunks_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
+    learning_objective = get_learning_objectives("Topic", df_slice, sheet, gc)
+    print(f"📚 Learning objectives for topic '{key}': {learning_objective[:150]}...")
+    failed_items = run_slide_chunks_checklist_agent(
+        course_name=course_name,
+        target_audience=target_audience,
+        slide_chunks=slide_chunks_str,
+        checklist=criteria_str,
+        examples=examples_str,
+        learning_objective=learning_objective,
+        llm=llm
+    )
+    print(f"Failed items for topic '{key}': {failed_items}")
+    if not failed_items:
+        print(f"All items passed for topic '{key}'.")
+        return key, None, df_slice, global_max_index
+    
+    revised_slide_chunks_df = run_reviser_agent(
+        slide_chunks=slide_chunks_str,
+        checklist_feedback=failed_items,
+        criteria_with_ops=criteria_ops_str,
+        reviser_examples=reviser_examples_str,
+        df=df_slice,
+        learning_objective=learning_objective,
+        global_max_index=global_max_index,
+        llm=llm
+    )
+    print(f"Revised slide chunks for topic '{key}': {revised_slide_chunks_df}")
+    
+    # --- Handle new blocks and assign temporary IDs ---
+    current_max_index = global_max_index
+    new_indices = [idx for idx in revised_slide_chunks_df.index if idx not in df_slice.index]
+    temp_id_mapping = {}  # Track temporary IDs for new blocks
+    
+    for idx in new_indices:
+        # Assign a temporary unique block ID (will be finalized in main loop)
+        current_max_index += 1
+        temp_new_id = current_max_index
+        revised_slide_chunks_df = revised_slide_chunks_df.rename(index={idx: temp_new_id})
+        temp_id_mapping[idx] = temp_new_id
+        print(f"🆔 Assigned temporary ID {temp_new_id} to new block (was {idx})")
+    
+    # --- Fix block IDs in text for all blocks ---
+    revised_slide_chunks_df = fix_block_ids_in_text(revised_slide_chunks_df)
+    
+    # --- Fill topic/subtopic for all blocks if NaN ---
+    topic_col = 'topic' if 'topic' in revised_slide_chunks_df.columns else 'Topic'
+    subtopic_col = 'subtopic' if 'subtopic' in revised_slide_chunks_df.columns else 'Subtopic'
+    
+    # Ensure columns exist
+    if topic_col not in revised_slide_chunks_df.columns:
+        revised_slide_chunks_df[topic_col] = ''
+    if subtopic_col not in revised_slide_chunks_df.columns:
+        revised_slide_chunks_df[subtopic_col] = ''
+    
+    for idx in revised_slide_chunks_df.index:
+        if 'block text' in revised_slide_chunks_df.columns:
+            block_text = str(revised_slide_chunks_df.loc[idx, 'block text'])
+            
+            # Check if topic/subtopic are missing or NaN and extract from block text
+            current_topic = revised_slide_chunks_df.loc[idx, topic_col]
+            current_subtopic = revised_slide_chunks_df.loc[idx, subtopic_col]
+            
+            if pd.isna(current_topic) or current_topic == '' or current_topic == 'nan':
+                topic_match = re.search(r'####\*\*Topic:\*\*\s*\n(.+?)(?=\n####|\n\n|\Z)', block_text, re.DOTALL)
+                topic_value = topic_match.group(1).strip() if topic_match else ''
+                if topic_value:
+                    revised_slide_chunks_df.loc[idx, topic_col] = topic_value
+                    print(f"📝 Filled topic for block {idx}: '{topic_value}'")
+            
+            if pd.isna(current_subtopic) or current_subtopic == '' or current_subtopic == 'nan':
+                subtopic_match = re.search(r'####\*\*Subtopic:\*\*\s*\n(.+?)(?=\n####|\n\n|\Z)', block_text, re.DOTALL)
+                subtopic_value = subtopic_match.group(1).strip() if subtopic_match else ''
+                if subtopic_value:
+                    revised_slide_chunks_df.loc[idx, subtopic_col] = subtopic_value
+                    print(f"📝 Filled subtopic for block {idx}: '{subtopic_value}'")
+        
+        # --- Track and remove deleted blocks ---
+        deleted_indices = set(df_slice.index) - set(revised_slide_chunks_df.index)
+        if deleted_indices:
+            print(f"🗑️ Removing deleted blocks: {deleted_indices}")
+            revised_slide_chunks_df = revised_slide_chunks_df.drop(index=deleted_indices)
+            revised_slide_chunks_df = revised_slide_chunks_df[~revised_slide_chunks_df.index.isin(deleted_indices)]
+    
+    print(f"✅ Processed slice '{key}': fixed block IDs, filled topic/subtopic fields")
+    
+    return key, revised_slide_chunks_df, df_slice, current_max_index
+
+def process_slide_chunk_scope_slices_parallel(scope, slide_chunks_df, scope_to_selector, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, sheet, gc, global_max_index, llm):
+    """
+    Process all topic slices within a scope in parallel.
+    """
+    print(f"🚀 Starting parallel processing for scope: {scope}")
+    all_slices = list(iterate_scope(scope, slide_chunks_df, scope_to_selector))
+    if not all_slices:
+        print(f"No slices found for scope {scope}")
+        return []
+    print(f"Found {len(all_slices)} slices for scope {scope}")
+    
+    # Ensure parent relationship is set for all slices to enable full DataFrame context in CRUD tools
+    enhanced_slices = []
+    for key, df_slice in all_slices:
+        df_slice_with_parent = ensure_parent_relationship(df_slice, slide_chunks_df)
+        enhanced_slices.append((key, df_slice_with_parent))
+    
+    args_list = [(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, sheet, gc, global_max_index, llm) for key, df_slice in enhanced_slices]
+    results = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(process_single_slide_chunk_slice, *args) for args in args_list]
+        for future in as_completed(futures):
+            results.append(future.result())
+    print(f"🏁 Completed parallel processing for scope {scope}: {len(results)} results")
+    return results
+
+def get_learning_objectives(scope, df_slice, sheet, gc):
+    """
+    Fetch learning objectives based on scope. Handles all scopes in one clean function.
+    
+    :param scope: The scope (Global, Topic, Subtopic, Learning Objective)
+    :param df_slice: The DataFrame slice being evaluated
+    :param sheet: The Google Sheet object (passed from main function)
+    :param gc: Google Sheets client (passed from main function)
+    :return: Formatted learning objectives string
+    """
+    try:
+        # Get the Final Outline sheet from the same workbook
+        _, outline_df = safe_get_sheet_data_and_df(sheet, "Final Outline")
+        if outline_df.empty:
+            print("⚠️ Final Outline sheet not found or empty")
+            return f"Learning objectives unavailable for scope '{scope}'. Ensure content is educationally sound and aligned with course goals."
+        
+        # Handle column name variations
+        topic_col = 'Topic' if 'Topic' in outline_df.columns else 'topic'
+        subtopic_col = 'Subtopic' if 'Subtopic' in outline_df.columns else 'subtopic'
+        learning_obj_col = 'Learning Objectives' if 'Learning Objectives' in outline_df.columns else 'learning_objectives'
+        
+        if learning_obj_col not in outline_df.columns:
+            return f"Learning Objectives column not found. Ensure content supports educational goals for scope '{scope}'."
+        
+        # Handle different scopes
+        if scope == "Subtopic" and not df_slice.empty:
+            # Single subtopic
+            slice_topic_col = 'topic' if 'topic' in df_slice.columns else 'Topic'
+            slice_subtopic_col = 'subtopic' if 'subtopic' in df_slice.columns else 'Subtopic'
+            
+            if slice_topic_col in df_slice.columns and slice_subtopic_col in df_slice.columns:
+                topic = df_slice.iloc[0][slice_topic_col]
+                subtopic = df_slice.iloc[0][slice_subtopic_col]
+                
+                match = outline_df[(outline_df[topic_col] == topic) & (outline_df[subtopic_col] == subtopic)]
+                if not match.empty and pd.notna(match.iloc[0][learning_obj_col]):
+                    return f"Learning Objective: {match.iloc[0][learning_obj_col].strip()}"
+        
+        elif scope == "Topic" and not df_slice.empty:
+            # Multiple subtopics under one topic
+            slice_topic_col = 'topic' if 'topic' in df_slice.columns else 'Topic'
+            slice_subtopic_col = 'subtopic' if 'subtopic' in df_slice.columns else 'Subtopic'
+            
+            if slice_topic_col in df_slice.columns:
+                topic = df_slice.iloc[0][slice_topic_col]
+                subtopics = df_slice[slice_subtopic_col].unique()
+                
+                objectives = []
+                for subtopic in subtopics:
+                    if pd.notna(subtopic):
+                        match = outline_df[(outline_df[topic_col] == topic) & (outline_df[subtopic_col] == subtopic)]
+                        if not match.empty and pd.notna(match.iloc[0][learning_obj_col]):
+                            objectives.append(f"• {subtopic}: {match.iloc[0][learning_obj_col].strip()}")
+                
+                if objectives:
+                    return f"Learning Objectives for '{topic}':\n" + "\n".join(objectives) + ""
+        
+        elif scope == "Global (full output)":
+            # All learning objectives
+            objectives_by_topic = {}
+            for _, row in outline_df.iterrows():
+                if pd.notna(row[topic_col]) and pd.notna(row[subtopic_col]) and pd.notna(row[learning_obj_col]):
+                    topic = row[topic_col]
+                    if topic not in objectives_by_topic:
+                        objectives_by_topic[topic] = []
+                    objectives_by_topic[topic].append(f"  • {row[subtopic_col]}: {row[learning_obj_col].strip()}")
+            
+            if objectives_by_topic:
+                result = ["All Course Learning Objectives:"]
+                for topic, objs in objectives_by_topic.items():
+                    result.append(f"\n{topic}:")
+                    result.extend(objs)
+                result.append("\n\nEnsure content supports these comprehensive learning objectives.")
+                return "\n".join(result)
+        
+        # Fallback for any scope
+        return f"No specific learning objectives found for scope '{scope}'. Ensure content is educationally sound and aligned with course goals."
+        
+    except Exception as e:
+        print(f"❌ Error fetching learning objectives: {e}")
+        return f"Error retrieving learning objectives for scope '{scope}'. Ensure content supports educational goals."
 
 slide_chunks_checklist_prompt = """Assume the role of a checklist agent tasked with evaluating the following block(s) of slide chunks for the given list of checklist criteria.
 
@@ -46,6 +256,12 @@ These slide chunks are created for the following:
 Course Name: {course_name}
 Target Audience: {target_audience}
 </course_info>
+
+LEARNING OBJECTIVE CONTEXT:
+The slide chunks you are evaluating should align with this specific learning objective:
+<learning_objective>
+{learning_objective}
+</learning_objective>
 
 Here's the slide chunks to evaluate:
 <slide_chunks>
@@ -59,7 +275,7 @@ Here are the checklist criteria to evaluate:
 
 Make sure to output in the following format:
 <analysis>
-[Analysis of the slide chunks based on the checklist criteria. It is okay for the analysis to be quite long for accurate evaluation.]
+[Analysis of the slide chunks based on the checklist criteria AND learning objective alignment. It is okay for the analysis to be quite long for accurate evaluation.]
 </analysis>
 
 <passed_items>
@@ -77,7 +293,7 @@ Feedback: Provide specific feedback on why it failed and what needs to be improv
 NOTES:
 - The analysis should be thorough and cover all aspects of the checklist and all of the criteria.
 - The passed items should only include those that fully meet the criteria.
-- Feedback of the failed items should include all necessary information for the author to understand what needs to be fixed.
+- Feedback of the failed items should include all necessary information for the reviser agent to understand what needs to be fixed to better align with the learning objective.
 
 Follow the examples below to understand how to evaluate each review criteria:
 
@@ -87,7 +303,7 @@ Follow the examples below to understand how to evaluate each review criteria:
 """
 
 
-def run_slide_chunks_checklist_agent(course_name, target_audience, slide_chunks, checklist, examples, llm = "gemini_2_flash"):
+def run_slide_chunks_checklist_agent(course_name, target_audience, slide_chunks, checklist, examples, learning_objective, llm = "gemini_2_flash"):
     """
     Run the slide chunks checklist agent with the provided parameters.
     :param course_name: Name of the course for which the slide chunks are created.
@@ -95,24 +311,11 @@ def run_slide_chunks_checklist_agent(course_name, target_audience, slide_chunks,
     :param slide_chunks: The block of slide chunks to evaluate.
     :param checklist: The checklist criteria to evaluate the slide chunks against.
     :param examples: The examples to guide evaluation of the checklist criteria.
+    :param learning_objective: The learning objective that the slide chunks should align with.
     :param llm: The language model to use for the agent.
     :return: A string of all the failed checklist items with feedback. 
     """
     slide_chunks_checklist_agent = Chain(llm = llm, tags = ["analysis", "passed_items", "failed_items"])
-
-    # # Format the prompt for debugging (printing)
-    # formatted_prompt = slide_chunks_checklist_prompt.format(
-    #     course_name = course_name,
-    #     target_audience = target_audience,
-    #     slide_chunks = slide_chunks,
-    #     checklist = checklist,
-    #     examples = examples,
-    # )
-
-    # # Print the formatted prompt for debugging
-    # print("\n🔍 RESEARCH NOTES CHECKLIST PROMPT BEING SENT TO LLM:\n")
-    # print(formatted_prompt)
-    # print("\n" + "=" * 100 + "\n")
 
     slide_chunks_checklist_agent.add_message(
         role = "user",
@@ -122,6 +325,7 @@ def run_slide_chunks_checklist_agent(course_name, target_audience, slide_chunks,
             slide_chunks = slide_chunks,
             checklist = checklist,
             examples = examples,
+            learning_objective = learning_objective,
         )
     )
 
@@ -136,6 +340,11 @@ Here are the slide chunks to revise:
 <slide_chunks>
 {slide_chunks}
 </slide_chunks>
+
+Here is the learning objective that the slide chunks should align with:
+<learning_objective>
+{learning_objective}
+</learning_objective>
 
 Here is the checklist feedback to consider:
 <checklist_feedback>
@@ -176,6 +385,8 @@ IMPORTANT: Never change or remove these headers (Block ID, Topic, Subtopic, Slid
 NOTES:
 - Make use of the given set of CRUD block text tools to make the necessary revisions. 
 - If creating new slide using create_blocks, ensure to follow the correct format and maintain the headers required for revision.
+- The first slide of each topic must always be a "Learning Objectives" slide. Do not create or insert any type of slide before the first "Learning Objectives" slide of a topic. Also, the last slide of the topic must be a "Topic Summary" slide.
+- The first slide of each sub-topic must always be a "Transition" slide. Do not create or insert any "Content" slide before the first "Transition" slide of a sub-topic. Also, the last slide of the sub-topic must be a "Summary" slide.
 - These CRUD tools allow you to create, read, update, and delete blocks of text from the above slide chunk as needed.
 - You can only work with one block of text at a time. Each block of text is a separate entity identified by a unique ID - Block ID.
 - To implement some of the feedback, you may need to make edits to multiple blocks of text.
@@ -187,9 +398,7 @@ Revision Examples:
 These examples show how to apply the corrections to the slides. Use these examples as reference to understand the approach to revising the research notes. Only refer the examples of the criteria that failed.
 """
 
-
-
-def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, reviser_examples, df, global_max_index=None, llm = "gemini_2_flash"):
+def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, reviser_examples, df, learning_objective, global_max_index=None, llm = "gemini_2_flash"):
     """
     Run the reviser agent with the provided parameters.
     :param slide_chunks: The block of slide chunks to revise.
@@ -208,7 +417,7 @@ def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, revis
     # Store global max index in DataFrame attributes for CRUD tools to access
     if global_max_index is not None:
         df.attrs['global_max_index'] = global_max_index
-        print(f"✅ Set global_max_index in df.attrs: {global_max_index}")
+        # print(f"✅ Set global_max_index in df.attrs: {global_max_index}")
         
     rate_limiter = InMemoryRateLimiter(
         requests_per_second=1,  # <-- Super slow! We can only make a request once every 10 seconds!!
@@ -256,7 +465,8 @@ def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, revis
             slide_chunks=slide_chunks,
             checklist_feedback=checklist_feedback,
             criteria_with_ops=criteria_with_ops,
-            reviser_examples=reviser_examples,)}],
+            reviser_examples=reviser_examples,
+            learning_objective=learning_objective,)}],
         "df": df,        # one buffer for the whole session
     }
 
@@ -306,6 +516,19 @@ def fix_block_ids_in_text(df):
     return df
 
 
+def ensure_parent_relationship(df_slice, parent_df):
+    """
+    Ensure that DataFrame slices maintain reference to parent DataFrame.
+    This is crucial for the CRUD tools to access the full context when assigning order values.
+    """
+    if hasattr(df_slice, '_parent'):
+        return df_slice
+    
+    # Set parent reference for CRUD tools to access full DataFrame context
+    df_slice._parent = parent_df
+    return df_slice
+
+
 def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, checklist_sheet_link, gc, llm = "gemini_2_flash"):
     """
     Run the slide chunks checklist agent and reviser agent with the provided parameters.
@@ -328,7 +551,8 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
 
     print(slide_chunks_df)
     if "order" not in slide_chunks_df.columns:
-        slide_chunks_df["order"] = slide_chunks_df.index.astype(float)
+        # Ensure order starts from 1 (not 0)
+        slide_chunks_df["order"] = slide_chunks_df.index.astype(float) + 1
 
     # Ensure block text column exists and all rows have block text
     if 'block text' not in slide_chunks_df.columns:
@@ -377,13 +601,11 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
     progress = SmartProgressBar(total_tasks=total_task_scopes, save_interval=1)
     
     for (task, scope), grp in task_scope_groups:
-        
         print(f"Running checklist for Task: {task}, Scope: {scope}")
-
+        
         # Extract criteria and examples together
         criteria_list = grp["Review Criteria"].tolist()
         examples_list = grp["Review Agent Examples"].tolist()
-        
         criteria_str = "\n".join(criteria_list)
         
         # Build examples with structured format for each criteria
@@ -399,7 +621,6 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
             criteria = row["Review Criteria"]
             corrective_ops = row["Corrective Operations"]
             criteria_with_ops.append(f"<criteria>\n\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n</criteria>")
-        
         criteria_ops_str = "\n\n".join(criteria_with_ops)
         
         # Build examples with structured format for reviser agent
@@ -407,127 +628,81 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
         for i, (criteria, corrective_ops, reviser_example) in enumerate(zip(criteria_list, grp["Corrective Operations"].tolist(), grp["Reviser Agent Examples"].tolist())):
             criteria_num = i + 1
             reviser_examples_with_separators.append(f"<criteria_{criteria_num}>\n\nReview Criteria: {criteria}\n\nCorrective Operation: {corrective_ops}\n\n<example>\n\n{reviser_example}\n\n</example>\n\n</criteria_{criteria_num}>")
-        
         reviser_examples_str = "\n\n".join(reviser_examples_with_separators)
 
-        for key, df_slice in iterate_scope(scope, slide_chunks_df, scope_to_selector):
+        # Parallelize all topic slices for this checklist task
+        results = process_slide_chunk_scope_slices_parallel(
+            scope=scope,
+            slide_chunks_df=slide_chunks_df,
+            scope_to_selector=scope_to_selector,
+            criteria_str=criteria_str,
+            examples_str=examples_str,
+            criteria_ops_str=criteria_ops_str,
+            reviser_examples_str=reviser_examples_str,
+            course_name=course_name,
+            target_audience=target_audience,
+            sheet=sheet,
+            gc=gc,
+            global_max_index=global_max_index,
+            llm=llm
+        )
 
-            print(f"Processing {key} with {len(df_slice)} rows")
-            print(f"🔍 Current global max index: {global_max_index}")
-
-            if df_slice.empty:
-                print(f"No data for {key}, skipping...")
+        # Merge results back into main DataFrame
+        for key, revised_slide_chunks_df, df_slice, updated_max_index in results:
+            if revised_slide_chunks_df is None:
                 continue
 
-            slide_chunks_str = "\n\n---\n\n".join(df_slice["block text"].tolist())
+            # Update global_max_index based on parallel processing
+            global_max_index = max(global_max_index, updated_max_index)
 
-            # Run the slide chunks checklist agent
-            failed_items = run_slide_chunks_checklist_agent(
-                course_name=course_name,
-                target_audience=target_audience,
-                slide_chunks=slide_chunks_str,
-                checklist=criteria_str,
-                examples=examples_str,
-                llm=llm
-            )
+            # --- Handle new blocks (IDs already assigned in parallel process) ---
+            new_indices = [idx for idx in revised_slide_chunks_df.index if idx not in slide_chunks_df.index]
+            for idx in new_indices:
+                # Assign a unique global block ID
+                global_max_index += 1
+                revised_slide_chunks_df = revised_slide_chunks_df.rename(index={idx: global_max_index})
+                idx = global_max_index  # Use the new index
 
-            print(f"Failed items for {key}: {failed_items}")
+                # Fill topic/subtopic for new block
+                if 'block text' in revised_slide_chunks_df.columns:
+                    block_text = str(revised_slide_chunks_df.loc[idx, 'block text'])
+                    topic_match = re.search(r'####\*\*Topic:\*\*\s*\n(.+?)(?=\n####|\n\n|\Z)', block_text, re.DOTALL)
+                    subtopic_match = re.search(r'####\*\*Subtopic:\*\*\s*\n(.+?)(?=\n####|\n\n|\Z)', block_text, re.DOTALL)
+                    topic_value = topic_match.group(1).strip() if topic_match else ''
+                    subtopic_value = subtopic_match.group(1).strip() if subtopic_match else ''
+                    topic_col = 'topic' if 'topic' in slide_chunks_df.columns else 'Topic'
+                    subtopic_col = 'subtopic' if 'subtopic' in slide_chunks_df.columns else 'Subtopic'
+                    if topic_col not in revised_slide_chunks_df.columns:
+                        revised_slide_chunks_df[topic_col] = ''
+                    if subtopic_col not in revised_slide_chunks_df.columns:
+                        revised_slide_chunks_df[subtopic_col] = ''
+                    revised_slide_chunks_df.loc[idx, topic_col] = topic_value
+                    revised_slide_chunks_df.loc[idx, subtopic_col] = subtopic_value
+                    print(f"✅ Populated new block {idx}: topic='{topic_value}', subtopic='{subtopic_value}'")
 
-            if not failed_items:
-                print(f"All items passed for {key}.")
-                continue
+            # --- Update existing blocks ---
+            existing_indices = [idx for idx in revised_slide_chunks_df.index if idx in slide_chunks_df.index]
+            for idx in existing_indices:
+                for col in revised_slide_chunks_df.columns:
+                    if col in slide_chunks_df.columns:
+                        slide_chunks_df.loc[idx, col] = revised_slide_chunks_df.loc[idx, col]
 
-            # Run the reviser agent with the failed items and criteria with corrective operations
-            revised_slide_chunks_df = run_reviser_agent(
-                slide_chunks=slide_chunks_str,
-                checklist_feedback=failed_items,
-                criteria_with_ops=criteria_ops_str,
-                reviser_examples=reviser_examples_str,
-                df=df_slice,
-                global_max_index=global_max_index,
-                llm=llm
-            )
+            # --- Append new blocks ---
+            new_blocks_df = revised_slide_chunks_df.loc[[idx for idx in revised_slide_chunks_df.index if idx not in slide_chunks_df.index]]
+            if not new_blocks_df.empty:
+                slide_chunks_df = pd.concat([slide_chunks_df, new_blocks_df], ignore_index=False, sort=False)
+                print(f"Appended {len(new_blocks_df)} new blocks")
 
-            print(f"Revised slide chunks for {key}: {revised_slide_chunks_df}")
+            slide_chunks_df = slide_chunks_df.sort_index()
+            print(f"Main DataFrame shape after merge: {slide_chunks_df.shape}")
 
-            # FIX: Parse newly created blocks BEFORE merging to populate topic/subtopic
-            if not revised_slide_chunks_df.empty:
-                # Identify newly created blocks
-                new_indices = [idx for idx in revised_slide_chunks_df.index if idx not in slide_chunks_df.index]
-                
-                if new_indices:
-                    # print(f"🔄 Parsing newly created blocks: {new_indices}")
-                    
-                    # Parse block text to populate topic/subtopic for new blocks
-                    for idx in new_indices:
-                        if 'block text' in revised_slide_chunks_df.columns:
-                            block_text = str(revised_slide_chunks_df.loc[idx, 'block text'])
-                            
-                            # Extract topic and subtopic from block text
-                            topic_match = re.search(r'####\*\*Topic:\*\*\s*\n(.+?)(?=\n####|\n\n|\Z)', block_text, re.DOTALL)
-                            subtopic_match = re.search(r'####\*\*Subtopic:\*\*\s*\n(.+?)(?=\n####|\n\n|\Z)', block_text, re.DOTALL)
-                            
-                            topic_value = topic_match.group(1).strip() if topic_match else ''
-                            subtopic_value = subtopic_match.group(1).strip() if subtopic_match else ''
-                            
-                            # Use the correct column names (topic vs Topic)
-                            topic_col = 'topic' if 'topic' in slide_chunks_df.columns else 'Topic'
-                            subtopic_col = 'subtopic' if 'subtopic' in slide_chunks_df.columns else 'Subtopic'
-                            
-                            # Add these columns to revised_slide_chunks_df if they don't exist
-                            if topic_col not in revised_slide_chunks_df.columns:
-                                revised_slide_chunks_df[topic_col] = ''
-                            if subtopic_col not in revised_slide_chunks_df.columns:
-                                revised_slide_chunks_df[subtopic_col] = ''
-                            
-                            # Populate the values
-                            revised_slide_chunks_df.loc[idx, topic_col] = topic_value
-                            revised_slide_chunks_df.loc[idx, subtopic_col] = subtopic_value
+            # Check for deleted blocks
+            deleted_indices = set(df_slice.index) - set(revised_slide_chunks_df.index)
+            if deleted_indices:
+                print(f"🗑️ Removing deleted blocks from main DataFrame: {deleted_indices}")
+                slide_chunks_df = slide_chunks_df.drop(index=deleted_indices, errors='ignore')
 
-                            print(f"✅ Populated new block {idx}: topic='{topic_value}', subtopic='{subtopic_value}'")
-
-            # Update global max index after revision
-            if not revised_slide_chunks_df.empty:
-                new_max = revised_slide_chunks_df.index.max()
-                if new_max > global_max_index:
-                    global_max_index = new_max
-                    print(f"🔄 Updated global max index to: {global_max_index}")
-
-            # Merge the revised slice back into the main DataFrame
-            if not revised_slide_chunks_df.empty:
-                print(f"🔄 Merging revised data back to main DataFrame...")
-                print(f"Original slice indices: {list(df_slice.index)}")
-                print(f"Revised DataFrame indices: {list(revised_slide_chunks_df.index)}")
-                
-                # MINIMAL FIX: Handle existing vs new blocks separately
-                existing_indices = [idx for idx in revised_slide_chunks_df.index if idx in slide_chunks_df.index]
-                new_indices = [idx for idx in revised_slide_chunks_df.index if idx not in slide_chunks_df.index]
-                
-                print(f"Existing indices to update: {existing_indices}")
-                print(f"New indices to append: {new_indices}")
-                
-                # Update existing blocks in place (no drop/concat)
-                for idx in existing_indices:
-                    for col in revised_slide_chunks_df.columns:
-                        if col in slide_chunks_df.columns:
-                            slide_chunks_df.loc[idx, col] = revised_slide_chunks_df.loc[idx, col]
-                
-                # Only concat new blocks if any exist
-                if new_indices:
-                    new_blocks_df = revised_slide_chunks_df.loc[new_indices]
-                    slide_chunks_df = pd.concat([slide_chunks_df, new_blocks_df], ignore_index=False, sort=False)
-                    print(f"Appended {len(new_indices)} new blocks")
-                
-                # Sort by index to maintain order
-                slide_chunks_df = slide_chunks_df.sort_index()
-                print(f"Main DataFrame shape after merge: {slide_chunks_df.shape}")
-
-                # Ensure Block IDs in text match DataFrame indices
-                slide_chunks_df = fix_block_ids_in_text(slide_chunks_df)
-
-            else:
-                print("No revised data to merge")
-
+            # Note: Block IDs already fixed in parallel process
         progress.update()
         
     # Validate and correct block text format before parsing
@@ -560,8 +735,13 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
     
     print(f"✅ Corrected format for {corrected_count} rows")
     
+    # Order DataFrame by 'order' column before parsing
+    if 'order' in slide_chunks_df.columns:
+        slide_chunks_df = slide_chunks_df.sort_values('order').reset_index(drop=True)
+        print("Ordered DataFrame by 'order' column before parsing")
+    
     # Clear the worksheet first to handle row deletions properly
-    slide_chunks_sheet.clear()
+    clear_worksheet(slide_chunks_sheet)
     
     # Save to sheet
     save_to_sheet(worksheet = slide_chunks_sheet, df = slide_chunks_df)
@@ -582,15 +762,18 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
     save_to_sheet(worksheet = slide_chunks_sheet, df = slide_chunks_df)
 
     # Hide the utility columns that users don't need to see
-    # columns_to_hide = ['order', 'block text']
-    # try:
-    #     hide_columns_by_name(slide_chunks_sheet, columns_to_hide, slide_chunks_df)
-    #     print(f"👁️ Hidden columns: {', '.join(columns_to_hide)}")
-    # except Exception as e:
-    #     print(f"⚠️ Could not hide columns: {e}")
+    columns_to_hide = ['order', 'block text']
+    try:
+        hide_columns_by_name(slide_chunks_sheet, columns_to_hide, slide_chunks_df)
+        print(f"👁️ Hidden columns: {', '.join(columns_to_hide)}")
+    except Exception as e:
+        print(f"⚠️ Could not hide columns: {e}")
 
     print("✅ Block text parsing completed. Individual columns updated with revised content.")
     print("✅ Slide chunks parsing completed. Slide Type, Slide Chunk Title, and Slide Chunk columns updated.")
+    
+    # Reset global block ID counter for next run
+    crud_tools._global_block_id_counter = None
     
     return
 
@@ -784,3 +967,74 @@ def parse_slide_chunks_to_components(df, max_workers=5):
     
     print(f"✅ Successfully parsed slide_chunks into individual components for {total_rows} rows.")
     return df
+
+def create_backup_slide_chunks(sheet):
+    """
+    Create a backup of the 'Slide Chunks' sheet before running the checklist.
+    """
+    backup_name = "Backup Slide Chunks Sheet for Delete step of Slide Chunks Checklist"
+    
+    # Check if we just performed a delete operation - if so, don't create new backup
+    if st.session_state.get("just_deleted_checklist", False):
+        st.session_state["just_deleted_checklist"] = False
+        print(f"Skipping backup creation - just restored from backup")
+        return
+    
+    # Check if backup already exists, if yes, delete it first
+    sheet_names = get_worksheet_names(sheet)
+    if backup_name in sheet_names:
+        delete_worksheet(sheet, backup_name)
+    
+    # Get the original worksheet
+    try:
+        original_ws = sheet.worksheet("Slide Chunks")
+    except Exception as e:
+        print(f"Error: 'Slide Chunks' sheet not found: {e}")
+        return
+    
+    # Duplicate the worksheet
+    backup_ws = original_ws.duplicate(new_sheet_name=backup_name)
+    
+    # Hide the backup sheet
+    hide_worksheet_by_name(sheet, backup_name)
+    
+    print(f"✅ Created and hid backup sheet: '{backup_name}'")
+
+def delete_slide_chunks_checklist(sheet):
+    """
+    Delete function for the Slide Chunks Checklist step.
+    Restores the 'Slide Chunks' sheet from backup and deletes the backup.
+    """
+    backup_name = "Backup Slide Chunks Sheet for Delete step of Slide Chunks Checklist"
+    
+    # Check if backup exists
+    sheet_names = get_worksheet_names(sheet)
+    if backup_name not in sheet_names:
+        print(f"Backup sheet '{backup_name}' not found. Cannot restore.")
+        return
+    
+    try:
+        # Get worksheets
+        slide_chunks_ws = sheet.worksheet("Slide Chunks")
+        backup_ws = sheet.worksheet(backup_name)
+        
+        # Get data from backup
+        backup_data = backup_ws.get_all_values()
+        
+        # Clear the current Slide Chunks sheet
+        clear_worksheet(slide_chunks_ws)
+        
+        # Copy data from backup to Slide Chunks
+        if backup_data:
+            slide_chunks_ws.update(backup_data)
+        
+        # Delete the backup sheet
+        delete_worksheet(sheet, backup_name)
+        
+        # Set flag to prevent immediate recreation of backup
+        st.session_state["just_deleted_checklist"] = True
+        
+        print(f"✅ Restored 'Slide Chunks' from backup and deleted '{backup_name}'")
+        
+    except Exception as e:
+        print(f"Error during delete operation: {e}")
