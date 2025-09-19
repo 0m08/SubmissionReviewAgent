@@ -17,7 +17,6 @@ email_to_role_mapping = {
     "nancy@skillcatapp.com": "Admin",
     "om@skillcatapp.com": "Admin",
     "niket@skillcatapp.com": "Admin",
-    "pniket7@gmail.com": "Admin",
     
     # Managers - Access to all pages, but cannot create vectorstore in Image Search and Video Search
     "tiffany@skillcatapp.com": "Managers",
@@ -76,7 +75,7 @@ role_page_access = {
     "Instructional Designer": [
         "research_notes_page", "slide_chunks_page", 
         "assessments_generation_page", "vectorstore_page", 
-        "video_search_tool_page"
+        "video_search_tool_page", "quality_compliance_scoring_page"
     ],
     "Visual Designer": [
         "graphics_definition_page", "graphics_search_page", "vectorstore_page", "get_images_page", 

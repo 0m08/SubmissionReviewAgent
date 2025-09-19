@@ -52,7 +52,8 @@ else:
 if "role" not in st.session_state:
     st.session_state.role = None
 
-role = st.session_state.role
+# Use effective role (impersonated role if set, otherwise actual role)
+role = st.session_state.get("impersonated_role", st.session_state.get("role"))
 
 # Determine tasks based on role
 task_options = []

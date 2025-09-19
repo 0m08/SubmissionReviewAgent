@@ -255,7 +255,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             gemini_flash = ChatGoogleGenerativeAI(model = "gemini-1.5-flash-latest", temperature = 0.7, max_tokens = 8192),
             llama_3_1_70b = ChatGroq(model_name = 'llama-3.1-70b-versatile', temperature = 0.7, max_tokens = 4096),
             groq = ChatGroq(model_name = 'llama3-70b-8192', temperature = 0.7, max_tokens = 4096),
-            gemini_2_flash = ChatGoogleGenerativeAI(model = "gemini-2.0-flash", temperature = 0.7, max_tokens = 8192),
+            gemini_2_flash = ChatGoogleGenerativeAI(model = "gemini-2.0-flash", temperature = 0.7, max_tokens = 64000),
             o1 = ChatOpenAI(model = 'o1'),
             o3_mini = ChatOpenAI(model = 'o3-mini'),
             gemini_2_flash_thinking = ChatGoogleGenerativeAI(model = "gemini-2.0-flash-thinking-exp", temperature = 0.7, max_tokens = 8192),

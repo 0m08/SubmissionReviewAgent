@@ -48,17 +48,25 @@ AVOID Matching questions when:
 Question Quantity Rules:
 - Generate an appropriate number of questions based on the topic content depth and complexity
 - For Select All That Apply questions: Create only 1 if your total will be less than 9 questions, or 2+ if your total will be 9 or more questions
+- For Case Study/Situational/Scenario-Based Multiple Choice questions: Analyze the slide content to determine the appropriate percentage of Multiple Choice questions that should be scenario-based:
+  * If the content is highly practical (procedures, troubleshooting, equipment operation, safety protocols, hands-on processes): Create 50-60% of Multiple Choice questions as scenario-based
+  * If the content is moderately practical (mix of theory and application): Create 30-50% of Multiple Choice questions as scenario-based  
+  * If the content is primarily theoretical but has some practical elements: Create 20-30% of Multiple Choice questions as scenario-based
+  * Always create at least 20% of Multiple Choice questions as scenario-based regardless of content type
+
 
 Follow these guidelines when creating the questions.
 - Ensure exhaustive and proportional coverage of the course content, including a mix of first-level and second-level questions, with thoughtful answer choices.
 - Any field that does not apply to a given question type should be left empty. For instance, True/False question type will have options C and D left empty.
 - For Matching question types, give the exact correct answer under the ""Correct Answer"" field. Match correctly without using Options. Use the exact option text and words being matched. Ensure that all the option text and match text for matching type questions are unique.
+- For Multiple Choice questions: Create both traditional knowledge-recall questions and scenario-based questions. For scenario-based Multiple Choice questions, create realistic, practical scenarios that place the learner in a specific situation using second-person perspective ("You are...", "You notice...", "You connect...", etc.). Include specific details about equipment, conditions, circumstances, etc. mentioned in the slide content. Ensure the scenario and all answer options are directly derived from the slide content so that the learner can relate to the scenario and answer the question correctly just by studying the slide content.
 - For Select All That Apply questions: Use when multiple options can be simultaneously correct. Always include "(Select all that apply)" at the end of the question text. Ensure 2-3 options are correct out of 4 total options. In the ""Correct Answer"" field, list all correct option letters separated by commas (e.g., ""A, B, D""). IMPORTANT: Limit to only 1 Select All That Apply question if generating less than 9 total questions for this topic. If generating 9 or more questions, you may create 2 or more Select All That Apply questions.
 - The correct feedback will be shown everytime the user answers correctly. The incorrect feedback is common feedback that will be shown anytime a user does not answer the question correctly and it should explain the correct answer.
 - Correct and incorrect feedback must be provided for all question types, including matching.
 - IMPORTANT: Do not reference option letters (A, B, C, D) in any feedback. Instead, refer to the actual content/text of the options. For example, say "Proper ventilation and energy efficiency are correct" instead of "A and B are correct".
 - For True/False questions, if the correct answer is True, always start the correct and incorrect feedback with "Correct! This statement is true." and "Incorrect! This statement is true." respectively. If the correct answer is False, always start the correct and incorrect feedback with "Correct! This statement is false." and "Incorrect! This statement is false." respectively. Always use lowercase "true" and "false" in this starting statement. Follow this with a separate sentence explaining why, without using connecting words like "because".
 - Creation of Matching questions is optional and should be created only if the topic content naturally contains related items.
+- Creation of scenario-based Multiple Choice questions is mandatory and should be created for every topic, with the percentage determined by the nature of the content.
 
 Reply in the following output format:
 
@@ -74,7 +82,7 @@ Option B: [Option B text here]
 Option C: [Option C text here. Leave blank for True/False questions]
 Option D: [Option D text here. Leave blank for True/False questions]
 
-Correct Answer: [Correct Option letter eg. ""C""]
+Correct Answer: [Correct Option letter eg. "C"]
 
 Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true." then add a separate sentence explaining why. If correct answer is False, start with "Correct! This statement is false." then add a separate sentence explaining why. Do not use connecting words like "This statement is true because..." or "This statement is false because...". For other question types, start with "Correct!" and explain why the chosen option content is correct without mentioning option letters.]
 
@@ -92,7 +100,7 @@ Option B: [Option B text here]
 Option C: [Option C text here. Leave blank for True/False questions]
 Option D: [Option D text here. Leave blank for True/False questions]
 
-Correct Answer: [Correct Option letter eg. ""B""]
+Correct Answer: [Correct Option letter eg. "B"]
 
 Correct feedback: [Feedback for correct answer. For True/False questions: If correct answer is True, start with "Correct! This statement is true." then add a separate sentence explaining why. If correct answer is False, start with "Correct! This statement is false." then add a separate sentence explaining why. Do not use connecting words like "because". For other question types, start with "Correct!" and explain why the chosen option content is correct without mentioning option letters.]
 
@@ -145,6 +153,23 @@ Correct feedback: Correct! You have correctly matched all the options with their
 Incorrect feedback: Incorrect! These are the correct match choices:
 [Option A text here] - [Correct Match text here]; [Option B text here] - [Correct Match text here]; [Option C text here] - [Correct Match text here]; [Option D text here] - [Correct Match text here].
 Ensure you provide all the exact option texts and their corresponding correct match texts without using option letters (A, B, C, D) in the feedback.
+</question>
+
+<question>
+Question no: 5
+Question Type: Multiple Choice
+Question: [Create a realistic scenario using second-person perspective. For example: "You are diagnosing a home that isn't cooling properly. You connect your red hose to the larger suction line port and take a pressure reading. It shows an unusually low pressure on the high-side gauge. What is the most likely issue?"]
+
+Option A: [Option A text here]
+Option B: [Option B text here]
+Option C: [Option C text here]
+Option D: [Option D text here]
+
+Correct Answer: [Correct Option letter eg. "C"]
+
+Correct feedback: Correct! [Feedback for correct answer]
+
+Incorrect feedback: Incorrect! [Feedback for incorrect answer]
 </question>
 
 [Repeat such pattern for all the questions]

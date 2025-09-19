@@ -13,7 +13,7 @@ import json
 import os
 from dotenv import load_dotenv
 from streamlit_clickable_images import clickable_images
-from utils.role_utils import get_user_info
+from utils.role_utils import get_user_info, get_user_pages
 
 # from jira import JIRA
 
@@ -271,6 +271,7 @@ def list_of_agents():
 list_of_agents_page = st.Page(list_of_agents, title = "List of agents", icon = ":material/list:")
 logout_page = st.Page(logout, title="Log out", icon=":material/logout:")
 about_agents_page = st.Page("about_agents.py", title="About Agents", icon=":material/info:")
+role_switch_page = st.Page("role_switch.py", title="Role Switch", icon=":material/swap_horiz:")
 
 # --- Outline pages ---
 course_outline_page = st.Page(
@@ -383,10 +384,26 @@ if st.session_state.role:
     # The user is logged in with a valid role
     page_dict = {}
 
-    account_pages = [list_of_agents_page, about_agents_page, logout_page]
+    # Determine which role to use for page access (impersonated role or actual role)
+    effective_role = st.session_state.get("impersonated_role", st.session_state.get("role"))
     
-    # Get user's accessible pages based on their role
-    user_page_names = st.session_state.get("user_pages", [])
+    # Build account pages - include role switch for admins
+    account_pages = [list_of_agents_page, about_agents_page]
+    
+    # Add role switch page only for admins
+    if st.session_state.get("role") == "Admin":
+        account_pages.append(role_switch_page)
+    
+    account_pages.append(logout_page)
+    
+    # Get user's accessible pages based on their effective role (impersonated or actual)
+    if effective_role == st.session_state.get("role"):
+        # Use original user pages if not impersonating
+        user_page_names = st.session_state.get("user_pages", [])
+    else:
+        # Use pages for the impersonated role
+        user_page_names = get_user_pages(effective_role)
+    
     user_pages = [page_name_to_object[page_name] for page_name in user_page_names if page_name in page_name_to_object]
 
     page_dict["Account"] = account_pages

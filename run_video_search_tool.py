@@ -34,7 +34,8 @@ st.markdown("Use this tool to create, update, and search for HVAC videos based o
 if "role" not in st.session_state:
     st.session_state.role = None
 
-role = st.session_state.role
+# Use effective role (impersonated role if set, otherwise actual role)
+role = st.session_state.get("impersonated_role", st.session_state.get("role"))
 task_options = []
 
 if role == "Admin":
