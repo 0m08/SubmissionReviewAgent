@@ -110,6 +110,14 @@ def load_bm25_retriever_with_pydrive(root_folder_id: str, drive, all_doc_chunk_l
             print("bm25_research_db.pkl uploaded to Google Drive.")
             return bm_25_retriever
 
+            
+            #             # Save the pickle file locally
+            # print(f"bm25_research_db.pkl saved locally at: {local_pickle_path}")
+            # print("Skipping automatic upload due to Google Drive storage limits.")
+            # print("You can manually upload this file to Google Drive if needed.")
+
+            return bm_25_retriever
+
         else:
             print("bm25_research_db.pkl found under 'Pickle files'")
 

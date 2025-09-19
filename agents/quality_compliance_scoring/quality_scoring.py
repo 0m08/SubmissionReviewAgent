@@ -28,36 +28,41 @@ gc = gspread.service_account_from_dict(sa_dict)
 
 
 generate_llm_feedback_prompt_template = """
-You are an instructional design reviewer helping a course creator improve their course materials. Your task is to generate targeted, actionable feedback based on a quality checklist review.
+You are an instructional design reviewer helping a course creator improve their course materials. 
+Your task is to generate categorized, actionable summaries from reviewer comments.
+
 The following issues were found in the {issue_type} checklist items for the {stage} stage of the course {course}, created by {creator}.
 
-Here is the list of problematic checklist items and any associated reviewer comments:
+Here is the list of problematic checklist items:
 {issues}
 
 There might be reviewer comments, which may be placed randomly for the whole topic. Use them to inform your feedback.
 {comments}
-Your goal is to provide clear, specific feedback that the course creator can use to address each unmet criterion.
 
-Feedback Generation Guidelines
-- Focus strictly on unticked items only (i.e., only generate feedback for unmet criteria).
-- Use reviewer comments wherever available; if a comment addresses an unticked item, use it as the primary basis for feedback (including specific examples or suggestions if mentioned).
-- Don't just blatantly copy the comments and paste them. Use them to give summarised feedback.
-- Headings should not be the checklist criteria, but short issue-based subheadings that relate to the feedback.
-- Use clear, direct, and specific language.
-- Be professional, helpful, and focused entirely on actionable improvements.
-- Do not insert general feedback—only specific, relevant feedback tied to each unticked item.
-- If a reviewer comment includes an example or suggestion, include it to make your feedback more practical and concrete for the reporter.
-- Keep all feedback relevant, actionable, and as concise as possible.
+Objective:
+- Generate categorized, actionable summaries from reviewer comments. 
+- Do not map comments to checklist criteria; only use reviewer comments to drive categorization.
 
-For each unticked (not fulfilled) item, the agent should generate one row with:
-Title (headline): A concise (2-3 word) subheading that summarizes what the feedback is about. Do not use the original checklist criterion as the heading—instead, create a small subheading capturing the specific issue.
-AI Feedback: A concise, constructive summary specifying what the reporter should do to address the unmet criterion, using clear and actionable guidance.
+Input:
+- Reviewer comments in free-text form (may vary in detail, tone, and specificity).
 
-- Use this exact format for every item:
+Output:
+For each identified category (group of similar comments), provide:
+1. **Category Label**: A concise thematic tag (e.g., Clarity Issues, Data Accuracy, Formatting Fix).
+2. **Comments Grouped**: List of comments that fall under this category.
+3. **Actionable Summary (3–4 words)**: A short directive-style takeaway that the creator can act on (e.g., Simplify sentences further, Double-check figures, Unify formatting style).
 
-<Title (headline)>
-<AI Feedback>
+Feedback Generation Guidelines:
+- Group comments into meaningful categories (issues, improvement areas, or suggestions).
+- Create compact, descriptive category labels with no jargon.
+- Ensure 3–4 word summaries are directive, specific, and framed as improvement actions.
+- Do not restate comments verbatim—summarize into actionable improvement points.
+- If multiple comments overlap, consolidate them under one category.
+- Keep the tone constructive, concrete, and professional.
+- Avoid generic advice; tie actions directly to reviewer input.
+- Structure the output clearly with categories as mini-sections.
 """
+
 
 
 def generate_llm_feedback_from_issues(
@@ -177,8 +182,12 @@ def process_and_save_stage(sheet, spreadsheet):
         for row in data:
             item_type = str(row.get('Checklist Item Type', '')).strip().lower()
             criteria = row.get('Checklist Criteria', '')
-            reviewer_status = row.get(col)
-            is_checked = str(reviewer_status).strip().lower() == 'true'
+
+            reviewer_status = str(row.get(col)).strip().lower()
+            if reviewer_status not in ['true', 'false']:
+                continue  # Skip if reviewer checkbox is missing
+
+            is_checked = reviewer_status == 'true'
 
             if not is_checked:
                 issue_text = criteria
