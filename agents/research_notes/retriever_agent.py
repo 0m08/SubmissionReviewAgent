@@ -1081,7 +1081,7 @@ def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sh
         format_worksheet(backup_ws)
         hide_worksheet_by_name(sheet, "Context Column Backup")
     
-    # Check if this step is already done
+    # Check if there are any rows with references
     rows_with_refs = course_outline_with_lo_df[
         course_outline_with_lo_df["References"].astype(str).str.strip() != ""
     ]
@@ -1090,10 +1090,10 @@ def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sh
         print('No rows with references found')
         return
     
-    # Check if all rows with references have context_0 populated
-    if (rows_with_refs['context_0'] != '').all():
-        print('Context already populated for all rows with references')
-        return
+    # Process ALL rows with references
+    rows_needing_processing = rows_with_refs
+    
+    print(f'Found {len(rows_needing_processing)} rows with references to process')
     
     # Load the vector retriever (for fallback cases)
     compression_retriever = get_compression_retriever(
@@ -1117,12 +1117,8 @@ def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sh
     # Prepare for parallel processing
     futures = []
     with ThreadPoolExecutor(max_workers=5) as executor:
-        # Submit tasks for each row with references
-        for index, row in course_outline_with_lo_df.iterrows():
-            # Only process rows with references
-            if not str(row.get("References", "")).strip():
-                continue
-                
+        # Submit tasks for each row that needs processing
+        for index, row in rows_needing_processing.iterrows():
             futures.append(
                 executor.submit(
                     process_single_row,
