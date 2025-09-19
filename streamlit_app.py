@@ -240,9 +240,9 @@ def list_of_agents():
     st.markdown(
 """Agent Name | Informational Course | Instructional Course | Practical Course
 |- | - | - | - |
-:material/toc: Course Outline Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/toc: Course Outline Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 :material/quick_reference_all: Research Notes Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-:material/topic: Slide Chunks Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/topic: Slide Chunks Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 :material/image: Graphics Definition Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
 :material/quiz: Assessment Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 """
@@ -379,6 +379,21 @@ page_name_to_object = {
     "video_search_tool_page": video_search_tool_page,
 }
 
+# Define which pages belong to which category
+agent_pages = [
+    "course_outline_page",
+    "research_notes_page",
+    "slide_chunks_page",
+    "graphics_definition_page",
+    "assessments_generation_page",
+    "get_images_page",
+]
+tool_pages = [
+    # "graphics_search_page",
+    "vectorstore_page",
+    "quality_compliance_scoring_page",
+    "video_search_tool_page"
+]
 
 if st.session_state.role:
     # The user is logged in with a valid role
@@ -404,10 +419,13 @@ if st.session_state.role:
         # Use pages for the impersonated role
         user_page_names = get_user_pages(effective_role)
     
-    user_pages = [page_name_to_object[page_name] for page_name in user_page_names if page_name in page_name_to_object]
+    # Split pages into agents and tools
+    user_agent_pages = [page_name_to_object[page_name] for page_name in user_page_names if page_name in page_name_to_object and page_name in agent_pages]
+    user_tool_pages = [page_name_to_object[page_name] for page_name in user_page_names if page_name in page_name_to_object and page_name in tool_pages]
 
     page_dict["Account"] = account_pages
-    page_dict["Agents and Tools"] = user_pages
+    page_dict["Agents"] = user_agent_pages
+    page_dict["Tools"] = user_tool_pages
 
     # Create the navigation
     # This returns the page that should be run
