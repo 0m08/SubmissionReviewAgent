@@ -365,8 +365,12 @@ def get_transcript_from_youtube_transcript_csv(video_id):
         # Reconstruct transcript from JSON arrays in transcript columns
         transcript_segments = []
         
-        # Process all transcript columns (transcript_0 through transcript_4)
-        transcript_columns = ['transcript_0', 'transcript_1', 'transcript_2', 'transcript_3', 'transcript_4']
+        # Process all transcript columns
+        transcript_columns = [col for col in video_row.columns if col.startswith('transcript_')]
+        
+        if not transcript_columns:
+            print(f"No transcript columns found for video {video_id}")
+            return None
         
         for col in transcript_columns:
             if col in video_row.columns and pd.notna(video_row[col].iloc[0]):
