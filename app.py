@@ -6,6 +6,7 @@ import gspread
 # from services.embedding_service import get_embedding_model
 from services.drive_service import drive
 from services.sheets_service import get_sheet_data_and_df
+from services.helper_functions import normalize_drive_folder_id
 # from services.helper_functions import get_outline_with_los
 
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
@@ -41,7 +42,12 @@ def main():
             sheet = gc.open_by_url(sheet_link)
             course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
-            st.session_state['root_folder_id'] = root_folder_id
+            try:
+                normalized_root_folder_id = normalize_drive_folder_id(root_folder_id)
+            except ValueError as exc:
+                st.error(f"Invalid Drive folder ID: {exc}")
+                st.stop()
+            st.session_state['root_folder_id'] = normalized_root_folder_id
             st.session_state['sheet'] = sheet
             st.session_state['course_name'] = course_info_df['Course Name'].values[0]
             st.session_state['target_audience'] = course_info_df['Target Audience & Industry'].values[0]

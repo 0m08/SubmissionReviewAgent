@@ -2,6 +2,7 @@ import argparse
 import os
 from lightning_sdk import Machine, Studio
 from dotenv import load_dotenv
+from services.helper_functions import normalize_drive_folder_id
 
 load_dotenv()
 
@@ -11,6 +12,11 @@ def main():
     parser.add_argument('--drive_folder_id', required=True, help='Google Drive folder ID')
     parser.add_argument('--agent_name', required=True, help='Name of the agent to run')
     args = parser.parse_args()
+
+    try:
+        normalized_drive_folder_id = normalize_drive_folder_id(args.drive_folder_id)
+    except ValueError as exc:
+        raise SystemExit(f"Invalid Drive folder ID: {exc}")
 
     gdrive_sa_json = os.environ.get("GDRIVE_SA_JSON")
 
@@ -30,7 +36,7 @@ def main():
         f"export GDRIVE_SA_JSON='{gdrive_sa_json}' && "
         f"python run_agent_cli.py "
         f"--sheet_link '{args.sheet_link}' "
-        f"--drive_folder_id '{args.drive_folder_id}' "
+        f"--drive_folder_id '{normalized_drive_folder_id}' "
         f"--agent_name '{agent}'"
     )
 

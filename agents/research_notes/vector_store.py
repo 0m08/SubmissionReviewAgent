@@ -1,6 +1,6 @@
 from langchain_chroma import Chroma
 import os
-from services.helper_functions import get_short_name
+from services.helper_functions import get_short_name, normalize_drive_folder_id
 from agents.research_notes.load_references import get_all_chunks_as_docs
 from services.drive_service import upload_folder_to_drive, download_folder_from_drive
 from langsmith import traceable
@@ -23,6 +23,8 @@ def load_vector_db_with_pydrive(course_name: str,
                     -> chroma.sqlite3 (file)
                     -> <random_subfolder> (folder)
     """
+    root_folder_id = normalize_drive_folder_id(root_folder_id)
+
     short_course_name = get_short_name(course_name)
 
     local_chroma_root = os.path.join("/tmp", "temp_chroma_folder")
