@@ -1157,13 +1157,6 @@ def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sh
             chunk_size=49000
         )
         
-        # Update the source links columns
-        course_outline_with_lo_df.at[index, 'source_links'] = source_links
-        course_outline_with_lo_df.at[index, 'as_is_sources'] = as_is_sources
-        course_outline_with_lo_df.at[index, 'content_sources'] = content_sources
-        course_outline_with_lo_df.at[index, 'web_links'] = web_links
-        course_outline_with_lo_df.at[index, 'video_links'] = video_links
-        
         # Update progress
         progress.update()
         

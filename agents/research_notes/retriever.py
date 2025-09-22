@@ -195,4 +195,3 @@ def get_web_search_retriever():
         k = 5,
     )
     return web_search_retriever
-
