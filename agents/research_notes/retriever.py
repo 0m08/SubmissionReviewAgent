@@ -1,6 +1,5 @@
 from agents.research_notes.vector_store import load_vector_db_with_pydrive
 from services.embedding_service import get_embedding_model
-from services.helper_functions import normalize_drive_folder_id
 import os
 import pickle
 from langchain.retrievers import EnsembleRetriever
@@ -55,8 +54,6 @@ def load_bm25_retriever_with_pydrive(root_folder_id: str, drive, all_doc_chunk_l
     :param all_doc_chunk_list: The list of all document chunks.
     :return: Loaded BM25 retriever object.
     """
-    root_folder_id = normalize_drive_folder_id(root_folder_id)
-
     local_pickle_path = "/tmp/bm25_retriever.pkl"
 
     # Check if already downloaded
@@ -111,6 +108,14 @@ def load_bm25_retriever_with_pydrive(root_folder_id: str, drive, all_doc_chunk_l
             bm25_file.SetContentFile(local_pickle_path)
             bm25_file.Upload()
             print("bm25_research_db.pkl uploaded to Google Drive.")
+            return bm_25_retriever
+
+            
+            #             # Save the pickle file locally
+            # print(f"bm25_research_db.pkl saved locally at: {local_pickle_path}")
+            # print("Skipping automatic upload due to Google Drive storage limits.")
+            # print("You can manually upload this file to Google Drive if needed.")
+
             return bm_25_retriever
 
         else:
@@ -190,4 +195,3 @@ def get_web_search_retriever():
         k = 5,
     )
     return web_search_retriever
-

@@ -13,7 +13,7 @@ from langtrace_python_sdk import langtrace # Must precede any llm module imports
 import tempfile, json, base64
 import subprocess
 import sys
-from services.helper_functions import get_short_name, normalize_drive_folder_id
+from services.helper_functions import get_short_name
 
 # Mapping from display names used in the Streamlit UI to the
 # agent names expected by the SDK/CLI scripts.
@@ -100,12 +100,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 sheet = gc.open_by_url(sheet_link)
                 course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
-                try:
-                    normalized_root_folder_id = normalize_drive_folder_id(root_folder_id)
-                except ValueError as exc:
-                    st.error(f"Invalid Drive folder ID: {exc}")
-                    st.stop()
-                st.session_state["root_folder_id"] = normalized_root_folder_id
+                st.session_state["root_folder_id"] = root_folder_id
                 st.session_state["sheet"] = sheet
                 st.session_state["sheet_link"] = sheet_link
                 st.session_state["course_name"] = course_info_df['Course Name'][0]

@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 import gspread
 from pydrive2.drive import GoogleDrive
 from services.drive_service import login_with_service_account
-from services.helper_functions import normalize_drive_folder_id
 
 
 # Set up argument parser
@@ -33,13 +32,6 @@ parser.add_argument(
     help="Agent/pipeline to run",
 )
 args = parser.parse_args()
-
-try:
-    normalized_drive_folder_id = normalize_drive_folder_id(args.drive_folder_id)
-except ValueError as exc:
-    print(f"[ERROR] Invalid Drive folder ID: {exc}")
-    sys.exit(1)
-
 
 AGENT_DISPLAY_NAMES = {
     "course_outline": "Course Outline",
@@ -109,7 +101,7 @@ session_state = {
     "agent_name": ui_agent_name,
     "drive": drive,
     "skip_manual_step": True,
-    "root_folder_id": normalized_drive_folder_id,
+    "root_folder_id": args.drive_folder_id,
     "gc": gc,
 }
 

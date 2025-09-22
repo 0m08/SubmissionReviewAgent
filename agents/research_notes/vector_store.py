@@ -1,6 +1,6 @@
 from langchain_chroma import Chroma
 import os
-from services.helper_functions import get_short_name, normalize_drive_folder_id
+from services.helper_functions import get_short_name
 from agents.research_notes.load_references import get_all_chunks_as_docs
 from services.drive_service import upload_folder_to_drive, download_folder_from_drive
 from langsmith import traceable
@@ -23,8 +23,6 @@ def load_vector_db_with_pydrive(course_name: str,
                     -> chroma.sqlite3 (file)
                     -> <random_subfolder> (folder)
     """
-    root_folder_id = normalize_drive_folder_id(root_folder_id)
-
     short_course_name = get_short_name(course_name)
 
     local_chroma_root = os.path.join("/tmp", "temp_chroma_folder")
@@ -149,6 +147,16 @@ def load_vector_db_with_pydrive(course_name: str,
                 print("Uploading new local Chroma DB to Google Drive...")
                 upload_folder_to_drive(local_chroma_path, chroma_folder_id, drive)
                 print("Upload complete.")
+
+                # print("Skipping automatic upload due to storage limits.")
+                # print(f"Chroma DB is available locally at: {local_chroma_path}")
+                # print("You can manually upload this folder to Google Drive if needed.")
+                
+                
+                # zip_path = f"{local_chroma_path}.zip"
+                # shutil.make_archive(local_chroma_path, 'zip', local_chroma_path)
+                # print(f"Zipped Chroma DB saved at: {zip_path}")
+                
                 return chroma_db, all_doc_chunk_list
 
     # 2. Load the DB from the local path

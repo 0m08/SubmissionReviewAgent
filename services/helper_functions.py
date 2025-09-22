@@ -625,53 +625,14 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
 #     return True
 
 
-# Helper function to extract Google Drive file or folder ID from a URL
+# Helper function to extract Google Drive file ID from a URL
 def extract_drive_file_id(url):
     """
-    Extract the file or folder ID from a Google Drive URL.
-    Supports common link formats such as:
-      - https://drive.google.com/file/d/<id>/view
-      - https://drive.google.com/drive/folders/<id>
-      - https://drive.google.com/open?id=<id>
-    Returns the ID as a string, or None if not found.
+    Extracts the file ID from a Google Drive URL.
+    Returns the file ID as a string, or None if not found.
     """
-    if not url:
-        return None
-
-    patterns = [
-        r"/d/([a-zA-Z0-9_-]+)",
-        r"/folders/([a-zA-Z0-9_-]+)",
-        r"[?&]id=([a-zA-Z0-9_-]+)"
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-
-    return None
-
-def normalize_drive_folder_id(folder_id: str) -> str:
-    """
-    Clean a Google Drive folder identifier by trimming whitespace and
-    extracting the ID when a full URL is supplied.
-    Raises ValueError if the ID cannot be determined.
-    """
-    if folder_id is None:
-        raise ValueError("Google Drive folder ID is missing.")
-
-    cleaned = str(folder_id).strip()
-    if not cleaned:
-        raise ValueError("Google Drive folder ID is empty.")
-
-    if cleaned.startswith("http://") or cleaned.startswith("https://"):
-        extracted = extract_drive_file_id(cleaned)
-        if not extracted:
-            raise ValueError("Could not extract a Google Drive folder ID from the provided URL.")
-        cleaned = extracted
-
-    return cleaned
-
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", url)
+    return match.group(1) if match else None
 
 
 @traceable(
@@ -902,4 +863,3 @@ def iterate_scope(
             # Standard groupby for non-Topic/Subtopic columns
             for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
                 yield key, grp
-
