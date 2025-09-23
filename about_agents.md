@@ -1,8 +1,8 @@
-# Course Outline Generation Subagents
+# About Agents
 
 This document describes each AI subagent, their purpose, and how to use them effectively.
 
-## Section 1: Videos Research
+## 1: Videos Research Agents
 **Overview**: This section focuses on extracting knowledge from youtube videos. It starts by finding relevant videos, processes their content, and transforms them into structured course material. The workflow moves from search to content extraction to outline generation, ensuring video-based learning materials are effectively integrated into the course structure.
 
 **Key Outputs**:
@@ -94,7 +94,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 **Tools Used**: 
 - LLM
 
-## Section 2: Web Research
+## 2: Web Research Agents
 **Overview**: This section systematically explores and extracts knowledge from web-based resources. It employs a structured approach to finding, analyzing, and synthesizing information from various online sources, ensuring comprehensive coverage of course topics while maintaining relevance and accuracy.
 
 **Key Outputs**:
@@ -165,7 +165,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 **Tools Used**: 
 - LLM
 
-## Section 3: Deep Research
+## 3: Deep Research Agents
 **Overview**: This section performs comprehensive research with LLM based web search tools (Deep research tools). This serves as an alternate / additonal branch of performing research.
 
 **Key Outputs**:
@@ -193,7 +193,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 **Tools Used**:
 - LLM
 
-## Section 4: Outline Consolidation
+## 4: Outline Consolidation Agents
 **Overview**: This section brings together all the research outputs into a cohesive course structure. It merges insights from videos, web research, and deep research while ensuring consistency, completeness, and logical flow of the course content.
 
 **Key Outputs**:
@@ -223,7 +223,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 **Tools Used**:
 - LLM
 
-<!-- ## Section 5: Enhance Outline
+<!-- ## 5: Enhance Outline Agents
 **Overview**: This section focuses on enriching the consolidated outline with specific learning objectives and detailed content organization. It ensures each topic is thoroughly developed and properly structured for effective learning.
 
 **Key Outputs**:
@@ -305,7 +305,7 @@ This document describes each AI subagent, their purpose, and how to use them eff
 - Content Mapping Tool
 - Text Analysis Tool -->
 
-## Section 5: References and Resources
+## 5: References and Resources Agents
 **Overview**: This section manages the organization and integration of supporting materials. It ensures all course content is properly referenced and supported by appropriate resources, making it easier to develop detailed course materials later.
 
 **Key Outputs**:

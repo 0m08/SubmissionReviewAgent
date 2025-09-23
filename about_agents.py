@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
-st.set_page_config(page_title="Course Outline Generation Subagents", page_icon="📘", layout="wide")
+st.set_page_config(page_title="About Agents", page_icon="📘", layout="wide")
 MD_PATH = Path("about_agents.md")  # keep your filename
 
 # -----------------------------
@@ -255,11 +255,11 @@ def render_agent_card(section_name: str, agent_name: str, agent: Dict[str, Any])
 # -----------------------------
 # Page chrome
 # -----------------------------
-st.title(data.get("_title") or "Course Outline Generation Subagents")
+st.title(data.get("_title") or "Abouts Agents")
 st.caption("Browse sections & agents, or switch to the other tabs to explore.")
 
 # Tabs: Agents | Tools
-tabs = st.tabs(["Course Outline Subagents", "More Agents..."])
+tabs = st.tabs(["Course Outline Agents", "More Agents..."])
 
 # session state for cross-tab spotlighting
 st.session_state.setdefault("active_tab", "Agents")
@@ -271,7 +271,7 @@ st.session_state.setdefault("spotlight_tool", "")
 with tabs[0]:
     # query = st.text_input("🔎 Filter agents by name (optional)").strip().lower()
     for section_name, section in data["sections"].items():
-        with st.expander(f"📂 {section_name}", expanded=False):
+        with st.expander(f"{section_name}", expanded=False):
 
             with st.container(border=True):
                 st.markdown(f"## {section_name}")
@@ -306,6 +306,8 @@ with tabs[0]:
                 render_agent_card(section_name, agent_name, agent)
                 st.write("")
 
+with tabs[1]:
+    st.info("Documentation of other agents to be added here...")
 # -----------------------------
 # Tools tab
 # -----------------------------
