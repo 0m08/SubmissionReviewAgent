@@ -435,18 +435,47 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
         if ref and ref_type == "Web Article" and ref_usage == "Content":
             context_chunks = []
             try:
-                docs = get_docs_from_url(ref, query="")
-                for doc in docs:
-                    # If chunk is too large, further split
-                    if len(doc.page_content) > 49000:
-                        # Use create_and_populate_columns on a temp df
-                        temp_df = pd.DataFrame({"dummy": [""]})
-                        temp_df = create_and_populate_columns(temp_df, doc.page_content, 0, "context", 49000)
-                        for col in temp_df.columns:
-                            if col.startswith("context_"):
-                                context_chunks.append(temp_df.at[0, col])
-                    else:
-                        context_chunks.append(doc.page_content)
+                # Split references by newline to handle multiple web articles
+                web_urls = [url.strip() for url in ref.split('\n') if url.strip()]
+                all_web_content = []
+                
+                for article_num, web_url in enumerate(web_urls, 1):
+                    try:
+                        docs = get_docs_from_url(web_url, query="")
+                        article_content_parts = []
+                        
+                        for doc in docs:
+                            # If chunk is too large, further split
+                            if len(doc.page_content) > 49000:
+                                # Use create_and_populate_columns on a temp df
+                                temp_df = pd.DataFrame({"dummy": [""]})
+                                temp_df = create_and_populate_columns(temp_df, doc.page_content, 0, "context", 49000)
+                                for col in temp_df.columns:
+                                    if col.startswith("context_"):
+                                        article_content_parts.append(temp_df.at[0, col])
+                            else:
+                                article_content_parts.append(doc.page_content)
+                        
+                        # Add article header and content
+                        if article_content_parts:
+                            article_content = f"Article {article_num}:\n\n" + "\n\n".join(article_content_parts)
+                            all_web_content.append(article_content)
+                            
+                    except Exception as e:
+                        print(f"Error processing web article {article_num} ({web_url}): {e}")
+                        continue
+                
+                # Join all articles with separator
+                if all_web_content:
+                    combined_content = "\n\n---\n\n".join(all_web_content)
+                    
+                    # Split and fill context_n columns
+                    temp_df = pd.DataFrame({"dummy": [""]})
+                    temp_df = create_and_populate_columns(temp_df, combined_content, 0, "context", 49000)
+                    for col in temp_df.columns:
+                        if col.startswith("context_"):
+                            context_chunks.append(temp_df.at[0, col])
+                
             except Exception as e:
                 print(f"Error using web loader for row {index}: {e}")
 
@@ -457,37 +486,59 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
         elif ref and ref_type == "Youtube Video" and ref_usage in ["Video", "Content"]:
             context_chunks = []
             try:
-                video_id = get_video_id_from_url(ref)
+                # Split references by newline to handle multiple videos
+                video_urls = [url.strip() for url in ref.split('\n') if url.strip()]
+                all_video_content = []
                 
-                #First try youtube transcripts CSV fallback
-                transcript = get_transcript_from_youtube_transcript_csv(video_id)
+                for video_num, video_url in enumerate(video_urls, 1):
+                    try:
+                        video_id = get_video_id_from_url(video_url)
+                        
+                        #First try youtube transcripts CSV fallback
+                        transcript = get_transcript_from_youtube_transcript_csv(video_id)
+                        
+                        # If not found in youtube transcript CSV, fall back to existing methods
+                        if not transcript:
+                            print(f"Video {video_id} not found in youtube_transcript.csv, trying other methods...")
+                            transcript = get_transcript_with_fallback(video_id, return_text_only=False)
+                        
+                        if not transcript:
+                            print(f"No transcript returned for video {video_id}")
+                            continue
+                        
+                        # Format each segment as "- '{seconds}': {text}" (convert timestamp to seconds)
+                        lines = []
+                        for item in transcript:
+                            # Convert timestamp from HH:MM:SS to seconds (if needed)
+                            if ':' in item['timestamp']:
+                                total_seconds = convert_time_to_sec(item['timestamp'])
+                            else:
+                                # Already in seconds format from video chunks CSV
+                                total_seconds = item['timestamp']
+                            lines.append(f"- '{total_seconds}': {item['text']}")
+                        
+                        # Add video header and content - include video ID only for "Video" usage
+                        if ref_usage == "Video":
+                            video_content = f"Video {video_num} (ID: {video_id}):\n\n" + '\n'.join(lines)
+                        else:
+                            video_content = f"Video {video_num}:\n\n" + '\n'.join(lines)
+                        all_video_content.append(video_content)
+                        
+                    except Exception as e:
+                        print(f"Error processing video {video_num} ({video_url}): {e}")
+                        continue
                 
-                # If not found in youtube transcript CSV, fall back to existing methods
-                if not transcript:
-                    print(f"Video {video_id} not found in youtube_transcript.csv, trying other methods...")
-                    transcript = get_transcript_with_fallback(video_id, return_text_only=False)
+                # Join all videos with separator
+                if all_video_content:
+                    combined_transcript = "\n\n---\n\n".join(all_video_content)
+                    
+                    # Split and fill context_n columns
+                    temp_df = pd.DataFrame({"dummy": [""]})
+                    temp_df = create_and_populate_columns(temp_df, combined_transcript, 0, "context", 49000)
+                    for col in temp_df.columns:
+                        if col.startswith("context_"):
+                            context_chunks.append(temp_df.at[0, col])
                 
-                if not transcript:
-                    print(f"No transcript returned for video {video_id}")
-                
-                # Format each segment as "- '{seconds}': {text}" (convert timestamp to seconds)
-                lines = []
-                for item in transcript:
-                    # Convert timestamp from HH:MM:SS to seconds (if needed)
-                    if ':' in item['timestamp']:
-                        total_seconds = convert_time_to_sec(item['timestamp'])
-                    else:
-                        # Already in seconds format from video chunks CSV
-                        total_seconds = item['timestamp']
-                    lines.append(f"- '{total_seconds}': {item['text']}")
-                transcript_text = '\n'.join(lines)
-                # Split and fill context_n columns
-                
-                temp_df = pd.DataFrame({"dummy": [""]})
-                temp_df = create_and_populate_columns(temp_df, transcript_text, 0, "context", 49000)
-                for col in temp_df.columns:
-                    if col.startswith("context_"):
-                        context_chunks.append(temp_df.at[0, col])
             except Exception as e:
                 print(f"Error using YouTube loader for row {index}: {e}")
 
@@ -496,63 +547,103 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
         # --- Google Drive Video logic ---
         if ref and ref_type == "Google Drive Video" and ref_usage:
             context_chunks = []
-            # 1. Try to fetch transcript from MAIN GRIT VIDEOS sheet
             try:
-                # --- Use service account credentials from env ---
-                sa_json = os.environ.get("GDRIVE_SA_JSON")
-                if not sa_json:
-                    sa_b64 = os.environ.get("GDRIVE_SA_B64")
-                    if sa_b64:
-                        sa_json = base64.b64decode(sa_b64).decode()
-                if not sa_json:
-                    raise Exception("No service account credentials found in environment variables.")
-                sa_dict = json.loads(sa_json)
-                gc = gspread.service_account_from_dict(sa_dict)
-                grit_sheet = gc.open("MAIN GRIT VIDEOS")
-                worksheet_names = get_worksheet_names(grit_sheet)
-                found = False
-                # Extract file ID from the References column (outline sheet)
-                ref_file_id = extract_drive_file_id(ref.strip())
-                for ws_name in worksheet_names:
-                    ws, df = get_sheet_data_and_df(grit_sheet, ws_name)
-                    # Make matching robust by stripping whitespace
-                    df['File Link'] = df['File Link'].astype(str).str.strip()
-                    # Extract file IDs from the File Link column (MAIN GRIT VIDEOS sheet)
-                    df['File Link File ID'] = df['File Link'].apply(extract_drive_file_id)
-                    # Compare file IDs for matching
-                    match = df[df["File Link File ID"] == ref_file_id]
-                    if not match.empty:
-                        print(f"Match found for file ID '{ref_file_id}' in worksheet '{ws_name}' (References vs File Link)")
-                        found = True
-                        for col in match.columns:
-                            if col.startswith("Transcript ") and col[len("Transcript ") :].strip().isdigit():
-                                transcript_json = match.iloc[0][col]
-                                if transcript_json and transcript_json != 'nan':
-                                    print(f"Fetched transcript from MAIN GRIT VIDEOS for file ID {ref_file_id} in worksheet {ws_name}, column {col}")
-                                    formatted = format_transcript_segments(transcript_json, group_size=6)
-                                    context_chunks.append(formatted)
-                        break
-                    else:
-                        print(f"No match found for file ID '{ref_file_id}' in worksheet '{ws_name}' (References vs File Link)")
-                if found and context_chunks:
+                # Split references by newline to handle multiple videos
+                video_urls = [url.strip() for url in ref.split('\n') if url.strip()]
+                all_video_content = []
+                
+                for video_num, video_url in enumerate(video_urls, 1):
+                    try:
+                        # 1. Try to fetch transcript from MAIN GRIT VIDEOS sheet
+                        found = False
+                        video_content = None
+                        
+                        try:
+                            # --- Use service account credentials from env ---
+                            sa_json = os.environ.get("GDRIVE_SA_JSON")
+                            if not sa_json:
+                                sa_b64 = os.environ.get("GDRIVE_SA_B64")
+                                if sa_b64:
+                                    sa_json = base64.b64decode(sa_b64).decode()
+                            if not sa_json:
+                                raise Exception("No service account credentials found in environment variables.")
+                            sa_dict = json.loads(sa_json)
+                            gc = gspread.service_account_from_dict(sa_dict)
+                            grit_sheet = gc.open("MAIN GRIT VIDEOS")
+                            worksheet_names = get_worksheet_names(grit_sheet)
+                            
+                            # Extract file ID from the References column (outline sheet)
+                            ref_file_id = extract_drive_file_id(video_url.strip())
+                            for ws_name in worksheet_names:
+                                ws, df = get_sheet_data_and_df(grit_sheet, ws_name)
+                                # Make matching robust by stripping whitespace
+                                df['File Link'] = df['File Link'].astype(str).str.strip()
+                                # Extract file IDs from the File Link column (MAIN GRIT VIDEOS sheet)
+                                df['File Link File ID'] = df['File Link'].apply(extract_drive_file_id)
+                                # Compare file IDs for matching
+                                match = df[df["File Link File ID"] == ref_file_id]
+                                if not match.empty:
+                                    print(f"Match found for file ID '{ref_file_id}' in worksheet '{ws_name}' (References vs File Link)")
+                                    found = True
+                                    transcript_parts = []
+                                    for col in match.columns:
+                                        if col.startswith("Transcript ") and col[len("Transcript ") :].strip().isdigit():
+                                            transcript_json = match.iloc[0][col]
+                                            if transcript_json and transcript_json != 'nan':
+                                                print(f"Fetched transcript from MAIN GRIT VIDEOS for file ID {ref_file_id} in worksheet {ws_name}, column {col}")
+                                                formatted = format_transcript_segments(transcript_json, group_size=6)
+                                                transcript_parts.append(formatted)
+                                    if transcript_parts:
+                                        video_content = "\n\n".join(transcript_parts)
+                                    break
+                                else:
+                                    print(f"No match found for file ID '{ref_file_id}' in worksheet '{ws_name}' (References vs File Link)")
+                        except Exception as e:
+                            print(f"Error fetching from MAIN GRIT VIDEOS for video {video_num}: {e}")
+                        
+                        # 2. Fallback: Download from Drive, transcribe with AssemblyAI
+                        if not found or not video_content:
+                            try:
+                                # Assume video_url is a Google Drive file link or ID
+                                transcript = get_transcript_assemblyai_drive(video_url)
+                                # transcript is already formatted for context_n columns (convert timestamp to seconds)
+                                lines = []
+                                for item in transcript:
+                                    # Convert timestamp from HH:MM:SS to seconds
+                                    total_seconds = convert_time_to_sec(item['timestamp'])
+                                    lines.append(f"- '{total_seconds}': {item['text']}")
+                                video_content = '\n'.join(lines)
+                            except Exception as e:
+                                print(f"AssemblyAI fallback failed for Drive Video {video_num}: {e}")
+                                continue
+                        
+                        # Add video header and content
+                        if video_content:
+                            formatted_video_content = f"Video {video_num}:\n\n" + video_content
+                            all_video_content.append(formatted_video_content)
+                        
+                    except Exception as e:
+                        print(f"Error processing Google Drive video {video_num} ({video_url}): {e}")
+                        continue
+                
+                # Join all videos with separator and split into context chunks
+                if all_video_content:
+                    combined_transcript = "\n\n---\n\n".join(all_video_content)
+                    
+                    # Split and fill context_n columns
+                    temp_df = pd.DataFrame({"dummy": [""]})
+                    temp_df = create_and_populate_columns(temp_df, combined_transcript, 0, "context", 49000)
+                    for col in temp_df.columns:
+                        if col.startswith("context_"):
+                            context_chunks.append(temp_df.at[0, col])
+                    
                     context_combined = "\n\n".join(context_chunks)
                     return index, context_combined, "", "", "", "", ""
+                else:
+                    return index, '', '', '', '', '', ''
+                    
             except Exception as e:
-                print(f"Error fetching from MAIN GRIT VIDEOS: {e}")
-            # 2. Fallback: Download from Drive, transcribe with AssemblyAI
-            try:
-                # Assume ref is a Google Drive file link or ID
-                transcript = get_transcript_assemblyai_drive(ref)
-                # transcript is already formatted for context_n columns (convert timestamp to seconds)
-                lines = []
-                for item in transcript:
-                    # Convert timestamp from HH:MM:SS to seconds
-                    total_seconds = convert_time_to_sec(item['timestamp'])
-                    lines.append(f"- '{total_seconds}': {item['text']}")
-                context_combined = '\n'.join(lines)
-                return index, context_combined, "", "", "", "", ""
-            except Exception as e:
-                print(f"AssemblyAI fallback failed for Drive Video: {e}")
+                print(f"Error processing Google Drive videos for row {index}: {e}")
                 return index, '', '', '', '', '', ''
 
     # Get the LOs for this row / subtopic

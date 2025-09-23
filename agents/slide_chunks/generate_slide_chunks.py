@@ -50,12 +50,11 @@ a. Document-Derived Format
 - Paragraphs may be logically organized around key instructional points.
 
 b. Transcript-Derived Format
-- This format consists of line-by-line transcript segments extracted from a video, with each line prefixed by a timestamp in seconds (e.g., 266, 268).
+- This format consists of line-by-line transcript segments extracted from one or more videos, with each line prefixed by a timestamp in seconds (e.g., 266, 268).
 - The tone could be conversational and informal, with natural pauses, incomplete sentences, or casual phrasing typical of spoken language.
+- You may encounter transcript segments from multiple different videos within the same learning objective, each with their own Video_Id and timestamp ranges.
 
-You may encounter either or both formats within a subtopic. Your job is
-to identify the format for each section and respect that format's tone,
-structure, and pacing while chunking into slides.
+You may encounter either or both formats within a subtopic. Your job is to identify the format for each section and respect that format's tone, structure, and pacing while chunking into slides.
 
 2. Understand What Constitutes a Slide Chunk:
 
@@ -75,9 +74,11 @@ b. For Timestamped Transcript-Derived Research Notes
 - Do not rewrite or paraphrase the transcript content.
 - Instead, your task is to divide the transcript into natural, logically flowing chunks based on shifts in ideas or instructional steps.
 - Each chunk should include enough transcript content to provide substantial instruction, typically around 45-75 seconds, to preserve the natural speaking rhythm.
+- Create multiple slide chunks from the same video if the video content is long. Each resulting video chunk that you create should have its own Start and End timestamps and should not be more than 75-90 seconds long.
+
 - For each chunk, return:
   i) A descriptive but concise Slide Title
-  ii) The original Video Id
+  ii) The original Video Id from which the chunk is extracted
   iii) The Start and End timestamps for the chunk
   iv) The original Transcript lines along with their timestamps (do not edit the content).
 
