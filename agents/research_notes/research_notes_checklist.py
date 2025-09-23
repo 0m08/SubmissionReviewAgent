@@ -63,7 +63,23 @@ Here are the checklist criteria to evaluate:
 {checklist}
 </checklist_criteria>
 
-Critical Evaluation Instructions:
+Critical Video-Based Research Notes Handling:
+Before proceeding with evaluation, you must identify which blocks contain video-based content by looking for this specific format pattern in the "####**Research Notes:**" sections:
+- Line starting with "Link:" followed by a youtube video link
+- Line starting with "Video_Id:"
+- Line starting with "Start:"
+- Line starting with "End:"
+- A "Transcript:" section with timestamped entries in the format "- '[number]': [text]"
+
+For blocks that contain this video-based format, you must:
+1. Immediately skip evaluation for those specific blocks
+2. Do NOT provide any feedback or suggestions for those blocks
+
+For blocks that do not contain video-based format, proceed with the evaluation.
+
+This is a strict requirement - video-based research notes blocks must never be evaluated, but normal format blocks should be evaluated.
+
+Critical Evaluation Instructions (only for non-video-based research notes):
 - Be Extremely Strict in your evaluation. Do not pass any criteria unless they are fully and completely satisfied.
 - Read each review criteria text WORD BY WORD and understand exactly what it is asking for.
 - Do not make assumptions or interpret criteria loosely. Follow the exact wording and requirements stated in each criteria.
@@ -96,6 +112,7 @@ NOTES:
 - The passed items should only include those that fully meet the criteria.
 - Feedback of the failed items should include all necessary information for the author to understand what needs to be fixed.
 - When listing passed or failed items, always use the complete criteria text along with the criteria name.
+- For video-based research notes block, do not provide any feedback or suggestions.
 
 Follow the examples below to understand how to evaluate each review criteria:
 
@@ -220,6 +237,23 @@ NOTES:
 - These CRUD tools allow you to create, read, update, and delete blocks of text from the above research notes as needed.
 - You can only work with one block of text at a time. Each block of text is a separate entity identified by a unique ID - Block ID.
 - To implement some of the feedback, you may need to make edits to multiple blocks of text.
+
+Critical Video-Based Research Notes Handling:
+Before proceeding with any revisions, you must identify which blocks contain video-based content by looking for this specific format pattern in the "####**Research Notes:**" sections:
+- Line starting with "Link:" followed by a youtube video link
+- Line starting with "Video_Id:"
+- Line starting with "Start:"
+- Line starting with "End:"
+- A "Transcript:" section with timestamped entries in the format "- '[number]': [text]"
+
+For blocks that contain this video-based format, you must:
+1. Immediately skip all revision activities for those specific blocks
+2. Keep those blocks exactly as they are without any modifications
+3. Do NOT use any CRUD tools to make changes to those blocks
+4. Do NOT apply any feedback or corrections to those blocks
+5. Do NOT make any edits whatsoever to those blocks
+
+For blocks that do not contain video-based format, proceed with normal revision using the feedback and CRUD tools. This is a strict requirement - video-based research notes blocks must never be modified, but normal format blocks should be revised as required by the feedback.
 
 Corrective Operations:
 These are specific instructions for fixing failed criteria items. Match each failed criteria from the checklist feedback above with its corresponding corrective operation in the criteria section below. Only apply the corrective operations for criteria that actually failed - ignore corrective operations for criteria that passed the evaluation. Use these corrective operations in combination with the feedback to make the necessary revisions.
