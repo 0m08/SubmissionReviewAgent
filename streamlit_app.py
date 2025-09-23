@@ -236,19 +236,19 @@ def logout():
 
 def list_of_agents():
     st.header("SkillCat AI Agents Ecosystem")
-    st.write("Here's the list of agents:")
+    st.write("Here's the list of agentic workflows:")
     st.markdown(
-"""Agent Name | Informational Course | Instructional Course | Practical Course
+"""Worflow Name | Informational Course | Instructional Course | Practical Course
 |- | - | - | - |
-:material/toc: Course Outline Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-:material/quick_reference_all: Research Notes Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-:material/topic: Slide Chunks Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-:material/image: Graphics Definition Agent | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
-:material/quiz: Assessment Agent | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
+:material/toc: Course Outline | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
+:material/quick_reference_all: Research Notes | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
+:material/topic: Slide Chunks | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
+:material/image: Graphics Definition | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
+:material/quiz: Assessment | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
 """
     )
 
-    st.info(""":material/info: To run any of the above agents, navigate to the corresponding page from the left side panel""")
+    st.info(""":material/info: To run any of the above agentic workflows, navigate to the corresponding page from the left side panel""")
 
     # # Connect to Jira and fetch issue description
     # try:
@@ -423,8 +423,8 @@ if st.session_state.role:
     user_agent_pages = [page_name_to_object[page_name] for page_name in user_page_names if page_name in page_name_to_object and page_name in agent_pages]
     user_tool_pages = [page_name_to_object[page_name] for page_name in user_page_names if page_name in page_name_to_object and page_name in tool_pages]
 
-    page_dict["Account"] = account_pages
-    page_dict["Agents"] = user_agent_pages
+    page_dict["Agents Overview"] = account_pages
+    page_dict["Agentic Workflows"] = user_agent_pages
     page_dict["Tools"] = user_tool_pages
 
     # Create the navigation
