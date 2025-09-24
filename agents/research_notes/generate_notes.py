@@ -103,6 +103,7 @@ Remember:
 - Ensure that your research notes are comprehensive, well-structured, and directly aligned with the learning objectives.
 - Write in clear, engaging paragraphs that will interest and educate the target audience.
 - Do not add any information that is not derived from the provided relevant documents.
+- Ensure that all the XML tags are properly closed and nested.
 """
 
 @traceable(metadata={
@@ -151,14 +152,14 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
     return response['create_notes'] if len(response['create_notes']) < 50000 else response['create_notes'][:49990]
 
 
-generate_transcript_chunk_extraction_prompt = """You are an expert educational content developer tasked with analyzing a timestamped transcript to extract the most relevant segment for a specific learning objective within a subtopic of an E-learning course. Your goal is to identify and return the exact transcript chunk that best supports the given learning objective.
+generate_transcript_chunk_extraction_prompt = """You are an expert educational content developer tasked with analyzing timestamped transcripts from one or more videos to extract the most relevant segments for a specific learning objective within a subtopic of an E-learning course. Your goal is to identify and return the exact transcript chunks that best support the given learning objective.
 
 Before we begin, please review the following course information:
 
-The full transcript of the referenced YouTube video is provided below:
-<timestamped_transcript>
+The timestamped transcripts from the referenced videos are provided below:
+<timestamped_transcripts>
 {relevant_documents}
-</timestamped_transcript>
+</timestamped_transcripts>
 
 Course Name:
 <course_name>
@@ -180,50 +181,72 @@ Subtopic and Learning Objective to Focus On:
 {subtopic_and_los}
 </subtopic_and_los>
 
-Now, follow these steps to identify and extract the relevant chunk from the given timestamped transcript. For each step, wrap your reasoning and internal analysis inside the specified XML tags to show your thinking process:
+Now, follow these steps to identify and extract the relevant chunks from the given timestamped transcripts. For each step, wrap your reasoning and internal analysis inside the specified XML tags to show your thinking process:
 
 Make sure your output is strictly enclosed within the <output> ... </output> tags as shown below. Do NOT include any other text or commentary outside these tags.
 <output>
 1. <objective_analysis>
-   - Break down the learning objective into key ideas or skills the learner should understand and master.
-   - Clarify what kind of transcript content would fulfill this objective.
+- Break down the learning objective into key ideas or skills the learner should understand and master.
+- Clarify what kind of transcript content would fulfill this objective.
 </objective_analysis>
 
-2. <examine_transcript>
-   - Carefully read the transcript and identify the one segment that most directly supports the learning objective.
-   - Do not summarize or rephrase the transcript — just locate the most relevant portion.
-</examine_transcript>
+2. <examine_transcripts>
+- Carefully read the video transcript(s) and identify which video(s) contain content that directly supports the learning objective.
+- If transcripts of multiple videos are provided, it is not mandatory to extract relevant chunks from every video - only select videos that are directly relevant to the learning objective.
+- If only one video transcript is provided, carefully read the transcript and identify the one segment that most directly supports the learning objective.
+- For each relevant video, identify the one segment that most directly supports the learning objective. Ensure that there is no overlapping or duplicate content between the chunks that you identify as relevant in case of multiple videos.
 
-3. <extract_relevant_chunk>
-   - Extract the most relevant chunk of transcript.
-   - Format your output as follows:
+</examine_transcripts>
 
-       Start: (insert start timestamp in seconds)
-       End: (insert end timestamp in seconds)
-       Transcript:
-         - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
-         - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+3. <extract_relevant_chunks>
+- Extract the most relevant chunk of transcript.
+- Format your output as follows:
 
-         - ...
-         - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+Video_Id: (insert the exact video id of the video chunk)
+    
+Start: (insert start timestamp in seconds)
+End: (insert end timestamp in seconds)
+Transcript:
+    - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+    - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+    - ...
 
-   - Formatting rules:
+---
+
+Video id: (insert the exact video id of the video chunk)
+
+Start: (insert start timestamp in seconds)
+End: (insert end timestamp in seconds)
+Transcript:
+    - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+    - '(insert timestamp in seconds)': (insert transcript text for this timestamp)
+    - ...
+
+---
+(Continue this pattern for each relevant video chunk that you identify)
+
+- Formatting rules:
      • Use exactly 2 spaces before each transcript line
      • Use single quotes around each timestamp
+     • Include the exact video_id from the transcript header (e.g., "Video 1 (ID: dQw4w9WgXcQ):" - use "dQw4w9WgXcQ")
+     • Separate each video chunk with "---" on its own line
      • Do not add any commentary, notes, or tags in the output
-</extract_relevant_chunk>
+     • If only one video is relevant, output only one chunk without "---"
+</extract_relevant_chunks>
 </output>
 
 Important Rules and Constraints:
 
-- Do not paraphrase, rephrase, or summarize the transcript in the output.  
+- Do not paraphrase, rephrase, or summarize the transcripts in the output. The transcript lines of the identified chunks must be identical to the ones in the input.
 - Do not generate new sentences or explanations — all output must be copied directly from the provided transcript lines.  
-- Only include the single most relevant chunk that clearly and directly supports the learning objective.  
+- In case of a single video, only include the single most relevant chunk that clearly and directly supports the learning objective
+- In case of multiple videos, only identify and extract chunks from videos that are directly relevant to the learning objective - you do not need to use every video. The transcript content of each chunk should be distinct and non-overlapping with other chunks.
 - If the relevant chunk spans from second 10 to 25, your output must start **exactly at 10** and end **exactly at 25** — do not include unrelated transcript lines before or after.  
 - The value you provide for "Start" must match the timestamp of the first transcript line you return.  
 - The value you provide for "End" must represent when the last transcript line ends — not just its timestamp. For example, if the final transcript line starts at '621' and continues until 625, then End should be 625 (not 621).  
-- There is no constraint on the length of the chunk — it may be as short or as long as needed to fully satisfy the given learning objective.  
-- Format exactly as shown in the output example: start/end timestamps and indented line-by-line transcript with single quotes and exact spacing.  
+- There is no constraint on the length of each chunk — it may be as short or as long as needed to fully satisfy the given learning objective.  
+- Format exactly as shown in the output example: video ID, start/end timestamps and indented line-by-line transcript with single quotes and exact spacing.  
+- Use "---" to separate chunks from different videos, but only if you're extracting from multiple videos.
 
 """
 
@@ -256,8 +279,8 @@ def generate_transcript_chunks(course_name, target_audience, course_outline, sub
 
     response = generate_transcript_chunks_agent.run()
     
-    # Extract only the content inside <extract_relevant_chunk> tags
-    match = re.search(r'<extract_relevant_chunk>(.*?)</extract_relevant_chunk>', response['output'], re.DOTALL)
+    # Extract only the content inside <extract_relevant_chunks> tags
+    match = re.search(r'<extract_relevant_chunks>(.*?)</extract_relevant_chunks>', response['output'], re.DOTALL)
     return match.group(1).strip()
 
 
@@ -423,19 +446,53 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                 ref_usage = row.get("Reference usage")
 
                 if ref and ref_type and ref_usage and (ref_type in ["Youtube Video", "Google Drive Video"]) and ref_usage == "Video":
-                    if ref_type == "Youtube Video":
-                        video_id = get_video_id_from_url(ref)
-                        start_match = re.search(r'Start: (\d+)', research_notes)
-                        end_match = re.search(r'End: (\d+)', research_notes)
-                        if start_match and end_match:
-                            start_time = start_match.group(1)
-                            end_time = end_match.group(1)
-                            link_with_params = f"https://www.youtube.com/embed/{video_id}?start={start_time}&end={end_time}"
-                            research_notes = f"Link: {link_with_params}\nVideo_Id: {video_id}\n{research_notes}"
-                    elif ref_type == "Google Drive Video":
-                        match = re.search(r'/d/([\w-]+)', ref)
-                        file_id = match.group(1) if match else ''
-                        research_notes = f"Link: {ref}\nVideo_ID: {file_id}\n{research_notes}"
+                        if ref_type == "Youtube Video":
+                            # Parse multiple video chunks from LLM output
+                            video_chunks = []
+                            chunks_text = research_notes
+                            
+                            # Split by "---" to get individual chunks
+                            chunk_sections = chunks_text.split('---')
+                            
+                            for chunk_section in chunk_sections:
+                                chunk_section = chunk_section.strip()
+                                if not chunk_section:
+                                    continue
+                                    
+                                # Extract Video id, Start, and End from each chunk
+                                video_id_match = re.search(r'Video[ _]?[iI]d:\s*([^\n]+)', chunk_section)
+                                start_match = re.search(r'Start:\s*(\d+)', chunk_section)
+                                end_match = re.search(r'End:\s*(\d+)', chunk_section)
+                                
+                                if video_id_match and start_match and end_match:
+                                    video_id = video_id_match.group(1).strip()
+                                    start_time = start_match.group(1)
+                                    end_time = end_match.group(1)
+                                    
+                                    # Create embed link with start and end parameters
+                                    link_with_params = f"https://www.youtube.com/embed/{video_id}?start={start_time}&end={end_time}"
+                                    video_chunks.append({
+                                        'link': link_with_params,
+                                        'video_id': video_id,
+                                        'chunk_content': chunk_section
+                                    })
+                            
+                            # Format the final research_notes with all video links
+                            if video_chunks:
+                                links_section = ""
+                                for i, chunk in enumerate(video_chunks, 1):
+                                    links_section += f"Link: {chunk['link']}\n"
+                                    links_section += f"```\n{chunk['chunk_content']}\n```\n"
+                                    if i < len(video_chunks):  # Add separator between chunks
+                                        links_section += "\n---\n\n"
+                                
+                                # Replace the original research_notes with the formatted version
+                                research_notes = links_section
+                                
+                        elif ref_type == "Google Drive Video":
+                            match = re.search(r'/d/([\w-]+)', ref)
+                            file_id = match.group(1) if match else ''
+                            research_notes = f"Link: {ref}\nVideo_ID: {file_id}\n{research_notes}"
 
                 course_outline_with_lo_df.loc[index, 'research_notes'] = research_notes
                 progress.update()
