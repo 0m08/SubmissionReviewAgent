@@ -559,16 +559,10 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                         video_content = None
                         
                         try:
-                            # --- Use service account credentials from env ---
-                            sa_json = os.environ.get("GDRIVE_SA_JSON")
-                            if not sa_json:
-                                sa_b64 = os.environ.get("GDRIVE_SA_B64")
-                                if sa_b64:
-                                    sa_json = base64.b64decode(sa_b64).decode()
-                            if not sa_json:
-                                raise Exception("No service account credentials found in environment variables.")
-                            sa_dict = json.loads(sa_json)
-                            gc = gspread.service_account_from_dict(sa_dict)
+                            # --- Use gc from session state ---
+                            gc = st.session_state.get("gc")
+                            if not gc:
+                                raise Exception("No gspread client found in session state.")
                             grit_sheet = gc.open("MAIN GRIT VIDEOS")
                             worksheet_names = get_worksheet_names(grit_sheet)
                             
