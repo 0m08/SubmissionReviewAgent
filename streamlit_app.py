@@ -274,6 +274,12 @@ about_agents_page = st.Page("about_agents.py", title="About Agents", icon=":mate
 role_switch_page = st.Page("role_switch.py", title="Role Switch", icon=":material/swap_horiz:")
 
 # --- Outline pages ---
+template_sheet_setup_page = st.Page(
+    "template_sheet_agent.py",
+    title="Sub-Agent 0",
+    icon=":material/content_copy:",
+)
+
 course_outline_page = st.Page(
     "course_outline.py",
     title="Course Outline",
@@ -377,10 +383,12 @@ page_name_to_object = {
     "get_images_page": get_images_page,
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
+    "template_sheet_setup_page": template_sheet_setup_page,
 }
 
 # Define which pages belong to which category
 agent_pages = [
+    "template_sheet_setup_page",
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
