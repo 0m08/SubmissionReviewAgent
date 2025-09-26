@@ -338,6 +338,7 @@ def copy_sheet_from_link(drive, link, new_name, parent_id):
     Args:
         drive: Authenticated PyDrive GoogleDrive object
         link (str): Google Sheets shareable link
+        new_name (str): Desired name for the copied sheet
         parent_id (str): Google Drive folder ID where the copy will be placed
     Returns:
         str: File ID of the newly created copy

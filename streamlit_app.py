@@ -276,7 +276,7 @@ role_switch_page = st.Page("role_switch.py", title="Role Switch", icon=":materia
 # --- Outline pages ---
 template_sheet_setup_page = st.Page(
     "template_sheet_agent.py",
-    title="Sub-Agent 0",
+    title="Template Sheet Setup",
     icon=":material/content_copy:",
 )
 

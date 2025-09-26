@@ -7,8 +7,6 @@ import gspread
 TEMPLATE_COURSE_SHEET_LINK = os.getenv("TEMPLATE_COURSE_SHEET_LINK", "https://docs.google.com/spreadsheets/d/1LEzp9ta8PRDR0S5Fl-jlC8NJnc44hIjr-gpfSG4rKJA/edit?usp=sharing")
 TEMPLATE_CHECKLIST_SHEET_LINK = os.getenv("TEMPLATE_CHECKLIST_SHEET_LINK", "https://docs.google.com/spreadsheets/d/1m4oK0iMgG9cagTyijRDrvU5l5Lh4Ka5FeaceTqdYI9c/edit?usp=drive_link")
 
-
-
 def setup_template_sheets(drive, gc, drive_folder_id, course_name):
     """
     Setup template sheets for a course if they don't exist.
@@ -77,6 +75,6 @@ def setup_template_sheets(drive, gc, drive_folder_id, course_name):
         result['checklist_link_updated'] = True
     except Exception as e:
         result['checklist_link_updated'] = False
-        result['checklist_link_error'] = str(e)
+        raise Exception(f"Failed to update checklist link in Course Info sheet: {str(e)}")
     
     return result
