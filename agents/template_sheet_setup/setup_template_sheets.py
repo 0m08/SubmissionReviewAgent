@@ -1,7 +1,6 @@
 import os
-from services.drive_service import login_with_oauth2, copy_sheet_from_link
+from services.drive_service import copy_sheet_from_link
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
-import gspread
 
 # Template links
 TEMPLATE_COURSE_SHEET_LINK = os.getenv("TEMPLATE_COURSE_SHEET_LINK", "https://docs.google.com/spreadsheets/d/1LEzp9ta8PRDR0S5Fl-jlC8NJnc44hIjr-gpfSG4rKJA/edit?usp=sharing")

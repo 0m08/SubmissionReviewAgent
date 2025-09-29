@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 from dotenv import load_dotenv
 from agents.template_sheet_setup.setup_template_sheets import setup_template_sheets, TEMPLATE_COURSE_SHEET_LINK
 from services.sheets_service import get_sheet_data_and_df
