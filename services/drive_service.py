@@ -3,6 +3,7 @@ import os
 import json
 import tempfile
 import gspread
+import re
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
@@ -330,3 +331,27 @@ def upload_folder_to_drive(local_folder_path: str, parent_folder_id: str, drive)
             f = drive.CreateFile({'title': item, 'parents': [{'id': parent_folder_id}]})
             f.SetContentFile(item_path)
             f.Upload()
+
+def copy_sheet_from_link(drive, link, new_name, parent_id):
+    """
+    Creates a copy of a Google Sheet from a shareable link.
+    Args:
+        drive: Authenticated PyDrive GoogleDrive object
+        link (str): Google Sheets shareable link
+        new_name (str): Desired name for the copied sheet
+        parent_id (str): Google Drive folder ID where the copy will be placed
+    Returns:
+        str: File ID of the newly created copy
+    """
+    match = re.search(r'/d/([a-zA-Z0-9_-]+)', link)
+    if match:
+        file_id = match.group(1)
+        file = drive.CreateFile({'id': file_id})
+        file.FetchMetadata()
+        new_file = file.Copy()
+        new_file['title'] = new_name
+        new_file['parents'] = [{'id': parent_id}]
+        new_file.Upload()
+        return new_file['id']
+    else:
+        raise ValueError("Invalid link")
