@@ -22,13 +22,13 @@ email_to_role_mapping = {
     "tiffany@skillcatapp.com": "Managers",
     "shalini@skillcatapp.com": "Managers",
     "ramesh@skillcatapp.com": "Managers",
+    "erastus@skillcatapp.com": "Managers",
     
     # Instructional Designer - Access to research notes, slide chunks, graphics definition, assessments, image search, quality compliance, video search
     "abheri@skillcatapp.com": "Instructional Designer",
     "akshat@skillcatapp.com": "Instructional Designer",
     "dheeraj@skillcatapp.com": "Instructional Designer",
     "elvin@skillcatapp.com": "Instructional Designer",
-    "erastus@skillcatapp.com": "Instructional Designer",
     "gouri@skillcatapp.com": "Instructional Designer",
     "jkariuki@skillcatapp.com": "Instructional Designer",
     "joezer@skillcatapp.com": "Instructional Designer",
