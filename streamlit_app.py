@@ -315,6 +315,12 @@ assessments_generation_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
+workflow_directory_page = st.Page(
+    "workflow_directory.py",
+    title="Workflow Subagents",
+    icon=":material/account_tree:",
+)
+
 
 graphics_search_page = st.Page(
     "graphics_search.py",
@@ -378,6 +384,7 @@ page_name_to_object = {
     "slide_chunks_page": slide_chunks_page,
     "graphics_definition_page": graphics_definition_page,
     "assessments_generation_page": assessments_generation_page,
+    "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
     "vectorstore_page": vectorstore_page,
     "get_images_page": get_images_page,
@@ -389,6 +396,7 @@ page_name_to_object = {
 # Define which pages belong to which category
 agent_pages = [
     "template_sheet_setup_page",
+    "workflow_directory_page",
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
