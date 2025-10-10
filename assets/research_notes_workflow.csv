@@ -1,0 +1,24 @@
+#,Agent Name,Description,Input,Output,Type
+1,Researcher,"Generates comprehensive research notes for each row in the Final Outline sheet, based on its associated learning objectives and previously retrieved context. The notes serve as foundational material for slide creation. Depending on the reference type and usage, the agent either summarizes the full retrieved context or extracts a relevant timestamped chunk from a video transcript.","course_name
+target_audience
+full_course_outline
+subtopic_and_los
+relevant_documents (context_0, context_1, … columns combined)","""research_notes"" column in the Final Outline sheet",LLM
+2,"Manually Review the Research Notes",Allows the user to manually review and make edits to all the generated research notes.,research_notes,"""research_notes"" column updated after the user has made the necessary corrections if required
+",Manual
+3,Checklist Based Review and Revise Agents,To review and revise all the generated research notes based on the review criteria present in the checklist sheet.,"Inputs for the Reviewer Agent:
+course_name
+target_audience
+course_objective_guidelines
+course_background
+research_notes
+checklist
+examples
+
+Additional inputs for the Reviser Agent:
+checklist_feedback
+criteria_with_ops
+reviser_examples
+
+Input for the parser agent to get structured output:
+block","""research_notes"" column updated with the revised versions of Research Notes based on the revisions made by the checklist based review-revise workflow",Agent with tools

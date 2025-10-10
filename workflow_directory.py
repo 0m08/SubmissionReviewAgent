@@ -6,42 +6,34 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 
-from services.sheets_service import get_sheet_data_and_df
-
-st.set_page_config(
-    page_title="Workflow Subagents",
-    page_icon="🧭",
-    layout="wide",
-)
-
-WORKFLOW_SHEET_ENV_VAR = "WORKFLOW_DIRECTORY_SHEET_URL"
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 WORKFLOW_CONFIG: List[Dict[str, str]] = [
     {
         "key": "course_outline",
         "title": "Course Outline Workflow",
-        "worksheet": "Course Outline Workflow",
+        "csv_file": "course_outline_workflow.csv",
         "icon": ":material/toc:",
         "accent": "#4F46E5",
     },
     {
         "key": "research_notes",
         "title": "Research Notes Workflow",
-        "worksheet": "Research Notes Workflow",
+        "csv_file": "research_notes_workflow.csv",
         "icon": ":material/quick_reference_all:",
         "accent": "#2563EB",
     },
     {
         "key": "slide_chunks",
         "title": "Slide Chunks Workflow",
-        "worksheet": "Slide Chunks Workflow",
+        "csv_file": "slide_chunks_workflow.csv",
         "icon": ":material/topic:",
         "accent": "#0EA5E9",
     },
     {
         "key": "assessment",
         "title": "Assessment Workflow",
-        "worksheet": "Assessment Workflow",
+        "csv_file": "assessment_workflow.csv",
         "icon": ":material/quiz:",
         "accent": "#16A34A",
     },
@@ -74,39 +66,8 @@ COLUMN_ALIASES: Dict[str, Tuple[str, ...]] = {
     "dependencies": ("Dependencies", "Depends On", "Upstream", "Downstream"),
     "last_updated": ("Last Updated", "Updated On", "Last Refresh", "Modified"),
     "duration": ("Duration", "SLA", "Turnaround", "Avg Duration"),
+    "step": ("#", "Step", "Step Number", "Order"),  # Added step number alias
 }
-
-
-def _get_gc():
-    if "gc" not in st.session_state:
-        st.error("Please authenticate to view the workflow directory.")
-        st.stop()
-    return st.session_state["gc"]
-
-
-def _ensure_directory_sheet():
-    sheet_url = os.getenv(WORKFLOW_SHEET_ENV_VAR) or st.session_state.get(
-        "workflow_directory_sheet_url"
-    )
-    if not sheet_url:
-        st.error(
-            "Workflow directory sheet URL missing. Set the `WORKFLOW_DIRECTORY_SHEET_URL` environment variable."
-        )
-        st.stop()
-
-    if st.session_state.get("workflow_directory_sheet_url") != sheet_url:
-        st.session_state.pop("workflow_directory_sheet", None)
-
-    if "workflow_directory_sheet" not in st.session_state:
-        gc = _get_gc()
-        try:
-            st.session_state["workflow_directory_sheet"] = gc.open_by_url(sheet_url)
-            st.session_state["workflow_directory_sheet_url"] = sheet_url
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"Unable to open workflow directory sheet: {exc}")
-            st.stop()
-
-    return st.session_state["workflow_directory_sheet"], sheet_url
 
 
 def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -181,6 +142,14 @@ def _render_card(row: pd.Series, column_map: Dict[str, Optional[str]], accent: s
             f"<span class='workflow-badge workflow-badge--status'>{html.escape(status)}</span>"
         )
 
+    # Find step number if available
+    step = _get_value(row, column_map.get("step"))
+    if step:
+        # Add step number badge at the beginning of badge_html
+        badge_html.insert(0, 
+            f"<span class='workflow-badge workflow-badge--step'>Step {html.escape(str(step))}</span>"
+        )
+
     meta_html: List[str] = []
     if owner:
         meta_html.append(_build_meta_badge("Owner", owner))
@@ -188,33 +157,6 @@ def _render_card(row: pd.Series, column_map: Dict[str, Optional[str]], accent: s
         meta_html.append(_build_meta_badge("Last Updated", last_updated))
     if duration:
         meta_html.append(_build_meta_badge("Turnaround", duration))
-
-    extra_columns = [
-        col
-        for col in row.index
-        if col
-        not in {
-            column_map.get("name"),
-            column_map.get("description"),
-            column_map.get("inputs"),
-            column_map.get("outputs"),
-            column_map.get("notes"),
-            column_map.get("dependencies"),
-            column_map.get("owner"),
-            column_map.get("status"),
-            column_map.get("type"),
-            column_map.get("last_updated"),
-            column_map.get("duration"),
-            column_map.get("link"),
-        }
-    ]
-    extra_info = []
-    for col in extra_columns:
-        value = _get_value(row, col)
-        if value:
-            extra_info.append(
-                f"<div class='workflow-card__tag'><span>{html.escape(col)}</span><strong>{html.escape(value)}</strong></div>"
-            )
 
     sections: List[str] = []
     if description:
@@ -254,14 +196,6 @@ def _render_card(row: pd.Series, column_map: Dict[str, Optional[str]], accent: s
             "</div>"
         )
 
-    if extra_info:
-        sections.append(
-            "<div class='workflow-card__section'>"
-            "<h4>Additional Details</h4>"
-            f"<div class='workflow-card__tag-grid'>{''.join(extra_info)}</div>"
-            "</div>"
-        )
-
     link_html = ""
     if link:
         trimmed = link.strip()
@@ -293,17 +227,32 @@ def _render_card(row: pd.Series, column_map: Dict[str, Optional[str]], accent: s
     )
 
 
-def _render_workflow_tab(config: Dict[str, str], sheet) -> None:
-    worksheet_name = config["worksheet"]
-    try:
-        _, df = get_sheet_data_and_df(sheet, worksheet_name)
-    except Exception as exc:  # noqa: BLE001
-        st.warning(f"Could not read worksheet '{worksheet_name}': {exc}")
-        return
+def _ensure_assets_directory():
+    """Ensure the assets directory exists."""
+    if not os.path.exists(ASSETS_DIR):
+        os.makedirs(ASSETS_DIR)
+        # Create empty CSV files if they don't exist
+        for config in WORKFLOW_CONFIG:
+            csv_path = os.path.join(ASSETS_DIR, config["csv_file"])
+            if not os.path.exists(csv_path):
+                pd.DataFrame().to_csv(csv_path, index=False)
 
-    df = _clean_dataframe(df)
+
+def _get_workflow_data(csv_file: str) -> pd.DataFrame:
+    """Read workflow data from CSV file."""
+    csv_path = os.path.join(ASSETS_DIR, csv_file)
+    try:
+        df = pd.read_csv(csv_path)
+        return _clean_dataframe(df)
+    except Exception as exc:
+        st.error(f"Error reading CSV file {csv_file}: {exc}")
+        return pd.DataFrame()
+
+
+def _render_workflow_tab(config: Dict[str, str], _) -> None:
+    df = _get_workflow_data(config["csv_file"])
     if df.empty:
-        st.info("No subagents documented yet. Add rows to the sheet to populate this view.")
+        st.info("No subagents documented yet. Add rows to the CSV file to populate this view.")
         return
 
     columns = list(df.columns)
@@ -512,6 +461,11 @@ def _inject_styles():
                 background: rgba(45, 212, 191, 0.15);
                 border-color: rgba(13, 148, 136, 0.2);
             }
+            .workflow-badge--step {
+                color: #0f172a;
+                background: rgba(15, 23, 42, 0.08);
+                border-color: rgba(15, 23, 42, 0.2);
+            }
             .workflow-card__meta {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -564,49 +518,6 @@ def _inject_styles():
                 color: #334155;
                 line-height: 1.55;
             }
-            .workflow-card__tag-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-                gap: 0.6rem;
-            }
-            .workflow-card__tag {
-                padding: 0.6rem 0.7rem;
-                border-radius: 14px;
-                background: rgba(79, 70, 229, 0.05);
-                background: color-mix(in srgb, var(--accent-color, #4338ca) 8%, rgba(79, 70, 229, 0.06));
-                border: 1px dashed rgba(79, 70, 229, 0.25);
-                border-color: color-mix(in srgb, var(--accent-color, #4338ca) 24%, rgba(79, 70, 229, 0.25));
-                display: flex;
-                flex-direction: column;
-                gap: 0.2rem;
-            }
-            .workflow-card__tag span {
-                font-size: 0.68rem;
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-                color: #64748b;
-            }
-            .workflow-card__tag strong {
-                font-size: 0.84rem;
-                color: #312e81;
-                font-weight: 600;
-            }
-            .workflow-card__link {
-                display: inline-flex;
-                align-items: center;
-                gap: 0.35rem;
-                font-weight: 600;
-                margin-top: 1rem;
-                color: var(--accent-color, #4338ca);
-                text-decoration: none;
-            }
-            .workflow-card__link:hover {
-                text-decoration: underline;
-            }
-            .workflow-card__link--muted {
-                color: #475467;
-                font-size: 0.85rem;
-            }
             .workflow-tab-intro {
                 font-size: 0.95rem;
                 color: #475467;
@@ -621,28 +532,11 @@ def _inject_styles():
 
 def main() -> None:
     _inject_styles()
-    sheet, sheet_url = _ensure_directory_sheet()
-    escaped_sheet_url = html.escape(sheet_url)
+    _ensure_assets_directory()
 
     st.title("Workflow Subagents")
     st.caption(
         "A living directory of every subagent inside our core content-generation workflows."
-    )
-
-    st.markdown(
-        """
-        <div class="workflow-hero">
-            <h2 style="font-size:1.6rem;font-weight:700;margin-bottom:0.6rem;color:#0f172a;">Build a shared mental model</h2>
-            <p style="font-size:1rem;color:#1e293b;max-width:720px;margin-bottom:1rem;">
-                Each tab pulls directly from <strong>Google Sheets</strong> so teams always see the freshest copy.
-                Search, filter, and explore subagents to understand their responsibilities before you run a workflow.
-            </p>
-            <p style="font-size:0.85rem;color:#334155;">
-                Source sheet: <code style="background:rgba(15,23,42,0.06);padding:0.2rem 0.45rem;border-radius:8px;">{escaped_sheet_url}</code>
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
     )
 
     tab_labels = [f"{config['icon']} {config['title']}" for config in WORKFLOW_CONFIG]
@@ -659,8 +553,8 @@ def main() -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            _render_workflow_tab(config, sheet)
+            _render_workflow_tab(config, None)
 
 
-if __name__ == "__main__":
-    main()
+
+main()

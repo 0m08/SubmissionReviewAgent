@@ -1,0 +1,34 @@
+#,Agent Name,Description,Input,Output,Type
+1,Generate Assessment Questions,Generates the assessment questions from the generated Slide Chunks.,"course_name
+target_audience
+topic_name
+slides
+
+","“Assessment questions” sheet that stores the generated assessment questions for each topic in a dictionary format
+",LLM
+2,Review and Revise all Assessment Questions,Generates the updated versions of all the assessment questions after doing a review-revise based on the criteria present in the checklist sheet.,"Reviewer Agent:
+course_name
+target_audience
+topic_slides
+assessment_question
+checklist_criteria
+
+Reviser Agent:
+course_name
+target_audience
+topic_slides
+original_question
+reviewer_feedback 
+","""Final Assessment"" sheet populated with the finalized assessment questions in a structured format",LLM
+3,Update Assessment Checklist,To review all the generated final assessment questions for all the topics as a whole based on the checklist criteria in the checklist sheet and mark the verdicts in the checklist.,"course_name
+target_audience
+slides
+assessment_questions
+task_name
+checklist_criteria","""LLM Based Output"" column in the ""Assessment Checklist"" sheet populated with Yes/No verdict for each of the review criteria.",LLM
+4,Update Review Agent Checklist,To review every single assessment question individually based on the checklist criteria taken from a checklist sheet and mark the verdicts in the checklist.,"course_name
+target_audience
+slides
+assessment_question
+task_name
+checklist_criteria","""Question 1, Question 2, Question 3,...."" columns in the ""Review Agent Checklist"" sheet populated with Yes/No verdict for each of the review criteria.",LLM

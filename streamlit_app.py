@@ -396,7 +396,7 @@ page_name_to_object = {
 # Define which pages belong to which category
 agent_pages = [
     "template_sheet_setup_page",
-    "workflow_directory_page",
+    # "workflow_directory_page",
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
@@ -419,7 +419,11 @@ if st.session_state.role:
     effective_role = st.session_state.get("impersonated_role", st.session_state.get("role"))
     
     # Build account pages - include role switch for admins
-    account_pages = [list_of_agents_page, about_agents_page]
+    account_pages = [
+        list_of_agents_page, 
+        # about_agents_page, 
+        workflow_directory_page,
+    ]
     
     # Add role switch page only for admins
     if st.session_state.get("role") == "Admin":
