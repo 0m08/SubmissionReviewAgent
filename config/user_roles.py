@@ -23,6 +23,7 @@ email_to_role_mapping = {
     "shalini@skillcatapp.com": "Managers",
     "ramesh@skillcatapp.com": "Managers",
     "erastus@skillcatapp.com": "Managers",
+    "eshwar@skillcatapp.com": "Managers",
     
     # Instructional Designer - Access to research notes, slide chunks, graphics definition, assessments, image search, quality compliance, video search
     "abheri@skillcatapp.com": "Instructional Designer",
@@ -61,24 +62,24 @@ default_role = None  # No access for users not in email_to_role_mapping
 # This defines which pages each role can access
 role_page_access = {
     "Admin": [
-        "template_sheet_setup_page", "course_outline_page", "research_notes_page", "slide_chunks_page", 
-        "graphics_definition_page", "assessments_generation_page", 
-        "graphics_search_page", "vectorstore_page", "get_images_page", 
+        "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
+        "graphics_definition_page", "assessments_generation_page",
+        "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page"
     ],
     "Managers": [
-        "template_sheet_setup_page", "course_outline_page", "research_notes_page", "slide_chunks_page", 
-        "graphics_definition_page", "assessments_generation_page", 
-        "graphics_search_page", "vectorstore_page", "get_images_page", 
+        "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
+        "graphics_definition_page", "assessments_generation_page",
+        "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page"
     ],
     "Instructional Designer": [
-        "template_sheet_setup_page", "research_notes_page", "slide_chunks_page", 
-        "assessments_generation_page", "vectorstore_page", 
+        "template_sheet_setup_page", "workflow_directory_page", "research_notes_page", "slide_chunks_page",
+        "assessments_generation_page", "vectorstore_page",
         "video_search_tool_page", "quality_compliance_scoring_page"
     ],
     "Visual Designer": [
-        "template_sheet_setup_page", "graphics_definition_page", "graphics_search_page", "vectorstore_page", "get_images_page", 
+        "template_sheet_setup_page", "workflow_directory_page", "graphics_definition_page", "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page"
     ],
     None: [

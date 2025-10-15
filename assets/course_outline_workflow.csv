@@ -1,0 +1,241 @@
+#,Agent Name,Description,Input,Output,Type
+1,Video Search Query Generator,Generates targeted YouTube search queries based on the course outline and target audience to retrieve relevant video content.,"course_name
+target_audience
+course_outline",video_search_queries,LLM
+2,"Manual Review - Video Search Queries","Allows the user to inspect and edit, and approve or reject the auto-generated YouTube search queries to ensure only relevant, high-quality ones are retained.",video_search_queries,Finalized video_search_queries,Manual
+3,"Retrieve HVAC School Videos",Searches “HVAC School” and “Love2HVAC with Ty Branaman” YouTube channels using the finalized queries to collect candidate HVAC training videos aligned with the course outline and target audience.,video_search_queries,"video_id
+video_url
+title
+description
+channel_title
+published_at
+search_query",Code
+4,Retrieve Video Transcripts,"Automatically retrieves and stores the full transcripts for each candidate YouTube video to enable downstream analysis such as relevance checking, chunking, and outline generation.",video_id,"video_transcript_0, video_transcript_1, …..",Code
+5,"Check Video Relevance","Analyzes each video transcript to determine if the video aligns with the course objectives, topics, and target audience, filtering out irrelevant content.","course_name
+target_audience
+video_title
+video_transcript
+course_outline","video_analysis
+video_verdict (Relevant / Irrelevant)",LLM
+6,"Chunk Videos","Segments each relevant video transcript into meaningful, labeled chunks with summaries and timestamps.","video_title
+video_transcript","chapter_title
+chapter_summary
+timestamps
+video_id
+video_title
+metadata
+text_0, text_1, … (chunked transcript text)",LLM
+7,"Identify Relevant Chunks","Analyzes each chunked section of relevant videos to determine alignment with the course outline, keeping only high-quality segments suitable for integration.","course_name
+target_audience
+course_outline
+video_title
+chapter_summaries","video_scratchpad
+video_relevance (Fully Relevant / Partially Relevant / Irrelevant)
+proposed_chapters_to_include (timestamps and titles of relevant chunks)",LLM
+8,"Manual Review - Mark relevant videos",Allows the user to inspect agent-identified relevant video chunks and make the final decision on which videos or chunks to include in the course outline.,"video_relevance
+proposed_chapters_to_include","Manual Review (Yes/No)
+Used for (e.g., Just Content / As A Video)",Manual
+9,"Generate Video Based Outlines
+","Generates structured course outline sections from manually approved, relevant video chunks, aligning with course objectives and target audience. (Runs only when outline stage = Initial.)","course_name
+target_audience
+course_outline
+video_title
+video_transcript
+list_of_concepts_to_include","outline_contemplator
+outline",LLM
+10,"Manual Review - Video Outline Consolidation Comments","Allows the user to inspect and comment on outline sections generated from video chunks, approving or suggesting changes before consolidation. (Runs only when outline stage = Initial.)",outline,consolidation_comments (user feedback/approval on generated outlines),Manual
+11,"Consolidate Video Based Outlines","Synthesizes partial outlines from approved video chunks into a single, comprehensive course outline, maintaining logical flow, avoiding duplication, and adhering to the required topic count. (Runs only when outline stage = Initial.)","course_name
+target_audience
+required_topic_count
+tentative_outline
+partial_outlines","Source (Set to Video-based outline)
+Agent Columns: (all populated with their version of the final consolidated outline)
+Target Audience
+Instructional Design
+Industry Expert
+SME",LLM
+12,"Web Search Queries Generator",Generates targeted search queries to find relevant web articles and resources aligned with the course name and target audience,"course_name
+target_audience
+tentative_outline",search_queries,LLM
+13,"Obtain Web Article Links",Retrieves relevant web article links for each generated search query to serve as research material for outline generation.,search_queries,"query
+article (URL of found web article)",Code
+14,"Fetch Web Article Content",Retrieves and extracts the full textual content from each web article link to provide raw material for analysis and outline generation.,"article
+query","article_content_0, article_content_1, … (extracted article text split across columns)",Code
+15,"Extract Relevant Information from Articles",Analyzes each fetched article to distill only course-relevant information into concise insights and actionable learning objectives.,"course_name
+target_audience
+course_background
+rough_outline
+search_query
+article_content","summary
+analysis_breakdown (step-by-step reasoning)
+content_evaluation (instructional value & alignment)
+objective_brainstorm
+final_verdict
+learning_objectives",LLM
+16,"Generate Research Summaries","Synthesizes extracted learning objectives and relevant information from each article into clear, concise summaries that inform outline generation and review. (Runs only when outline stage = Initial.)","course_name
+info_to_summarize
+",research_summary,LLM
+17,"Manual Review - Web Research Summary","Ensures each web research summary is relevant and aligned with course objectives by allowing the user (or optionally an automated agent) to review, revise, and finalize it. (Runs only when outline stage = Initial.)","course_name
+target_audience
+course_outline
+research_summary",Manual Extract (finalized research summary),LLM / Manual
+18,"Generate Web Research Based Outline
+","Synthesizes a comprehensive course outline from finalized research summaries, course info, and guidelines, ensuring alignment with objectives, audience, and required topic count. (Runs only when outline stage = Initial.)","course_name
+course_background
+required_topic_count
+rough_outline
+preliminary_research","Source (Set to Web research based outline)
+Agent Columns: (all populated with their version of the final consolidated outline)
+Target Audience
+Instructional Design
+Industry Expert
+SME",LLM
+19,"Deep Research",Performs in-depth targeted research on each topic and subtopic using LLMs and search grounding to gather high-quality instructional content and sources.,"course_name
+target_audience
+subtopic","subtopic_query
+research
+source",Agent with tools
+20,"Generate Deep Research Based Outline
+","Synthesizes a comprehensive course outline from deep research results, course info, and guidelines, ensuring alignment with objectives, audience, and required topic count. (Runs only when outline stage = Initial.)","course_name
+course_background
+required_topic_count
+rough_outline
+preliminary_research","Source (Set to Deep research based outline)
+Agent Columns: (all populated with their version of the final consolidated outline)
+Target Audience
+Instructional Design
+Industry Expert
+SME",LLM
+21,"Generate Consolidated Outline
+","Consolidates multiple outlines (video-based, web research-based, deep research-based) into a single comprehensive outline, resolving overlaps and ensuring alignment with learning objectives, target audience, and required topic count. (Runs only when outline stage = Initial.)","course_name
+target_audience
+required_topic_count
+tentative_outline
+generated_outlines","Source (Set to Consolidated outline)
+Agent Columns (all populated with their version of the final consolidated outline)
+Target Audience
+Instructional Design
+Industry Expert
+SME",LLM
+22,"Review and Revise Outline","Reviews the consolidated course outline for instructional soundness and alignment, providing analysis, suggestions, and iterative revisions until approval. (Runs only when outline stage = Initial.)","course_name
+target_audience
+tentative_outline
+course_outline
+user_feedback","AI Suggestions (structured review)
+Outline (revised version)
+Verdict (approval status)
+Final Course Outline with LOs (if approved)",LLM / Manual
+23,"Manual Step - Create Topic Outline Sheet
+",Manually creates a structured “Topic Outline” sheet by organizing the approved course outline into tabular format. (Runs only when outline stage = Initial and “Outline Topic Deep Research” = TRUE.),"Topic
+Subtopic
+Learning Objectives","Topic (Topic > Subtopic)
+Learning Objective
+topic_query (Topic > Subtopic pairs)",Manual
+24,"Topic Deep Research",Performs targeted research on each topic from the Topic Outline sheet using LLMs and search grounding to generate high-quality instructional content and sources. (Runs only when outline stage = Initial and “Outline Topic Deep Research” = TRUE.),"course_name
+target_audience
+topic_query","research
+source",Agent with tools
+25,"Generate Learning Objectives
+",Generates learning objectives from the research data produced in the previous step for each “Topic > Subtopic” pair. (Runs only when outline stage = Initial and “Outline Topic Deep Research” = TRUE.),"course_name
+target_audience
+research
+topic_name (from topic_query)",learning_objectives,LLM
+26,"Categorize Learning Objectives","Categorizes each proposed learning objective based on its relevance to the current topic and overall course outline, ensuring only the most appropriate objectives are retained. (Runs only when outline stage = Initial and “Outline Topic Deep Research” = TRUE.)","course_name
+target_audience
+current_topic (from topic_query)
+learning_objectives
+course_outline","irrelevant_for_course
+relevant_current_covered
+relevant_current_not_covered
+irrelevant_current_relevant_other_covered
+irrelevant_current_relevant_other_not_covered",LLM
+27,"Label Learning Objectives
+",Labels each missing learning objective with an operation type (add or edit) and insertion point in the outline to ensure systematic updates and completeness. (Runs only when outline stage = Initial and “Outline Topic Deep Research” = TRUE.),"course_name
+target_audience
+learning_objectives (from relevant_current_not_covered & irrelevant_current_relevant_other_not_covered)
+course_outline (with line numbers)","objective_text
+operation_type (add/edit)
+line_number
+labeled (LLM response)
+outline_chunk_0, outline_chunk_1, … (revised outline)
+Review columns: Turn, Verdict, Manual Feedback, AI Suggestions",LLM
+28,"Review and Revise Topic Outline",Iteratively refines the course outline using manual feedback and AI suggestions to ensure instructional quality before finalization. (Runs only when outline stage = Initial and “Outline Topic Deep Research” = TRUE.),"course_name
+target_audience
+course_outline (outline_chunk_1, outline_chunk_2, …)
+user_feedback
+Verdict","Turn (revision round)
+AI Suggestions
+outline_chunk_0, outline_chunk_1, … (revised outline)
+Manual Feedback
+Verdict
+Enhanced Outline with LOs (Topic, Subtopic, Learning Objectives)",LLM / Manual
+29,"Map Topic Outline to Enhanced Outline
+","Compares original and revised outlines line-by-line to track whether each learning objective was retained, edited, or removed, and maps metadata accordingly. (Runs only when outline stage = Initial and “Outline Topic Deep Research” = TRUE.)","old_outline (Topic Outline: Line No., Topic, Learning Objective)
+new_outline (Enhanced Outline with LOs: Line No., Topic, Learning Objective)","Old Line Number
+New Line Number
+Operation Type (as_is / edited / removed)
+mapping (updated to “Done”)",LLM
+30,"Create the Final Outline Sheet
+","Generates a flattened, row-wise version of the final course outline based on all the above steps in a standardized format where each row contains exactly one learning objective.","Outline Stage (Initial/Final)
+Topic
+Subtopic
+Learning Objectives
+References (if Outline Stage = Final)
+Reference type (if Outline Stage = Final)
+Reference usage (if Outline Stage = Final)","Topic
+Subtopic
+Learning Objective (flattened, one per row)
+References (if Final)
+Reference type (if Final)
+Reference usage (if Final)",Code
+31,Checklist Based Review and Revise Agents,Evaluates the current outline against checklist criteria by scope and revises via CRUD tools.,"course_name
+target_audience
+course_objective_guidelines
+course_background
+base_outline
+Topic
+Subtopic
+Learning Objectives
+Task
+Scope
+Review Criteria
+Corrective Operations
+Review Agent Examples
+Reviser Agent Examples
+Tools","Topic
+Subtopic
+Learning Objectives
+co_order
+co_block",Agent with tools
+32,"Get relevant references for Learning Objectives","Collects all usable references from video research, web research, deep research, and topic deep research, chunks their text, and stores them in a single worksheet.","video_url
+video_id
+title
+Manual Review (Only rows having ""Yes"" are considered)
+article (URL)
+source (URLs from Deep Research)
+source (URLs from Topic Deep Research)
+References (from Base Outline, if present)
+Reference type (from Base Outline, if present)
+source
+source_origin
+title
+reference_type
+chunks_0","source
+source_origin
+title
+reference_type
+chunks_0, chunks_1, …",Code
+33,"Retrieve relevant references for Learning Objectives",Retrieves and stores the most relevant reference text for each learning objective using a vector store built from all references and Google Drive video transcripts.,"course_name
+target_audience
+References (From Base Outline, if Outline Stage = Initial)
+Reference type (From Base Outline, if Outline Stage = Initial)
+Reference usage (From Base Outline, if Outline Stage = Initial)","context_0, context_1, …
+source_links
+as_is_sources
+content_sources
+web_links
+video_links",Code
+34,"Retrieve Relevant HVAC Videos for Learning Objectives","Searches, evaluates, and retrieves relevant YouTube videos for each Learning Objective. Uses query refinement with context (Topic, Subtopic) to ensure alignment.","Topic
+Subtopic
+Learning Objectives
+drive",youtube_videos,LLM
