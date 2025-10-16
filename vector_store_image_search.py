@@ -64,6 +64,8 @@ elif role == "Managers":  # Managers
     task_options = ["Update Vectorstore", "Search Images"]
 elif role == "Visual Designer":  # Visual Designer
     task_options = ["Search Images"]
+elif role == "Instructional Designer":  # Instructional Designer
+    task_options = ["Search Images"]
 else:
     st.warning("Your role does not have access to any tasks.")
 
