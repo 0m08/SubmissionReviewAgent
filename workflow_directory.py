@@ -252,7 +252,7 @@ def _get_workflow_data(csv_file: str) -> pd.DataFrame:
 def _render_workflow_tab(config: Dict[str, str], _) -> None:
     df = _get_workflow_data(config["csv_file"])
     if df.empty:
-        st.info("No subagents documented yet. Add rows to the CSV file to populate this view.")
+        st.info("No agents documented yet. Add rows to the CSV file to populate this view.")
         return
 
     columns = list(df.columns)
@@ -263,7 +263,7 @@ def _render_workflow_tab(config: Dict[str, str], _) -> None:
         column_map["name"] = columns[0]
 
     search_query = st.text_input(
-        "Search subagents", placeholder="Search by name, status, owner, outputs…", key=f"{config['key']}_search"
+        "Search agents", placeholder="Search by name, status, owner, outputs…", key=f"{config['key']}_search"
     ).strip()
 
     filtered_df = df.copy()
@@ -327,7 +327,7 @@ def _render_workflow_tab(config: Dict[str, str], _) -> None:
     filtered_df = filtered_df.reset_index(drop=True)
 
     stats_cols = st.columns(3)
-    stats_cols[0].metric("Subagents", len(filtered_df))
+    stats_cols[0].metric("Agents", len(filtered_df))
     if status_col:
         ready_count = (
             filtered_df[status_col]
@@ -348,7 +348,7 @@ def _render_workflow_tab(config: Dict[str, str], _) -> None:
         stats_cols[2].metric("Worksheet rows", len(df))
 
     if filtered_df.empty:
-        st.warning("No subagents match the current filters.")
+        st.warning("No agents match the current filters.")
         return
 
     cards = [
@@ -534,9 +534,9 @@ def main() -> None:
     _inject_styles()
     _ensure_assets_directory()
 
-    st.title("Workflow Subagents")
+    st.title("Workflow Agents")
     st.caption(
-        "A living directory of every subagent inside our core content-generation workflows."
+        "A living directory of every agent inside our core content-generation workflows."
     )
 
     tab_labels = [f"{config['icon']} {config['title']}" for config in WORKFLOW_CONFIG]
@@ -547,7 +547,7 @@ def main() -> None:
             st.markdown(
                 """
                 <p class="workflow-tab-intro">
-                    Review the subagents, automation surfaces, and hand-offs that power this workflow.
+                    Review the agents, automation surfaces, and hand-offs that power this workflow.
                     Use the filters below to zero-in on what you need.
                 </p>
                 """,
