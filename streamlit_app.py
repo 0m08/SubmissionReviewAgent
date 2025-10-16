@@ -268,7 +268,7 @@ def list_of_agents():
 # or just define them here. For simplicity, let's define some stubs as Page objects.
 
 # --- Account pages ---
-list_of_agents_page = st.Page(list_of_agents, title = "List of agents", icon = ":material/list:")
+list_of_agents_page = st.Page(list_of_agents, title = "Home", icon = ":material/list:")
 logout_page = st.Page(logout, title="Log out", icon=":material/logout:")
 about_agents_page = st.Page("about_agents.py", title="About Agents", icon=":material/info:")
 role_switch_page = st.Page("role_switch.py", title="Role Switch", icon=":material/swap_horiz:")
@@ -317,7 +317,7 @@ assessments_generation_page = st.Page(
 
 workflow_directory_page = st.Page(
     "workflow_directory.py",
-    title="Workflow Subagents",
+    title="Workflow Agents",
     icon=":material/account_tree:",
 )
 

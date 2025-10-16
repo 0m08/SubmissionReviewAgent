@@ -74,7 +74,7 @@ role_page_access = {
         "quality_compliance_scoring_page", "video_search_tool_page"
     ],
     "Instructional Designer": [
-        "template_sheet_setup_page", "workflow_directory_page", "research_notes_page", "slide_chunks_page",
+        "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
         "assessments_generation_page", "vectorstore_page",
         "video_search_tool_page", "quality_compliance_scoring_page"
     ],
