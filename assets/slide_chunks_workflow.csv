@@ -1,0 +1,27 @@
+#,Agent Name,Description,Input,Output,Type
+1,Generate Slide Chunks from the Research Notes,Generates slide chunks for each unique subtopic in the Final Outline sheet using the research notes and fills the slide_chunks column.,"course_name 
+target_audience
+topic
+subtopic 
+research_notes","""slide_chunks"" column in the Final Outline sheet",LLM
+2,Slide Chunks Parsing,"Parses the slide_chunks column in the Final Outline sheet, extracts structured slide data, and writes it to the Slide Chunks sheet.","topic
+subtopic
+slide_chunks [ from Final Outline sheet ]","Parsed blocks in the Slide Chunks sheet with columns:
+Topic, Subtopic, Slide Type, Slide Chunk Title, Slide Chunk
+",LLM
+3,Slide Chunks Checklist Review and Revise,This step reviews and revises the parsed slide chunks based on a checklist to ensure quality and compliance.,"course_name
+target_audience
+
+[ from Slide Chunks sheet ]
+topic
+subtopic
+slide_title
+slide_chunk
+
+[ from Checklist sheet ]
+task_name
+checklist_criteria",Updated and parsed slide chunk details in the Slide Chunks sheet,Agent with tools
+4,Generate Learning Objectives,Generates the Learning Objectives for each topic of the slide chunks.,"course_name
+target_audience
+topic
+slide_chunks",learning_objectives,LLM

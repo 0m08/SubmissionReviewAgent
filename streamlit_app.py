@@ -268,7 +268,7 @@ def list_of_agents():
 # or just define them here. For simplicity, let's define some stubs as Page objects.
 
 # --- Account pages ---
-list_of_agents_page = st.Page(list_of_agents, title = "List of agents", icon = ":material/list:")
+list_of_agents_page = st.Page(list_of_agents, title = "Home", icon = ":material/list:")
 logout_page = st.Page(logout, title="Log out", icon=":material/logout:")
 about_agents_page = st.Page("about_agents.py", title="About Agents", icon=":material/info:")
 role_switch_page = st.Page("role_switch.py", title="Role Switch", icon=":material/swap_horiz:")
@@ -313,6 +313,12 @@ assessments_generation_page = st.Page(
     title="Assessment",
     icon=":material/quiz:",
     # Optional: default=(role == "Requester") or any logic
+)
+
+workflow_directory_page = st.Page(
+    "workflow_directory.py",
+    title="Workflow Agents",
+    icon=":material/account_tree:",
 )
 
 
@@ -378,6 +384,7 @@ page_name_to_object = {
     "slide_chunks_page": slide_chunks_page,
     "graphics_definition_page": graphics_definition_page,
     "assessments_generation_page": assessments_generation_page,
+    "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
     "vectorstore_page": vectorstore_page,
     "get_images_page": get_images_page,
@@ -389,6 +396,7 @@ page_name_to_object = {
 # Define which pages belong to which category
 agent_pages = [
     "template_sheet_setup_page",
+    # "workflow_directory_page",
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
@@ -411,7 +419,11 @@ if st.session_state.role:
     effective_role = st.session_state.get("impersonated_role", st.session_state.get("role"))
     
     # Build account pages - include role switch for admins
-    account_pages = [list_of_agents_page, about_agents_page]
+    account_pages = [
+        list_of_agents_page, 
+        # about_agents_page, 
+        workflow_directory_page,
+    ]
     
     # Add role switch page only for admins
     if st.session_state.get("role") == "Admin":
