@@ -302,7 +302,6 @@ Follow the examples below to understand how to evaluate each review criteria:
 </examples>
 """
 
-
 def run_slide_chunks_checklist_agent(course_name, target_audience, slide_chunks, checklist, examples, learning_objective, llm = "gemini_2_flash"):
     """
     Run the slide chunks checklist agent with the provided parameters.
@@ -737,7 +736,7 @@ def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, 
     
     # Order DataFrame by 'order' column before parsing
     if 'order' in slide_chunks_df.columns:
-        slide_chunks_df = slide_chunks_df.sort_values('order').reset_index(drop=True)
+        slide_chunks_df = slide_chunks_df.sort_values('order')
         print("Ordered DataFrame by 'order' column before parsing")
     
     # Clear the worksheet first to handle row deletions properly
