@@ -396,16 +396,19 @@ def generate_slide_chunks_from_research_notes_for_all_subtopics(sheet, sheet_nam
     if "slide_chunks" not in df.columns:
         df["slide_chunks"] = ""
   
-    # Identify unique subtopics in order of appearance
-    subtopic_first_indices = df.drop_duplicates("Subtopic", keep="first").index.tolist()
-    subtopic_names = df.loc[subtopic_first_indices, "Subtopic"].tolist()
+    # Identify unique Topic-Subtopic combinations in order of appearance
+    subtopic_first_indices = df.drop_duplicates(["Topic", "Subtopic"], keep="first").index.tolist()
+    subtopic_names = [f"{df.loc[idx, 'Topic']}-{df.loc[idx, 'Subtopic']}" for idx in subtopic_first_indices]
 
     # For each unique subtopic, gather all rows for that subtopic (in order)
-    subtopic_to_rows = {subtopic: df[df["Subtopic"] == subtopic] for subtopic in subtopic_names}
+    subtopic_to_rows = {}
+    for idx, subtopic_key in zip(subtopic_first_indices, subtopic_names):
+        topic, subtopic = subtopic_key.split("-")
+        subtopic_to_rows[subtopic_key] = df[(df["Topic"] == topic) & (df["Subtopic"] == subtopic)]
 
     # For each unique subtopic, get topic and subtopic from first row
-    subtopic_to_topic = {subtopic: rows.iloc[0]["Topic"] for subtopic, rows in subtopic_to_rows.items()}
-    subtopic_to_subtopic = {subtopic: rows.iloc[0]["Subtopic"] for subtopic, rows in subtopic_to_rows.items()}
+    subtopic_to_topic = {key: key.split("-")[0] for key in subtopic_names}
+    subtopic_to_subtopic = {key: key.split("-")[1] for key in subtopic_names}
 
     # Helper to construct research_notes string for a subtopic
     def construct_research_notes(rows):
@@ -417,10 +420,10 @@ def generate_slide_chunks_from_research_notes_for_all_subtopics(sheet, sheet_nam
         return "\n\n".join(blocks)
 
     # Function to run the agent and extract <slides> for a subtopic
-    def process_subtopic(subtopic):
-        topic = subtopic_to_topic[subtopic]
-        subtopic_val = subtopic_to_subtopic[subtopic]
-        research_notes = construct_research_notes(subtopic_to_rows[subtopic])
+    def process_subtopic(subtopic_key):
+        topic = subtopic_to_topic[subtopic_key]
+        subtopic_val = subtopic_to_subtopic[subtopic_key]
+        research_notes = construct_research_notes(subtopic_to_rows[subtopic_key])
         output = generate_slide_chunks_from_research_notes(
             course_name, target_audience, topic, subtopic_val, research_notes, llm=llm
         )
@@ -433,7 +436,7 @@ def generate_slide_chunks_from_research_notes_for_all_subtopics(sheet, sheet_nam
     results = [None] * len(subtopic_names)
     progress = SmartProgressBar(total_tasks=len(subtopic_names), description="Generating slide chunks", save_interval=5)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_idx = {executor.submit(process_subtopic, subtopic): idx for idx, subtopic in enumerate(subtopic_names)}
+        future_to_idx = {executor.submit(process_subtopic, subtopic_key): idx for idx, subtopic_key in enumerate(subtopic_names)}
         completed = 0
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
