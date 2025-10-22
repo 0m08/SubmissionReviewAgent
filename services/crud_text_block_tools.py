@@ -37,14 +37,16 @@ def create_block(
     df: Annotated[pd.DataFrame, InjectedState("df")],
     insert_after_block_id: Union[int, None],
     block_text: str,
+    intent: str,
 ) -> str:
     """Insert a new text block *after* the specified block ID.
 
     Args:
-        insert_after_block_id:  
-            • ID of the block after which the new block should be placed.  
+        insert_after_block_id:
+            • ID of the block after which the new block should be placed.
             • `None` (or -1) inserts at the very beginning.
         block_text: The text content of the new block.
+        intent: A field that describes the intent of changes the LLM is trying to make.
 
     Returns:
         A confirmation string such as `"✅ Created block 7."`
@@ -53,7 +55,11 @@ def create_block(
         * The original block IDs (DataFrame index) **never change**; a brand-new
           integer ID is allocated (`max(index)+1`).
     """
-    print(f"🔧 TOOL USED: create_block | insert_after_block_id: {insert_after_block_id} | block_text_length: {len(block_text)} chars")
+    print(
+        "🔧 TOOL USED: create_block | insert_after_block_id: "
+        f"{insert_after_block_id} | block_text_length: {len(block_text)} chars | "
+        f"intent: {intent}"
+    )
 
     # Only check for duplicates in research notes agent (check if 'research_notes' column exists)
     if 'research_notes' in df.columns:
@@ -193,12 +199,14 @@ def read_blocks(
     df: Annotated[pd.DataFrame, InjectedState("df")],
     start_block_id: int,
     end_block_id: int,
+    intent: str,
 ) -> str:
     """Read the text of a contiguous range of blocks (inclusive).
 
     Args:
         start_block_id: First block ID in the range.
         end_block_id:   Last block ID in the range.
+        intent: A field that describes the intent of changes the LLM is trying to make.
 
     Returns:
         The concatenated block texts, separated by newlines, in display order.
@@ -206,7 +214,10 @@ def read_blocks(
     Raises:
         IndexError if either ID is absent.
     """
-    print(f"🔧 TOOL USED: read_blocks | start_block_id: {start_block_id} | end_block_id: {end_block_id}")
+    print(
+        "🔧 TOOL USED: read_blocks | start_block_id: "
+        f"{start_block_id} | end_block_id: {end_block_id} | intent: {intent}"
+    )
     
     if start_block_id not in df.index or end_block_id not in df.index:
         raise IndexError("start or end block_id not found")
@@ -231,12 +242,14 @@ def update_block(
     df: Annotated[pd.DataFrame, InjectedState("df")],
     block_id: int,
     block_text: str,
+    intent: str,
 ) -> str:
     """Replace the text of an existing block.
 
     Args:
         block_id:   ID of the block to modify.
         block_text: New text content.
+        intent: A field that describes the intent of changes the LLM is trying to make.
 
     Returns:
         `"✏️ Updated block {block_id}."`
@@ -244,7 +257,10 @@ def update_block(
     Raises:
         IndexError if `block_id` is absent.
     """
-    print(f"🔧 TOOL USED: update_block | block_id: {block_id} | block_text_length: {len(block_text)} chars")
+    print(
+        "🔧 TOOL USED: update_block | block_id: "
+        f"{block_id} | block_text_length: {len(block_text)} chars | intent: {intent}"
+    )
     
     if block_id not in df.index:
         raise IndexError("block_id not found")
@@ -259,11 +275,13 @@ def update_block(
 def delete_block(
     df: Annotated[pd.DataFrame, InjectedState("df")],
     block_id: int,
+    intent: str,
 ) -> str:
     """Delete a block by ID (leaves a gap in IDs).
 
     Args:
         block_id: ID of the block to remove.
+        intent: A field that describes the intent of changes the LLM is trying to make.
 
     Returns:
         `"🗑️ Deleted block {block_id}."`
@@ -271,7 +289,10 @@ def delete_block(
     Raises:
         IndexError if `block_id` is absent.
     """
-    print(f"🔧 TOOL USED: delete_block | block_id: {block_id}")
+    print(
+        "🔧 TOOL USED: delete_block | block_id: "
+        f"{block_id} | intent: {intent}"
+    )
     
     if block_id not in df.index:
         raise IndexError("block_id not found")
