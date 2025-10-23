@@ -39,7 +39,8 @@ Block:
         "agent_name": "slide_chunks",
         "step_name": "Slide Chunks Parsing",
         "function_name": "run_slide_chunks_parsing",
-        "user_id": st.session_state.get("role", "anonymous")
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
 def run_slide_chunks_parsing(sheet, worksheet_name="Final Outline", output_sheet_name="Slide Chunks", max_workers=5):
@@ -110,7 +111,8 @@ def run_slide_chunks_parsing(sheet, worksheet_name="Final Outline", output_sheet
         "agent_name": "slide_chunks",
         "step_name": "Slide Chunks Parsing",
         "function_name": "process_slide_chunks_row",
-        "user_id": st.session_state.get("role", "anonymous")
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
 def process_slide_chunks_row(topic, subtopic, slide_chunks_cell, index):
