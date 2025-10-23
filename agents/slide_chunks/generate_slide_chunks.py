@@ -315,7 +315,8 @@ Content: Remember, taking a few extra minutes before you start the real work to 
         "agent_name": "slide_chunks",
         "step_name": "Generate Slide Chunks from the Research Notes",
         "function_name": "generate_slide_chunks_from_research_notes",
-        "user_id": st.session_state.get("role", "anonymous")
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
 def generate_slide_chunks_from_research_notes(course_name, target_audience, topic, subtopic, research_notes, llm="gemini_2_flash"):
@@ -370,7 +371,8 @@ def generate_slide_chunks_from_research_notes(course_name, target_audience, topi
         "agent_name": "slide_chunks",
         "step_name": "Generate Slide Chunks from the Research Notes",
         "function_name": "generate_slide_chunks_from_research_notes_for_all_subtopics",
-        "user_id": st.session_state.get("role", "anonymous")
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
 def generate_slide_chunks_from_research_notes_for_all_subtopics(sheet, sheet_name, llm="gemini_2_flash", max_workers=5):
@@ -398,17 +400,17 @@ def generate_slide_chunks_from_research_notes_for_all_subtopics(sheet, sheet_nam
   
     # Identify unique Topic-Subtopic combinations in order of appearance
     subtopic_first_indices = df.drop_duplicates(["Topic", "Subtopic"], keep="first").index.tolist()
-    subtopic_names = [f"{df.loc[idx, 'Topic']}-{df.loc[idx, 'Subtopic']}" for idx in subtopic_first_indices]
+    subtopic_names = [f"{df.loc[idx, 'Topic']}||{df.loc[idx, 'Subtopic']}" for idx in subtopic_first_indices]
 
     # For each unique subtopic, gather all rows for that subtopic (in order)
     subtopic_to_rows = {}
     for idx, subtopic_key in zip(subtopic_first_indices, subtopic_names):
-        topic, subtopic = subtopic_key.split("-")
+        topic, subtopic = subtopic_key.split("||")
         subtopic_to_rows[subtopic_key] = df[(df["Topic"] == topic) & (df["Subtopic"] == subtopic)]
 
     # For each unique subtopic, get topic and subtopic from first row
-    subtopic_to_topic = {key: key.split("-")[0] for key in subtopic_names}
-    subtopic_to_subtopic = {key: key.split("-")[1] for key in subtopic_names}
+    subtopic_to_topic = {key: key.split("||")[0] for key in subtopic_names}
+    subtopic_to_subtopic = {key: key.split("||")[1] for key in subtopic_names}
 
     # Helper to construct research_notes string for a subtopic
     def construct_research_notes(rows):

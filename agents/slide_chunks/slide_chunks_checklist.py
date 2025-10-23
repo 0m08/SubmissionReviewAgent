@@ -528,6 +528,15 @@ def ensure_parent_relationship(df_slice, parent_df):
     return df_slice
 
 
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Evaluate and Revise Slide Chunks using Checklist",
+        "function_name": "run_slide_chunks_checklist_and_reviser",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
 def run_slide_chunks_checklist_and_reviser(sheet, course_name, target_audience, checklist_sheet_link, gc, llm = "gemini_2_flash"):
     """
     Run the slide chunks checklist agent and reviser agent with the provided parameters.
@@ -818,6 +827,15 @@ def parse_block_text_row(block_text_cell, index):
         print(f"Failed to parse block_text for row {index}: {e}")
         return None
 
+@traceable(
+    metadata={
+        "agent_name": "slide_chunks",
+        "step_name": "Parse Block Text to Individual Columns",
+        "function_name": "parse_block_text_to_columns",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
 def parse_block_text_to_columns(df, max_workers=5):
     """
     Parses the block_text column and updates the individual Topic, Subtopic, Learning Objectives, and slide_chunks columns.
