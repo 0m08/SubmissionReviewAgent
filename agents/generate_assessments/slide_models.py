@@ -1,3 +1,4 @@
+#lightning sync automatic from UI testing
 from pydantic import BaseModel, Field
 from typing import Literal, List
 #Pydantic function for structured output
