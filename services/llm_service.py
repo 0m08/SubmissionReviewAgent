@@ -201,7 +201,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
         llm_name (Optional[str]): The name of the LLM to use.
     """
     # List of models that support direct API structured output
-    direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash"]
+    direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash", "gemini_2_5_flash"]
     
     # Use direct API for Gemini models with structured output
     if structured_output and (llm_name in direct_api_models or (llm_name is None and structured_output)):
@@ -210,8 +210,9 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             try:
                 # Map LLM name to actual model name for the API
                 model_mapping = {
+                    "gemini_2_5_flash": "gemini-2.5-flash",
                     "gemini_2_flash": "gemini-2.0-flash",
-                    "gemini_2_flash_thinking": "gemini-2.0-flash-thinking-exp",
+                    "gemini_2_flash_thinking": "gemini-2.0-flash-thinking",
                     "gemini_flash": "gemini-1.5-flash-latest",
                     None: "gemini-2.0-flash"  # Default if no name provided
                 }
@@ -260,9 +261,10 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             o3_mini = ChatOpenAI(model = 'o3-mini'),
             gemini_2_flash_thinking = ChatGoogleGenerativeAI(model = "gemini-2.0-flash-thinking-exp", temperature = 0.7, max_tokens = 8192),
             pplx_deep_research = ChatPerplexity(model = "sonar-deep-research", temperature = 0, pplx_api_key = os.environ.get("PPLX_API_KEY")),
-            gemini_2_5_flash = ChatGoogleGenerativeAI(model = "gemini-2.5-flash-preview-05-20", temperature = 0.7, max_tokens = 640000),
+            gemini_2_5_flash = ChatGoogleGenerativeAI(model = "gemini-2.5-flash", temperature = 0.7, max_tokens = 640000),
             gemini_2_5_pro = ChatGoogleGenerativeAI(model = "gemini-2.5-pro", temperature = 0.7, max_tokens = 640000),
             gpt5_thinking = ChatOpenAI(model_name = "gpt-5", max_tokens = 127000, reasoning_effort="high"),
+            gpt5_mini_thinking = ChatOpenAI(model_name = "gpt-5-mini", max_tokens = 127000), # or "minimal", "low", "medium", "high"
             # gpt5 = ChatOpenAI(model_name = "gpt-5", temperature = 0.7, max_tokens = 8192),
             # gemini_2_flash_open_router = ChatOpenAI(model = 'google/gemini-2.0-flash-exp:free', temperature = 0.7, max_completion_tokens = 8192, base_url = 'https://openrouter.ai/api/v1', api_key = os.environ.get('OPENROUTER_API_KEY'))
             )

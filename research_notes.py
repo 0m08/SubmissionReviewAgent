@@ -350,7 +350,7 @@ pipeline_sections = [
                     "checklist_sheet_link": "checklist_sheet_link",
                     "gc": "gc",
                     # "worksheet_name": "Research Notes",
-                    "llm": "gemini_2_5_flash",
+                    "llm": "gpt5_mini_thinking",
                 },
                 "estimated_time": "~ 10 minutes",
                 "description": "Runs checklist-based review and revision on the final research notes.",
