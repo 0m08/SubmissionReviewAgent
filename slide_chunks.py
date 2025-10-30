@@ -73,7 +73,7 @@ pipeline_sections = [
                     "target_audience": "target_audience",
                     "checklist_sheet_link": "checklist_sheet_link",
                     "gc": "gc",
-                    "llm": "gemini_2_flash"
+                    "llm": "gpt5_mini_thinking",
                 },
                 "pre_exec_func": create_backup_slide_chunks,
                 "pre_exec_args": {

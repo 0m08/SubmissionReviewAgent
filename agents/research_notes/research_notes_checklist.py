@@ -295,7 +295,8 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, rev
     )
 
     llm = init_chat_model(
-        "google_genai:gemini-2.5-flash",
+        # "google_genai:gemini-2.5-flash",
+        "openai:gpt-5-mini",
         rate_limiter = rate_limiter,
         max_retries = 20,
     )
@@ -363,7 +364,7 @@ def run_reviser_agent(research_notes, checklist_feedback, criteria_with_ops, rev
     "function_name": "process_single_rn_slice",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def process_single_rn_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, llm):
+def process_single_rn_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, course_objective_guidelines, course_background, llm, reviewer_llm = "gpt5_mini_thinking"):
     """
     Process a single research notes slice: review → revise (if needed) → return result
     This function runs in parallel for scope-based processing.
@@ -399,7 +400,7 @@ def process_single_rn_slice(key, df_slice, criteria_str, examples_str, criteria_
         research_notes=research_notes_str,
         checklist=criteria_str,
         examples=examples_str,
-        llm=llm
+        llm=reviewer_llm
     )
     
     print(f"Failed items for slice '{key}': {failed_items}")
@@ -511,7 +512,7 @@ def process_rn_scope_slices_parallel(scope, research_notes_df, scope_to_selector
     "function_name": "run_research_notes_checklist_and_reviser",
     "user_id": st.session_state.get("role", "anonymous")
 })
-def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience, checklist_sheet_link, gc, llm = "gemini_2_flash"):
+def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience, checklist_sheet_link, gc, llm = "gemini_2_flash", reviewer_llm = "gpt5_mini_thinking"):
     """
     Run the research notes checklist agent and reviser agent with the provided parameters.
     :param course_name: Name of the course for which the research notes are created.
@@ -657,7 +658,7 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
                     research_notes=research_notes_str,
                     checklist=criteria_str,
                     examples=examples_str,
-                    llm=llm
+                    llm=reviewer_llm
                 )
 
                 print(f"Failed items for {key}: {failed_items}")

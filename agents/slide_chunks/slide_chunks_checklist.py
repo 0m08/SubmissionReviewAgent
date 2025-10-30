@@ -42,6 +42,13 @@ from pydantic import BaseModel, Field
 from services.helper_functions import iterate_scope
 import services.crud_text_block_tools as crud_tools
     
+
+@traceable(metadata={
+    "agent_name": "slide chunks",
+    "step_name": "Slide Chunks Checklist Review and Revise",
+    "function_name": "process_single_slide_chunk_slice",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def process_single_slide_chunk_slice(key, df_slice, criteria_str, examples_str, criteria_ops_str, reviser_examples_str, course_name, target_audience, sheet, gc, global_max_index, llm):
     """
     Process a single topic slice: review → revise (if needed) → return result
@@ -202,8 +209,10 @@ def get_learning_objectives(scope, df_slice, sheet, gc):
                 subtopic = df_slice.iloc[0][slice_subtopic_col]
                 
                 match = outline_df[(outline_df[topic_col] == topic) & (outline_df[subtopic_col] == subtopic)]
-                if not match.empty and pd.notna(match.iloc[0][learning_obj_col]):
-                    return f"Learning Objective: {match.iloc[0][learning_obj_col].strip()}"
+                if not match.empty:
+                    los = [row[learning_obj_col].strip() for _, row in match.iterrows() if pd.notna(row[learning_obj_col])]
+                    if los:
+                        return "Learning Objectives:\n" + "\n".join(f"• {lo}" for lo in los)
         
         elif scope == "Topic" and not df_slice.empty:
             # Multiple subtopics under one topic
@@ -218,29 +227,43 @@ def get_learning_objectives(scope, df_slice, sheet, gc):
                 for subtopic in subtopics:
                     if pd.notna(subtopic):
                         match = outline_df[(outline_df[topic_col] == topic) & (outline_df[subtopic_col] == subtopic)]
-                        if not match.empty and pd.notna(match.iloc[0][learning_obj_col]):
-                            objectives.append(f"• {subtopic}: {match.iloc[0][learning_obj_col].strip()}")
+                        if not match.empty:
+                            subtopic_los = [row[learning_obj_col].strip() for _, row in match.iterrows() if pd.notna(row[learning_obj_col])]
+                            objectives.extend([f"• {subtopic}: {lo}" for lo in subtopic_los])
                 
                 if objectives:
                     return f"Learning Objectives for '{topic}':\n" + "\n".join(objectives) + ""
         
         elif scope == "Global (full output)":
-            # All learning objectives
+            # Collect all learning objectives grouped by topic (preserve original order)
+            # Filter rows that have topic, subtopic and a learning objective
+            filtered = outline_df[[topic_col, subtopic_col, learning_obj_col]].dropna()
+
+            if filtered.empty:
+                return f"No learning objectives found in the outline for scope '{scope}'."
+
             objectives_by_topic = {}
-            for _, row in outline_df.iterrows():
-                if pd.notna(row[topic_col]) and pd.notna(row[subtopic_col]) and pd.notna(row[learning_obj_col]):
-                    topic = row[topic_col]
-                    if topic not in objectives_by_topic:
-                        objectives_by_topic[topic] = []
-                    objectives_by_topic[topic].append(f"  • {row[subtopic_col]}: {row[learning_obj_col].strip()}")
-            
+            # groupby with sort=False preserves first-seen order of topics
+            for topic, group in filtered.groupby(topic_col, sort=False):
+                objs = []
+                for _, row in group.iterrows():
+                    sub = row[subtopic_col]
+                    lo = str(row[learning_obj_col]).strip()
+                    if lo:
+                        objs.append(f"  • {sub}: {lo}")
+                if objs:
+                    objectives_by_topic[topic] = objs
+
             if objectives_by_topic:
-                result = ["All Course Learning Objectives:"]
+                result_lines = ["All Course Learning Objectives:"]
                 for topic, objs in objectives_by_topic.items():
-                    result.append(f"\n{topic}:")
-                    result.extend(objs)
-                result.append("\n\nEnsure content supports these comprehensive learning objectives.")
-                return "\n".join(result)
+                    result_lines.append("")
+                    result_lines.append(f"{topic}:")
+                    result_lines.extend(objs)
+
+                result_lines.append("")
+                result_lines.append("Ensure content supports these comprehensive learning objectives.")
+                return "\n".join(result_lines)
         
         # Fallback for any scope
         return f"No specific learning objectives found for scope '{scope}'. Ensure content is educationally sound and aligned with course goals."
@@ -302,6 +325,13 @@ Follow the examples below to understand how to evaluate each review criteria:
 </examples>
 """
 
+
+@traceable(metadata={
+    "agent_name": "slide chunks",
+    "step_name": "Slide Chunks Checklist Review and Revise",
+    "function_name": "run_slide_chunks_checklist_agent",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_slide_chunks_checklist_agent(course_name, target_audience, slide_chunks, checklist, examples, learning_objective, llm = "gemini_2_flash"):
     """
     Run the slide chunks checklist agent with the provided parameters.
@@ -397,6 +427,13 @@ Revision Examples:
 These examples show how to apply the corrections to the slides. Use these examples as reference to understand the approach to revising the research notes. Only refer the examples of the criteria that failed.
 """
 
+
+@traceable(metadata={
+    "agent_name": "slide chunks",
+    "step_name": "Slide Chunks Checklist Review and Revise",
+    "function_name": "run_reviser_agent",
+    "user_id": st.session_state.get("role", "anonymous")
+})
 def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, reviser_examples, df, learning_objective, global_max_index=None, llm = "gemini_2_flash"):
     """
     Run the reviser agent with the provided parameters.
@@ -425,7 +462,8 @@ def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, revis
     )
 
     llm = init_chat_model(
-        "google_genai:gemini-2.5-flash",
+        # "google_genai:gemini-2.5-flash",
+        "openai:gpt-5-mini",
         rate_limiter = rate_limiter,
         max_retries = 20,
     )
