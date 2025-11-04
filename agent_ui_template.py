@@ -6,7 +6,7 @@ import traceback
 import re
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
-from services.drive_service import login_with_oauth2
+from services.drive_service import login_with_oauth2, share_sheet_with_service_account, get_service_account_email
 from datetime import datetime
 import os
 from langtrace_python_sdk import langtrace # Must precede any llm module imports
@@ -176,6 +176,22 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 if not sheet_link or not folder_id:
                     st.error("Sheet link or Drive folder ID missing. Please reload data.")
                 else:
+                    # Ensure environment variables are loaded
+                    load_dotenv()
+                    
+                    # Share the sheet with service account if needed
+                    if "oauth_credentials" in st.session_state and "sheet" in st.session_state:
+                        try:
+                            service_account_email = get_service_account_email()
+                            if service_account_email:
+                                creds = st.session_state["oauth_credentials"]
+                                sheet = st.session_state["sheet"]
+                                
+                                # Share the sheet with service account
+                                share_sheet_with_service_account(sheet, service_account_email, creds)
+                        except Exception as e:
+                            pass
+                    
                     cmd = [
                         sys.executable,
                         "launch_agents_via_sdk.py",

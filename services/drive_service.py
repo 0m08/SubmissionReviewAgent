@@ -4,6 +4,7 @@ import json
 import tempfile
 import gspread
 import re
+import base64
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
@@ -275,6 +276,86 @@ def init_clients_from_credentials(creds: Credentials):
     return gauth, drive, gc
 
 
+def share_sheet_with_service_account(sheet, service_account_email: str, creds: Credentials):
+    """
+    Share a Google Sheet with a service account email using OAuth credentials.
+    Checks if the sheet is already shared with the service account before sharing.
+    
+    :param sheet: gspread Spreadsheet object
+    :param service_account_email: Email address of the service account
+    :param creds: google.oauth2.credentials.Credentials object
+    :return: True if shared successfully or already shared, False otherwise
+    """
+    try:
+        # Build Drive service with OAuth credentials
+        drive_service = build('drive', 'v3', credentials=creds)
+        
+        # Get the file ID from the sheet
+        file_id = sheet.id
+        
+        # Check existing permissions
+        try:
+            permissions = drive_service.permissions().list(
+                fileId=file_id,
+                fields='permissions(id,emailAddress,role)'
+            ).execute()
+            
+            # Check if service account already has access
+            for perm in permissions.get('permissions', []):
+                if perm.get('emailAddress') == service_account_email:
+                    # Already shared, return True
+                    return True
+        except Exception as e:
+            # If we can't check permissions, try to share anyway
+            pass
+        
+        # Share the file with the service account
+        permission = {
+            'type': 'user',
+            'role': 'writer',
+            'emailAddress': service_account_email
+        }
+        
+        drive_service.permissions().create(
+            fileId=file_id,
+            body=permission,
+            sendNotificationEmail=False  
+        ).execute()
+        
+        return True
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to share sheet with service account: {e}")
+        return False
+
+
+def get_service_account_email():
+    """
+    Extract the service account email from environment variables.
+    
+    :return: Service account email address or None if not found
+    """
+    try:
+        # Try GDRIVE_SA_JSON first
+        sa_json = os.environ.get("GDRIVE_SA_JSON")
+        if sa_json:
+            sa_dict = json.loads(sa_json) if isinstance(sa_json, str) else sa_json
+            return sa_dict.get('client_email')
+        
+        # Try GDRIVE_SA_B64
+        sa_b64 = os.environ.get("GDRIVE_SA_B64")
+        if sa_b64:
+            key_bytes = base64.b64decode(sa_b64)
+            sa_json = key_bytes.decode()
+            sa_dict = json.loads(sa_json)
+            return sa_dict.get('client_email')
+        
+        return None
+    except Exception as e:
+        print(f"[ERROR] Failed to extract service account email: {e}")
+        return None
+
+
 # Example helper function to recursively download a folder from Google Drive
 # This ensures that the local directory structure mirrors what we have on Drive.
 def download_folder_from_drive(folder_id: str, local_path: str, drive) -> None:
@@ -331,6 +412,7 @@ def upload_folder_to_drive(local_folder_path: str, parent_folder_id: str, drive)
             f = drive.CreateFile({'title': item, 'parents': [{'id': parent_folder_id}]})
             f.SetContentFile(item_path)
             f.Upload()
+
 
 def copy_sheet_from_link(drive, link, new_name, parent_id):
     """
