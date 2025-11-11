@@ -20,15 +20,26 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.decorator_helpers import try_n_times
 from langsmith import traceable
 
-def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.csv"):
+def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.csv", agent_name=None, step_name=None):
     """Appends token usage data to a CSV file."""
+    # Try to get agent_name and step_name from parameters first, then fall back to session_state
+    try:
+        if agent_name is None:
+            agent_name = st.session_state.get("agent_name", "")
+        if step_name is None:
+            step_name = st.session_state.get("current_step", "")
+    except (RuntimeError, AttributeError):
+        # Handle case where Streamlit session_state is not available
+        agent_name = agent_name or ""
+        step_name = step_name or ""
+
     # Check if the log file already exists to decide if we need a header row.
     file_exists = os.path.isfile(log_file)
     with open(log_file, mode="a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         if not file_exists:
             writer.writerow(["agent_name", "step_name", "timestamp", "llm", "input_tokens", "output_tokens"])
-        writer.writerow([st.session_state.get("agent_name", ""), st.session_state.get("current_step", ""), datetime.now().isoformat(), llm, input_tokens, output_tokens])
+        writer.writerow([agent_name, step_name, datetime.now().isoformat(), llm, input_tokens, output_tokens])
 
 
 @traceable
@@ -40,8 +51,16 @@ def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
     :param model: str
     :return: (response, list_of_uris)
     """
+    # Capture session state values before the LLM call
+    try:
+        current_agent_name = st.session_state.get("agent_name", "")
+        current_step_name = st.session_state.get("current_step", "")
+    except (RuntimeError, AttributeError):
+        current_agent_name = ""
+        current_step_name = ""
+
     client = genai.Client()
-    
+
     response = client.models.generate_content(
         model=model,
         contents=prompt,
@@ -63,6 +82,8 @@ def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             log_file="token_usage_log.csv",
+            agent_name=current_agent_name,
+            step_name=current_step_name,
         )
     except Exception as e:
         print(f"Token usage logging failed: {e}")
@@ -121,23 +142,31 @@ def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
 def generate_structured_output(prompt, structured_output, model="gemini-2.0-flash", temperature=0.7, max_tokens=8192):
     """
     Generate structured output using Gemini API directly.
-    
+
     Args:
         prompt: The input prompt to the model
         structured_output: A Pydantic BaseModel class for structured output
         model: The model to use
         temperature: Temperature for generation
         max_tokens: Maximum tokens for generation
-        
+
     Returns:
         The structured output as a Pydantic model instance or list of instances
     """
     try:
+        # Capture session state values before the LLM call
+        try:
+            current_agent_name = st.session_state.get("agent_name", "")
+            current_step_name = st.session_state.get("current_step", "")
+        except (RuntimeError, AttributeError):
+            current_agent_name = ""
+            current_step_name = ""
+
         client = genai.Client()
 
         print(type(prompt))
         print(prompt)
-        
+
         response = client.models.generate_content(
             model=model,
             contents=str(prompt),
@@ -148,7 +177,7 @@ def generate_structured_output(prompt, structured_output, model="gemini-2.0-flas
                 'max_output_tokens': max_tokens,
             },
         )
-        
+
         # Log token usage ── pick counts safely, fall back to 0
         meta = getattr(response, "usage_metadata", None)
         input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
@@ -160,6 +189,8 @@ def generate_structured_output(prompt, structured_output, model="gemini-2.0-flas
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 log_file="token_usage_log.csv",
+                agent_name=current_agent_name,
+                step_name=current_step_name,
             )
         except Exception as e:
             print(f"Token usage logging failed: {e}")
@@ -200,6 +231,14 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
         structured_output (Optional): A Pydantic BaseModel for structured output.
         llm_name (Optional[str]): The name of the LLM to use.
     """
+    # Capture session state values at the start of the function
+    try:
+        current_agent_name = st.session_state.get("agent_name", "")
+        current_step_name = st.session_state.get("current_step", "")
+    except (RuntimeError, AttributeError):
+        current_agent_name = ""
+        current_step_name = ""
+
     # List of models that support direct API structured output
     direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash", "gemini_2_5_flash"]
     
@@ -295,6 +334,8 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     log_file="token_usage_log.csv",
+                    agent_name=current_agent_name,
+                    step_name=current_step_name,
                 )
             except Exception as e:
                 print(f"LLM usage could not be logged. Error: {e}")
