@@ -13,23 +13,22 @@ from typing import Literal
 # ============================================================================
 
 # Highest intelligence for orchestration
-SLIDE_SUPERVISOR_MODEL = "claude-sonnet-4"
+SLIDE_SUPERVISOR_MODEL = "openai:gpt-5-mini"
 
 # Good balance for segment work
-SEGMENT_PROCESSOR_MODEL = "claude-sonnet-3-5"
+SEGMENT_PROCESSOR_MODEL = "openai:gpt-5-mini"
 
 # Fast/cheap for search operations
-SEARCH_AGENT_MODEL = "gpt-4o-mini"
+SEARCH_AGENT_MODEL = "openai:gpt-5-mini"
 
 # Good evaluation capabilities for review
-REVIEW_CHAIN_MODEL = "claude-sonnet-3-5"
+REVIEW_CHAIN_MODEL = "gpt5_mini_thinking"
 
 # Chain model for definition generation
-DEFINITION_CHAIN_MODEL = "claude-sonnet-3-5"
+DEFINITION_CHAIN_MODEL = "gpt5_mini_thinking"
 
 # Chain model for segmentation
-SEGMENTATION_CHAIN_MODEL = "claude-sonnet-3-5"
-
+SEGMENTATION_CHAIN_MODEL = "gpt5_mini_thinking"
 
 # ============================================================================
 # Iteration & Recursion Limits

@@ -54,7 +54,7 @@ def create_segment_processor_agent():
             finalize_segment,
         ],
         state_schema=SegmentProcessorState,
-        state_modifier=base_system_prompt,
+        prompt=base_system_prompt,
     )
 
     return agent

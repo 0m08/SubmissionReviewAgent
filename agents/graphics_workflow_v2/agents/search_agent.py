@@ -55,7 +55,7 @@ def create_search_agent():
             finalize_search,
         ],
         state_schema=SearchAgentState,
-        state_modifier=system_prompt,
+        prompt=system_prompt,
     )
 
     return agent

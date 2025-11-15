@@ -47,7 +47,7 @@ def create_slide_supervisor_agent():
             finalize_slide_graphics,
         ],
         state_schema=GraphicsSlideState,
-        state_modifier=SLIDE_SUPERVISOR_SYSTEM_PROMPT,
+        prompt=SLIDE_SUPERVISOR_SYSTEM_PROMPT,
     )
 
     return agent
