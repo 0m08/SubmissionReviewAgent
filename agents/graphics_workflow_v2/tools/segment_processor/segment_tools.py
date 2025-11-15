@@ -7,7 +7,6 @@ Tools for the Segment Processor agent to create graphics definitions for individ
 from typing import Annotated, Dict, List, Any
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
-from langgraph.types import Command
 import time
 
 from agents.graphics_workflow_v2.state.schemas import SegmentProcessorState, SegmentData, ReferenceData
@@ -25,7 +24,7 @@ from agents.graphics_workflow_v2.agents.search_agent import run_search_agent
 def define_segment_graphics(
     instruction: str,
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Creates or revises the graphics definition for this VO segment.
 
@@ -140,10 +139,7 @@ REFERENCES NEEDED:
 
     # Validate length
     if len(graphics_definition.strip()) < MIN_DEFINITION_LENGTH:
-        return Command(
-            update={},
-            goto="agent"
-        )
+        return f"Error: Graphics definition too short ({len(graphics_definition)} chars, minimum {MIN_DEFINITION_LENGTH})"
 
     # Update iteration count if this is a revision
     new_iteration_count = iteration_count + 1 if prompt_type == "revision" else iteration_count
@@ -160,20 +156,18 @@ PRESENTATION APPROACH:
 Length: {len(graphics_definition)} characters
 """
 
-    return Command(
-        update={
-            "graphics_definition": graphics_definition,
-            "iteration_count": new_iteration_count
-        },
-        goto="agent"
-    )
+    # Update state in place
+    state["graphics_definition"] = graphics_definition
+    state["iteration_count"] = new_iteration_count
+
+    return result_message
 
 
 @tool
 def search_segment_references(
     instruction: str,
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Finds relevant visual references for this segment's graphics definition.
 
@@ -194,10 +188,7 @@ def search_segment_references(
     drive = state.get("drive")
 
     if not graphics_definition:
-        return Command(
-            update={},
-            goto="agent"
-        )
+        return "Error: No graphics definition available to search references for"
 
     # Parse visual elements from definition (simplified - could be more sophisticated)
     visual_elements = extract_visual_elements(graphics_definition)
@@ -228,23 +219,19 @@ def search_segment_references(
         if len(selected_references) > 5:
             result_message += f"... and {len(selected_references) - 5} more references.\n"
 
-        return Command(
-            update={"references": selected_references},
-            goto="agent"
-        )
+        state["references"] = selected_references
+        return result_message
 
     except Exception as e:
         error_message = f"Search failed: {str(e)}\nPlease try again or adjust the graphics definition."
-        return Command(
-            update={"references": []},
-            goto="agent"
-        )
+        state["references"] = []
+        return error_message
 
 
 @tool
 def review_segment_quality(
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Reviews the segment's graphics definition and references for quality.
 
@@ -265,22 +252,14 @@ def review_segment_quality(
 
     # Check prerequisites
     if not graphics_definition:
-        return Command(
-            update={
-                "review_verdict": "rejected",
-                "review_feedback": "No graphics definition to review. Please create a definition first."
-            },
-            goto="agent"
-        )
+        state["review_verdict"] = "rejected"
+        state["review_feedback"] = "No graphics definition to review. Please create a definition first."
+        return "Review failed: No graphics definition to review. Please create a definition first."
 
     if not references:
-        return Command(
-            update={
-                "review_verdict": "rejected",
-                "review_feedback": "No references found. Please search for references before reviewing."
-            },
-            goto="agent"
-        )
+        state["review_verdict"] = "rejected"
+        state["review_feedback"] = "No references found. Please search for references before reviewing."
+        return "Review failed: No references found. Please search for references before reviewing."
 
     # Create review chain
     chain = Chain(
@@ -380,20 +359,18 @@ Feedback:
     if criteria["no_contradictions"] == "FAIL":
         cross_segment_issue = f"Contradiction detected: {feedback}"
 
-    return Command(
-        update={
-            "review_verdict": final_verdict,
-            "review_feedback": feedback,
-            "cross_segment_issue": cross_segment_issue
-        },
-        goto="agent"
-    )
+    # Update state in place
+    state["review_verdict"] = final_verdict
+    state["review_feedback"] = feedback
+    state["cross_segment_issue"] = cross_segment_issue
+
+    return result_message
 
 
 @tool
 def finalize_segment(
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Marks this segment as completed and ready to return to Slide Supervisor.
 
@@ -411,10 +388,7 @@ def finalize_segment(
 
     # Validate prerequisites
     if review_verdict != "approved":
-        return Command(
-            update={},
-            goto="agent"
-        )
+        return "Error: Cannot finalize - segment review not approved yet"
 
     if not graphics_definition:
         return "Error: Cannot finalize - no graphics definition exists."

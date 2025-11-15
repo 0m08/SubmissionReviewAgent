@@ -7,7 +7,6 @@ Tools for the Slide Supervisor to orchestrate the entire graphics definition wor
 from typing import Annotated, Dict, List, Any
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
-from langgraph.types import Command
 
 from agents.graphics_workflow_v2.state.schemas import GraphicsSlideState, SegmentData, ReferenceData
 from agents.graphics_workflow_v2.config.settings import (
@@ -31,7 +30,7 @@ import time
 @tool
 def segment_slide(
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Segments the slide content into individual VO (voiceover) moments.
 
@@ -117,13 +116,9 @@ Segment the slide now:"""
 
     # Validate segments
     if not vo_segments:
-        return Command(
-            update={
-                "status": "failed",
-                "flags": ["Segmentation failed - no segments could be extracted"]
-            },
-            goto="agent"
-        )
+        state["status"] = "failed"
+        state["flags"] = ["Segmentation failed - no segments could be extracted"]
+        return "Error: Segmentation failed - no segments could be extracted"
 
     if len(vo_segments) > MAX_SEGMENTS_PER_SLIDE:
         vo_segments = vo_segments[:MAX_SEGMENTS_PER_SLIDE]
@@ -153,22 +148,20 @@ Segment the slide now:"""
     if len(vo_segments) > 5:
         result_message += f"... and {len(vo_segments) - 5} more segments.\n"
 
-    return Command(
-        update={
-            "vo_segments": vo_segments,
-            "segments": segments_data,
-            "segmentation_method": "auto",
-            "status": "processing_segments"
-        },
-        goto="agent"
-    )
+    # Update state in place
+    state["vo_segments"] = vo_segments
+    state["segments"] = segments_data
+    state["segmentation_method"] = "auto"
+    state["status"] = "processing_segments"
+
+    return result_message
 
 
 @tool
 def process_segment(
     segment_index: int,
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Processes a single VO segment through the define→search→review workflow.
 
@@ -190,10 +183,7 @@ def process_segment(
 
     # Validate segment index
     if segment_index >= len(vo_segments):
-        return Command(
-            update={},
-            goto="agent"
-        )
+        return f"Error: Invalid segment index {segment_index}"
 
     vo_text = vo_segments[segment_index]
 
@@ -259,25 +249,21 @@ VO: "{vo_text[:100]}..."
         if segment_data["status"] == "flagged":
             result_message += f"\n⚠ WARNING: This segment has been flagged for human review\n"
 
-        return Command(
-            update={
-                "segments": updated_segments,
-                "current_segment_index": segment_index,
-                "all_references": updated_all_references,
-                "flags": new_flags,
-            },
-            goto="agent"
-        )
+        # Update state in place
+        state["segments"] = updated_segments
+        state["current_segment_index"] = segment_index
+        state["all_references"] = updated_all_references
+        state["flags"] = new_flags
+
+        return result_message
 
     except Exception as e:
         # Handle processing failure
         new_flags = current_flags.copy()
         new_flags.append(f"Segment {segment_index}: Processing failed - {str(e)}")
 
-        return Command(
-            update={"flags": new_flags},
-            goto="agent"
-        )
+        state["flags"] = new_flags
+        return f"Error: Segment {segment_index} processing failed - {str(e)}"
 
 
 @tool
@@ -285,7 +271,7 @@ def flag_for_human_review(
     issue_description: str,
     affected_segments: str,
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Flags an issue that requires human intervention.
 
@@ -322,16 +308,14 @@ Issue: {issue_description}
 Total flags: {len(updated_flags)}
 """
 
-    return Command(
-        update={"flags": updated_flags},
-        goto="agent"
-    )
+    state["flags"] = updated_flags
+    return result_message
 
 
 @tool
 def finalize_slide_graphics(
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> str:
     """
     Assembles the final formatted graphics definition from all segments.
 
@@ -350,10 +334,8 @@ def finalize_slide_graphics(
     flags = state.get("flags", [])
 
     if not segments:
-        return Command(
-            update={"status": "failed"},
-            goto="agent"
-        )
+        state["status"] = "failed"
+        return "Error: No segments to finalize"
 
     # Generate final definition based on OUTPUT_FORMAT
     if OUTPUT_FORMAT == "markdown":
@@ -383,13 +365,11 @@ Output format: {OUTPUT_FORMAT}
 Definition length: {len(final_definition)} characters
 """
 
-    return Command(
-        update={
-            "final_definition": final_definition,
-            "status": "completed"
-        },
-        goto="agent"
-    )
+    # Update state in place
+    state["final_definition"] = final_definition
+    state["status"] = "completed"
+
+    return result_message
 
 
 # ============================================================================
