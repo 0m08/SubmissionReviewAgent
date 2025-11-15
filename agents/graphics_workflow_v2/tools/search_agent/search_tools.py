@@ -46,8 +46,7 @@ def generate_search_queries(
     # Create Chain for query generation
     chain = Chain(
         llm=DEFINITION_CHAIN_MODEL,
-        tags=["queries"],
-        use_xml_checker=True
+        tags=["queries"]
     )
 
     prompt = f"""Generate {SEARCH_QUERIES_PER_ELEMENT} diverse search queries to find images/videos for this visual element.
@@ -232,8 +231,7 @@ def check_reference_reuse(
     # Use LLM to evaluate if any references match
     chain = Chain(
         llm=DEFINITION_CHAIN_MODEL,
-        tags=["matches", "reasoning"],
-        use_xml_checker=True
+        tags=["matches", "reasoning"]
     )
 
     # Format available references
@@ -340,8 +338,7 @@ def evaluate_search_results(
     # Use LLM to evaluate
     chain = Chain(
         llm=DEFINITION_CHAIN_MODEL,
-        tags=["assessment", "recommendations"],
-        use_xml_checker=True
+        tags=["assessment", "recommendations"]
     )
 
     prompt = f"""Evaluate the search results for completeness and quality.

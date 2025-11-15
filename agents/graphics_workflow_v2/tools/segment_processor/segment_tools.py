@@ -60,8 +60,7 @@ def define_segment_graphics(
     # Create Chain
     chain = Chain(
         llm=DEFINITION_CHAIN_MODEL,
-        tags=["visual_elements", "presentation", "references_needed"],
-        use_xml_checker=True
+        tags=["visual_elements", "presentation", "references_needed"]
     )
 
     # Build prompt
@@ -287,8 +286,7 @@ def review_segment_quality(
     chain = Chain(
         llm=REVIEW_CHAIN_MODEL,
         tags=["verdict", "vo_alignment", "references_found", "references_relevant",
-              "no_contradictions", "specificity", "feedback"],
-        use_xml_checker=True
+              "no_contradictions", "specificity", "feedback"]
     )
 
     # Format references for review

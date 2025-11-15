@@ -308,6 +308,12 @@ graphics_definition_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
+graphics_workflow_v2_page = st.Page(
+    "graphics_workflow_v2_page.py",
+    title="Graphics Workflow V2",
+    icon=":material/auto_awesome:",
+)
+
 assessments_generation_page = st.Page(
     "assessment.py",
     title="Assessment",
@@ -383,6 +389,7 @@ page_name_to_object = {
     "research_notes_page": research_notes_page,
     "slide_chunks_page": slide_chunks_page,
     "graphics_definition_page": graphics_definition_page,
+    "graphics_workflow_v2_page": graphics_workflow_v2_page,
     "assessments_generation_page": assessments_generation_page,
     "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
@@ -401,6 +408,7 @@ agent_pages = [
     "research_notes_page",
     "slide_chunks_page",
     "graphics_definition_page",
+    "graphics_workflow_v2_page",
     "assessments_generation_page",
     "get_images_page",
 ]

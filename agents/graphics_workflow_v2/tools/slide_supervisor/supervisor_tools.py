@@ -55,8 +55,7 @@ def segment_slide(
     # Create segmentation chain
     chain = Chain(
         llm=SEGMENTATION_CHAIN_MODEL,
-        tags=["segments"],
-        use_xml_checker=True
+        tags=["segments"]
     )
 
     strategy_guidance = {
