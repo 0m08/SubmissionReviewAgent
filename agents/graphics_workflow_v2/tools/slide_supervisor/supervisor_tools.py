@@ -236,6 +236,7 @@ def process_segment(
             drive=state.get("drive"),
             filters=state.get("filters"),
             root_folder_id=state.get("root_folder_id"),
+            search_k=state.get("search_k", 10),
         )
 
         # Extract segment data

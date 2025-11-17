@@ -126,6 +126,7 @@ def run_graphics_workflow(
         "drive": drive,
         "filters": filters,
         "root_folder_id": root_folder_id,
+        "search_k": kwargs.get("search_k", 10),
     }
 
     # Configure run

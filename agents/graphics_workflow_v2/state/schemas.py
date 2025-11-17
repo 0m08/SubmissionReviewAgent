@@ -130,6 +130,24 @@ class GraphicsSlideState(AgentState):
         description="Overall workflow status"
     )
 
+    # Search infrastructure (passed to child agents)
+    drive: Optional[Any] = Field(
+        default=None,
+        description="Google Drive instance for image/video search"
+    )
+    filters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional filters for image search"
+    )
+    root_folder_id: Optional[str] = Field(
+        default='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH',
+        description="Root folder ID for vector store"
+    )
+    search_k: int = Field(
+        default=10,
+        description="Number of search results to return per query"
+    )
+
 
 class SegmentProcessorState(AgentState):
     """
@@ -188,6 +206,24 @@ class SegmentProcessorState(AgentState):
         description="Description of any conflict with earlier segments"
     )
 
+    # Search infrastructure (passed to Search Agent)
+    drive: Optional[Any] = Field(
+        default=None,
+        description="Google Drive instance for image/video search"
+    )
+    filters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional filters for image search"
+    )
+    root_folder_id: Optional[str] = Field(
+        default=None,
+        description="Root folder ID for vector store"
+    )
+    search_k: int = Field(
+        default=10,
+        description="Number of search results to return per query"
+    )
+
 
 class SearchAgentState(AgentState):
     """
@@ -239,4 +275,22 @@ class SearchAgentState(AgentState):
     min_references_needed: int = Field(
         default=1,
         description="Minimum references to find (default: 1 per visual element)"
+    )
+
+    # Search infrastructure
+    drive: Optional[Any] = Field(
+        default=None,
+        description="Google Drive instance for image/video search"
+    )
+    filters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional filters for image search"
+    )
+    root_folder_id: Optional[str] = Field(
+        default=None,
+        description="Root folder ID for vector store"
+    )
+    search_k: int = Field(
+        default=10,
+        description="Number of search results to return per query"
     )

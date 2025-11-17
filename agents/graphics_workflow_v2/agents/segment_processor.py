@@ -117,6 +117,7 @@ def run_segment_processor(
         "drive": drive,
         "filters": kwargs.get("filters"),
         "root_folder_id": kwargs.get("root_folder_id"),
+        "search_k": kwargs.get("search_k", 10),
     }
 
     # Run agent
