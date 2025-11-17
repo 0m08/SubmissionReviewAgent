@@ -5,9 +5,10 @@ Tools for the Slide Supervisor to orchestrate the entire graphics definition wor
 """
 
 from typing import Annotated, Dict, List, Any
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
+from langchain_core.messages import ToolMessage
 
 from agents.graphics_workflow_v2.state.schemas import GraphicsSlideState, SegmentData, ReferenceData
 from agents.graphics_workflow_v2.config.settings import (
@@ -30,8 +31,9 @@ import time
 
 @tool
 def segment_slide(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Segments the slide content into individual VO (voiceover) moments.
 
@@ -48,8 +50,14 @@ def segment_slide(
 
     if not slide_chunk:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        "Error: No slide content to segment",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Create segmentation chain
@@ -120,9 +128,14 @@ Segment the slide now:"""
         return Command(
             update={
                 "status": "failed",
-                "flags": ["Segmentation failed - no segments could be extracted"]
-            },
-            goto="agent"
+                "flags": ["Segmentation failed - no segments could be extracted"],
+                "messages": [
+                    ToolMessage(
+                        "Error: Segmentation failed - no segments could be extracted",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     if len(vo_segments) > MAX_SEGMENTS_PER_SLIDE:
@@ -158,17 +171,23 @@ Segment the slide now:"""
             "vo_segments": vo_segments,
             "segments": segments_data,
             "segmentation_method": "auto",
-            "status": "processing_segments"
-        },
-        goto="agent"
+            "status": "processing_segments",
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 
 @tool
 def process_segment(
     segment_index: int,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Processes a single VO segment through the define→search→review workflow.
 
@@ -191,8 +210,14 @@ def process_segment(
     # Validate segment index
     if segment_index >= len(vo_segments):
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        f"Error: Invalid segment index {segment_index}",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     vo_text = vo_segments[segment_index]
@@ -265,8 +290,13 @@ VO: "{vo_text[:100]}..."
                 "current_segment_index": segment_index,
                 "all_references": updated_all_references,
                 "flags": new_flags,
-            },
-            goto="agent"
+                "messages": [
+                    ToolMessage(
+                        result_message,
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     except Exception as e:
@@ -275,8 +305,15 @@ VO: "{vo_text[:100]}..."
         new_flags.append(f"Segment {segment_index}: Processing failed - {str(e)}")
 
         return Command(
-            update={"flags": new_flags},
-            goto="agent"
+            update={
+                "flags": new_flags,
+                "messages": [
+                    ToolMessage(
+                        f"Error: Segment {segment_index} processing failed - {str(e)}",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
 
@@ -284,8 +321,9 @@ VO: "{vo_text[:100]}..."
 def flag_for_human_review(
     issue_description: str,
     affected_segments: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Flags an issue that requires human intervention.
 
@@ -323,15 +361,23 @@ Total flags: {len(updated_flags)}
 """
 
     return Command(
-        update={"flags": updated_flags},
-        goto="agent"
+        update={
+            "flags": updated_flags,
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 
 @tool
 def finalize_slide_graphics(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Assembles the final formatted graphics definition from all segments.
 
@@ -351,8 +397,15 @@ def finalize_slide_graphics(
 
     if not segments:
         return Command(
-            update={"status": "failed"},
-            goto="agent"
+            update={
+                "status": "failed",
+                "messages": [
+                    ToolMessage(
+                        "Error: No segments to finalize",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Generate final definition based on OUTPUT_FORMAT
@@ -386,9 +439,14 @@ Definition length: {len(final_definition)} characters
     return Command(
         update={
             "final_definition": final_definition,
-            "status": "completed"
-        },
-        goto="agent"
+            "status": "completed",
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 

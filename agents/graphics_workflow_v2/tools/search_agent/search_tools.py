@@ -5,9 +5,10 @@ Tools for the Search Agent to find and validate visual references.
 """
 
 from typing import Annotated, List, Dict, Any
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
+from langchain_core.messages import ToolMessage
 
 from agents.graphics_workflow_v2.state.schemas import SearchAgentState, ReferenceData
 from agents.graphics_workflow_v2.config.settings import (
@@ -24,8 +25,9 @@ import uuid
 @tool
 def generate_search_queries(
     visual_element: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Generates diverse search queries for a specific visual element.
 
@@ -95,16 +97,24 @@ Output format:
     result_message = f"Generated {len(queries)} search queries for '{visual_element}':\n{formatted_queries}"
 
     return Command(
-        update={"search_queries": updated_queries},
-        goto="agent"  # Return to agent for next action
+        update={
+            "search_queries": updated_queries,
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 
 @tool
 def execute_image_search(
     query: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Executes semantic/vector search against the image database.
 
@@ -118,8 +128,14 @@ def execute_image_search(
     drive = state.get("drive")
     if not drive:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        "Error: Drive instance not available for search",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Get configuration
@@ -138,8 +154,14 @@ def execute_image_search(
         )
     except Exception as e:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        f"Error: Search failed - {str(e)}",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Convert results to ReferenceData format
@@ -198,16 +220,24 @@ def execute_image_search(
         result_message += f"... and {len(filtered_results) - 5} more results.\n"
 
     return Command(
-        update={"search_results": updated_results},
-        goto="agent"
+        update={
+            "search_results": updated_results,
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 
 @tool
 def check_reference_reuse(
     visual_element: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Checks if existing references from previous segments can be reused.
 
@@ -224,8 +254,14 @@ def check_reference_reuse(
 
     if not available_references:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        "No available references to check for reuse",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Use LLM to evaluate if any references match
@@ -272,8 +308,14 @@ Output format:
 
     if matches_text == "NONE" or not matches_text:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        "No reusable references found for this visual element",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Extract reference IDs
@@ -292,8 +334,14 @@ Output format:
 
     if not matched_references:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        "No valid reusable references found",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Add to selected references
@@ -306,15 +354,23 @@ Output format:
     result_message += f"\nReasoning: {reasoning}"
 
     return Command(
-        update={"selected_references": updated_selected},
-        goto="agent"
+        update={
+            "selected_references": updated_selected,
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 
 @tool
 def evaluate_search_results(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> str:
+) -> Command:
     """
     Evaluates the quality and coverage of current search results.
 
@@ -393,14 +449,24 @@ Recommendations:
 {recommendations}
 """
 
-    return result_message
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )
 
 
 @tool
 def finalize_search(
     selected_reference_ids: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Finalizes the search by selecting the best references to return.
 
@@ -429,8 +495,15 @@ def finalize_search(
         result_message += f"{i+1}. {ref['title']} ({ref['type']}) - Relevance: {ref['relevance_score']:.2f}\n"
 
     return Command(
-        update={"selected_references": final_selected},
-        goto="agent"
+        update={
+            "selected_references": final_selected,
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 

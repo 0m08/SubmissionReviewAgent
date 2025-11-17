@@ -5,9 +5,10 @@ Tools for the Segment Processor agent to create graphics definitions for individ
 """
 
 from typing import Annotated, Dict, List, Any
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
+from langchain_core.messages import ToolMessage
 import time
 
 from agents.graphics_workflow_v2.state.schemas import SegmentProcessorState, SegmentData, ReferenceData
@@ -24,8 +25,9 @@ from agents.graphics_workflow_v2.agents.search_agent import run_search_agent
 @tool
 def define_segment_graphics(
     instruction: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Creates or revises the graphics definition for this VO segment.
 
@@ -141,8 +143,14 @@ REFERENCES NEEDED:
     # Validate length
     if len(graphics_definition.strip()) < MIN_DEFINITION_LENGTH:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        f"Error: Graphics definition too short ({len(graphics_definition)} chars, minimum {MIN_DEFINITION_LENGTH})",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Update iteration count if this is a revision
@@ -163,17 +171,23 @@ Length: {len(graphics_definition)} characters
     return Command(
         update={
             "graphics_definition": graphics_definition,
-            "iteration_count": new_iteration_count
-        },
-        goto="agent"
+            "iteration_count": new_iteration_count,
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 
 @tool
 def search_segment_references(
     instruction: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Finds relevant visual references for this segment's graphics definition.
 
@@ -195,8 +209,14 @@ def search_segment_references(
 
     if not graphics_definition:
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        "Error: No graphics definition available to search references for",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Parse visual elements from definition (simplified - could be more sophisticated)
@@ -229,22 +249,37 @@ def search_segment_references(
             result_message += f"... and {len(selected_references) - 5} more references.\n"
 
         return Command(
-            update={"references": selected_references},
-            goto="agent"
+            update={
+                "references": selected_references,
+                "messages": [
+                    ToolMessage(
+                        result_message,
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     except Exception as e:
         error_message = f"Search failed: {str(e)}\nPlease try again or adjust the graphics definition."
         return Command(
-            update={"references": []},
-            goto="agent"
+            update={
+                "references": [],
+                "messages": [
+                    ToolMessage(
+                        error_message,
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
 
 @tool
 def review_segment_quality(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Reviews the segment's graphics definition and references for quality.
 
@@ -268,18 +303,28 @@ def review_segment_quality(
         return Command(
             update={
                 "review_verdict": "rejected",
-                "review_feedback": "No graphics definition to review. Please create a definition first."
-            },
-            goto="agent"
+                "review_feedback": "No graphics definition to review. Please create a definition first.",
+                "messages": [
+                    ToolMessage(
+                        "Review failed: No graphics definition to review. Please create a definition first.",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     if not references:
         return Command(
             update={
                 "review_verdict": "rejected",
-                "review_feedback": "No references found. Please search for references before reviewing."
-            },
-            goto="agent"
+                "review_feedback": "No references found. Please search for references before reviewing.",
+                "messages": [
+                    ToolMessage(
+                        "Review failed: No references found. Please search for references before reviewing.",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     # Create review chain
@@ -384,16 +429,22 @@ Feedback:
         update={
             "review_verdict": final_verdict,
             "review_feedback": feedback,
-            "cross_segment_issue": cross_segment_issue
-        },
-        goto="agent"
+            "cross_segment_issue": cross_segment_issue,
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
     )
 
 
 @tool
 def finalize_segment(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[Dict, InjectedState]
-) -> Command[str]:
+) -> Command:
     """
     Marks this segment as completed and ready to return to Slide Supervisor.
 
@@ -412,15 +463,39 @@ def finalize_segment(
     # Validate prerequisites
     if review_verdict != "approved":
         return Command(
-            update={},
-            goto="agent"
+            update={
+                "messages": [
+                    ToolMessage(
+                        "Error: Cannot finalize - segment review not approved yet",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
         )
 
     if not graphics_definition:
-        return "Error: Cannot finalize - no graphics definition exists."
+        return Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        "Error: Cannot finalize - no graphics definition exists",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
+        )
 
     if not references:
-        return "Error: Cannot finalize - no references found."
+        return Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        "Error: Cannot finalize - no references found",
+                        tool_call_id=tool_call_id
+                    )
+                ]
+            }
+        )
 
     # Add timestamp
     timestamp = time.time()
@@ -437,7 +512,16 @@ Ready to return to Slide Supervisor.
 """
 
     # No state update needed - supervisor will handle it
-    return result_message
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(
+                    result_message,
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )
 
 
 # ============================================================================
