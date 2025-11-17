@@ -170,25 +170,33 @@ def execute_image_search(
         metadata = result.get("metadata", {})
 
         # Generate unique ID
-        ref_id = str(uuid.uuid4())
+        ref_id = metadata.get("image_id", str(uuid.uuid4()))
 
-        # Determine type (image or video)
+        # Determine type (image or video) from MIME type
         mime_type = metadata.get("mime_type", "")
         ref_type = "video" if "video" in mime_type.lower() else "image"
 
-        # Extract URL
-        url = result.get("image", {}).get("webViewLink", "") if "image" in result else ""
+        # Get URL from metadata (drive_url field)
+        url = metadata.get("drive_url", "")
 
-        # Calculate relevance score (placeholder - would come from similarity score)
-        relevance_score = metadata.get("relevance_score", 0.8)  # Default high if not provided
+        # Get title from metadata
+        title = metadata.get("image_title") or metadata.get("name", "Untitled")
+
+        # Get description
+        description = metadata.get("description", "")
+
+        # Calculate relevance score from similarity (lower distance = higher relevance)
+        # Similarity is a distance metric, so we invert it
+        similarity_score = result.get("similarity", 1.0)
+        relevance_score = max(0.0, min(1.0, 1.0 - similarity_score))
 
         reference_data: ReferenceData = {
             "reference_id": ref_id,
             "url": url,
             "type": ref_type,
-            "title": metadata.get("image_title", "Untitled"),
-            "description": metadata.get("description", ""),
-            "source": "Google Drive",
+            "title": title,
+            "description": description,
+            "source": metadata.get("source", "Google Drive"),
             "timestamp": None,
             "relevance_score": relevance_score,
             "search_query": query,
