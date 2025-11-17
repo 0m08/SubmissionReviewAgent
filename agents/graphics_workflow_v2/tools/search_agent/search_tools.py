@@ -7,6 +7,7 @@ Tools for the Search Agent to find and validate visual references.
 from typing import Annotated, List, Dict, Any
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
 
 from agents.graphics_workflow_v2.state.schemas import SearchAgentState, ReferenceData
 from agents.graphics_workflow_v2.config.settings import (
@@ -24,7 +25,7 @@ import uuid
 def generate_search_queries(
     visual_element: str,
     state: Annotated[Dict, InjectedState]
-) -> str:
+) -> Command[str]:
     """
     Generates diverse search queries for a specific visual element.
 
@@ -93,17 +94,17 @@ Output format:
     formatted_queries = "\n".join([f"{i+1}. {q}" for i, q in enumerate(queries)])
     result_message = f"Generated {len(queries)} search queries for '{visual_element}':\n{formatted_queries}"
 
-    # Update state in place
-    state["search_queries"] = updated_queries
-
-    return result_message
+    return Command(
+        update={"search_queries": updated_queries},
+        goto="agent"  # Return to agent for next action
+    )
 
 
 @tool
 def execute_image_search(
     query: str,
     state: Annotated[Dict, InjectedState]
-) -> str:
+) -> Command[str]:
     """
     Executes semantic/vector search against the image database.
 
@@ -116,7 +117,10 @@ def execute_image_search(
     # Get drive instance from state (will be passed from parent)
     drive = state.get("drive")
     if not drive:
-        return "Error: Drive instance not available for search"
+        return Command(
+            update={},
+            goto="agent"
+        )
 
     # Get configuration
     k = state.get("search_k", SEARCH_K)
@@ -133,7 +137,10 @@ def execute_image_search(
             root_folder_id=root_folder_id
         )
     except Exception as e:
-        return f"Error: Search failed - {str(e)}"
+        return Command(
+            update={},
+            goto="agent"
+        )
 
     # Convert results to ReferenceData format
     reference_data_list = []
@@ -190,17 +197,17 @@ def execute_image_search(
     if len(filtered_results) > 5:
         result_message += f"... and {len(filtered_results) - 5} more results.\n"
 
-    # Update state in place
-    state["search_results"] = updated_results
-
-    return result_message
+    return Command(
+        update={"search_results": updated_results},
+        goto="agent"
+    )
 
 
 @tool
 def check_reference_reuse(
     visual_element: str,
     state: Annotated[Dict, InjectedState]
-) -> str:
+) -> Command[str]:
     """
     Checks if existing references from previous segments can be reused.
 
@@ -216,7 +223,10 @@ def check_reference_reuse(
     available_references = state.get("available_references", {})
 
     if not available_references:
-        return "No available references to check for reuse"
+        return Command(
+            update={},
+            goto="agent"
+        )
 
     # Use LLM to evaluate if any references match
     chain = Chain(
@@ -261,7 +271,10 @@ Output format:
     reasoning = parsed.get("reasoning", "")
 
     if matches_text == "NONE" or not matches_text:
-        return "No reusable references found for this visual element"
+        return Command(
+            update={},
+            goto="agent"
+        )
 
     # Extract reference IDs
     matched_ids = [
@@ -278,7 +291,10 @@ Output format:
     ]
 
     if not matched_references:
-        return "No valid reusable references found"
+        return Command(
+            update={},
+            goto="agent"
+        )
 
     # Add to selected references
     existing_selected = state.get("selected_references", [])
@@ -289,10 +305,10 @@ Output format:
         result_message += f"- {ref['title']} (from segment {ref.get('reused_from_segment', '?')})\n"
     result_message += f"\nReasoning: {reasoning}"
 
-    # Update state in place
-    state["selected_references"] = updated_selected
-
-    return result_message
+    return Command(
+        update={"selected_references": updated_selected},
+        goto="agent"
+    )
 
 
 @tool
@@ -384,7 +400,7 @@ Recommendations:
 def finalize_search(
     selected_reference_ids: str,
     state: Annotated[Dict, InjectedState]
-) -> str:
+) -> Command[str]:
     """
     Finalizes the search by selecting the best references to return.
 
@@ -412,10 +428,10 @@ def finalize_search(
     for i, ref in enumerate(final_selected):
         result_message += f"{i+1}. {ref['title']} ({ref['type']}) - Relevance: {ref['relevance_score']:.2f}\n"
 
-    # Update state in place
-    state["selected_references"] = final_selected
-
-    return result_message
+    return Command(
+        update={"selected_references": final_selected},
+        goto="agent"
+    )
 
 
 # ============================================================================
