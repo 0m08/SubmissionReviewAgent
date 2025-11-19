@@ -5,18 +5,15 @@ Transforms input text to sound like an experienced tradesperson.
 """
 
 from langchain_core.tools import tool
-from typing import Optional
+from typing import Optional, Annotated
+from langgraph.prebuilt import InjectedState
 from modules.chain import Chain
 from .prompts import PARAPHRASER_PROMPT_TEMPLATE
 
 
 @tool
 def paraphrase_text(
-    text: str,
-    trade: str,
-    specialization: Optional[str] = None,
-    preserve_formatting: bool = True,
-    target_length: Optional[str] = "similar"
+    state: Annotated[dict, InjectedState]
 ) -> str:
     """
     Paraphrase text to sound like an experienced tradesperson.
@@ -24,16 +21,23 @@ def paraphrase_text(
     Use this tool to transform monotonous or overly formal technical text
     into clear, conversational language that sounds like a real technician.
 
-    Args:
-        text: The text to paraphrase
-        trade: The trade context (e.g., "HVAC", "Electrical", "Plumbing")
-        specialization: Optional sub-specialization (e.g., "Residential HVAC")
-        preserve_formatting: Whether to maintain structure (lists, paragraphs)
-        target_length: "similar", "concise", or "expanded"
+    The tool reads parameters from the state:
+    - original_text: The text to paraphrase
+    - trade: Trade context (e.g., "HVAC", "Electrical", "Plumbing")
+    - specialization: Optional sub-specialization
+    - preserve_formatting: Whether to maintain structure
+    - target_length: "similar", "concise", or "expanded"
 
     Returns:
         Paraphrased text that sounds like a real tradesperson wrote it
     """
+    # Extract parameters from state
+    text = state.get("original_text", "")
+    trade = state.get("trade", "HVAC")
+    specialization = state.get("specialization")
+    preserve_formatting = state.get("preserve_formatting", True)
+    target_length = state.get("target_length", "similar")
+
     # Build prompt from template
     prompt = PARAPHRASER_PROMPT_TEMPLATE.format(
         trade=trade,
@@ -48,11 +52,16 @@ def paraphrase_text(
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 
-    # Return the paraphrased text
+    # Extract the paraphrased text
     if isinstance(response, dict) and "paraphrased_text" in response:
-        return response["paraphrased_text"]
+        paraphrased_text = response["paraphrased_text"]
     elif isinstance(response, str):
-        return response
+        paraphrased_text = response
     else:
-        # Fallback: return the full response as string
-        return str(response)
+        paraphrased_text = str(response)
+
+    # Update state with the paraphrased text
+    state["paraphrased_text"] = paraphrased_text
+    state["final_text"] = paraphrased_text  # Also set as final_text initially
+
+    return paraphrased_text

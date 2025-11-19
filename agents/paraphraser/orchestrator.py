@@ -93,31 +93,20 @@ def run_paraphraser(
         max_iterations=max_iterations
     )
 
-    # Build user instructions
-    user_instructions = f"""Please paraphrase the following text using this workflow:
+    # Build user instructions (simplified - state has all data)
+    user_instructions = f"""Please paraphrase the text in the state using this workflow:
 
-1. First, call the paraphrase_text tool with these parameters:
-   - text: (the input text below)
-   - trade: "{trade}"
-   - specialization: "{specialization or 'General'}"
-   - preserve_formatting: {preserve_formatting}
-   - target_length: "{target_length or 'similar'}"
+1. First, call the paraphrase_text tool (it will read all parameters from state)
 
 2. Then call review_quality to check the paraphrased output
 
-3. If the review fails (passed=false), call refine_text to fix the issues
+3. If the review fails (passed=false in the JSON response), call refine_text to fix the issues
 
 4. Review again if needed (max {max_iterations} refinements)
 
-5. Once quality passes or max iterations reached, present the final text to me
+5. Once quality passes or max iterations reached, tell me "Paraphrasing complete!" and show me the final text from state
 
-Here's the text to paraphrase:
-
----
-{text}
----
-
-Start by calling paraphrase_text.
+The text to paraphrase and all settings are already in the state. Start by calling paraphrase_text.
 """
 
     # Initialize state
@@ -165,10 +154,10 @@ def extract_results_from_state(state: Dict, original_text: str) -> Dict:
     """
     Extract final results from the orchestrator state.
 
-    Parses the message history to find:
-    - The final paraphrased/refined text
-    - Quality review results
-    - Refinement count
+    The state already contains all necessary fields:
+    - final_text: The final paraphrased text
+    - quality_report: Quality assessment
+    - refinement_count: Number of refinements
 
     Args:
         state: Final state from orchestrator
@@ -177,62 +166,17 @@ def extract_results_from_state(state: Dict, original_text: str) -> Dict:
     Returns:
         Structured result dictionary
     """
+    # Extract from state directly (tools update state)
+    final_text = state.get("final_text") or state.get("paraphrased_text") or original_text
+    quality_report = state.get("quality_report")
+    refinement_count = state.get("refinement_count", 0)
     messages = state.get("messages", [])
-
-    final_text = None
-    quality_report = None
-    refinement_count = 0
-
-    # Parse messages in reverse to find most recent results
-    for msg in reversed(messages):
-        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-
-        # Look for paraphrased or refined text
-        if final_text is None:
-            if "paraphrase_text" in content or "refine_text" in content:
-                # This might be a tool call result
-                # Try to extract the text content
-                lines = content.split('\n')
-                for line in lines:
-                    if line.strip() and len(line.strip()) > 50:
-                        # Likely the actual text content
-                        final_text = line.strip()
-                        break
-
-        # Look for quality review
-        if quality_report is None and "review_quality" in content:
-            try:
-                # Try to extract JSON from review
-                if "{" in content:
-                    json_start = content.find("{")
-                    json_end = content.rfind("}") + 1
-                    json_str = content[json_start:json_end]
-                    quality_report = json.loads(json_str)
-            except:
-                pass
-
-        # Count refinements
-        if "refine_text" in content:
-            refinement_count += 1
-
-    # Fallback: extract from last AI message
-    if final_text is None:
-        for msg in reversed(messages):
-            if hasattr(msg, 'type') and msg.type == 'ai':
-                content = str(msg.content)
-                if len(content) > 50:
-                    final_text = content
-                    break
-
-    # Final fallback
-    if final_text is None:
-        final_text = original_text
 
     return {
         "final_text": final_text,
         "status": "completed",
         "quality_report": quality_report,
-        "refinement_count": refinement_count // 2,  # Divide by 2 (call + result)
+        "refinement_count": refinement_count,
         "messages": messages,
         "metadata": {
             "trade": state.get("trade"),

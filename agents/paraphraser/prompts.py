@@ -54,7 +54,14 @@ If target_length is "expanded":
 {input_text}
 </input_text>
 
-Paraphrase the text above following all rules. Return ONLY the paraphrased text with no additional commentary.
+Paraphrase the text above following all rules.
+
+Return your paraphrased text inside XML tags like this:
+<paraphrased_text>
+Your paraphrased text here
+</paraphrased_text>
+
+Do not include any other commentary or explanation.
 """
 
 
@@ -112,7 +119,12 @@ Instructions:
 4. Refer to original text to ensure accuracy
 5. Do not add or remove information beyond what's needed to fix issues
 
-Return ONLY the refined text with no additional commentary.
+Return your refined text inside XML tags like this:
+<refined_text>
+Your refined text here
+</refined_text>
+
+Do not include any other commentary or explanation.
 """
 
 

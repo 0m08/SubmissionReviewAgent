@@ -5,7 +5,8 @@ Validates paraphrased text against quality criteria.
 """
 
 from langchain_core.tools import tool
-from typing import Dict
+from typing import Dict, Annotated
+from langgraph.prebuilt import InjectedState
 import json
 from modules.chain import Chain
 from .prompts import REVIEWER_PROMPT_TEMPLATE
@@ -13,9 +14,7 @@ from .prompts import REVIEWER_PROMPT_TEMPLATE
 
 @tool
 def review_quality(
-    original_text: str,
-    paraphrased_text: str,
-    trade: str
+    state: Annotated[dict, InjectedState]
 ) -> str:
     """
     Review paraphrased text for quality against spec criteria.
@@ -23,10 +22,10 @@ def review_quality(
     Use this tool to validate that paraphrased text meets all quality
     requirements: accuracy, clarity, tone, technical correctness, and safety.
 
-    Args:
-        original_text: The original input text (for comparison)
-        paraphrased_text: The paraphrased version to review
-        trade: The trade context for appropriate terminology validation
+    The tool reads from state:
+    - original_text: The original input text (for comparison)
+    - paraphrased_text: The paraphrased version to review
+    - trade: The trade context for validation
 
     Returns:
         JSON string with review results containing:
@@ -35,6 +34,11 @@ def review_quality(
         - score: integer 0-100 quality score
         - feedback: detailed explanation
     """
+    # Extract from state
+    original_text = state.get("original_text", "")
+    paraphrased_text = state.get("paraphrased_text", "")
+    trade = state.get("trade", "HVAC")
+
     # Build prompt from template
     prompt = REVIEWER_PROMPT_TEMPLATE.format(
         original_text=original_text,
@@ -42,11 +46,10 @@ def review_quality(
         trade=trade
     )
 
-    # Execute with Chain
+    # Execute with Chain using structured output
     chain = Chain(
         llm='gemini_2_5_flash',
-        tags=["passed", "issues", "score", "feedback"],
-        use_output_parser=False  # We want raw JSON output
+        tags=["passed", "issues", "score", "feedback"]
     )
     chain.add_message(role="user", content=prompt)
     response = chain.run()
@@ -54,41 +57,20 @@ def review_quality(
     # Parse and structure the response
     try:
         if isinstance(response, dict):
-            # Already structured
+            # Already structured from Chain tags
             result = {
-                "passed": response.get("passed", False),
-                "issues": response.get("issues", []),
+                "passed": str(response.get("passed", "false")).lower() == "true",
+                "issues": response.get("issues", "").split(",") if isinstance(response.get("issues"), str) else response.get("issues", []),
                 "score": int(response.get("score", 0)),
                 "feedback": response.get("feedback", "")
             }
-        elif isinstance(response, str):
-            # Try to parse JSON from string
-            # Look for JSON in the response
-            if "{" in response:
-                json_start = response.find("{")
-                json_end = response.rfind("}") + 1
-                json_str = response[json_start:json_end]
-                parsed = json.loads(json_str)
-                result = {
-                    "passed": parsed.get("passed", False),
-                    "issues": parsed.get("issues", []),
-                    "score": int(parsed.get("score", 0)),
-                    "feedback": parsed.get("feedback", "")
-                }
-            else:
-                # Fallback: treat as passed if no clear failure
-                result = {
-                    "passed": True,
-                    "issues": [],
-                    "score": 85,
-                    "feedback": response
-                }
         else:
+            # Fallback parsing
             result = {
-                "passed": True,
-                "issues": [],
-                "score": 85,
-                "feedback": str(response)
+                "passed": False,
+                "issues": ["Unable to parse review response"],
+                "score": 0,
+                "feedback": str(response)[:500]
             }
     except Exception as e:
         # Error during parsing - return safe default
@@ -98,6 +80,9 @@ def review_quality(
             "score": 0,
             "feedback": f"Review parsing failed: {str(response)[:200]}"
         }
+
+    # Update state with quality report
+    state["quality_report"] = result
 
     # Return as JSON string for LangGraph tool compatibility
     return json.dumps(result)
