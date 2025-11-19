@@ -1,8 +1,17 @@
 # Paraphraser Agent Implementation Plan
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** 2025-11-19
 **Architecture:** Multi-Agent Orchestrator with LangGraph
+
+---
+
+## Key Implementation Decisions
+
+1. **LLM Model:** GPT-4o-mini (default, user-configurable in UI)
+2. **Quality Threshold:** Binary pass/fail - any failure triggers refinement
+3. **Quick Mode:** Not implemented in MVP
+4. **Test Content:** Will be created as needed during implementation
 
 ---
 
@@ -161,7 +170,7 @@ def paraphrase_text(
     )
 
     # Execute with Chain
-    chain = Chain(llm='openai:gpt-4o', tags=["paraphrased_text"])
+    chain = Chain(llm='openai:gpt-4o-mini', tags=["paraphrased_text"])
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 
@@ -238,7 +247,7 @@ def review_quality(
     )
 
     chain = Chain(
-        llm='openai:gpt-4o',
+        llm='openai:gpt-4o-mini',
         tags=["passed", "issues", "score", "feedback"]
     )
     chain.add_message(role="user", content=prompt)
@@ -319,7 +328,7 @@ def refine_text(
         trade=trade
     )
 
-    chain = Chain(llm='openai:gpt-4o', tags=["refined_text"])
+    chain = Chain(llm='openai:gpt-4o-mini', tags=["refined_text"])
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 
@@ -361,14 +370,14 @@ import os
 
 def create_paraphraser_orchestrator(
     max_iterations: int = 3,
-    llm_model: str = "openai:gpt-4o"
+    llm_model: str = "openai:gpt-4o-mini"
 ):
     """
     Create the multi-agent paraphraser orchestrator.
 
     Args:
         max_iterations: Maximum refinement iterations
-        llm_model: LLM to use for orchestrator
+        llm_model: LLM to use for orchestrator (default: gpt-4o-mini)
 
     Returns:
         Compiled LangGraph agent
@@ -401,7 +410,7 @@ def run_paraphraser(
     preserve_formatting: bool = True,
     target_length: Optional[str] = "similar",
     max_iterations: int = 3,
-    llm_model: str = "openai:gpt-4o"
+    llm_model: str = "openai:gpt-4o-mini"
 ) -> Dict:
     """
     Main entry point for paraphrasing text.
@@ -645,8 +654,9 @@ with st.sidebar:
 
     llm_model = st.selectbox(
         "LLM Model",
-        ["openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-20241022"],
-        index=0
+        ["openai:gpt-4o-mini", "openai:gpt-4o", "anthropic:claude-3-5-sonnet-20241022"],
+        index=0,
+        help="GPT-4o-mini is faster and cheaper, GPT-4o for highest quality"
     )
 
 # Main content area
@@ -899,19 +909,24 @@ LANGCHAIN_PROJECT=paraphraser-agent
 ## 12. Cost Estimates
 
 ### 12.1 Per Paraphrase (500 words)
-Assuming GPT-4o:
-- Paraphraser: ~1000 input + 600 output tokens = $0.015
-- Reviewer: ~1200 input + 300 output tokens = $0.0195
-- Refiner (if needed): ~1200 input + 600 output tokens = $0.024
-- Orchestrator overhead: ~500 tokens = $0.005
+Using GPT-4o-mini (default):
+- Paraphraser: ~1000 input + 600 output tokens = $0.00051
+- Reviewer: ~1200 input + 300 output tokens = $0.00036
+- Refiner (if needed): ~1200 input + 600 output tokens = $0.00054
+- Orchestrator overhead: ~500 tokens = $0.0001
 
-**Total per paraphrase:** ~$0.06 (without refinement) to $0.10 (with 1 refinement)
+**Total per paraphrase:** ~$0.001 (without refinement) to $0.002 (with 1 refinement)
+
+Using GPT-4o (optional upgrade):
+- Total per paraphrase: ~$0.06 (without refinement) to $0.10 (with 1 refinement)
+
+**GPT-4o-mini is approximately 50x cheaper than GPT-4o**
 
 ### 12.2 Cost Optimization
-- Use GPT-4o-mini for reviewer (~80% cost reduction)
+- GPT-4o-mini is default (already optimized)
 - Cache prompts where possible
-- Limit max iterations to 2-3
-- Use cheaper models for non-critical tasks
+- Limit max iterations to 3
+- Users can upgrade to GPT-4o for highest quality when needed
 
 ---
 
