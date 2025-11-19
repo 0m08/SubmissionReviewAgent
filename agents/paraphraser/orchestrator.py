@@ -133,7 +133,8 @@ Start by calling paraphrase_text.
         "target_length": target_length,
         "refinement_count": 0,
         "iteration_history": [],
-        "status": "in_progress"
+        "status": "in_progress",
+        "remaining_steps": max_iterations * 3  # Allow for multiple tool calls per iteration
     }
 
     # Run orchestrator

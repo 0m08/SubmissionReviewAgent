@@ -53,3 +53,7 @@ class ParaphraserState(MessagesState):
     # Metadata for debugging
     iteration_history: NotRequired[List[Dict]]
     """Track all iterations with timestamps and decisions"""
+
+    # LangGraph required fields
+    remaining_steps: NotRequired[int]
+    """Number of remaining steps for LangGraph agent (required by create_react_agent)"""
