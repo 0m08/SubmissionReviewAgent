@@ -44,7 +44,7 @@ def review_quality(
 
     # Execute with Chain
     chain = Chain(
-        llm='openai:gpt-4o-mini',
+        llm='gemini_2_5_flash',
         tags=["passed", "issues", "score", "feedback"],
         use_output_parser=False  # We want raw JSON output
     )

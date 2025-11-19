@@ -64,7 +64,7 @@ def refine_text(
     )
 
     # Execute with Chain
-    chain = Chain(llm='openai:gpt-4o-mini', tags=["refined_text"])
+    chain = Chain(llm='gemini_2_5_flash', tags=["refined_text"])
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 

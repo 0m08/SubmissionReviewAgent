@@ -43,8 +43,8 @@ def paraphrase_text(
         target_length=target_length or "similar"
     )
 
-    # Execute with Chain (using gpt-4o-mini by default)
-    chain = Chain(llm='openai:gpt-4o-mini', tags=["paraphrased_text"])
+    # Execute with Chain (using gemini_2_5_flash)
+    chain = Chain(llm='gemini_2_5_flash', tags=["paraphrased_text"])
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 
