@@ -4,9 +4,11 @@ Refiner Agent Tool
 Fixes specific quality issues in paraphrased text.
 """
 
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from typing import List, Annotated
 from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
+from langchain_core.messages import ToolMessage
 import json
 from modules.chain import Chain
 from .prompts import REFINER_PROMPT_TEMPLATE
@@ -14,8 +16,9 @@ from .prompts import REFINER_PROMPT_TEMPLATE
 
 @tool
 def refine_text(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[dict, InjectedState]
-) -> str:
+) -> Command:
     """
     Refine paraphrased text to fix specific quality issues.
 
@@ -59,19 +62,19 @@ def refine_text(
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 
-    # Extract the refined text
-    if isinstance(response, dict) and "refined_text" in response:
-        refined_text = response["refined_text"]
-    elif isinstance(response, str):
-        refined_text = response
-    else:
-        refined_text = str(response)
+    refined_text = response["refined_text"]
 
-    # Update state with refined text
-    state["paraphrased_text"] = refined_text  # Update current version
-    state["final_text"] = refined_text  # Update final output
-
-    # Increment refinement count
-    state["refinement_count"] = state.get("refinement_count", 0) + 1
-
-    return refined_text
+    # Return Command with state updates and tool message
+    return Command(
+        update={
+            "paraphrased_text": refined_text,
+            "final_text": refined_text,
+            "refinement_count": state.get("refinement_count", 0) + 1,
+            "messages": [
+                ToolMessage(
+                    "Text successfully refined to address quality issues.",
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )

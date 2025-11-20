@@ -7,6 +7,7 @@ Transform monotonous technical text into clear, conversational language.
 
 import streamlit as st
 from agents.paraphraser import run_paraphraser
+from services.helper_functions import compare_text_versions
 import json
 
 # Page config
@@ -255,6 +256,15 @@ if "paraphraser_result" in st.session_state:
             if qr.get("feedback"):
                 st.write("**Feedback:**")
                 st.info(qr["feedback"])
+
+    # Text diff comparison
+    with st.expander("🔀 View Differences"):
+        compare_text_versions(
+            st.session_state.get("paraphraser_input", ""),
+            result["final_text"],
+            version1_name="Original Text",
+            version2_name="Paraphrased Text"
+        )
 
     # Full message history (for debugging)
     if result.get("messages"):

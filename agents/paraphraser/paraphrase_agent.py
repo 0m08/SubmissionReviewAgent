@@ -4,17 +4,20 @@ Paraphraser Agent Tool
 Transforms input text to sound like an experienced tradesperson.
 """
 
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from typing import Optional, Annotated
 from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
+from langchain_core.messages import ToolMessage
 from modules.chain import Chain
 from .prompts import PARAPHRASER_PROMPT_TEMPLATE
 
 
 @tool
 def paraphrase_text(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[dict, InjectedState]
-) -> str:
+) -> Command:
     """
     Paraphrase text to sound like an experienced tradesperson.
 
@@ -52,16 +55,18 @@ def paraphrase_text(
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 
-    # Extract the paraphrased text
-    if isinstance(response, dict) and "paraphrased_text" in response:
-        paraphrased_text = response["paraphrased_text"]
-    elif isinstance(response, str):
-        paraphrased_text = response
-    else:
-        paraphrased_text = str(response)
+    paraphrased_text = response["paraphrased_text"]
 
-    # Update state with the paraphrased text
-    state["paraphrased_text"] = paraphrased_text
-    state["final_text"] = paraphrased_text  # Also set as final_text initially
-
-    return paraphrased_text
+    # Return Command with state updates and tool message
+    return Command(
+        update={
+            "paraphrased_text": paraphrased_text,
+            "final_text": paraphrased_text,
+            "messages": [
+                ToolMessage(
+                    f"Text successfully paraphrased for {state.get('trade', 'HVAC')}.",
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )

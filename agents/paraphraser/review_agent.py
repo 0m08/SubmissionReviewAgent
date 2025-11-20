@@ -4,18 +4,44 @@ Quality Reviewer Agent Tool
 Validates paraphrased text against quality criteria.
 """
 
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from typing import Dict, Annotated
 from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
+from langchain_core.messages import ToolMessage
 import json
+from pydantic import BaseModel, Field
 from modules.chain import Chain
 from .prompts import REVIEWER_PROMPT_TEMPLATE
 
 
+class QualityReview(BaseModel):
+    """Pydantic model for quality review output."""
+    
+    passed: bool = Field(..., description="Whether all quality criteria passed")
+    issues: list[str] = Field(
+        default_factory=list,
+        description="List of specific issues found, empty list if none"
+    )
+    score: int = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Quality score from 0-100"
+    )
+    feedback: str = Field(
+        ...,
+        min_length=1,
+        description="Detailed explanation of the review"
+    )
+
+
+
 @tool
 def review_quality(
+    tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[dict, InjectedState]
-) -> str:
+) -> Command:
     """
     Review paraphrased text for quality against spec criteria.
 
@@ -49,40 +75,46 @@ def review_quality(
     # Execute with Chain using structured output
     chain = Chain(
         llm='gemini_2_5_flash',
-        tags=["passed", "issues", "score", "feedback"]
+        use_output_parser=False  # Don't use tag extraction for structured output
     )
+    chain.structured_output = QualityReview
     chain.add_message(role="user", content=prompt)
     response = chain.run()
 
-    # Parse and structure the response
-    try:
-        if isinstance(response, dict):
-            # Already structured from Chain tags
-            result = {
-                "passed": str(response.get("passed", "false")).lower() == "true",
-                "issues": response.get("issues", "").split(",") if isinstance(response.get("issues"), str) else response.get("issues", []),
-                "score": int(response.get("score", 0)),
-                "feedback": response.get("feedback", "")
-            }
-        else:
-            # Fallback parsing
-            result = {
-                "passed": False,
-                "issues": ["Unable to parse review response"],
-                "score": 0,
-                "feedback": str(response)[:500]
-            }
-    except Exception as e:
-        # Error during parsing - return safe default
+    # Response should already be a QualityReview instance from structured output
+    if isinstance(response, QualityReview):
+        result = {
+            "passed": response.passed,
+            "issues": response.issues,
+            "score": response.score,
+            "feedback": response.feedback
+        }
+    elif isinstance(response, dict):
+        # Fallback in case response is already a dict
+        result = {
+            "passed": response.get("passed", False),
+            "issues": response.get("issues", []),
+            "score": response.get("score", 0),
+            "feedback": response.get("feedback", "")
+        }
+    else:
+        # Error handling - unable to parse response
         result = {
             "passed": False,
-            "issues": [f"Error parsing review: {str(e)}"],
+            "issues": ["Unable to parse review response"],
             "score": 0,
-            "feedback": f"Review parsing failed: {str(response)[:200]}"
+            "feedback": str(response)[:500]
         }
 
-    # Update state with quality report
-    state["quality_report"] = result
-
-    # Return as JSON string for LangGraph tool compatibility
-    return json.dumps(result)
+    # Return Command with state updates and tool message
+    return Command(
+        update={
+            "quality_report": result,
+            "messages": [
+                ToolMessage(
+                    json.dumps(result),
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )
