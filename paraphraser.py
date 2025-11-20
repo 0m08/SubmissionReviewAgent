@@ -25,7 +25,7 @@ like an experienced tradesperson.
 """)
 
 # Settings expander
-with st.expander("⚙️ Settings & Configuration", expanded=True):
+with st.expander("⚙️ Settings & Configuration", expanded=False):
 
     st.subheader("📋 Trade Context")
     trade = st.selectbox(
@@ -104,54 +104,21 @@ with st.expander("⚙️ Settings & Configuration", expanded=True):
 
 st.divider()
 
-# Main content area
-col1, col2 = st.columns([1, 1])
+# Input area
+st.subheader("📝 Input Text")
+input_text = st.text_area(
+    "Text to paraphrase",
+    height=300,
+    placeholder="Paste or type technical content here...\n\nExample: 'Technicians must de-energize the system to mitigate hazards prior to engaging with components.'",
+    label_visibility="collapsed",
+    key="input_text_area"
+)
 
-with col1:
-    st.subheader("📝 Input Text")
-    input_text = st.text_area(
-        "Text to paraphrase",
-        height=400,
-        placeholder="Paste or type technical content here...\n\nExample: 'Technicians must de-energize the system to mitigate hazards prior to engaging with components.'",
-        label_visibility="collapsed",
-        key="input_text_area"
-    )
-
-    # Character count
-    if input_text:
-        st.caption(f"Characters: {len(input_text)} | Words: {len(input_text.split())}")
-
-with col2:
-    st.subheader("✨ Paraphrased Text")
-
-    # Show placeholder or result
-    if "paraphraser_result" in st.session_state:
-        result = st.session_state.paraphraser_result
-
-        output_text = st.text_area(
-            "Paraphrased output",
-            value=result["final_text"],
-            height=400,
-            label_visibility="collapsed",
-            key="output_text_area"
-        )
-
-        # Character count for output
-        st.caption(f"Characters: {len(result['final_text'])} | Words: {len(result['final_text'].split())}")
-    else:
-        st.info("👈 Enter text and click 'Paraphrase Text' to get started")
-        st.text_area(
-            "Output will appear here",
-            value="",
-            height=400,
-            label_visibility="collapsed",
-            disabled=True,
-            key="output_placeholder"
-        )
+# Character count
+if input_text:
+    st.caption(f"Characters: {len(input_text)} | Words: {len(input_text.split())}")
 
 # Action buttons
-st.divider()
-
 col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 1])
 
 with col_btn1:
@@ -211,9 +178,24 @@ if paraphrase_button:
                 with st.expander("🔍 Error Details"):
                     st.exception(e)
 
-# Display metadata if results available
+# Display output if results available
 if "paraphraser_result" in st.session_state:
     result = st.session_state.paraphraser_result
+
+    st.divider()
+
+    # Output text area
+    st.subheader("✨ Paraphrased Text")
+    output_text = st.text_area(
+        "Paraphrased output",
+        value=result["final_text"],
+        height=300,
+        label_visibility="collapsed",
+        key="output_text_area"
+    )
+
+    # Character count for output
+    st.caption(f"Characters: {len(result['final_text'])} | Words: {len(result['final_text'].split())}")
 
     st.divider()
     st.subheader("📊 Process Details")
