@@ -64,6 +64,7 @@ def review_quality(
     original_text = state.get("original_text", "")
     paraphrased_text = state.get("paraphrased_text", "")
     trade = state.get("trade", "HVAC")
+    custom_quality_criteria = state.get("custom_quality_criteria")
 
     # Build prompt from template
     prompt = REVIEWER_PROMPT_TEMPLATE.format(
@@ -71,6 +72,13 @@ def review_quality(
         paraphrased_text=paraphrased_text,
         trade=trade
     )
+
+    # Replace quality criteria if custom ones provided
+    if custom_quality_criteria:
+        prompt = prompt.replace(
+            "<quality_criteria>",
+            f"<quality_criteria>\n{custom_quality_criteria}"
+        )
 
     # Execute with Chain using structured output
     chain = Chain(

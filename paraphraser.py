@@ -75,6 +75,33 @@ with st.sidebar:
 
     st.divider()
 
+    # Advanced options expander
+    with st.expander("🎛️ Advanced Options"):
+        st.caption("Customize quality criteria, examples, and tone")
+
+        custom_quality_criteria = st.text_area(
+            "Custom Quality Checklist (optional)",
+            placeholder="Leave empty to use default criteria, or enter custom checklist:\n1. ACCURACY: ...\n2. CLARITY: ...\n3. TONE: ...",
+            height=150,
+            help="Override the default quality criteria for the reviewer agent"
+        )
+
+        custom_examples = st.text_area(
+            "Custom Examples (optional)",
+            placeholder="Leave empty to use defaults, or provide examples:\n\nBAD: \"Technicians must...\"\nGOOD: \"Shut the power off...\"\n\nBAD: \"Ensure optimal...\"\nGOOD: \"Good airflow...\"",
+            height=150,
+            help="Provide custom before/after examples to guide the paraphraser"
+        )
+
+        custom_tone_instructions = st.text_area(
+            "Custom Tone Instructions (optional)",
+            placeholder="Leave empty for default tone, or specify:\ne.g., 'More formal', 'Very casual', 'Safety-focused', etc.",
+            height=100,
+            help="Add specific tone instructions beyond the default"
+        )
+
+    st.divider()
+
     # Info section
     with st.expander("ℹ️ How it works"):
         st.markdown("""
@@ -185,7 +212,10 @@ if paraphrase_button:
                     preserve_formatting=preserve_formatting,
                     target_length=target_length,
                     max_iterations=max_iterations,
-                    llm_model=llm_model
+                    llm_model=llm_model,
+                    custom_quality_criteria=custom_quality_criteria if custom_quality_criteria.strip() else None,
+                    custom_examples=custom_examples if custom_examples.strip() else None,
+                    custom_tone_instructions=custom_tone_instructions if custom_tone_instructions.strip() else None
                 )
 
                 # Store in session state

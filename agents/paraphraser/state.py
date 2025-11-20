@@ -33,6 +33,15 @@ class ParaphraserState(MessagesState):
     target_length: NotRequired[Optional[str]]
     """Target length: 'similar', 'concise', or 'expanded'"""
 
+    custom_quality_criteria: NotRequired[Optional[str]]
+    """Custom quality checklist for reviewer agent (overrides default)"""
+
+    custom_examples: NotRequired[Optional[str]]
+    """Custom before/after examples for paraphraser agent"""
+
+    custom_tone_instructions: NotRequired[Optional[str]]
+    """Additional tone instructions for paraphraser agent"""
+
     # Working data
     paraphrased_text: NotRequired[Optional[str]]
     """Current paraphrased version"""

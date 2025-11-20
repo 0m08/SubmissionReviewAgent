@@ -54,7 +54,10 @@ def run_paraphraser(
     preserve_formatting: bool = True,
     target_length: Optional[str] = "similar",
     max_iterations: int = 3,
-    llm_model: str = "openai:gpt-4o-mini"
+    llm_model: str = "openai:gpt-4o-mini",
+    custom_quality_criteria: Optional[str] = None,
+    custom_examples: Optional[str] = None,
+    custom_tone_instructions: Optional[str] = None
 ) -> Dict:
     """
     Main entry point for paraphrasing text.
@@ -73,6 +76,9 @@ def run_paraphraser(
         target_length: "similar", "concise", or "expanded"
         max_iterations: Max refinement loops
         llm_model: LLM model to use
+        custom_quality_criteria: Optional custom quality checklist for reviewer
+        custom_examples: Optional custom before/after examples for paraphraser
+        custom_tone_instructions: Optional additional tone instructions
 
     Returns:
         Dictionary with:
@@ -120,6 +126,9 @@ The text to paraphrase and all settings are already in the state. Start by calli
         "specialization": specialization,
         "preserve_formatting": preserve_formatting,
         "target_length": target_length,
+        "custom_quality_criteria": custom_quality_criteria,
+        "custom_examples": custom_examples,
+        "custom_tone_instructions": custom_tone_instructions,
         "refinement_count": 0,
         "iteration_history": [],
         "status": "in_progress",

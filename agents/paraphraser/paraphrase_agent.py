@@ -40,6 +40,8 @@ def paraphrase_text(
     specialization = state.get("specialization")
     preserve_formatting = state.get("preserve_formatting", True)
     target_length = state.get("target_length", "similar")
+    custom_examples = state.get("custom_examples")
+    custom_tone_instructions = state.get("custom_tone_instructions")
 
     # Build prompt from template
     prompt = PARAPHRASER_PROMPT_TEMPLATE.format(
@@ -49,6 +51,20 @@ def paraphrase_text(
         preserve_formatting="yes" if preserve_formatting else "no",
         target_length=target_length or "similar"
     )
+
+    # Append custom examples if provided
+    if custom_examples:
+        prompt = prompt.replace(
+            "</examples>",
+            f"\n{custom_examples}\n</examples>"
+        )
+
+    # Append custom tone instructions if provided
+    if custom_tone_instructions:
+        prompt = prompt.replace(
+            "</paraphrasing_rules>",
+            f"10. CUSTOM INSTRUCTIONS: {custom_tone_instructions}\n</paraphrasing_rules>"
+        )
 
     # Execute with Chain (using gemini_2_5_flash)
     chain = Chain(llm='gemini_2_5_flash', tags=["paraphrased_text"])
