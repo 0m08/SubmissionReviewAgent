@@ -24,71 +24,63 @@ Transform monotonous technical text into clear, conversational language that sou
 like an experienced tradesperson.
 """)
 
-# Sidebar for settings
-with st.sidebar:
-    st.header("⚙️ Settings")
+# Settings expander
+with st.expander("⚙️ Settings & Configuration", expanded=True):
+    col_set1, col_set2, col_set3 = st.columns(3)
 
-    # === TRADE CONTEXT ===
-    st.subheader("📋 Trade Context")
+    with col_set1:
+        st.subheader("📋 Trade Context")
 
-    trade = st.selectbox(
-        "Trade",
-        ["HVAC", "Electrical", "Plumbing"],
-        index=0,
-        help="Select the trade context for terminology"
-    )
+        trade = st.selectbox(
+            "Trade",
+            ["HVAC", "Electrical", "Plumbing"],
+            index=0,
+            help="Select the trade context for terminology"
+        )
 
-    specialization = st.text_input(
-        "Specialization",
-        value="",
-        placeholder="e.g., Residential HVAC, Commercial Refrigeration",
-        help="Narrow down the trade context for more specific terminology (optional)"
-    )
+        specialization = st.text_input(
+            "Specialization",
+            value="",
+            placeholder="e.g., Residential HVAC",
+            help="Narrow down the trade context (optional)"
+        )
 
-    st.divider()
+    with col_set2:
+        st.subheader("📐 Output Formatting")
 
-    # === OUTPUT FORMATTING ===
-    st.subheader("📐 Output Formatting")
+        preserve_formatting = st.checkbox(
+            "Preserve formatting",
+            value=True,
+            help="Maintain bullet points, lists, and paragraph structure"
+        )
 
-    preserve_formatting = st.checkbox(
-        "Preserve formatting",
-        value=True,
-        help="Maintain bullet points, lists, and paragraph structure"
-    )
+        target_length = st.selectbox(
+            "Target Length",
+            ["similar", "concise", "expanded"],
+            index=0,
+            help="How long should the output be relative to input?"
+        )
 
-    target_length = st.selectbox(
-        "Target Length",
-        ["similar", "concise", "expanded"],
-        index=0,
-        help="How long should the output be relative to input?"
-    )
+    with col_set3:
+        st.subheader("⚡ Processing Settings")
 
-    st.divider()
+        max_iterations = st.slider(
+            "Max Refinement Iterations",
+            min_value=1,
+            max_value=5,
+            value=3,
+            help="Maximum times to refine if quality checks fail"
+        )
 
-    # === PROCESSING SETTINGS ===
-    st.subheader("⚡ Processing Settings")
+        llm_model = st.selectbox(
+            "LLM Model",
+            ["openai:gpt-4o-mini", "openai:gpt-4o", "anthropic:claude-3-5-sonnet-20241022"],
+            index=0,
+            help="GPT-4o-mini is faster and cheaper, GPT-4o for highest quality"
+        )
 
-    max_iterations = st.slider(
-        "Max Refinement Iterations",
-        min_value=1,
-        max_value=5,
-        value=3,
-        help="Maximum times to refine if quality checks fail"
-    )
-
-    llm_model = st.selectbox(
-        "LLM Model",
-        ["openai:gpt-4o-mini", "openai:gpt-4o", "anthropic:claude-3-5-sonnet-20241022"],
-        index=0,
-        help="GPT-4o-mini is faster and cheaper, GPT-4o for highest quality"
-    )
-
-    st.divider()
-
-    # === ADVANCED OPTIONS ===
-    with st.expander("🎛️ Advanced Options", expanded=False):
-        st.caption("Customize quality criteria, examples, and tone")
-
+    # Advanced options in a sub-expander
+    with st.expander("🎛️ Advanced Options"):
         custom_quality_criteria = st.text_area(
             "Custom Quality Checklist (optional)",
             placeholder="Leave empty to use default criteria, or enter custom checklist:\n1. ACCURACY: ...\n2. CLARITY: ...\n3. TONE: ...",
@@ -110,24 +102,7 @@ with st.sidebar:
             help="Add specific tone instructions beyond the default"
         )
 
-    st.divider()
-
-    # Info section
-    with st.expander("ℹ️ How it works"):
-        st.markdown("""
-        **Multi-Agent Process:**
-        1. **Paraphraser** transforms the text
-        2. **Reviewer** validates quality
-        3. **Refiner** fixes issues (if needed)
-        4. Repeats until quality passes
-
-        **Quality Criteria:**
-        - Accuracy (no information added/removed)
-        - Clarity (improved readability)
-        - Tone (sounds like real technician)
-        - Technical correctness
-        - Safety info preserved
-        """)
+st.divider()
 
 # Main content area
 col1, col2 = st.columns([1, 1])
@@ -163,11 +138,6 @@ with col2:
 
         # Character count for output
         st.caption(f"Characters: {len(result['final_text'])} | Words: {len(result['final_text'].split())}")
-
-        # Copy button
-        if st.button("📋 Copy to Clipboard", use_container_width=True):
-            st.code(result["final_text"], language=None)
-            st.success("✅ Text displayed above - you can copy it from there")
     else:
         st.info("👈 Enter text and click 'Paraphrase Text' to get started")
         st.text_area(
