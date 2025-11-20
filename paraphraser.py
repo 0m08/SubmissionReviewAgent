@@ -26,81 +26,81 @@ like an experienced tradesperson.
 
 # Settings expander
 with st.expander("⚙️ Settings & Configuration", expanded=True):
-    col_set1, col_set2, col_set3 = st.columns(3)
 
-    with col_set1:
-        st.subheader("📋 Trade Context")
+    st.subheader("📋 Trade Context")
+    trade = st.selectbox(
+        "Trade",
+        ["HVAC", "Electrical", "Plumbing"],
+        index=0,
+        help="Select the trade context for terminology"
+    )
 
-        trade = st.selectbox(
-            "Trade",
-            ["HVAC", "Electrical", "Plumbing"],
-            index=0,
-            help="Select the trade context for terminology"
-        )
+    specialization = st.text_input(
+        "Specialization",
+        value="",
+        placeholder="e.g., Residential HVAC",
+        help="Narrow down the trade context (optional)"
+    )
 
-        specialization = st.text_input(
-            "Specialization",
-            value="",
-            placeholder="e.g., Residential HVAC",
-            help="Narrow down the trade context (optional)"
-        )
+    st.divider()
 
-    with col_set2:
-        st.subheader("📐 Output Formatting")
+    st.subheader("📐 Output Formatting")
+    preserve_formatting = st.checkbox(
+        "Preserve formatting",
+        value=True,
+        help="Maintain bullet points, lists, and paragraph structure"
+    )
 
-        preserve_formatting = st.checkbox(
-            "Preserve formatting",
-            value=True,
-            help="Maintain bullet points, lists, and paragraph structure"
-        )
+    target_length = st.selectbox(
+        "Target Length",
+        ["similar", "concise", "expanded"],
+        index=0,
+        help="How long should the output be relative to input?"
+    )
 
-        target_length = st.selectbox(
-            "Target Length",
-            ["similar", "concise", "expanded"],
-            index=0,
-            help="How long should the output be relative to input?"
-        )
+    st.divider()
 
-    with col_set3:
-        st.subheader("⚡ Processing Settings")
+    st.subheader("⚡ Processing Settings")
+    max_iterations = st.slider(
+        "Max Refinement Iterations",
+        min_value=1,
+        max_value=5,
+        value=3,
+        help="Maximum times to refine if quality checks fail"
+    )
 
-        max_iterations = st.slider(
-            "Max Refinement Iterations",
-            min_value=1,
-            max_value=5,
-            value=3,
-            help="Maximum times to refine if quality checks fail"
-        )
+    llm_model = st.selectbox(
+        "LLM Model",
+        ["openai:gpt-4o-mini", "openai:gpt-4o", "anthropic:claude-3-5-sonnet-20241022"],
+        index=0,
+        help="GPT-4o-mini is faster and cheaper, GPT-4o for highest quality"
+    )
 
-        llm_model = st.selectbox(
-            "LLM Model",
-            ["openai:gpt-4o-mini", "openai:gpt-4o", "anthropic:claude-3-5-sonnet-20241022"],
-            index=0,
-            help="GPT-4o-mini is faster and cheaper, GPT-4o for highest quality"
-        )
+    st.divider()
 
-    # Advanced options in a sub-expander
-    with st.expander("🎛️ Advanced Options"):
-        custom_quality_criteria = st.text_area(
-            "Custom Quality Checklist (optional)",
-            placeholder="Leave empty to use default criteria, or enter custom checklist:\n1. ACCURACY: ...\n2. CLARITY: ...\n3. TONE: ...",
-            height=150,
-            help="Override the default quality criteria for the reviewer agent"
-        )
+    st.subheader("🎛️ Advanced Options")
+    st.caption("Optional: Customize quality criteria, examples, and tone")
 
-        custom_examples = st.text_area(
-            "Custom Examples (optional)",
-            placeholder="Leave empty to use defaults, or provide examples:\n\nBAD: \"Technicians must...\"\nGOOD: \"Shut the power off...\"\n\nBAD: \"Ensure optimal...\"\nGOOD: \"Good airflow...\"",
-            height=150,
-            help="Provide custom before/after examples to guide the paraphraser"
-        )
+    custom_quality_criteria = st.text_area(
+        "Custom Quality Checklist (optional)",
+        placeholder="Leave empty to use default criteria, or enter custom checklist:\n1. ACCURACY: ...\n2. CLARITY: ...\n3. TONE: ...",
+        height=150,
+        help="Override the default quality criteria for the reviewer agent"
+    )
 
-        custom_tone_instructions = st.text_area(
-            "Custom Tone Instructions (optional)",
-            placeholder="Leave empty for default tone, or specify:\ne.g., 'More formal', 'Very casual', 'Safety-focused', etc.",
-            height=100,
-            help="Add specific tone instructions beyond the default"
-        )
+    custom_examples = st.text_area(
+        "Custom Examples (optional)",
+        placeholder="Leave empty to use defaults, or provide examples:\n\nBAD: \"Technicians must...\"\nGOOD: \"Shut the power off...\"\n\nBAD: \"Ensure optimal...\"\nGOOD: \"Good airflow...\"",
+        height=150,
+        help="Provide custom before/after examples to guide the paraphraser"
+    )
+
+    custom_tone_instructions = st.text_area(
+        "Custom Tone Instructions (optional)",
+        placeholder="Leave empty for default tone, or specify:\ne.g., 'More formal', 'Very casual', 'Safety-focused', etc.",
+        height=100,
+        help="Add specific tone instructions beyond the default"
+    )
 
 st.divider()
 
