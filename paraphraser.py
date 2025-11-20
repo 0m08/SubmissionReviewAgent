@@ -28,6 +28,9 @@ like an experienced tradesperson.
 with st.sidebar:
     st.header("⚙️ Settings")
 
+    # === TRADE CONTEXT ===
+    st.subheader("📋 Trade Context")
+
     trade = st.selectbox(
         "Trade",
         ["HVAC", "Electrical", "Plumbing"],
@@ -36,12 +39,16 @@ with st.sidebar:
     )
 
     specialization = st.text_input(
-        "Specialization (optional)",
-        placeholder="e.g., Residential HVAC",
-        help="Narrow down the trade context for more specific terminology"
+        "Specialization",
+        value="",
+        placeholder="e.g., Residential HVAC, Commercial Refrigeration",
+        help="Narrow down the trade context for more specific terminology (optional)"
     )
 
     st.divider()
+
+    # === OUTPUT FORMATTING ===
+    st.subheader("📐 Output Formatting")
 
     preserve_formatting = st.checkbox(
         "Preserve formatting",
@@ -57,6 +64,9 @@ with st.sidebar:
     )
 
     st.divider()
+
+    # === PROCESSING SETTINGS ===
+    st.subheader("⚡ Processing Settings")
 
     max_iterations = st.slider(
         "Max Refinement Iterations",
@@ -75,8 +85,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Advanced options expander
-    with st.expander("🎛️ Advanced Options"):
+    # === ADVANCED OPTIONS ===
+    with st.expander("🎛️ Advanced Options", expanded=False):
         st.caption("Customize quality criteria, examples, and tone")
 
         custom_quality_criteria = st.text_area(
