@@ -152,13 +152,40 @@ if paraphrase_button:
     if not input_text.strip():
         st.error("❌ Please enter some text to paraphrase")
     else:
-        # Show progress
-        with st.spinner("🔄 Paraphrasing... This may take 10-30 seconds"):
-            progress_placeholder = st.empty()
-            progress_placeholder.info("📝 Step 1/3: Paraphrasing text...")
+        # Create progress tracking containers
+        progress_placeholder = st.empty()
+        status_container = st.container()
 
+        # Progress messages mapping
+        node_messages = {
+            "paraphrase": "📝 Transforming text to conversational style...",
+            "review": "🔍 Reviewing quality and checking criteria...",
+            "refine": "✨ Refining based on quality feedback..."
+        }
+
+        # Track state for progress display
+        progress_state = {"current_step": "", "refinement_count": 0}
+
+        def update_progress(node_name: str, state: dict):
+            """Callback to update UI with current progress"""
+            progress_state["current_step"] = node_name
+            progress_state["refinement_count"] = state.get("refinement_count", 0)
+
+            # Build progress message
+            base_msg = node_messages.get(node_name, f"Processing {node_name}...")
+
+            # Add refinement info if applicable
+            if node_name == "refine":
+                iteration = state.get("refinement_count", 0)
+                base_msg = f"✨ Refining based on quality feedback (iteration {iteration}/{max_iterations})..."
+            elif node_name == "review" and progress_state["refinement_count"] > 0:
+                base_msg = "🔍 Re-reviewing quality after refinement..."
+
+            progress_placeholder.info(base_msg)
+
+        with st.spinner("🔄 Processing... This may take 10-30 seconds"):
             try:
-                # Run paraphraser
+                # Run paraphraser with progress callback
                 result = run_paraphraser(
                     text=input_text,
                     trade=trade,
@@ -169,7 +196,8 @@ if paraphrase_button:
                     llm_model=llm_model,
                     custom_quality_criteria=custom_quality_criteria if custom_quality_criteria.strip() else None,
                     custom_examples=custom_examples if custom_examples.strip() else None,
-                    custom_tone_instructions=custom_tone_instructions if custom_tone_instructions.strip() else None
+                    custom_tone_instructions=custom_tone_instructions if custom_tone_instructions.strip() else None,
+                    progress_callback=update_progress
                 )
 
                 # Store in session state

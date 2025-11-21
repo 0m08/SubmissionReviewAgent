@@ -261,7 +261,8 @@ def run_paraphraser(
     llm_model: str = "openai:gpt-5-mini",
     custom_quality_criteria: Optional[str] = None,
     custom_examples: Optional[str] = None,
-    custom_tone_instructions: Optional[str] = None
+    custom_tone_instructions: Optional[str] = None,
+    progress_callback=None
 ) -> Dict:
     """
     Main entry point for paraphrasing text.
@@ -277,6 +278,7 @@ def run_paraphraser(
         custom_quality_criteria: Custom quality checklist
         custom_examples: Custom examples
         custom_tone_instructions: Custom tone instructions
+        progress_callback: Optional callback function(node_name, state) for progress updates
 
     Returns:
         Dictionary with final_text, status, quality_report, etc.
@@ -299,9 +301,23 @@ def run_paraphraser(
         "status": "in_progress",
     }
 
-    # Run graph
+    # Run graph with streaming for progress updates
     try:
-        final_state = graph.invoke(initial_state)
+        final_state = None
+
+        # Stream through the graph to get node-by-node updates
+        for output in graph.stream(initial_state):
+            # Output format: {node_name: state}
+            for node_name, state in output.items():
+                final_state = state
+
+                # Call progress callback if provided
+                if progress_callback:
+                    progress_callback(node_name, state)
+
+        # Use final state from last node
+        if final_state is None:
+            final_state = initial_state
 
         return {
             "final_text": final_state.get("final_text", text),
