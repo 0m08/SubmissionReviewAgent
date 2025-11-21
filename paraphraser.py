@@ -71,9 +71,16 @@ with st.expander("⚙️ Settings & Configuration", expanded=False):
 
     llm_model = st.selectbox(
         "LLM Model",
-        ["openai:gpt-4o-mini", "openai:gpt-4o", "anthropic:claude-3-5-sonnet-20241022"],
+        ["openai:gpt-5-mini", "openai:gpt-5", "anthropic:claude-4-5-sonnet", "google_genai:gemini-2.5-flash", "google_genai:gemini-3-pro"],
+        format_func=lambda x: {
+            "openai:gpt-5-mini": "OpenAI GPT-5 Mini",
+            "openai:gpt-5": "OpenAI GPT-5",
+            "anthropic:claude-4-5-sonnet": "Anthropic Claude 4.5 Sonnet",
+            "google_genai:gemini-2.5-flash": "Google Gemini 2.5 Flash",
+            "google_genai:gemini-3-pro": "Google Gemini 3 Pro"
+        }[x],
         index=0,
-        help="GPT-4o-mini is faster and cheaper, GPT-4o for highest quality"
+        help="GPT-5 Mini is faster and cheaper, GPT-5 for highest quality"
     )
 
     st.divider()

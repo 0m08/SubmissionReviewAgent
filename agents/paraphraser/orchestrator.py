@@ -5,7 +5,7 @@ Coordinates the multi-agent paraphrasing workflow using LangGraph StateGraph.
 """
 
 from langgraph.graph import StateGraph, END
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage, HumanMessage
 from typing import Dict, Optional
 from pydantic import BaseModel, Field
@@ -41,6 +41,7 @@ def paraphraser_node(state: ParaphraserState) -> ParaphraserState:
     specialization = state.get("specialization")
     preserve_formatting = state.get("preserve_formatting", True)
     target_length = state.get("target_length", "similar")
+    llm_model = state.get("llm_model", "google_genai:gemini-2.5-flash")
     custom_examples = state.get("custom_examples")
     custom_tone_instructions = state.get("custom_tone_instructions")
 
@@ -68,7 +69,10 @@ def paraphraser_node(state: ParaphraserState) -> ParaphraserState:
         )
 
     # Call LLM directly
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, max_tokens=640000)
+    llm = init_chat_model(
+        llm_model,
+        max_retries=3,
+    )
     response = llm.invoke([HumanMessage(content=prompt)])
 
     # Extract paraphrased text from XML tags
@@ -90,6 +94,7 @@ def reviewer_node(state: ParaphraserState) -> ParaphraserState:
     original_text = state.get("original_text", "")
     paraphrased_text = state.get("paraphrased_text", "")
     trade = state.get("trade", "HVAC")
+    llm_model = state.get("llm_model", "google_genai:gemini-2.5-flash")
     custom_quality_criteria = state.get("custom_quality_criteria")
 
     # Build prompt
@@ -107,7 +112,10 @@ def reviewer_node(state: ParaphraserState) -> ParaphraserState:
         )
 
     # Call LLM with structured output
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, max_tokens=640000)
+    llm = init_chat_model(
+        llm_model,
+        max_retries=3,
+    )
     structured_llm = llm.with_structured_output(QualityReview)
 
     try:
@@ -143,6 +151,7 @@ def refiner_node(state: ParaphraserState) -> ParaphraserState:
     paraphrased_text = state.get("paraphrased_text", "")
     original_text = state.get("original_text", "")
     trade = state.get("trade", "HVAC")
+    llm_model = state.get("llm_model", "google_genai:gemini-2.5-flash")
     quality_report = state.get("quality_report", {})
 
     # Get issues from quality report
@@ -158,7 +167,10 @@ def refiner_node(state: ParaphraserState) -> ParaphraserState:
     )
 
     # Call LLM directly
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, max_tokens=640000)
+    llm = init_chat_model(
+        llm_model,
+        max_retries=3,
+    )
     response = llm.invoke([HumanMessage(content=prompt)])
 
     # Extract refined text from XML tags
@@ -246,7 +258,7 @@ def run_paraphraser(
     preserve_formatting: bool = True,
     target_length: Optional[str] = "similar",
     max_iterations: int = 3,
-    llm_model: str = "openai:gpt-4o-mini",
+    llm_model: str = "openai:gpt-5-mini",
     custom_quality_criteria: Optional[str] = None,
     custom_examples: Optional[str] = None,
     custom_tone_instructions: Optional[str] = None
@@ -279,6 +291,7 @@ def run_paraphraser(
         "specialization": specialization,
         "preserve_formatting": preserve_formatting,
         "target_length": target_length,
+        "llm_model": llm_model,
         "custom_quality_criteria": custom_quality_criteria,
         "custom_examples": custom_examples,
         "custom_tone_instructions": custom_tone_instructions,

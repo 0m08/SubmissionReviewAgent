@@ -33,6 +33,9 @@ class ParaphraserState(MessagesState):
     target_length: NotRequired[Optional[str]]
     """Target length: 'similar', 'concise', or 'expanded'"""
 
+    llm_model: NotRequired[str]
+    """LLM model to use for paraphrasing and review"""
+
     custom_quality_criteria: NotRequired[Optional[str]]
     """Custom quality checklist for reviewer agent (overrides default)"""
 
