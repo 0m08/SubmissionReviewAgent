@@ -45,6 +45,9 @@ class ParaphraserState(MessagesState):
     custom_tone_instructions: NotRequired[Optional[str]]
     """Additional tone instructions for paraphraser agent"""
 
+    quick_mode: NotRequired[bool]
+    """If True, skip review and refinement, return paraphrased text directly"""
+
     # Working data
     paraphrased_text: NotRequired[Optional[str]]
     """Current paraphrased version"""

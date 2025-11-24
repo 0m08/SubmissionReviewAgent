@@ -191,6 +191,10 @@ def should_continue(state: ParaphraserState) -> str:
     """
     Routing function - decides whether to refine or finish.
     """
+    # Quick mode - skip review/refine, go directly to end
+    if state.get("quick_mode", False):
+        return "end"
+    
     quality_report = state.get("quality_report")
     refinement_count = state.get("refinement_count", 0)
     max_iterations = 3  # Default max iterations
@@ -209,6 +213,16 @@ def should_continue(state: ParaphraserState) -> str:
 
     # Quality failed and we have iterations left - refine
     return "refine"
+
+
+def review_or_end(state: ParaphraserState) -> str:
+    """
+    Routing function from paraphrase node - decides whether to review or finish.
+    In quick mode, skip review and go to end.
+    """
+    if state.get("quick_mode", False):
+        return "end"
+    return "review"
 
 
 def create_paraphraser_graph(max_iterations: int = 3):
@@ -232,8 +246,15 @@ def create_paraphraser_graph(max_iterations: int = 3):
     # Set entry point
     workflow.set_entry_point("paraphrase")
 
-    # Add edges
-    workflow.add_edge("paraphrase", "review")
+    # Add edges - from paraphrase, check if quick_mode to decide review or end
+    workflow.add_conditional_edges(
+        "paraphrase",
+        review_or_end,
+        {
+            "review": "review",
+            "end": END
+        }
+    )
 
     # Conditional routing from review
     workflow.add_conditional_edges(
@@ -262,6 +283,7 @@ def run_paraphraser(
     custom_quality_criteria: Optional[str] = None,
     custom_examples: Optional[str] = None,
     custom_tone_instructions: Optional[str] = None,
+    quick_mode: bool = False,
     progress_callback=None
 ) -> Dict:
     """
@@ -278,6 +300,7 @@ def run_paraphraser(
         custom_quality_criteria: Custom quality checklist
         custom_examples: Custom examples
         custom_tone_instructions: Custom tone instructions
+        quick_mode: If True, skip review and refinement, return paraphrased text directly
         progress_callback: Optional callback function(node_name, state) for progress updates
 
     Returns:
@@ -297,6 +320,7 @@ def run_paraphraser(
         "custom_quality_criteria": custom_quality_criteria,
         "custom_examples": custom_examples,
         "custom_tone_instructions": custom_tone_instructions,
+        "quick_mode": quick_mode,
         "refinement_count": 0,
         "status": "in_progress",
     }

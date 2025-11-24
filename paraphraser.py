@@ -61,12 +61,20 @@ with st.expander("⚙️ Settings & Configuration", expanded=False):
     st.divider()
 
     st.subheader("⚡ Processing Settings")
+    
+    quick_mode = st.checkbox(
+        "⚡ Quick Mode",
+        value=False,
+        help="Skip quality review and refinement. Returns paraphrased text immediately (faster but may be less polished)"
+    )
+    
     max_iterations = st.slider(
         "Max Refinement Iterations",
         min_value=1,
         max_value=5,
         value=3,
-        help="Maximum times to refine if quality checks fail"
+        help="Maximum times to refine if quality checks fail",
+        disabled=quick_mode
     )
 
     llm_model = st.selectbox(
@@ -92,21 +100,24 @@ with st.expander("⚙️ Settings & Configuration", expanded=False):
         "Custom Quality Checklist (optional)",
         placeholder="Leave empty to use default criteria, or enter custom checklist:\n1. ACCURACY: ...\n2. CLARITY: ...\n3. TONE: ...",
         height=150,
-        help="Override the default quality criteria for the reviewer agent"
+        help="Override the default quality criteria for the reviewer agent",
+        disabled=quick_mode
     )
 
     custom_examples = st.text_area(
         "Custom Examples (optional)",
         placeholder="Leave empty to use defaults, or provide examples:\n\nBAD: \"Technicians must...\"\nGOOD: \"Shut the power off...\"\n\nBAD: \"Ensure optimal...\"\nGOOD: \"Good airflow...\"",
         height=150,
-        help="Provide custom before/after examples to guide the paraphraser"
+        help="Provide custom before/after examples to guide the paraphraser",
+        disabled=quick_mode
     )
 
     custom_tone_instructions = st.text_area(
         "Custom Tone Instructions (optional)",
         placeholder="Leave empty for default tone, or specify:\ne.g., 'More formal', 'Very casual', 'Safety-focused', etc.",
         height=100,
-        help="Add specific tone instructions beyond the default"
+        help="Add specific tone instructions beyond the default",
+        disabled=quick_mode
     )
 
 st.divider()
@@ -142,6 +153,8 @@ with col_btn2:
             del st.session_state.paraphraser_result
             if "paraphraser_input" in st.session_state:
                 del st.session_state.paraphraser_input
+            if "paraphraser_quick_mode" in st.session_state:
+                del st.session_state.paraphraser_quick_mode
             st.rerun()
 
 with col_btn3:
@@ -149,6 +162,8 @@ with col_btn3:
 
 # Process paraphrasing
 if paraphrase_button:
+    # Store quick_mode in session state for use in results display
+    st.session_state.paraphraser_quick_mode = quick_mode
     if not input_text.strip():
         st.error("❌ Please enter some text to paraphrase")
     else:
@@ -197,6 +212,7 @@ if paraphrase_button:
                     custom_quality_criteria=custom_quality_criteria if custom_quality_criteria.strip() else None,
                     custom_examples=custom_examples if custom_examples.strip() else None,
                     custom_tone_instructions=custom_tone_instructions if custom_tone_instructions.strip() else None,
+                    quick_mode=quick_mode,
                     progress_callback=update_progress
                 )
 
@@ -232,88 +248,103 @@ if "paraphraser_result" in st.session_state:
     # Character count for output
     st.caption(f"Characters: {len(result['final_text'])} | Words: {len(result['final_text'].split())}")
 
-    st.divider()
-    st.subheader("📊 Process Details")
+    # Only show process details if not in quick mode
+    if not st.session_state.get("paraphraser_quick_mode", False):
+        st.divider()
+        st.subheader("📊 Process Details")
 
-    # Metrics row
-    met_col1, met_col2, met_col3, met_col4 = st.columns(4)
+        # Metrics row
+        met_col1, met_col2, met_col3, met_col4 = st.columns(4)
 
-    with met_col1:
-        st.metric("Trade", result.get("metadata", {}).get("trade", trade))
+        with met_col1:
+            st.metric("Trade", result.get("metadata", {}).get("trade", trade))
 
-    with met_col2:
-        st.metric("Refinements", result.get("refinement_count", 0))
+        with met_col2:
+            st.metric("Refinements", result.get("refinement_count", 0))
 
-    with met_col3:
-        status = result.get("status", "unknown").upper()
-        st.metric("Status", status)
+        with met_col3:
+            status = result.get("status", "unknown").upper()
+            st.metric("Status", status)
 
-    with met_col4:
+        with met_col4:
+            if result.get("quality_report"):
+                score = result["quality_report"].get("score", "N/A")
+                st.metric("Quality Score", f"{score}/100" if isinstance(score, int) else score)
+            else:
+                st.metric("Quality Score", "N/A")
+
+        # Quality report details
         if result.get("quality_report"):
-            score = result["quality_report"].get("score", "N/A")
-            st.metric("Quality Score", f"{score}/100" if isinstance(score, int) else score)
-        else:
-            st.metric("Quality Score", "N/A")
+            with st.expander("📋 Quality Review Details"):
+                qr = result["quality_report"]
 
-    # Quality report details
-    if result.get("quality_report"):
-        with st.expander("📋 Quality Review Details"):
-            qr = result["quality_report"]
+                col_q1, col_q2 = st.columns(2)
 
-            col_q1, col_q2 = st.columns(2)
-
-            with col_q1:
-                passed = qr.get("passed", False)
-                if passed:
-                    st.success("✅ **Passed Quality Review**")
-                else:
-                    st.warning("⚠️ **Quality Issues Found**")
-
-                st.write(f"**Score:** {qr.get('score', 0)}/100")
-
-            with col_q2:
-                issues = qr.get("issues", [])
-                if issues:
-                    st.write("**Issues:**")
-                    for issue in issues:
-                        st.write(f"- {issue}")
-                else:
-                    st.write("**No issues found**")
-
-            if qr.get("feedback"):
-                st.write("**Feedback:**")
-                st.info(qr["feedback"])
-
-    # Text diff comparison
-    with st.expander("🔀 View Differences"):
-        compare_text_versions(
-            st.session_state.get("paraphraser_input", ""),
-            result["final_text"],
-            version1_name="Original Text",
-            version2_name="Paraphrased Text"
-        )
-
-    # Full message history (for debugging)
-    if result.get("messages"):
-        with st.expander("🔍 Message History (Debug)"):
-            st.write(f"Total messages: {len(result['messages'])}")
-
-            for i, msg in enumerate(result["messages"]):
-                msg_type = type(msg).__name__
-                msg_content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-
-                with st.container():
-                    st.write(f"**Message {i+1}:** `{msg_type}`")
-
-                    # Truncate long messages
-                    if len(msg_content) > 1000:
-                        st.code(msg_content[:1000] + "...\n[truncated]", language=None)
+                with col_q1:
+                    passed = qr.get("passed", False)
+                    if passed:
+                        st.success("✅ **Passed Quality Review**")
                     else:
-                        st.code(msg_content, language=None)
+                        st.warning("⚠️ **Quality Issues Found**")
 
-                if i < len(result["messages"]) - 1:
-                    st.divider()
+                    st.write(f"**Score:** {qr.get('score', 0)}/100")
+
+                with col_q2:
+                    issues = qr.get("issues", [])
+                    if issues:
+                        st.write("**Issues:**")
+                        for issue in issues:
+                            st.write(f"- {issue}")
+                    else:
+                        st.write("**No issues found**")
+
+                if qr.get("feedback"):
+                    st.write("**Feedback:**")
+                    st.info(qr["feedback"])
+
+        # Text diff comparison
+        with st.expander("🔀 View Differences"):
+            compare_text_versions(
+                st.session_state.get("paraphraser_input", ""),
+                result["final_text"],
+                version1_name="Original Text",
+                version2_name="Paraphrased Text"
+            )
+
+        # Full message history (for debugging)
+        if result.get("messages"):
+            with st.expander("🔍 Message History (Debug)"):
+                st.write(f"Total messages: {len(result['messages'])}")
+
+                for i, msg in enumerate(result["messages"]):
+                    msg_type = type(msg).__name__
+                    msg_content = str(msg.content) if hasattr(msg, 'content') else str(msg)
+
+                    with st.container():
+                        st.write(f"**Message {i+1}:** `{msg_type}`")
+
+                        # Truncate long messages
+                        if len(msg_content) > 1000:
+                            st.code(msg_content[:1000] + "...\n[truncated]", language=None)
+                        else:
+                            st.code(msg_content, language=None)
+
+                    if i < len(result["messages"]) - 1:
+                        st.divider()
+    else:
+        # Quick mode: show simple comparison and status
+        st.divider()
+        st.info("⚡ **Quick Mode**: Paraphrasing completed without quality review. Results shown above.")
+        
+        with st.expander("🔀 View Differences"):
+            compare_text_versions(
+                st.session_state.get("paraphraser_input", ""),
+                result["final_text"],
+                version1_name="Original Text",
+                version2_name="Paraphrased Text"
+            )
 
 # Footer
 st.divider()
 st.caption("💡 Tip: For best results, provide complete sentences or paragraphs rather than fragments.")
+
