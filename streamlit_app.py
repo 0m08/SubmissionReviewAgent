@@ -354,6 +354,12 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
+paraphraser_page = st.Page(
+    "paraphraser.py",
+    title="Paraphraser",
+    icon=":material/edit:",
+)
+
 #######################
 # 3) Common app layout
 #######################
@@ -391,6 +397,7 @@ page_name_to_object = {
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
+    "paraphraser_page": paraphraser_page,
 }
 
 # Define which pages belong to which category
@@ -408,7 +415,8 @@ tool_pages = [
     # "graphics_search_page",
     "vectorstore_page",
     "quality_compliance_scoring_page",
-    "video_search_tool_page"
+    "video_search_tool_page",
+    "paraphraser_page"
 ]
 
 if st.session_state.role:
