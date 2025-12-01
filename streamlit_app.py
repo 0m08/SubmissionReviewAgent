@@ -423,7 +423,6 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
-    "relevant_images_preview_page"
     "paraphraser_page",
     "image_translation_page"
 ]
