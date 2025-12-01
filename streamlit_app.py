@@ -360,6 +360,12 @@ paraphraser_page = st.Page(
     icon=":material/edit:",
 )
 
+image_translation_page = st.Page(
+    "image_translation.py",
+    title="Image Translation",
+    icon=":material/translate:",
+)
+
 #######################
 # 3) Common app layout
 #######################
@@ -398,6 +404,7 @@ page_name_to_object = {
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
     "paraphraser_page": paraphraser_page,
+    "image_translation_page": image_translation_page,
 }
 
 # Define which pages belong to which category
@@ -416,7 +423,8 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
-    "paraphraser_page"
+    "paraphraser_page",
+    "image_translation_page"
 ]
 
 if st.session_state.role:
