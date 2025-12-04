@@ -1,0 +1,43 @@
+# MCP Server Configuration
+#
+# This file defines MCP servers that can be connected to.
+# Environment variables can be interpolated using ${VAR} or ${VAR:-default} syntax.
+#
+# Transport types:
+#   - stdio: Local subprocess communication (requires: command, args)
+#   - sse: Server-Sent Events over HTTP (requires: url) - deprecated
+#   - streamable_http: HTTP POST with streaming (requires: url) - recommended for remote
+
+servers:
+  # Example: Filesystem server (local files access)
+  # filesystem:
+  #   enabled: true
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/allowed/path"]
+  #   description: "Access local filesystem"
+
+  # Example: GitHub server
+  # github:
+  #   enabled: true
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN}
+  #   description: "GitHub repository access"
+
+  # Example: Remote HTTP server
+  # remote-tools:
+  #   enabled: true
+  #   transport: streamable_http
+  #   url: http://localhost:8000/mcp
+  #   description: "Remote MCP tools server"
+
+  # Placeholder - add your servers here
+  _placeholder:
+    enabled: false
+    transport: stdio
+    command: echo
+    args: ["placeholder"]
+    description: "Placeholder server - replace with real servers"
