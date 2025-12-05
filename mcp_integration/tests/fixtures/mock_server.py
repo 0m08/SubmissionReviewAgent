@@ -18,7 +18,6 @@ from mcp.server.stdio import stdio_server
 from mcp.types import (
     TextContent,
     Tool,
-    CallToolResult,
 )
 
 # Set up logging
@@ -106,40 +105,29 @@ async def list_tools() -> list[Tool]:
 
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict) -> CallToolResult:
+async def call_tool(name: str, arguments: dict):
     """Handle tool calls."""
     logger.info(f"Tool called: {name} with arguments: {arguments}")
 
     if name == "echo":
         text = arguments.get("text", "")
-        return CallToolResult(
-            content=[TextContent(type="text", text=text)],
-            isError=False,
-        )
+        return [TextContent(type="text", text=text)]
 
     elif name == "add":
         a = arguments.get("a", 0)
         b = arguments.get("b", 0)
         result = a + b
-        return CallToolResult(
-            content=[TextContent(type="text", text=str(result))],
-            isError=False,
-        )
+        return [TextContent(type="text", text=str(result))]
 
     elif name == "greet":
         name_arg = arguments.get("name", "World")
         greeting = f"Hello, {name_arg}!"
-        return CallToolResult(
-            content=[TextContent(type="text", text=greeting)],
-            isError=False,
-        )
+        return [TextContent(type="text", text=greeting)]
 
     elif name == "fail":
         message = arguments.get("message", "This tool always fails")
-        return CallToolResult(
-            content=[TextContent(type="text", text=message)],
-            isError=True,
-        )
+        # For errors, raise an exception instead of returning error result
+        raise RuntimeError(message)
 
     elif name == "get_info":
         info = {
@@ -147,16 +135,10 @@ async def call_tool(name: str, arguments: dict) -> CallToolResult:
             "version": "1.0.0",
             "tools_count": 5,
         }
-        return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps(info))],
-            isError=False,
-        )
+        return [TextContent(type="text", text=json.dumps(info))]
 
     else:
-        return CallToolResult(
-            content=[TextContent(type="text", text=f"Unknown tool: {name}")],
-            isError=True,
-        )
+        raise RuntimeError(f"Unknown tool: {name}")
 
 
 async def main():
