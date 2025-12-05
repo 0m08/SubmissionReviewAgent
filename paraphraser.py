@@ -64,7 +64,7 @@ with st.expander("⚙️ Settings & Configuration", expanded=False):
     
     quick_mode = st.checkbox(
         "⚡ Quick Mode",
-        value=False,
+        value=True,
         help="Skip quality review and refinement. Returns paraphrased text immediately (faster but may be less polished)"
     )
     

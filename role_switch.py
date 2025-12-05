@@ -1,6 +1,6 @@
 import streamlit as st
 from utils.role_utils import get_user_pages
-from config.user_roles import role_page_access
+from config.user_roles import role_page_access, get_available_roles
 
 # Check if user is admin
 if st.session_state.get("role") != "Admin":
@@ -34,11 +34,13 @@ st.divider()
 st.subheader("Switch Role")
 
 # Available roles (excluding the current actual role to avoid confusion)
-available_roles = ["Managers", "Instructional Designer", "Visual Designer"]
+available_roles = get_available_roles(exclude_admin=True, exclude_none=True)
 
 # Add current role if it's not Admin 
 if st.session_state.get("role") != "Admin":
-    available_roles.append(st.session_state.get("role"))
+    current_role = st.session_state.get("role")
+    if current_role not in available_roles:
+        available_roles.append(current_role)
 
 selected_role = st.selectbox(
     "Select a role to switch to:",

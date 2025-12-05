@@ -56,7 +56,7 @@ email_to_role_mapping = {
 }
 
 # Default role for users not found in email_to_role_mapping
-# Options: "Admin", "Managers", "Instructional Designer", "Visual Designer", None
+# Options: "Admin", "Managers", "Instructional Designer", "Visual Designer", "Basic User", None
 default_role = None  # No access for users not in email_to_role_mapping
 
 # Role-based page access configuration
@@ -86,7 +86,30 @@ role_page_access = {
         "quality_compliance_scoring_page", "video_search_tool_page",
         "paraphraser_page", "image_translation_page"
     ],
+    "Basic User": [
+        "vectorstore_page",
+        "paraphraser_page"
+    ],
     None: [
         # No pages accessible for users with None role (denied access)
     ]
 }
+
+# Get all available roles (excluding Admin and None)
+def get_available_roles(exclude_admin=True, exclude_none=True):
+    """
+    Get list of available roles for role switching.
+    
+    Args:
+        exclude_admin: Whether to exclude Admin role (default: True)
+        exclude_none: Whether to exclude None role (default: True)
+        
+    Returns:
+        List of available role names
+    """
+    roles = list(role_page_access.keys())
+    if exclude_admin and "Admin" in roles:
+        roles.remove("Admin")
+    if exclude_none and None in roles:
+        roles.remove(None)
+    return roles
