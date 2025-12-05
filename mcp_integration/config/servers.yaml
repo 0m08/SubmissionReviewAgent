@@ -9,6 +9,23 @@
 #   - streamable_http: HTTP POST with streaming (requires: url) - recommended for remote
 
 servers:
+  # Web Tools MCP - Python-based web utilities
+  # Provides fetch_url, fetch_json, check_url, extract_links
+  web-tools:
+    enabled: true
+    transport: stdio
+    command: python
+    args: ["-m", "mcp_integration.servers.web_tools_server"]
+    description: "Web utilities - fetch pages, check URLs, extract links"
+
+  # Fetch MCP - Official Anthropic server (requires npm/npx)
+  # fetch:
+  #   enabled: true
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@anthropic/mcp-server-fetch"]
+  #   description: "Fetch web content - retrieve and parse web pages"
+
   # Example: Filesystem server (local files access)
   # filesystem:
   #   enabled: true
