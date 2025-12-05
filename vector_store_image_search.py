@@ -39,14 +39,6 @@ sheet = st.session_state.get("sheet")
 st.markdown("## SkillCat Graphics Search Tool")
 st.markdown("Use this tool to search and retrieve relevant images based on text queries.")
 
-# Version toggle
-version = st.radio("Version", ["v1", "v2"], index=0)
-if version == "v2":
-    root_folder_id = "1IMGr4d8lwux5R_cAWfhVjBV0fTFdWvNi"
-else:
-    root_folder_id = "1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH"
-
-
 # --- Define task visibility by role ---
 # Initialize session state for role if not already set
 if "role" not in st.session_state:
@@ -54,6 +46,17 @@ if "role" not in st.session_state:
 
 # Use effective role (impersonated role if set, otherwise actual role)
 role = st.session_state.get("impersonated_role", st.session_state.get("role"))
+
+# Version toggle
+if role == "Admin":
+    version = st.radio("Version", ["v1", "v2"], index=0)
+else:
+    version = "v1"
+if version == "v2":
+    root_folder_id = "1IMGr4d8lwux5R_cAWfhVjBV0fTFdWvNi"
+else:
+    root_folder_id = "1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH"
+
 
 # Determine tasks based on role
 task_options = []
@@ -67,11 +70,14 @@ elif role == "Visual Designer":  # Visual Designer
 elif role == "Instructional Designer":  # Instructional Designer
     task_options = ["Search Images"]
 else:
-    st.warning("Your role does not have access to any tasks.")
+    task_options = ["Search Images"]
+    # st.warning("Your role does not have access to any tasks.")
 
 task = None
-if task_options:
+if len(task_options) > 1:
     task = st.selectbox("Choose a task:", task_options)
+else:
+    task = task_options[0] if task_options else None
 
 
 # Only require Google Sheet for Step 1 and Step 2
@@ -275,7 +281,10 @@ elif task == "Search Images":
                 filters["stock_type"] = stock_type
 
     # === Search Mode Toggles ===
-    use_graph = st.toggle("Agent Mode", value=False)
+    if role == "Admin":
+        use_graph = st.toggle("Agent Mode", value=False)
+    else:
+        use_graph = False
 
     run_search = st.button("Run Search")
 
