@@ -1,0 +1,25 @@
+# Test server configuration for integration tests
+
+servers:
+  mock-server:
+    enabled: true
+    transport: stdio
+    command: python
+    args: ["-m", "mcp_integration.tests.fixtures.mock_server"]
+    description: "Mock MCP server for testing"
+
+  disabled-server:
+    enabled: false
+    transport: stdio
+    command: echo
+    args: ["this should not run"]
+    description: "Disabled server - should be skipped"
+
+  env-var-server:
+    enabled: false
+    transport: stdio
+    command: ${TEST_COMMAND:-echo}
+    args: ["${TEST_ARG:-default}"]
+    env:
+      CUSTOM_VAR: ${CUSTOM_VALUE:-fallback}
+    description: "Server with environment variable interpolation"
