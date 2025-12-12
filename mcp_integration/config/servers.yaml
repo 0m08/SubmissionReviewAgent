@@ -51,6 +51,13 @@ servers:
   #   url: http://localhost:8000/mcp
   #   description: "Remote MCP tools server"
 
+  # Remote Fetch MCP Server
+  remote-fetch:
+    enabled: true
+    transport: streamable_http
+    url: https://remote.mcpservers.org/fetch/mcp
+    description: "Remote fetch server - retrieve and parse web pages"
+
   # Placeholder - add your servers here
   _placeholder:
     enabled: false

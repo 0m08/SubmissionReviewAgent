@@ -14,6 +14,7 @@ import os
 from dotenv import load_dotenv
 from streamlit_clickable_images import clickable_images
 from utils.role_utils import get_user_info, get_user_pages
+from mcp_ui_app import mcp_ui_page
 
 # from jira import JIRA
 
@@ -366,6 +367,12 @@ image_translation_page = st.Page(
     icon=":material/translate:",
 )
 
+mcp_ui_page_obj = st.Page(
+    mcp_ui_page,
+    title="MCP Server Manager",
+    icon=":material/settings:",
+)
+
 #######################
 # 3) Common app layout
 #######################
@@ -405,6 +412,7 @@ page_name_to_object = {
     "template_sheet_setup_page": template_sheet_setup_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
+    "mcp_ui_page": mcp_ui_page_obj,
 }
 
 # Define which pages belong to which category
@@ -424,7 +432,8 @@ tool_pages = [
     "quality_compliance_scoring_page",
     "video_search_tool_page",
     "paraphraser_page",
-    "image_translation_page"
+    "image_translation_page",
+    "mcp_ui_page"
 ]
 
 if st.session_state.role:

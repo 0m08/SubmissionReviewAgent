@@ -213,7 +213,8 @@ class MCPManager:
             try:
                 await client.disconnect()
             except Exception as e:
-                logger.error(f"Error disconnecting from server '{name}': {e}")
+                # Log but don't fail shutdown on cleanup errors
+                logger.debug(f"Cleanup error for server '{name}': {e}")
 
         self._clients.clear()
         self._tool_index.clear()

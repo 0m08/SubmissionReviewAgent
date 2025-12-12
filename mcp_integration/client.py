@@ -7,6 +7,7 @@ discovering tools/resources, and invoking operations.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any
@@ -178,8 +179,24 @@ class MCPClient:
         Safe to call multiple times.
         """
         if self._exit_stack:
-            await self._exit_stack.aclose()
-            self._exit_stack = None
+            try:
+                await self._exit_stack.aclose()
+            except (RuntimeError, asyncio.CancelledError) as e:
+                # Known issue with HTTP transport cleanup
+                # The connection worked fine, just cleanup has issues
+                error_msg = str(e).lower()
+                if "cancel scope" in error_msg or "cancelled" in error_msg:
+                    logger.debug(
+                        f"HTTP transport cleanup warning for '{self.name}' (known MCP SDK issue)"
+                    )
+                else:
+                    # Re-raise if it's a different kind of error
+                    raise
+            except Exception as e:
+                # Log but don't crash on other cleanup errors
+                logger.warning(f"Error during cleanup for '{self.name}': {e}")
+            finally:
+                self._exit_stack = None
         self._session = None
         self._connected = False
         logger.info(f"Disconnected from MCP server '{self.name}'")

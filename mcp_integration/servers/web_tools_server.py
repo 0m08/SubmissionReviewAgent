@@ -26,7 +26,6 @@ from mcp.server.stdio import stdio_server
 from mcp.types import (
     TextContent,
     Tool,
-    CallToolResult,
 )
 
 # Configure logging
@@ -168,7 +167,7 @@ async def list_tools() -> list[Tool]:
 
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict) -> CallToolResult:
+async def call_tool(name: str, arguments: dict):
     """Handle tool calls."""
     logger.info(f"Tool called: {name} with arguments: {arguments}")
 
@@ -182,28 +181,19 @@ async def call_tool(name: str, arguments: dict) -> CallToolResult:
         elif name == "extract_links":
             return await handle_extract_links(arguments)
         else:
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"Unknown tool: {name}")],
-                isError=True,
-            )
+            raise RuntimeError(f"Unknown tool: {name}")
     except Exception as e:
         logger.error(f"Error in {name}: {e}")
-        return CallToolResult(
-            content=[TextContent(type="text", text=f"Error: {str(e)}")],
-            isError=True,
-        )
+        raise
 
 
-async def handle_fetch_url(arguments: dict) -> CallToolResult:
+async def handle_fetch_url(arguments: dict):
     """Fetch a URL and convert to markdown."""
     url = arguments.get("url")
     max_length = arguments.get("max_length", 50000)
 
     if not url:
-        return CallToolResult(
-            content=[TextContent(type="text", text="Error: URL is required")],
-            isError=True,
-        )
+        raise ValueError("URL is required")
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
         response = await client.get(url, headers={"User-Agent": USER_AGENT})
@@ -222,22 +212,16 @@ async def handle_fetch_url(arguments: dict) -> CallToolResult:
         if len(content) > max_length:
             content = content[:max_length] + f"\n\n[Content truncated at {max_length} characters]"
 
-        return CallToolResult(
-            content=[TextContent(type="text", text=content)],
-            isError=False,
-        )
+        return [TextContent(type="text", text=content)]
 
 
-async def handle_fetch_json(arguments: dict) -> CallToolResult:
+async def handle_fetch_json(arguments: dict):
     """Fetch JSON from an API."""
     url = arguments.get("url")
     headers = arguments.get("headers", {})
 
     if not url:
-        return CallToolResult(
-            content=[TextContent(type="text", text="Error: URL is required")],
-            isError=True,
-        )
+        raise ValueError("URL is required")
 
     request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     request_headers.update(headers)
@@ -249,26 +233,17 @@ async def handle_fetch_json(arguments: dict) -> CallToolResult:
         try:
             data = response.json()
             formatted = json.dumps(data, indent=2)
-            return CallToolResult(
-                content=[TextContent(type="text", text=formatted)],
-                isError=False,
-            )
+            return [TextContent(type="text", text=formatted)]
         except json.JSONDecodeError as e:
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"Error parsing JSON: {e}")],
-                isError=True,
-            )
+            raise ValueError(f"Error parsing JSON: {e}")
 
 
-async def handle_check_url(arguments: dict) -> CallToolResult:
+async def handle_check_url(arguments: dict):
     """Check if a URL is accessible."""
     url = arguments.get("url")
 
     if not url:
-        return CallToolResult(
-            content=[TextContent(type="text", text="Error: URL is required")],
-            isError=True,
-        )
+        raise ValueError("URL is required")
 
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
@@ -285,40 +260,28 @@ async def handle_check_url(arguments: dict) -> CallToolResult:
             if response.status_code >= 400:
                 result["status"] = "error"
 
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                isError=False,
-            )
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
     except httpx.TimeoutException:
-        return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps({
-                "url": url,
-                "status": "timeout",
-                "error": "Request timed out"
-            }, indent=2))],
-            isError=False,
-        )
+        return [TextContent(type="text", text=json.dumps({
+            "url": url,
+            "status": "timeout",
+            "error": "Request timed out"
+        }, indent=2))]
     except httpx.ConnectError as e:
-        return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps({
-                "url": url,
-                "status": "unreachable",
-                "error": str(e)
-            }, indent=2))],
-            isError=False,
-        )
+        return [TextContent(type="text", text=json.dumps({
+            "url": url,
+            "status": "unreachable",
+            "error": str(e)
+        }, indent=2))]
 
 
-async def handle_extract_links(arguments: dict) -> CallToolResult:
+async def handle_extract_links(arguments: dict):
     """Extract links from a web page."""
     url = arguments.get("url")
     filter_domain = arguments.get("filter_domain")
 
     if not url:
-        return CallToolResult(
-            content=[TextContent(type="text", text="Error: URL is required")],
-            isError=True,
-        )
+        raise ValueError("URL is required")
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
         response = await client.get(url, headers={"User-Agent": USER_AGENT})
@@ -355,10 +318,7 @@ async def handle_extract_links(arguments: dict) -> CallToolResult:
         if len(resolved_links) > 100:
             result["note"] = f"Showing first 100 of {len(resolved_links)} links"
 
-        return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-            isError=False,
-        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
 
 async def main():
