@@ -373,6 +373,12 @@ mcp_ui_page_obj = st.Page(
     icon=":material/settings:",
 )
 
+image_editing_tool_page = st.Page(
+    "image_editing_tool.py",
+    title="Image Editing",
+    icon=":material/palette:",
+)
+
 #######################
 # 3) Common app layout
 #######################
@@ -413,6 +419,7 @@ page_name_to_object = {
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
+    "image_editing_tool_page": image_editing_tool_page,
 }
 
 # Define which pages belong to which category
@@ -434,6 +441,7 @@ tool_pages = [
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page"
+    "image_editing_tool_page"
 ]
 
 if st.session_state.role:
