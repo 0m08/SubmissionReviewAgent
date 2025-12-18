@@ -361,12 +361,6 @@ video_search_tool_page = st.Page(
 )
 
 
-graphics_collector_page = st.Page(
-    "graphics_collector.py",
-    title="Graphics Collector",
-    icon=":material/photo_library:",
-)
-    
 paraphraser_page = st.Page(
     "paraphraser.py",
     title="Paraphraser",
@@ -427,7 +421,6 @@ page_name_to_object = {
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
-    "graphics_collector_page": graphics_collector_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
@@ -443,9 +436,7 @@ agent_pages = [
     "slide_chunks_page",
     "graphics_definition_page",
     "assessments_generation_page",
-    "get_images_page",
-    "graphics_collector_page"
-]
+    "get_images_page"]
 tool_pages = [
     # "graphics_search_page",
     "vectorstore_page",

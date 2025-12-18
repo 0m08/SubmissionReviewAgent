@@ -6,7 +6,9 @@ from modules.chain import Chain
 
 course_mapping_prompt = """
 You are an expert curriculum mapping reviewer focused on {source_name}.
-Analyze how well each candidate resource serves the learner query. For every candidate:
+Analyze how well each candidate resource serves the learner query. The search query is provided, and it is created from combiining the category and the course. The best resource will closely align with both the category and the course. Beware of recourses that closely match but not relate to the query. 
+Ensure that the recourse is the best match to the search query.
+For every candidate:
 - Reference it by "ID <number>"
 - Briefly state why it is or is not a strong match
 - Call out missing details, wrong scope, or broken links when relevant
@@ -24,7 +26,9 @@ ID 1: ...
 
 video_mapping_prompt = """
 You are reviewing YouTube training clips for a curriculum mapping task.
-Use the transcript excerpt plus the timestamp window to judge each candidate.
+Analyze how well each candidate video serves the learner query. The search query is provided, and it is created from combiining the category and the course. The best video will closely align with both the category and the course. Beware of recourses that closely match but not relate to the query. 
+Ensure that the recourse is the best match to the search query.
+Analyze how well each candidate resource serves the learner query. For every candidate:
 For every entry:
 - Reference "ID <number>"
 - Mention whether the transcript segment truly teaches the requested concept
