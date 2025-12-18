@@ -2,62 +2,44 @@
 Prompts for Segment Processor Agent (Level 2)
 """
 
-SEGMENT_PROCESSOR_SYSTEM_PROMPT = """You are a Segment Processor agent specialized in creating graphics definitions for individual voiceover (VO) moments in educational videos.
-
-Your task is to create a detailed, actionable graphics definition for ONE VO segment through a define→search→review workflow.
+SEGMENT_PROCESSOR_SYSTEM_PROMPT = """You are a Segment Processor agent responsible for generating a complete graphics definition for a single voiceover (VO) segment so that it can be used in creating graphics for educational video slides. You must follow a strict search and refine workflow and use the available tools in the correct order.
 
 AVAILABLE TOOLS:
-1. define_segment_graphics - Creates or revises the graphics definition
-2. search_segment_references - Finds visual references (images/videos)
-3. review_segment_quality - Reviews definition and references against quality criteria
-4. finalize_segment - Marks segment as complete (only when approved)
+1. search_segment_references - Generates search queries from the VO sentence and finds visual references (images) by calling Search Agent
+2. refine_graphics_with_images - Selects best images from the search results and creates final graphics definition with image links and sequence
+3. finalize_segment - Marks segment as complete
 
 WORKFLOW:
-1. Create initial graphics definition using define_segment_graphics
-2. Search for references using search_segment_references
-3. Review quality using review_segment_quality
-4. If REJECTED: Revise definition based on feedback (max {max_iterations} iterations)
-5. If APPROVED: Finalize using finalize_segment
+1. Search for references using search_segment_references (generates queries from VO sentence, and finds all relevant images)
+2. Refine graphics definition using refine_graphics_with_images (selects best images, creates final definition)
+3. Finalize using finalize_segment
 
 GRAPHICS DEFINITION REQUIREMENTS:
-Your definition should specify:
-- WHAT visual elements to show (diagrams, animations, labels, text overlays, particles, etc.)
-- High-level HOW to show them (pan, zoom, highlight, fade, transitions, camera movements)
-- Leave detailed animation choreography to animators (you provide direction, not frame-by-frame)
-- Be specific enough for an animator to implement
-- Align with the VO timing (what appears when the VO is spoken)
-
-CONTEXT AWARENESS:
-{context_summary}
+Your final definition should specify:
+- WHAT visuals to show (diagrams, images, labels, text overlays, particles, etc.)
+- Only static visual elements - NO motion, presentation, or animation instructions
+- Be concrete and specific (use domain-specific terminology when relevant)
+- Selected images with URLs and sequence information
 
 You MAY:
 - Reuse references from previous segments when appropriate
-- Build upon earlier visual elements
 - Reference graphics from earlier moments (e.g., "Continue showing the diagram from Segment 1")
 
 You MUST NOT:
 - Contradict earlier segments
-- Be vague or generic (be specific!)
+- Be vague or generic 
 - Specify impossible or unclear instructions
-
-REVISION GUIDELINES:
-When review is REJECTED:
-- Read the feedback carefully
-- Determine if the issue is with:
-  a) The definition (unclear, missing elements, contradictions) → Revise definition
-  b) The references (poor quality, irrelevant) → Revise definition to be more searchable
-  c) Both → Revise definition first
-- Address specific feedback points
-- Don't just repeat the same definition
-
-ITERATION LIMIT: {max_iterations} revisions
-- After max iterations without approval, finalize anyway (flag will be added by supervisor)
 
 TERMINATION:
 You must finalize the segment when:
-- Review verdict is APPROVED
-- All requirements met
+- refine_graphics_with_images has completed successfully
+- Final graphics definition with selected images is ready
 - Ready to return to Slide Supervisor
+
+IMPORTANT:
+- Call refine_graphics_with_images ONLY ONCE per segment
+- After refine_graphics_with_images completes, DO NOT call it again - proceed directly to finalize_segment
+- If refine_graphics_with_images returns a message saying it's already refined, proceed to finalize_segment
 
 Always provide clear reasoning for your actions and decisions.
 """
@@ -68,7 +50,8 @@ def get_segment_processor_prompt(
     vo_text: str,
     slide_chunk: str,
     previous_segments: list,
-    max_iterations: int
+    max_iterations: int,
+    course_context: dict = None
 ) -> str:
     """
     Generate the initial user prompt for the Segment Processor.
@@ -79,10 +62,26 @@ def get_segment_processor_prompt(
         slide_chunk: Full slide content
         previous_segments: List of completed segments
         max_iterations: Maximum revisions allowed
+        course_context: Optional course context (course name, topic, etc.)
 
     Returns:
         Formatted prompt string
     """
+    # Build course context section
+    course_section = ""
+    if course_context:
+        course_section = "\nCOURSE CONTEXT:\n"
+        if course_context.get("course_name"):
+            course_section += f"- Course: {course_context['course_name']}\n"
+        if course_context.get("topic"):
+            course_section += f"- Topic: {course_context['topic']}\n"
+        if course_context.get("subtopic"):
+            course_section += f"- Subtopic: {course_context['subtopic']}\n"
+        if course_context.get("slide_title"):
+            course_section += f"- Slide Title: {course_context['slide_title']}\n"
+        course_section += "\nUse this context to generate domain-specific graphics definitions and search queries.\n"
+
+    # Build previous segments section
     context_section = ""
     if previous_segments:
         context_section = f"\n\nPREVIOUS SEGMENTS ({len(previous_segments)}):\n"
@@ -95,7 +94,7 @@ def get_segment_processor_prompt(
         context_section = "\n\n(This is the first segment - no previous context)\n"
 
     return f"""Create a complete graphics definition for this VO segment.
-
+{course_section}
 SEGMENT {segment_index}:
 VO TEXT: "{vo_text}"
 
@@ -105,13 +104,11 @@ FULL SLIDE:
 {context_section}
 
 YOUR TASK:
-1. Use define_segment_graphics to create an initial definition
-2. Use search_segment_references to find visual references
-3. Use review_segment_quality to validate
-4. If rejected, revise (max {max_iterations} times)
-5. When approved, use finalize_segment
+1. Use search_segment_references to generate search queries from the VO sentence and find visual references (images)
+2. Use refine_graphics_with_images to select best images and create final graphics definition
+3. Use finalize_segment to mark segment as complete
 
-Begin by creating the initial graphics definition."""
+Begin by searching for references using the VO sentence."""
 
 
 def format_context_summary(previous_segments: list, available_references: dict) -> str:

@@ -360,6 +360,18 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
+graphics_image_viewer_page = st.Page(
+    "graphics_image_viewer.py",
+    title="Graphics Image Populator",
+    icon="🖼️",
+)
+
+graphics_v2_slideshow_page = st.Page(
+    "graphics_v2_slideshow.py",
+    title="Graphics Slideshow",
+    icon="🎬",
+)
+
 #######################
 # 3) Common app layout
 #######################
@@ -398,6 +410,8 @@ page_name_to_object = {
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
+    "graphics_image_viewer_page": graphics_image_viewer_page,
+    "graphics_v2_slideshow_page": graphics_v2_slideshow_page,
 }
 
 # Define which pages belong to which category
@@ -416,7 +430,9 @@ tool_pages = [
     # "graphics_search_page",
     "vectorstore_page",
     "quality_compliance_scoring_page",
-    "video_search_tool_page"
+    "video_search_tool_page",
+    "graphics_image_viewer_page",
+    "graphics_v2_slideshow_page",
 ]
 
 if st.session_state.role:

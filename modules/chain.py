@@ -56,24 +56,25 @@ Make sure to only output the fixed xml. Don't output anything else.
 
     # Call the two functions in a loop until the xml is fixed
     while True:
-            # Wrap around root text
-            xml_text = f"<root>{xml_text}</root>"
-            error = check_xml(xml_text)
-            if error is True:
-                return xml_text
-            else:
-                print(f'Fixing xml: {error}')
-                # Fix the xml
-                xml_text = fix_xml(xml_text, error, llm)
+        # Wrap around root text
+        xml_text = f"<root>{xml_text}</root>"
+        error = check_xml(xml_text)
+        if error is True:
+            return xml_text
+        else:
+            print(f'Fixing xml: {error}')
+            # Fix the xml
+            xml_text = fix_xml(xml_text, error, llm)
 
 
 
 class Chain:
-    def __init__(self, llm='groq', tags=None, use_xml_checker=False, use_output_parser=True, max_tokens=None):
+    def __init__(self, llm='groq', tags=None, use_xml_checker=False, use_output_parser=True, max_tokens=None, auto_extract=True):
         self.llm = llm
         self.max_tokens = max_tokens
         self.messages_list = []
         self.tags = tags
+        self.auto_extract = auto_extract
         self.use_xml_checker = use_xml_checker
         self.use_output_parser = use_output_parser
         self.chain_steps = [self.call_llm_with_retry]
@@ -153,7 +154,7 @@ class Chain:
             chain |= step
 
         # 4) Optionally attach text extraction step
-        if self.tags:
+        if self.tags and self.auto_extract:
             chain |= self.extract_text_in_tags
 
         return chain
@@ -166,6 +167,12 @@ class Chain:
         """
         max_corrections = 2  # how many times we attempt auto-correction
         attempt = 0
+
+        # Normalize common response types to plain text for regex parsing
+        if hasattr(text, "content"):
+            text = text.content
+        elif not isinstance(text, str):
+            text = str(text)
         
         while attempt < max_corrections:
             try:
@@ -185,7 +192,6 @@ class Chain:
         A helper that actually performs the extraction (no hidden LLM calls).
         Raises Exception if it can't find a required tag.
         """
-        print(text)  # or use a logger
         texts = {'text': text}
         for tag in self.tags:
             pattern = f"<{tag}>\s*(.*?)\s*</{tag}>"
@@ -255,8 +261,15 @@ class Chain:
         if self.structured_output:
             # Assume the output is already validated and structured if structured_output is used
             return output
-        else:
-            return output_parser
+
+        try:
+            # Standard string parsing path
+            return output_parser.invoke(output)
+        except Exception:
+            # Fallbacks for unexpected response types
+            if hasattr(output, "content"):
+                return getattr(output, "content", "")
+            return str(output)
 
 
     # Decorator to retry a function up to n times if it raises an exception.

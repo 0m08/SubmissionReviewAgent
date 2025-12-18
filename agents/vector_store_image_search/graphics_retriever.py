@@ -264,13 +264,6 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
                 if clip_results is None:
                     print("⚠️ clip_results is None — Chroma query failed or returned nothing.")
                 else:
-                    print("clip_results structure:", type(clip_results))
-                    try:
-                        print("metadatas:", clip_results.get("metadatas"))
-                        print("distances:", clip_results.get("distances"))
-                    except Exception as debug_err:
-                        print("❌ Error inspecting clip_results fields:", debug_err)
-
                     for metadata, distance in _safe_iter_clip_results(clip_results):
                         if 'image_id' not in metadata or not match_filters(metadata):
                             continue

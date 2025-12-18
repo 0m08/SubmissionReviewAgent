@@ -4,7 +4,7 @@ Slide Supervisor Agent (Level 1)
 ReAct agent that orchestrates the entire graphics definition workflow for a slide.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 from langchain.chat_models import init_chat_model
 from langgraph.prebuilt import create_react_agent
 
@@ -14,11 +14,11 @@ from agents.graphics_workflow_v2.config.settings import (
     SLIDE_SUPERVISOR_RECURSION_LIMIT,
     MAX_ITERATIONS_PER_SEGMENT,
     ENABLE_LANGSMITH_TRACING,
+    SEARCH_K,
 )
 from agents.graphics_workflow_v2.tools.slide_supervisor.supervisor_tools import (
     segment_slide,
     process_segment,
-    flag_for_human_review,
     finalize_slide_graphics,
 )
 from agents.graphics_workflow_v2.prompts.slide_supervisor_prompts import (
@@ -35,7 +35,8 @@ def create_slide_supervisor_agent():
         Compiled LangGraph agent
     """
     # Initialize LLM
-    llm = init_chat_model(SLIDE_SUPERVISOR_MODEL)
+    # Note: GPT-5 models only support temperature=1
+    llm = init_chat_model(SLIDE_SUPERVISOR_MODEL, temperature=1)
 
     # Create agent with tools
     agent = create_react_agent(
@@ -43,7 +44,6 @@ def create_slide_supervisor_agent():
         tools=[
             segment_slide,
             process_segment,
-            flag_for_human_review,
             finalize_slide_graphics,
         ],
         state_schema=GraphicsSlideState,
@@ -96,8 +96,21 @@ def run_graphics_workflow(
         >>> print(result["final_definition"])
     """
     # Create agent
+    print("\n" + "🟦"*40)
+    print("🎬 GRAPHICS WORKFLOW V2 - SLIDE SUPERVISOR STARTING")
+    print("🟦"*40)
+    print(f"📝 Input slide chunk: {len(slide_chunk)} characters")
+    print(f"   Preview: {slide_chunk}...")
+    if course_context:
+        print(f"📚 Course context: {course_context}")
+    if filters:
+        print(f"🔍 Filters: {filters}")
+    print(f"📁 Root folder ID: {root_folder_id}")
+    print("🟦"*40 + "\n")
+    
     agent = create_slide_supervisor_agent()
-
+    print("✅ Slide Supervisor agent created")
+    
     # Prepare initial state
     initial_state = {
         "messages": [
@@ -126,7 +139,7 @@ def run_graphics_workflow(
         "drive": drive,
         "filters": filters,
         "root_folder_id": root_folder_id,
-        "search_k": kwargs.get("search_k", 10),
+        "search_k": kwargs.get("search_k", SEARCH_K),
     }
 
     # Configure run
@@ -140,7 +153,34 @@ def run_graphics_workflow(
         config["run_name"] = kwargs.get("run_name", "Graphics Workflow V2")
 
     # Run agent
+    print("🔄 Running Slide Supervisor agent...\n")
+    
     final_state = agent.invoke(initial_state, config=config)
+    
+    print("\n" + "🟩"*40)
+    print("✅ GRAPHICS WORKFLOW V2 - SLIDE SUPERVISOR COMPLETED")
+    print("🟩"*40)
+    print(f"📊 Status: {final_state.get('status')}")
+    print(f"🧩 Total segments processed: {len(final_state.get('segments', []))}")
+    print(f"⚠️  Flags raised: {len(final_state.get('flags', []))}")
+    print(f"🖼️  Total unique references: {len(final_state.get('all_references', {}))}")
+    
+    # Show segment summary
+    segments = final_state.get('segments', [])
+    if segments:
+        print("\n📋 Segment Summary:")
+        for seg in segments:
+            status_icon = "✅" if seg.get('status') == 'completed' else "⚠️"
+            print(f"   {status_icon} Segment {seg.get('segment_index')}: {seg.get('status')} | {len(seg.get('references', []))} refs | {seg.get('iteration_count', 0)} iterations")
+    
+    # Show flags if any
+    flags = final_state.get('flags', [])
+    if flags:
+        print("\n🚩 Flags:")
+        for flag in flags:
+            print(f"   ⚠️  {flag}")
+    
+    print("🟩"*40 + "\n")
 
     return final_state
 

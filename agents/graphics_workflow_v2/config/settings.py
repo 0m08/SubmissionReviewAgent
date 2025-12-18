@@ -34,11 +34,11 @@ SEGMENTATION_CHAIN_MODEL = "gpt5_mini_thinking"
 # Iteration & Recursion Limits
 # ============================================================================
 
-# Maximum revision attempts per segment
-MAX_ITERATIONS_PER_SEGMENT = 3
+# Maximum revision attempts per segment (1 = initial + 1 revision)
+MAX_ITERATIONS_PER_SEGMENT = 1
 
-# Maximum search refinement iterations
-MAX_SEARCH_ITERATIONS = 5
+# Maximum search refinement iterations (DEPRECATED - no longer used, search agent executes all queries)
+# MAX_SEARCH_ITERATIONS = 30
 
 # Total tool calls allowed for Slide Supervisor (entire slide processing)
 SLIDE_SUPERVISOR_RECURSION_LIMIT = 100
@@ -47,24 +47,28 @@ SLIDE_SUPERVISOR_RECURSION_LIMIT = 100
 SEGMENT_PROCESSOR_RECURSION_LIMIT = 30
 
 # Tool calls allowed for Search Agent
-SEARCH_AGENT_RECURSION_LIMIT = 25
+# Lowered to keep single-slide runs fast
+SEARCH_AGENT_RECURSION_LIMIT = 100
 
 
 # ============================================================================
 # Search Parameters
 # ============================================================================
 
-# Number of results to retrieve per search query
-SEARCH_K = 10
+# Number of results to retrieve per search query (for Drive search)
+SEARCH_K = 5
+
+# Number of results to retrieve per web image search query
+WEB_SEARCH_K = 5
 
 # Minimum references needed per segment
-MIN_REFERENCES_PER_SEGMENT = 1
+MIN_REFERENCES_PER_SEGMENT = 3
 
-# Maximum references to return per segment
-MAX_REFERENCES_PER_SEGMENT = 10
+# Maximum references to return per segment (images selected based on sentence visualization requirements, no fixed number)
+MAX_REFERENCES_PER_SEGMENT = 8
 
 # Minimum similarity/relevance score to consider a reference (0-1)
-RELEVANCE_THRESHOLD = 0.6
+RELEVANCE_THRESHOLD = 1.5
 
 # Number of search queries to generate per visual element
 SEARCH_QUERIES_PER_ELEMENT = 3
@@ -74,17 +78,8 @@ SEARCH_QUERIES_PER_ELEMENT = 3
 # Quality Thresholds
 # ============================================================================
 
-# Minimum characters in a VO segment
-MIN_SEGMENT_LENGTH = 10
-
-# Maximum characters in a VO segment
-MAX_SEGMENT_LENGTH = 500
-
 # Minimum characters in a graphics definition
 MIN_DEFINITION_LENGTH = 50
-
-# Maximum number of segments per slide (safety limit)
-MAX_SEGMENTS_PER_SLIDE = 20
 
 
 # ============================================================================
@@ -121,10 +116,6 @@ ENABLE_LANGSMITH_TRACING = True
 # ============================================================================
 # Prompt Configuration
 # ============================================================================
-
-# Strategy for segmenting slide into VO moments
-# Options: "concept_based" | "sentence_based" | "time_based"
-SEGMENTATION_STRATEGY: Literal["concept_based", "sentence_based", "time_based"] = "concept_based"
 
 # Level of detail in graphics definitions
 # Options: "high" | "medium" | "low"
@@ -173,8 +164,7 @@ def get_model_config() -> dict:
 def get_limit_config() -> dict:
     """Returns limit configuration as a dictionary."""
     return {
-        "max_iterations_per_segment": MAX_ITERATIONS_PER_SEGMENT,
-        "max_search_iterations": MAX_SEARCH_ITERATIONS,
+        "max_iterations_per_segment": MAX_ITERATIONS_PER_SEGMENT,  
         "slide_supervisor_recursion_limit": SLIDE_SUPERVISOR_RECURSION_LIMIT,
         "segment_processor_recursion_limit": SEGMENT_PROCESSOR_RECURSION_LIMIT,
         "search_agent_recursion_limit": SEARCH_AGENT_RECURSION_LIMIT,
@@ -199,10 +189,7 @@ def get_all_config() -> dict:
         "limits": get_limit_config(),
         "search": get_search_config(),
         "quality_thresholds": {
-            "min_segment_length": MIN_SEGMENT_LENGTH,
-            "max_segment_length": MAX_SEGMENT_LENGTH,
             "min_definition_length": MIN_DEFINITION_LENGTH,
-            "max_segments_per_slide": MAX_SEGMENTS_PER_SLIDE,
         },
         "timeouts": {
             "segment_timeout": SEGMENT_TIMEOUT_SECONDS,
@@ -216,7 +203,6 @@ def get_all_config() -> dict:
             "enable_langsmith_tracing": ENABLE_LANGSMITH_TRACING,
         },
         "prompts": {
-            "segmentation_strategy": SEGMENTATION_STRATEGY,
             "definition_detail_level": DEFINITION_DETAIL_LEVEL,
             "search_query_diversity": SEARCH_QUERY_DIVERSITY,
             "review_strictness": REVIEW_STRICTNESS,

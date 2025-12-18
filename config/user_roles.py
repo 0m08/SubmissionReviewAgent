@@ -24,6 +24,7 @@ email_to_role_mapping = {
     "ramesh@skillcatapp.com": "Managers",
     "erastus@skillcatapp.com": "Managers",
     "eshwar@skillcatapp.com": "Managers",
+    "daniel@skillcatapp.com": "Managers",
     
     # Instructional Designer - Access to research notes, slide chunks, graphics definition, assessments, image search, quality compliance, video search
     "abheri@skillcatapp.com": "Instructional Designer",
@@ -65,7 +66,7 @@ role_page_access = {
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
         "graphics_definition_page", "graphics_workflow_v2_page", "assessments_generation_page",
         "graphics_search_page", "vectorstore_page", "get_images_page",
-        "quality_compliance_scoring_page", "video_search_tool_page"
+        "quality_compliance_scoring_page", "video_search_tool_page", "graphics_image_viewer_page", "graphics_v2_slideshow_page"
     ],
     "Managers": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",

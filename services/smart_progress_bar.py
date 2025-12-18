@@ -45,6 +45,48 @@ class SmartProgressBar:
         else:
             self.progress_bar.progress(fraction_complete, text=f"{self.description}: {int(fraction_complete * 100)}% | Just started...")
     
+    def update_progress(self, fraction_complete: float, custom_text: str = None):
+        """
+        Update progress bar with a specific fraction (0.0 to 1.0).
+        
+        Args:
+            fraction_complete: Progress fraction (0.0 to 1.0)
+            custom_text: Optional custom text to display
+        """
+        if self.total_tasks == 0:
+            return
+        
+        # Clamp fraction to valid range
+        fraction_complete = max(0.0, min(1.0, fraction_complete))
+        
+        current_time = time.time()
+        elapsed_seconds = current_time - self.start_time
+        
+        # Calculate equivalent completed count for ETA calculation
+        equivalent_completed = fraction_complete * self.total_tasks
+        
+        # Estimate remaining time based on current progress
+        if equivalent_completed > 0:
+            seconds_per_task = elapsed_seconds / equivalent_completed
+            remaining_tasks = self.total_tasks - equivalent_completed
+            estimated_remaining_seconds = seconds_per_task * remaining_tasks
+            
+            elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_seconds)))
+            remaining_time_str = str(datetime.timedelta(seconds=int(estimated_remaining_seconds)))
+            
+            if custom_text:
+                display_text = custom_text
+            else:
+                display_text = f"{self.description}: {int(fraction_complete * 100)}% | Elapsed: {elapsed_time_str} | Remaining: {remaining_time_str}"
+            
+            self.progress_bar.progress(fraction_complete, text=display_text)
+        else:
+            if custom_text:
+                display_text = custom_text
+            else:
+                display_text = f"{self.description}: {int(fraction_complete * 100)}% | Just started..."
+            self.progress_bar.progress(fraction_complete, text=display_text)
+    
     def should_save(self):
         if self.save_interval <= 0:
             return False

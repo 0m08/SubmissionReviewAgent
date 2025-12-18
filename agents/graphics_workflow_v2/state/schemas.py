@@ -7,9 +7,10 @@ This module defines all state schemas used across the three-level hierarchical a
 - Level 3: Search Agent
 """
 
-from typing import TypedDict, List, Optional, Dict, Any, Literal
+from typing import TypedDict, List, Optional, Dict, Any, Literal, Annotated, Set
 from pydantic import Field
 from langgraph.prebuilt.chat_agent_executor import AgentState
+from operator import add
 
 
 # ============================================================================
@@ -181,6 +182,10 @@ class SegmentProcessorState(AgentState):
         default_factory=list,
         description="References found/selected for this segment"
     )
+    search_results: List[ReferenceData] = Field(
+        default_factory=list,
+        description="All raw search results from Search Agent (used by refine_graphics_with_images)"
+    )
 
     # Review & revision
     review_verdict: Literal["pending", "approved", "rejected"] = Field(
@@ -224,6 +229,12 @@ class SegmentProcessorState(AgentState):
         description="Number of search results to return per query"
     )
 
+    # Course context
+    course_context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Course context (course name, topic, etc.)"
+    )
+
 
 class SearchAgentState(AgentState):
     """
@@ -234,13 +245,13 @@ class SearchAgentState(AgentState):
     """
 
     # Input
-    graphics_definition: str = Field(
+    vo_text: str = Field(
         default="",
-        description="Graphics definition text to search for"
+        description="The voiceover sentence that needs visualization"
     )
-    visual_elements: List[str] = Field(
-        default_factory=list,
-        description="Parsed list of visual elements that need references"
+    slide_chunk: str = Field(
+        default="",
+        description="Full slide content (for context)"
     )
 
     # Available for reuse
@@ -250,31 +261,31 @@ class SearchAgentState(AgentState):
     )
 
     # Working data
-    search_queries: List[str] = Field(
+    search_queries: Annotated[List[str], add] = Field(
         default_factory=list,
         description="Generated search queries"
     )
-    search_results: List[ReferenceData] = Field(
+    executed_drive_queries: Set[str] = Field(
+        default_factory=set,
+        description="Queries that have already been executed in Drive search (to prevent duplicates)"
+    )
+    executed_web_queries: Set[str] = Field(
+        default_factory=set,
+        description="Queries that have already been executed in web search (to prevent duplicates)"
+    )
+    search_results: Annotated[List[ReferenceData], add] = Field(
         default_factory=list,
         description="All search results found"
     )
-    selected_references: List[ReferenceData] = Field(
+    selected_references: Annotated[List[ReferenceData], add] = Field(
         default_factory=list,
         description="Final selected references to return"
     )
 
-    # Control
-    search_iteration: int = Field(
-        default=0,
-        description="Current search refinement iteration"
-    )
-    max_search_iterations: int = Field(
-        default=5,
-        description="Maximum search refinement attempts"
-    )
+    # Control (no iteration limit - all queries must be executed)
     min_references_needed: int = Field(
         default=1,
-        description="Minimum references to find (default: 1 per visual element)"
+        description="Minimum references to find"
     )
 
     # Search infrastructure
@@ -293,4 +304,10 @@ class SearchAgentState(AgentState):
     search_k: int = Field(
         default=10,
         description="Number of search results to return per query"
+    )
+    
+    # Course context
+    course_context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Course context (course name, topic, etc.)"
     )
