@@ -252,10 +252,8 @@ def main():
                     # Show selected instructions summary
                     st.info(f"**Selected edits:** {', '.join([EDITING_OPTIONS[k] for k in editing_instructions.keys()])}")
                     
-                    # Run editing pipeline with loader
-                    spinner_text = "Generating edited image..." if quick_mode else "Generating and reviewing edited image... This may take a moment."
-                    with st.spinner(spinner_text):
-                        try:
+                    # Run editing pipeline
+                    try:
                             final_edited_image, history, conversation_history = image_editing_with_review_loop(
                                 reference_image=image,
                                 editing_instructions=editing_instructions,
@@ -283,8 +281,8 @@ def main():
                             else:
                                 st.warning(f"⚠️ Image editing complete after {total_rounds} rounds. Review did not fully approve, but this is the best result.")
                             
-                        except Exception as e:
-                            st.error(f"❌ Image editing failed: {str(e)}")
+                    except Exception as e:
+                        st.error(f"❌ Image editing failed: {str(e)}")
     
     with col2:
         st.header("📥 Output")

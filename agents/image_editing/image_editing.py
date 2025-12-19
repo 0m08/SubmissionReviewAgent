@@ -17,7 +17,7 @@ load_dotenv()
 # CONFIGURATION
 # =============================================================================
 DEFAULT_GENERATOR_MODEL = "gemini-3-pro-image-preview" 
-DEFAULT_REVIEWER_MODEL = "gemini-2.5-pro"
+DEFAULT_REVIEWER_MODEL = "gemini-3-flash-preview"
 MAX_CORRECTION_ROUNDS = 5
 
 EDITING_OPTIONS = {

@@ -440,7 +440,7 @@ tool_pages = [
     "video_search_tool_page",
     "paraphraser_page",
     "image_translation_page",
-    "mcp_ui_page"
+    "mcp_ui_page",
     "image_editing_tool_page"
 ]
 
