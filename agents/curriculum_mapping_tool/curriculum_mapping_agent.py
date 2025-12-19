@@ -3,46 +3,92 @@ from typing import Any, Dict, List, Optional
 from langchain.schema import Document
 from modules.chain import Chain
 
+resource_mapping_prompt = """
+You are an expert curriculum mapping reviewer.
 
-course_mapping_prompt = """
-You are an expert curriculum mapping reviewer focused on {source_name}.
-Analyze how well each candidate resource serves the learner query. The search query is provided, and it is created from combiining the category and the course. The best resource will closely align with both the category and the course. Beware of recourses that closely match but not relate to the query. 
-Ensure that the recourse is the best match to the search query.
-For every candidate:
-- Reference it by "ID <number>"
-- Briefly state why it is or is not a strong match
-- Call out missing details, wrong scope, or broken links when relevant
+The learner query is created by combining the category and the course.
+Your task is to select the single best resource from EACH source below.
+For each source, analyze how well each candidate resource serves the learner query. Make sure the resource closely aligns with both the category and the course. 
+Beware of resources that closely match keywords but are wrong in scope or topic.
+For every candidate in each source:
+1. Reference it by "ID <number>"
+2. Briefly state why it is or is not a strong match.
+3. Call out missing details, wrong scope, or broken links when relevant.
 
-After reviewing all candidates, pick the single best option (or NONE) and explain your decision.
-Respond exactly in this format:
+Sources:
+1. SkillCat courses
+2. NexTech courses
+3. YouTube video clips
+
+Rules:
+- Each source must be evaluated independently
+- If no candidate matches well, respond with NONE for that source
+- Beware of candidates that match keywords but are wrong in scope or topic
+
+Respond EXACTLY in the following format:
+
 <analysis>
+SkillCat:
+ID 0: ...
+ID 1: ...
+
+NexTech:
+ID 0: ...
+ID 1: ...
+
+Video:
 ID 0: ...
 ID 1: ...
 </analysis>
-<best_id>...</best_id>
-<best_reason>...</best_reason>
+
+<skillcat_best_id>...</skillcat_best_id>
+<nextech_best_id>...</nextech_best_id>
+<video_best_id>...</video_best_id>
+
+<skillcat_reason>...</skillcat_reason>
+<nextech_reason>...</nextech_reason>
+<video_reason>...</video_reason>
 """
 
+def select_best_resources_unified(
+    query: str,
+    skillcat_docs: List[Document],
+    nextech_docs: List[Document],
+    video_docs: List[Dict[str, Any]],
+    llm: str = "gemini_2_5_flash",
+) -> Dict[str, Optional[int]]:
 
-video_mapping_prompt = """
-You are reviewing YouTube training clips for a curriculum mapping task.
-Analyze how well each candidate video serves the learner query. The search query is provided, and it is created from combiining the category and the course. The best video will closely align with both the category and the course. Beware of recourses that closely match but not relate to the query. 
-Ensure that the recourse is the best match to the search query.
-Analyze how well each candidate resource serves the learner query. For every candidate:
-For every entry:
-- Reference "ID <number>"
-- Mention whether the transcript segment truly teaches the requested concept
-- Note the timestamp window (start-end) if it helps the learner jump to the right spot
+    chain = Chain(
+    llm=llm,
+tags=["skillcat_best_id", "nextech_best_id", "video_best_id"],
+    # optionally add "analysis"/reason tags if you plan to read them
+    )
 
-Then pick the single best clip (or NONE) and justify your choice.
-Output format:
-<analysis>
-ID 0: ...
-ID 1: ...
-</analysis>
-<best_id>...</best_id>
-<best_reason>...</best_reason>
-"""
+    chain.add_message(
+        role="system",
+        content=resource_mapping_prompt.strip(),
+    )
+
+    chain.add_message(
+        role="user",
+        content=(
+            f"Query: {query}\n\n"
+            f"SkillCat Candidates:\n{_format_course_docs(skillcat_docs)}\n\n"
+            f"NexTech Candidates:\n{_format_course_docs(nextech_docs)}\n\n"
+            f"Video Candidates:\n{_format_video_docs(video_docs)}"
+        ),
+    )
+
+    response = chain.run()
+
+    # ✅ DO NOT TOUCH <analysis> AT ALL
+    return {
+        "skillcat_idx": _parse_index(response.get("skillcat_best_id")),
+        "nextech_idx": _parse_index(response.get("nextech_best_id")),
+        "video_idx": _parse_index(response.get("video_best_id")),
+    }
+
+
 
 
 def _trim_text(text: Optional[str], limit: int = 750) -> str:
@@ -117,83 +163,3 @@ def _parse_index(text: Optional[str]) -> Optional[int]:
         return None
 
 
-def select_best_course_resource(
-    source_name: str,
-    query: str,
-    docs: List[Document],
-    llm: str = "gemini_2_flash",
-) -> Dict[str, Optional[str]]:
-    logger = logging.getLogger(__name__)
-    logger.debug(
-        "Evaluating %s candidates for query='%s' (%d docs)",
-        source_name,
-        query,
-        len(docs),
-    )
-
-    if not docs:
-        reason = f"No {source_name} candidates were available."
-        logger.warning("%s selection skipped: %s", source_name, reason)
-        return {"index": None, "reason": reason}
-
-    chain = Chain(
-        llm=llm,
-        tags=["analysis", "best_id", "best_reason"],
-    )
-    chain.add_message(
-        role="system",
-        content=course_mapping_prompt.format(source_name=source_name).strip(),
-    )
-    chain.add_message(
-        role="user",
-        content=f"Query: {query}\n\nCandidates:\n{_format_course_docs(docs)}",
-    )
-    response = chain.run()
-    logger.debug(
-        "%s agent output for query='%s': best=%s",
-        source_name,
-        query,
-        response.get("best_id"),
-    )
-
-    return {
-        "index": _parse_index(response.get("best_id")),
-        "reason": response.get("best_reason", "").strip(),
-        "analysis": response.get("analysis", "").strip(),
-    }
-
-
-def select_best_video_resource(
-    query: str,
-    videos: List[Dict[str, Any]],
-    llm: str = "gemini_2_flash",
-) -> Dict[str, Optional[str]]:
-    logger = logging.getLogger(__name__)
-    logger.debug("Evaluating video candidates for query='%s' (%d items)", query, len(videos))
-
-    if not videos:
-        reason = "No video candidates were available."
-        logger.warning("Video selection skipped: %s", reason)
-        return {"index": None, "reason": reason}
-
-    chain = Chain(
-        llm=llm,
-        tags=["analysis", "best_id", "best_reason"],
-    )
-    chain.add_message(role="system", content=video_mapping_prompt.strip())
-    chain.add_message(
-        role="user",
-        content=f"Query: {query}\n\nVideo candidates:\n{_format_video_docs(videos)}",
-    )
-    response = chain.run()
-    logger.debug(
-        "Video agent output for query='%s': best=%s",
-        query,
-        response.get("best_id"),
-    )
-
-    return {
-        "index": _parse_index(response.get("best_id")),
-        "reason": response.get("best_reason", "").strip(),
-        "analysis": response.get("analysis", "").strip(),
-    }

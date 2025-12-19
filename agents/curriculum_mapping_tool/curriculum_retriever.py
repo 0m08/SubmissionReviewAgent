@@ -11,13 +11,12 @@ from langchain_chroma import Chroma
 from langchain.retrievers import BM25Retriever, EnsembleRetriever, ContextualCompressionRetriever
 from langchain_cohere import CohereRerank
 from pydrive2.files import ApiRequestError
+from gspread.utils import rowcol_to_a1
 from services.embedding_service import get_embedding_model
-from agents.course_outline.video_search_tool.video_retriever import video_retriever
+from agents.course_outline.video_search_tool.video_retriever import video_retriever, warmup_video_retriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
-from agents.curriculum_mapping_tool.curriculum_mapping_agent import (
-    select_best_course_resource,
-    select_best_video_resource,
-)
+from agents.curriculum_mapping_tool.curriculum_mapping_agent import select_best_resources_unified
+    
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
@@ -75,7 +74,7 @@ def _warn_drive_quota(context: str) -> None:
 
 def _get_default_llm_name() -> str:
     try:
-        return st.session_state.get("llm_model", "gemini_2_flash") or "gemini_2_flash"
+        return st.session_state.get("llm_model", "gemini_2_5_flash") or "gemini_2_5_flash"
     except Exception:
         return "gemini_2_flash"
 
@@ -347,6 +346,28 @@ def format_course_result(res_list: List[Dict[str, Any]]) -> str:
     return name
 
 
+def _apply_video_hyperlinks(worksheet, df: pd.DataFrame) -> None:
+    """
+    Rewrites the YT Videos column using USER_ENTERED semantics so Google Sheets
+    treats =HYPERLINK() strings as formulas instead of plain text.
+    """
+    if "YT Videos" not in df.columns or df.empty:
+        return
+
+    col_idx = df.columns.get_loc("YT Videos") + 1  # 1-based column index
+    start_row = 2  # header occupies row 1
+    end_row = len(df) + 1
+    if end_row < start_row:
+        return
+
+    start_cell = rowcol_to_a1(start_row, col_idx)
+    end_cell = rowcol_to_a1(end_row, col_idx)
+    rng = f"{start_cell}:{end_cell}"
+
+    values = [[("" if pd.isna(v) else str(v))] for v in df["YT Videos"].tolist()]
+    worksheet.update(rng, values, value_input_option="USER_ENTERED")
+
+
 # def _seconds_to_timestamp(value: Optional[Any]) -> Optional[str]:
 #     if value in (None, "", "None"):
 #         return None
@@ -384,7 +405,14 @@ def _format_selected_video(videos: List[Dict[str, Any]], selected_idx: Optional[
         chosen = videos[selected_idx]
 
     url = chosen.get("url") or chosen.get("video_link") or ""
-    return url or "No relevant match found"
+    title = chosen.get("video_title") or chosen.get("title") or "No relevant match found"
+
+    if not url:
+        return "No relevant match found"
+
+    safe_title = str(title).replace('"', '""')
+    safe_url = str(url).replace('"', '""')
+    return f'=HYPERLINK("{safe_url}", "{safe_title}")'
 
 
 @traceable(metadata={
@@ -394,44 +422,18 @@ def _format_selected_video(videos: List[Dict[str, Any]], selected_idx: Optional[
     "user_id": st.session_state.get("role", "anonymous"),
     "user_email": st.session_state.get("user_email", "anonymous")
 })
-def map_one_row(category: str, course: str, drive, k_each: int = 15) -> Dict[str, str]:
-    """
-    Maps one row (category + course) to best resources from SkillCat, NexTech, and YouTube videos.
-    :param category: Course category
-    :param course: Course name
-    :param drive: PyDrive2 Drive object
-    :param k_each: Number of top documents to retrieve from each source.
-    :return: Dict with mapped resources.
-    """
+def map_one_row(category: str, course: str, drive, k_each: int = 5) -> Dict[str, str]:
     query = build_row_query(category, course)
     k_each = max(1, k_each)
-    logger.info("Mapping query='%s' (Category=%s, Course=%s) with k_each=%d", query, category, course, k_each)
+    logger.info("Mapping query='%s'", query)
 
-    # run 3 sources in parallel
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futures = {
-            ex.submit(retrieve_course_docs, SKILLCAT_CFG, drive, query, k_each): "skillcat",
-            ex.submit(retrieve_course_docs, NEXTECH_CFG, drive, query, k_each): "nextech",
-            ex.submit(video_retriever, query, drive, k_each, None): "video",
-        }
+    # ---- Retrieval (same logic, no nesting) ----
+    skillcat_docs = retrieve_course_docs(SKILLCAT_CFG, drive, query, k_each) or []
+    nextech_docs = retrieve_course_docs(NEXTECH_CFG, drive, query, k_each) or []
+    video_candidates = video_retriever(query, drive, k_each, None) or []
 
-        results = {}
-        for fut in as_completed(futures):
-            source = futures[fut]
-            try:
-                results[source] = fut.result()
-            except Exception as e:
-                results[source] = []
-                # don't crash per-row
-                # in Streamlit you can log this if desired:
-                # st.error(f"{source} search failed: {e}")
-
-    skillcat_docs = results.get("skillcat", []) or []
-    nextech_docs = results.get("nextech", []) or []
-    video_candidates = results.get("video", []) or []
     logger.debug(
-        "Retrieved candidates | query='%s' | skillcat=%d | nextech=%d | video=%d",
-        query,
+        "Retrieved | SkillCat=%d | NexTech=%d | Video=%d",
         len(skillcat_docs),
         len(nextech_docs),
         len(video_candidates),
@@ -439,54 +441,31 @@ def map_one_row(category: str, course: str, drive, k_each: int = 15) -> Dict[str
 
     llm_name = _get_default_llm_name()
 
-    def _warn_agent_failure(source: str, exc: Exception) -> None:
-        warning = f"{source} agent failed for '{query}': {exc}"
-        logger.exception("%s agent failed for query='%s'.", source, query)
-        # try:
-            # st.warning(warning)
-        # except Exception:
-        print(warning)
-
     try:
-        skillcat_selection = select_best_course_resource(
-            "SkillCat", query, skillcat_docs, llm=llm_name
+        selection = select_best_resources_unified(
+            query=query,
+            skillcat_docs=skillcat_docs,
+            nextech_docs=nextech_docs,
+            video_docs=video_candidates,
+            llm=llm_name,
         )
     except Exception as exc:
-        _warn_agent_failure("SkillCat", exc)
-        skillcat_selection = {"index": None, "reason": f"SkillCat selection failed: {exc}"}
+        logger.exception("Unified selection failed for query='%s'", query)
+        selection = {
+            "skillcat_idx": None,
+            "nextech_idx": None,
+            "video_idx": None,
+        }
 
-    try:
-        nextech_selection = select_best_course_resource(
-            "NexTech", query, nextech_docs, llm=llm_name
-        )
-    except Exception as exc:
-        _warn_agent_failure("NexTech", exc)
-        nextech_selection = {"index": None, "reason": f"NexTech selection failed: {exc}"}
+    skillcat_display = _format_selected_course(skillcat_docs, selection.get("skillcat_idx"))
+    nextech_display = _format_selected_course(nextech_docs, selection.get("nextech_idx"))
+    video_display = _format_selected_video(video_candidates, selection.get("video_idx"))
 
-    try:
-        video_selection = select_best_video_resource(
-            query, video_candidates, llm=llm_name
-        )
-    except Exception as exc:
-        _warn_agent_failure("Video", exc)
-        video_selection = {"index": None, "reason": f"Video selection failed: {exc}"}
-
-    skillcat_idx = (skillcat_selection or {}).get("index")
-    nextech_idx = (nextech_selection or {}).get("index")
-    video_idx = (video_selection or {}).get("index")
-
-    skillcat_display = _format_selected_course(skillcat_docs, skillcat_idx)
-    nextech_display = _format_selected_course(nextech_docs, nextech_idx)
-    video_display = _format_selected_video(video_candidates, video_idx)
-    logger.debug("SkillCat reasoning: %s", (skillcat_selection or {}).get("reason"))
-    logger.debug("NexTech reasoning: %s", (nextech_selection or {}).get("reason"))
-    logger.debug("Video reasoning: %s", (video_selection or {}).get("reason"))
     logger.info(
-        "Agent selection | query='%s' | SkillCat idx=%s | NexTech idx=%s | Video idx=%s",
-        query,
-        skillcat_idx,
-        nextech_idx,
-        video_idx,
+        "Selected | SkillCat=%s | NexTech=%s | Video=%s",
+        selection.get("skillcat_idx"),
+        selection.get("nextech_idx"),
+        selection.get("video_idx"),
     )
 
     return {
@@ -498,6 +477,7 @@ def map_one_row(category: str, course: str, drive, k_each: int = 15) -> Dict[str
     }
 
 
+
 @traceable(metadata={
     "agent_name": "curriculum_mapping",
     "step_name": "Run Curriculum Mapping",
@@ -505,17 +485,17 @@ def map_one_row(category: str, course: str, drive, k_each: int = 15) -> Dict[str
     "user_id": st.session_state.get("role", "anonymous"),
     "user_email": st.session_state.get("user_email", "anonymous")
 })
-def run_curriculum_mapping(sheet, drive, input_worksheet_name: Optional[str] = None, k_each: int = 15):
+def run_curriculum_mapping(
+    sheet,
+    drive,
+    input_worksheet_name: Optional[str] = None,
+    k_each: int = 5,
+):
     """
     Runs curriculum mapping on the given sheet, writing results back to it.
-    :param sheet: Google Sheet object
-    :param drive: PyDrive2 Drive object
-    :param input_worksheet_name: Optional name of the worksheet to read from. If None uses the first worksheet.
-    :param k_each: Number of top documents to retrieve from each source per query.
-    :return: DataFrame with results.
     """
-    
-    # choose input worksheet
+
+    # -------- Load worksheet --------
     if input_worksheet_name:
         ws_in, df = get_sheet_data_and_df(sheet, input_worksheet_name)
     else:
@@ -531,21 +511,23 @@ def run_curriculum_mapping(sheet, drive, input_worksheet_name: Optional[str] = N
         if col not in df.columns:
             df[col] = ""
 
-    # Warm up retrievers once on the main thread so downstream threaded calls avoid Streamlit errors.
+    # -------- Warm up retrievers once --------
     with st.spinner("Preparing SkillCat and NexTech retrievers..."):
         get_compression_retriever(SKILLCAT_CFG, drive)
         get_compression_retriever(NEXTECH_CFG, drive)
 
+    with st.spinner("Preparing video retriever..."):
+        warmup_video_retriever(drive)
+
+    # -------- Build task list --------
     tasks = []
     for idx, row in df.iterrows():
         category = str(row.get("Category", "") or "").strip()
         course = str(row.get("Course", "") or "").strip()
 
-        # skip empty rows
         if not category and not course:
             continue
 
-        # skip rows already processed
         if (
             str(row.get("SkillCat Resource", "")).strip()
             and str(row.get("NexTech Resource", "")).strip()
@@ -560,27 +542,41 @@ def run_curriculum_mapping(sheet, drive, input_worksheet_name: Optional[str] = N
         return df
 
     total = len(tasks)
-    futures = {}
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        for idx, category, course in tasks:
-            futures[executor.submit(map_one_row, category, course, drive, k_each)] = (idx, category, course)
 
-        progress = SmartProgressBar(total_tasks=total, description="Percent complete", save_interval=5)
-        completed = 0
+    # -------- Parallel row execution (CORRECTED) --------
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {
+            executor.submit(map_one_row, category, course, drive, k_each): idx
+            for idx, category, course in tasks
+        }
+
+        progress = SmartProgressBar(
+            total_tasks=total,
+            description="Percent complete",
+            save_interval=15,
+        )
 
         for future in tqdm(as_completed(futures), total=total):
-            idx, category, course = futures[future]
-            mapped = future.result()
+            idx = futures[future]
+
+            try:
+                mapped = future.result()
+            except Exception as exc:
+                logger.exception("Row %s failed", idx)
+                continue
 
             df.at[idx, "SkillCat Resource"] = mapped["SkillCat Resource"]
             df.at[idx, "NexTech Resource"] = mapped["NexTech Resource"]
             df.at[idx, "YT Videos"] = mapped["YT Videos"]
 
-            completed += 1
             progress.update()
 
             if progress.should_save():
                 save_to_sheet(ws_in, df)
+                _apply_video_hyperlinks(ws_in, df)
 
+    # -------- Final save --------
     save_to_sheet(ws_in, df)
+    _apply_video_hyperlinks(ws_in, df)
+
     return df

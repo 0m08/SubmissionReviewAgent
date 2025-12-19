@@ -17,7 +17,7 @@ from agents.curriculum_mapping_tool.curriculum_retriever import run_curriculum_m
 
 
 
-llm_model = st.session_state.get("llm_model", "gemini_2_flash") or "gemini_2_flash"
+llm_model = st.session_state.get("llm_model", "gemini_2_5_flash") or "gemini_2_5_flash"
 # --------------------- Auth --------------------- #
 load_dotenv()
 key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
@@ -47,7 +47,7 @@ def chroma_db_exists(drive, central_folder_id, vectorstore_folder_name, chroma_d
     :return: True if the chroma db folder exists, False otherwise
     """
 
-    # 1️⃣ Find the vectorstore folder inside the central folder
+    # 1️Find the vectorstore folder inside the central folder
     vectorstore_folders = drive.ListFile({
         'q': (
             f"title='{vectorstore_folder_name}' and "
@@ -61,7 +61,7 @@ def chroma_db_exists(drive, central_folder_id, vectorstore_folder_name, chroma_d
 
     vectorstore_folder_id = vectorstore_folders[0]['id']
 
-    # 2️⃣ Check for the chroma db folder inside the vectorstore folder
+    # 2️Check for the chroma db folder inside the vectorstore folder
     chroma_folders = drive.ListFile({
         'q': (
             f"title='{chroma_db_folder_name}' and "
@@ -72,207 +72,217 @@ def chroma_db_exists(drive, central_folder_id, vectorstore_folder_name, chroma_d
 
     return bool(chroma_folders)
 
-
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
-st.markdown("## Curriculum Mapping Tool")
-
-st.markdown(
-    """
-    ### What this tool does
-    This agent **automatically maps your curriculum courses** to the **best matching learning resources**
-    across **YouTube (HVAC School / Ty Videos)**, **NexTech**, and **SkillCat** using **semantic search**.
-
-    ### How to use it
-    1. Prepare a Google Sheet, and on a new tab, name it **Mapped Resources** with two columns:
-       - **Category**
-       - **Course**
-    2. Paste the Google Sheet link below
-    3. Click **Run Curriculum Mapping Agent**
-    4. Wait for completion  
-    5. Results will be written back to your sheet.
-
-    ---
-    ⚠️ **Important**
-    - This tool assumes vectorstores already exist.
-    - Use the tabs below **only if you need to create or update vectorstores**.\
-    
-    ---
-    """
-)
+REQUIRED_SHEET_NAME = "Mapped Resources"
+REQUIRED_COLUMNS = ["Category", "Course"]
 
 
-# ==========================================================
-# 🔹 PRIMARY ACTION: CURRICULUM MAPPING (NOT A TAB)
-# ==========================================================
+def validate_mapping_sheet(gc, sheet_url):
+    try:
+        sh = gc.open_by_url(sheet_url)
+    except Exception:
+        return None, "Invalid or inaccessible Google Sheet URL."
 
-mapping_sheet = None
+    if REQUIRED_SHEET_NAME not in [ws.title for ws in sh.worksheets()]:
+        return None, f"Missing worksheet: '{REQUIRED_SHEET_NAME}'"
 
-st.markdown("### Provide Google Sheet for Curriculum Mapping")
+    ws = sh.worksheet(REQUIRED_SHEET_NAME)
+    df = pd.DataFrame(ws.get_all_records())
+
+    if df.empty:
+        return None, "Worksheet exists but is empty."
+
+    missing_cols = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing_cols:
+        return None, f"Missing columns: {missing_cols}"
+
+    return sh, None
+
+
+def sample_format_df():
+    return pd.DataFrame({
+        "Category": [
+            "HVAC Industry Overview",
+            "HVAC Industry Overview",
+            "Electricity",
+            "Electricity"
+        ],
+        "Course": [
+            "What is HVAC?",
+            "Industry outlook",
+            "Magnets and Electricity",
+            "Ohm's law"
+        ]
+    })
+
+
+st.title("Curriculum Mapping Tool")
+st.caption("Map curriculum courses to the best learning resources automatically.")
 
 sheet_url = st.text_input(
-    "Paste Google Sheet URL (must include Category & Course columns)",
-    key="mapping_sheet_url"
+    "Google Sheet URL",
+    placeholder="https://docs.google.com/spreadsheets/..."
 )
 
+mapping_sheet = None
+validation_error = None
 
 if sheet_url:
-    try:
-        mapping_sheet = gc.open_by_url(sheet_url)
-        st.session_state["mapping_sheet"] = mapping_sheet
-        st.success("Sheet loaded successfully.")
-    except Exception as e:
-        st.error(f"Could not open sheet: {e}")
+    mapping_sheet, validation_error = validate_mapping_sheet(gc, sheet_url)
 
-mapping_sheet = st.session_state.get("mapping_sheet")
+    if validation_error:
+        st.error(validation_error)
+        st.markdown("**Required sheet format:**")
+        st.dataframe(sample_format_df(), use_container_width=True)
+    else:
+        st.success("Sheet validated successfully.")
 
-if mapping_sheet:
-    if st.button("Run Curriculum Mapping Agent", type="primary"):
-        run_curriculum_mapping(
-            sheet=mapping_sheet,
-            drive=drive,
-            input_worksheet_name=None, 
-            )
+run_disabled = (not sheet_url) or (validation_error is not None)
+
+if st.button(
+    "Run Curriculum Mapping",
+    type="primary",
+    disabled=run_disabled
+):
+    run_curriculum_mapping(
+        sheet=mapping_sheet,
+        drive=drive,
+        input_worksheet_name=REQUIRED_SHEET_NAME,
+    )
     st.success("Curriculum mapping completed. Results written to the sheet.")
 
-# ==========================================================
-# 🔹 SECONDARY TOOLS: VECTORSTORE MANAGEMENT
-# ==========================================================
-
 st.markdown("---")
-st.markdown("## Vectorstore Management")
-
-tabs = st.tabs([
-    "🎥 HVAC School / Ty Videos",
-    "🏗️ NexTech",
-    "📘 SkillCat"
-])
-
-central_folder_id = "1PiAHiA15CROr9haNh61fDOv9R-7OBOj-"
 
 # ==========================================================
-# HVAC SCHOOL / TY VIDEOS
+# TOGGLE
 # ==========================================================
+show_advanced = st.toggle("Advanced: Vectorstore Management", value=False)
 
-with tabs[0]:
-    st.header("HVAC School / Ty Videos Vectorstore")
+if show_advanced:
+    tabs = st.tabs([
+        "HVAC School / Ty Videos",
+        "NexTech",
+        "SkillCat"
+    ])
 
-    video_task = st.selectbox(
-        "Choose task",
-        ["Create Vectorstore", "Update Vectorstore"],
-        key="video_task"
-    )
+    # ==========================================================
+    # HVAC / TY VIDEOS
+    # ==========================================================
+    with tabs[0]:
+        st.header("HVAC School / Ty Videos Vectorstore")
 
-    video_sheet = None
-    st.subheader("Provide Google Sheet")
-    sheet_url = st.text_input(
-        "Enter your Google Sheet URL:",
-        key="video_sheet_url"
-    )
+        video_task = st.selectbox(
+            "Choose task",
+            ["Create Vectorstore", "Update Vectorstore"],
+            key="video_task"
+        )
 
-    if sheet_url:
-        try:
-            video_sheet = gc.open_by_url(sheet_url)
-            st.session_state["video_sheet"] = video_sheet
-            st.success("Sheet loaded successfully.")
-        except Exception as e:
-            st.error(f"Failed to load sheet: {e}")
+        st.subheader("Provide Google Sheet")
+        video_sheet_url = st.text_input(
+            "Enter your Google Sheet URL:",
+            key="video_sheet_url"
+        )
 
-    video_sheet = st.session_state.get("video_sheet")
+        if video_sheet_url:
+            try:
+                video_sheet = gc.open_by_url(video_sheet_url)
+                st.session_state["video_sheet"] = video_sheet
+                st.success("Sheet loaded successfully.")
+            except Exception as e:
+                st.error(f"Failed to load sheet: {e}")
 
-    if video_task == "Create Vectorstore":
-        if video_sheet and st.button("Create Video Vectorstore"):
-            with st.spinner("Building and uploading video vectorstore..."):
-                create_video_vectorstore(video_sheet, drive)
-            st.success("Video vectorstore built successfully.")
+        video_sheet = st.session_state.get("video_sheet")
 
-    elif video_task == "Update Vectorstore":
-        if video_sheet and st.button("Update Video Vectorstore"):
-            with st.spinner("Updating video vectorstore..."):
-                update_video_vectorstore(video_sheet, drive)
-            st.success("Video vectorstore updated.")
+        if video_task == "Create Vectorstore":
+            if video_sheet and st.button("Create Video Vectorstore", key="btn_create_video"):
+                with st.spinner("Building and uploading video vectorstore..."):
+                    create_video_vectorstore(video_sheet, drive)
+                st.success("Video vectorstore built successfully.")
 
-# ==========================================================
-# NEXTECH
-# ==========================================================
+        elif video_task == "Update Vectorstore":
+            if video_sheet and st.button("Update Video Vectorstore", key="btn_update_video"):
+                with st.spinner("Updating video vectorstore..."):
+                    update_video_vectorstore(video_sheet, drive)
+                st.success("Video vectorstore updated successfully.")
 
-with tabs[1]:
-    st.header("NexTech Vectorstore")
+    # ==========================================================
+    # NEXTECH
+    # ==========================================================
+    with tabs[1]:
+        st.header("NexTech Vectorstore")
 
-    nextech_task = st.selectbox(
-        "Choose task",
-        ["Create Vectorstore", "Update Vectorstore"],
-        key="nextech_task"
-    )
+        nextech_task = st.selectbox(
+            "Choose task",
+            ["Create Vectorstore", "Update Vectorstore"],
+            key="nextech_task"
+        )
 
-    nextech_sheet = None
-    st.subheader("Provide Google Sheet")
-    sheet_url = st.text_input(
-        "Enter your Google Sheet URL:",
-        key="nextech_sheet_url"
-    )
+        st.subheader("Provide Google Sheet")
+        nextech_sheet_url = st.text_input(
+            "Enter your Google Sheet URL:",
+            key="nextech_sheet_url"
+        )
 
-    if sheet_url:
-        try:
-            nextech_sheet = gc.open_by_url(sheet_url)
-            st.session_state["nextech_sheet"] = nextech_sheet
-            st.success("Sheet loaded successfully.")
-        except Exception as e:
-            st.error(f"Failed to load sheet: {e}")
+        if nextech_sheet_url:
+            try:
+                nextech_sheet = gc.open_by_url(nextech_sheet_url)
+                st.session_state["nextech_sheet"] = nextech_sheet
+                st.success("Sheet loaded successfully.")
+            except Exception as e:
+                st.error(f"Failed to load sheet: {e}")
 
-    nextech_sheet = st.session_state.get("nextech_sheet")
+        nextech_sheet = st.session_state.get("nextech_sheet")
 
-    if nextech_task == "Create Vectorstore":
-        if nextech_sheet and st.button("Create NexTech Vectorstore"):
-            with st.spinner("Creating NexTech vectorstore..."):
-                create_nextech_vectorstore(nextech_sheet, drive)
-            st.success("NexTech vectorstore created.")
+        if nextech_task == "Create Vectorstore":
+            if nextech_sheet and st.button("Create NexTech Vectorstore", key="btn_create_nextech"):
+                with st.spinner("Creating NexTech vectorstore..."):
+                    create_nextech_vectorstore(nextech_sheet, drive)
+                st.success("NexTech vectorstore created.")
 
-    elif nextech_task == "Update Vectorstore":
-        if nextech_sheet and st.button("Update NexTech Vectorstore"):
-            with st.spinner("Updating NexTech vectorstore..."):
-                update_nextech_vectorstore(nextech_sheet, drive)
-            st.success("NexTech vectorstore updated.")
+        elif nextech_task == "Update Vectorstore":
+            if nextech_sheet and st.button("Update NexTech Vectorstore", key="btn_update_nextech"):
+                with st.spinner("Updating NexTech vectorstore..."):
+                    update_nextech_vectorstore(nextech_sheet, drive)
+                st.success("NexTech vectorstore updated.")
 
-# ==========================================================
-# SKILLCAT
-# ==========================================================
+    # ==========================================================
+    # SKILLCAT
+    # ==========================================================
+    with tabs[2]:
+        st.header("SkillCat Vectorstore")
 
-with tabs[2]:
-    st.header("SkillCat Vectorstore")
+        skillcat_task = st.selectbox(
+            "Choose task",
+            ["Create Vectorstore", "Update Vectorstore"],
+            key="skillcat_task"
+        )
 
-    skillcat_task = st.selectbox(
-        "Choose task",
-        ["Create Vectorstore", "Update Vectorstore"],
-        key="skillcat_task"
-    )
+        st.subheader("Provide Google Sheet")
+        skillcat_sheet_url = st.text_input(
+            "Enter your Google Sheet URL:",
+            key="skillcat_sheet_url"
+        )
 
-    skillcat_sheet = None
-    st.subheader("Provide Google Sheet")
-    sheet_url = st.text_input(
-        "Enter your Google Sheet URL:",
-        key="skillcat_sheet_url"
-    )
+        if skillcat_sheet_url:
+            try:
+                skillcat_sheet = gc.open_by_url(skillcat_sheet_url)
+                st.session_state["skillcat_sheet"] = skillcat_sheet
+                st.success("Sheet loaded successfully.")
+            except Exception as e:
+                st.error(f"Failed to load sheet: {e}")
 
-    if sheet_url:
-        try:
-            skillcat_sheet = gc.open_by_url(sheet_url)
-            st.session_state["skillcat_sheet"] = skillcat_sheet
-            st.success("Sheet loaded successfully.")
-        except Exception as e:
-            st.error(f"Failed to load sheet: {e}")
+        skillcat_sheet = st.session_state.get("skillcat_sheet")
 
-    skillcat_sheet = st.session_state.get("skillcat_sheet")
+        if skillcat_task == "Create Vectorstore":
+            if skillcat_sheet and st.button("Create SkillCat Vectorstore", key="btn_create_skillcat"):
+                with st.spinner("Creating SkillCat vectorstore..."):
+                    create_skillcat_vectorstore(skillcat_sheet, drive)
+                st.success("SkillCat vectorstore created.")
 
-    if skillcat_task == "Create Vectorstore":
-        if skillcat_sheet and st.button("Create SkillCat Vectorstore"):
-            with st.spinner("Creating SkillCat vectorstore..."):
-                create_skillcat_vectorstore(skillcat_sheet, drive)
-            st.success("SkillCat vectorstore created.")
-
-    elif skillcat_task == "Update Vectorstore":
-        if skillcat_sheet and st.button("Update SkillCat Vectorstore"):
-            with st.spinner("Updating SkillCat vectorstore..."):
-                update_skillcat_vectorstore(skillcat_sheet, drive)
-            st.success("SkillCat vectorstore updated.")
+        elif skillcat_task == "Update Vectorstore":
+            if skillcat_sheet and st.button("Update SkillCat Vectorstore", key="btn_update_skillcat"):
+                with st.spinner("Updating SkillCat vectorstore..."):
+                    update_skillcat_vectorstore(skillcat_sheet, drive)
+                st.success("SkillCat vectorstore updated.")
