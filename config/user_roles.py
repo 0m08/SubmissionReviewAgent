@@ -89,7 +89,7 @@ role_page_access = {
     ],
     "Basic User": [
         "vectorstore_page",
-        "paraphraser_page"
+        "paraphraser_page","image_translation_page", "image_editing_tool_page"
     ],
     None: [
         # No pages accessible for users with None role (denied access)
