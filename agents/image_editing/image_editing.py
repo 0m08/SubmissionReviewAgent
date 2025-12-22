@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import json
 import streamlit as st
 from pydantic import BaseModel, Field
+from langsmith import traceable
 
 # Load environment variables
 load_dotenv()
@@ -173,6 +174,15 @@ def image_from_base64(base64_string: str) -> Image.Image:
 # GENERATOR AGENT
 # =============================================================================
 
+@traceable(
+    metadata={
+        "agent_name": "image_editing",
+        "step_name": "Generator",
+        "function_name": "generate_edited_image",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
 def generate_edited_image(
     reference_image: Image.Image,
     editing_instructions: Dict[str, str],
@@ -275,6 +285,15 @@ def generate_edited_image(
 # REVIEWER AGENT
 # =============================================================================
 
+@traceable(
+    metadata={
+        "agent_name": "image_editing",
+        "step_name": "Reviewer",
+        "function_name": "review_edited_image",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
 def review_edited_image(
     reference_image: Image.Image,
     edited_image: Image.Image,
@@ -356,6 +375,15 @@ def review_edited_image(
 # MAIN LOOP
 # =============================================================================
 
+@traceable(
+    metadata={
+        "agent_name": "image_editing",
+        "step_name": "Main Loop",
+        "function_name": "image_editing_with_review_loop",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
 def image_editing_with_review_loop(
     reference_image: Image.Image,
     editing_instructions: Dict[str, str],
