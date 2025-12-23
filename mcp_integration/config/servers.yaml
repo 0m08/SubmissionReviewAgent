@@ -1,0 +1,67 @@
+# MCP Server Configuration
+#
+# This file defines MCP servers that can be connected to.
+# Environment variables can be interpolated using ${VAR} or ${VAR:-default} syntax.
+#
+# Transport types:
+#   - stdio: Local subprocess communication (requires: command, args)
+#   - sse: Server-Sent Events over HTTP (requires: url) - deprecated
+#   - streamable_http: HTTP POST with streaming (requires: url) - recommended for remote
+
+servers:
+  # Web Tools MCP - Python-based web utilities
+  # Provides fetch_url, fetch_json, check_url, extract_links
+  web-tools:
+    enabled: true
+    transport: stdio
+    command: python
+    args: ["-m", "mcp_integration.servers.web_tools_server"]
+    description: "Web utilities - fetch pages, check URLs, extract links"
+
+  # Fetch MCP - Official Anthropic server (requires npm/npx)
+  # fetch:
+  #   enabled: true
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@anthropic/mcp-server-fetch"]
+  #   description: "Fetch web content - retrieve and parse web pages"
+
+  # Example: Filesystem server (local files access)
+  # filesystem:
+  #   enabled: true
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/allowed/path"]
+  #   description: "Access local filesystem"
+
+  # Example: GitHub server
+  # github:
+  #   enabled: true
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN}
+  #   description: "GitHub repository access"
+
+  # Example: Remote HTTP server
+  # remote-tools:
+  #   enabled: true
+  #   transport: streamable_http
+  #   url: http://localhost:8000/mcp
+  #   description: "Remote MCP tools server"
+
+  # Remote Fetch MCP Server
+  remote-fetch:
+    enabled: true
+    transport: streamable_http
+    url: https://remote.mcpservers.org/fetch/mcp
+    description: "Remote fetch server - retrieve and parse web pages"
+
+  # Placeholder - add your servers here
+  _placeholder:
+    enabled: false
+    transport: stdio
+    command: echo
+    args: ["placeholder"]
+    description: "Placeholder server - replace with real servers"

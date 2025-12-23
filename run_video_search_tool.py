@@ -45,7 +45,8 @@ elif role == "Managers":
 elif role == "Visual Designer":
     task_options = ["Search Videos"]
 else:
-    st.warning("Your role does not have access to any tasks.")
+    task_options = ["Search Videos"]
+    # st.warning("Your role does not have access to any tasks.")
 
 task = st.selectbox("Choose a task:", task_options) if task_options else None
 
