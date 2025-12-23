@@ -4,7 +4,7 @@ import streamlit as st
 from modules.chain import Chain
 from langchain.schema import Document
 from langchain_cohere import CohereRerank
-from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 from typing import List, Optional, Dict, Any
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever

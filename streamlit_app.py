@@ -76,7 +76,11 @@ def login():
                 redirect_uri=redirect_uri,
                 code=code,
             )
-            gauth, drive, gc = init_clients_from_credentials(creds)
+            gauth, drive, gc = init_clients_from_credentials(
+                creds,
+                client_id=oauth_client_id,
+                client_secret=oauth_client_secret
+            )
 
             about = drive.GetAbout()
             user_email = about.get('user', {}).get('emailAddress', '')

@@ -746,7 +746,7 @@ def check_reference_reuse(
                     "title": title,
                     "description": description,
                 }
-            )
+    )
 
     # Format available references as text (for IDs + descriptions)
     refs_text = ""
@@ -824,7 +824,7 @@ Always strictly give your output in the following format:
 
     # Call a vision-capable model via llm_with_retry
     messages = [("user", content_parts)]
-    raw_response = llm_with_retry(messages, llm_name="gemini_2_5_flash")
+    raw_response = llm_with_retry(messages, llm_name="gemini_2_5_pro")
 
     # Normalize raw response to plain text
     if hasattr(raw_response, "content"):
@@ -835,7 +835,7 @@ Always strictly give your output in the following format:
         raw_text = str(raw_response)
 
     # Reuse Chain's tag-extraction helper for <matches> and <reasoning>
-    parser_chain = Chain(llm="gemini_2_5_flash", tags=["matches", "reasoning"])
+    parser_chain = Chain(llm="gemini_2_5_pro", tags=["matches", "reasoning"])
     try:
         parsed = parser_chain.extract_text_in_tags(raw_text)
     except Exception:
@@ -1066,7 +1066,7 @@ Always strictly give your output in the following format:
 #             )
 
 #     messages = [("user", content_parts)]
-#     raw_response = llm_with_retry(messages, llm_name="gemini_2_5_flash")
+#     raw_response = llm_with_retry(messages, llm_name="gemini_2_5_pro")
 
 #     # Normalize raw response to plain text
 #     if hasattr(raw_response, "content"):
@@ -1077,7 +1077,7 @@ Always strictly give your output in the following format:
 #         raw_text = str(raw_response)
 
 #     # Reuse Chain's tag-extraction helper for <assessment> and <recommendations>
-#     parser_chain = Chain(llm="gemini_2_5_flash", tags=["assessment", "recommendations"])
+#     parser_chain = Chain(llm="gemini_2_5_pro", tags=["assessment", "recommendations"])
 #     try:
 #         parsed = parser_chain.extract_text_in_tags(raw_text)
 #     except Exception:

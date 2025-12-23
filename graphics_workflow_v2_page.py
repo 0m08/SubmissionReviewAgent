@@ -459,7 +459,7 @@ from agents.graphics_workflow_v2 import (
     get_final_definition,
     get_workflow_summary,
 )
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet
 from services.smart_progress_bar import SmartProgressBar
 import pandas as pd
 from io import StringIO
@@ -684,6 +684,7 @@ else:
     # Run button
     if st.button("▶️ Generate Graphics Definitions for All Slides", type="primary", disabled=not can_run):
         status_text = st.empty()
+        save_status_container = st.empty()  # Container for save status messages
         results_container = st.container()
 
         try:
@@ -793,7 +794,7 @@ else:
             sheet_lock = Lock()
             
             # Submit all tasks to ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=6) as executor:
                 futures_map = {}
                 
                 for row_index in valid_rows:
@@ -826,8 +827,13 @@ else:
                         try:
                             with sheet_lock:
                                 save_to_sheet(config["worksheet"], df)
+                            # Print to terminal for visibility
+                            print(f"\n💾 [SAVE] Row {result_data['row_index'] + 1} saved to sheet successfully")
+                            # Update UI with save status
+                            save_status_container.info(f"💾 **Saved to sheet:** Rows {', '.join([str(r['row']) for r in results])} completed and saved")
                             st.info(f"💾 Saved progress after row {result_data['row_index'] + 1}")
                         except Exception as save_error:
+                            print(f"\n⚠️ [SAVE ERROR] Row {result_data['row_index'] + 1} failed to save: {save_error}")
                             st.warning(f"⚠️ Could not save progress for row {result_data['row_index'] + 1}: {save_error}")
                             
                     elif result_data["status"] == "skipped":
@@ -849,6 +855,7 @@ else:
             # Final save (redundant but ensures everything is saved)
             try:
                 save_to_sheet(config["worksheet"], df)
+                format_worksheet(config["worksheet"])
                 st.success("💾 Final results saved to sheet")
             except Exception as save_error:
                 st.error(f"❌ Failed to save final results: {save_error}")

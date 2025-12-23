@@ -35,8 +35,8 @@ def create_search_agent():
         Compiled LangGraph agent
     """
     # Initialize LLM
-    # Note: GPT-5 models only support temperature=1
-    llm = init_chat_model(SEARCH_AGENT_MODEL, temperature=1)
+    # Note: Gemini 2.5 Pro requires include_thoughts=True for function calling
+    llm = init_chat_model(SEARCH_AGENT_MODEL, temperature=1, include_thoughts=True)
 
     # Create system prompt (no formatting needed - no placeholders)
     system_prompt = SEARCH_AGENT_SYSTEM_PROMPT

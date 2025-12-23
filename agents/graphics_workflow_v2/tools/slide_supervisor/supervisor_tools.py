@@ -536,12 +536,17 @@ def _format_graphics_definition_for_sheet(graphics_def: str) -> str:
     
     Replaces:
     - <description>...</description> with Description: ...
+    - <selection_justification>...</selection_justification> with Selection Justification: ...
     - <selected_images>...</selected_images> with Images to use for this segment: ...
     - Adds line gap between sections
     """
     # Extract description content
     description_match = re.search(r'<description>(.*?)</description>', graphics_def, re.DOTALL)
     description_content = description_match.group(1).strip() if description_match else ""
+    
+    # Extract selection_justification content
+    justification_match = re.search(r'<selection_justification>(.*?)</selection_justification>', graphics_def, re.DOTALL)
+    justification_content = justification_match.group(1).strip() if justification_match else ""
     
     # Extract selected_images content
     images_match = re.search(r'<selected_images>(.*?)</selected_images>', graphics_def, re.DOTALL)
@@ -553,13 +558,18 @@ def _format_graphics_definition_for_sheet(graphics_def: str) -> str:
     if description_content:
         formatted += f"Description:\n{description_content}\n"
     
-    if images_content:
+    if justification_content:
         if description_content:
+            formatted += "\n"  # Line gap between sections
+        formatted += f"Selection Justification:\n{justification_content}\n"
+    
+    if images_content:
+        if description_content or justification_content:
             formatted += "\n"  # Line gap between sections
         formatted += f"Images to use for this segment:\n{images_content}\n"
     
     # If no XML tags found, return original (fallback)
-    if not description_match and not images_match:
+    if not description_match and not justification_match and not images_match:
         return graphics_def
     
     return formatted

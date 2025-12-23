@@ -238,19 +238,33 @@ def exchange_code_for_credentials(client_id: str, client_secret: str, redirect_u
     return flow.credentials
 
 
-def init_clients_from_credentials(creds: Credentials):
+def init_clients_from_credentials(creds: Credentials, client_id: str = None, client_secret: str = None):
     """
     Given google.oauth2.credentials.Credentials, initialize:
       - PyDrive2 GoogleAuth + GoogleDrive
       - gspread client
     Returns (gauth, drive, gc)
+    
+    Args:
+        creds: Google OAuth2 credentials object
+        client_id: OAuth2 client ID (if not provided, will try to get from env vars)
+        client_secret: OAuth2 client secret (if not provided, will try to get from env vars)
     """
+    # Get client_id and client_secret from parameters or environment variables
+    if not client_id:
+        client_id = os.getenv("OAUTH_CLIENT_ID")
+    if not client_secret:
+        client_secret = os.getenv("OAUTH_CLIENT_SECRET")
+    
+    # Check if we have valid (non-empty) values
+    if not client_id or not client_secret or not client_id.strip() or not client_secret.strip():
+        raise ValueError("Missing required setting client_id. Please ensure OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET are set in your environment variables.")
     
     # Convert google.oauth2.credentials.Credentials to oauth2client format
     oauth2_creds = OAuth2Credentials(
         access_token=creds.token,
-        client_id=creds.client_id,
-        client_secret=creds.client_secret,
+        client_id=client_id,
+        client_secret=client_secret,
         refresh_token=creds.refresh_token,
         token_expiry=creds.expiry,
         token_uri=creds.token_uri,
@@ -259,7 +273,37 @@ def init_clients_from_credentials(creds: Credentials):
         scopes=creds.scopes
     )
     
-    gauth = GoogleAuth()
+    # Create a persistent temporary config file with absolute path
+    # This prevents PyDrive2 from looking for client_secrets.json in the current working directory
+    # when the working directory changes during long-running workflows
+    client_config = {
+        "installed": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"]
+        }
+    }
+    
+    # Use tempfile.gettempdir() to get a system temp directory with absolute path
+    # This ensures the file path doesn't depend on the current working directory
+    temp_dir = tempfile.gettempdir()
+    config_file_path = os.path.join(temp_dir, "pydrive2_client_config.json")
+    
+    # Write config to temp file (overwrite if exists)
+    with open(config_file_path, 'w') as f:
+        json.dump(client_config, f)
+    
+    settings = {
+        "client_config_backend": "file",
+        "client_config_file": config_file_path,  # Absolute path - won't break if cwd changes
+        "save_credentials_backend": "file",
+        "save_credentials_file": os.path.join(temp_dir, "pydrive2_credentials.json"),
+        "oauth_scope": creds.scopes,
+    }
+    gauth = GoogleAuth(settings=settings)
     gauth.credentials = oauth2_creds
     # Ensure HTTP is authorized for PyDrive2 operations
     gauth.http = AuthorizedHttp(creds)

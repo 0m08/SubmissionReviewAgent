@@ -283,39 +283,55 @@ def search_segment_references(
         all_search_results = search_result.get("search_results", [])
         selected_references = search_result.get("selected_references", [])
 
-        # Format response - report based on search_results (what refine_graphics_with_images will use)
-        result_message = f"""Search completed. Found {len(all_search_results)} search result(s) for refinement:
+        # Merge selected_references (reused from previous segments) into search_results
+        # Avoid duplicates by checking reference_id
+        existing_ids = {ref.get("reference_id") for ref in all_search_results if ref.get("reference_id")}
+        merged_results = all_search_results.copy()
+        
+        for ref in selected_references:
+            ref_id = ref.get("reference_id")
+            if ref_id and ref_id not in existing_ids:
+                merged_results.append(ref)
+                existing_ids.add(ref_id)
+        
+        # Update all_search_results to include merged results
+        all_search_results = merged_results
+
+        # Format response - report based on merged search_results
+        new_search_count = len(search_result.get("search_results", []))
+        reused_count = len(selected_references)
+        total_count = len(all_search_results)
+        
+        result_message = f"""Search completed. Found {total_count} total reference(s) for refinement:
+- {new_search_count} new search result(s)
+- {reused_count} reusable reference(s) from previous segments
 
 """
-        # Show top results from search_results
+        # Show top results from merged results
         for i, ref in enumerate(all_search_results):
-            result_message += f"{i+1}. {ref['title']} ({ref['type']})\n"
-            result_message += f"   Relevance: {ref['relevance_score']:.2f}\n"
-            result_message += f"   {ref['description'][:100]}...\n\n"
-
-        if len(all_search_results) > 5:
-            result_message += f"... and {len(all_search_results) - 5} more results.\n"
+            reused_marker = " (♻️ reused)" if ref.get('reused_from_segment') is not None else ""
+            result_message += f"{i+1}. {ref['title']} ({ref['type']}){reused_marker}\n"
+            result_message += f"   Relevance: {ref.get('relevance_score', 'N/A')}\n"
+            result_message += f"   {ref.get('description', '')[:100]}...\n\n"
         
-        if selected_references:
-            result_message += f"\nAlso found {len(selected_references)} reusable reference(s) from previous segments.\n"
-        
-        result_message += f"\nAll {len(all_search_results)} search results are now available for refine_graphics_with_images"
+        result_message += f"\nAll {total_count} references (including {reused_count} reused) are now available for refine_graphics_with_images"
         
         print(f"\n      {'─'*50}")
         print(f"      🔍 Tool: search_segment_references ◀ END")
         print(f"      {'─'*50}")
-        print(f"         ✅ Search results found: {len(all_search_results)}")
-        print(f"         ♻️  Reusable references: {len(selected_references)}")
+        print(f"         ✅ New search results: {new_search_count}")
+        print(f"         ♻️  Reusable references: {reused_count}")
+        print(f"         📊 Total available: {total_count}")
         for i, ref in enumerate(all_search_results[:5], 1):
             reused = " (♻️ reused)" if ref.get('reused_from_segment') is not None else ""
-            print(f"            {i}. {ref.get('title', 'Untitled')} | score: {ref.get('relevance_score', 0):.2f}{reused}")
+            print(f"            {i}. {ref.get('title', 'Untitled')} | score: {ref.get('relevance_score', 'N/A')}{reused}")
         if len(all_search_results) > 5:
             print(f"            ... and {len(all_search_results) - 5} more results")
         print(f"      {'─'*50}\n")
 
         return Command(
             update={
-                "search_results": all_search_results,  # Store all results for refine tool
+                "search_results": all_search_results,  # Store merged results (new + reused) for refine tool
                 "messages": [
                     ToolMessage(
                         result_message,
@@ -681,8 +697,7 @@ Instructions:
 - Base image selection strictly on the meaning of the voiceover sentence, not on general topic relevance.
 - First, mentally break the voiceover sentence into the distinct visual elements that must be shown for the sentence to be clearly understood.
 - Select images only if they are necessary to represent one of those visual elements. An image is necessary only if removing it would make the sentence harder to understand visually.
-- If multiple images represent the same visual element, select only the single clearest image. Do not select multiple images just because they are all relevant.
-- The number of images to select must be determined solely by how many distinct visual elements are required to represent the voiceover sentence.
+- The number of images to select must be determined solely by how many distinct visual elements are required to represent the voiceover sentence clearly so that the sentence can be easily understood.
 - Do not select images that are:
   - Generic or loosely related
   - Redundant with already selected images
@@ -818,8 +833,12 @@ Use the following format:
 <graphics_definition>
 
 <description>
-A simple, clear description of what visuals appear on screen for this voiceover sentence, written using only the selected images and their order of appearance.
+Give a simple, clear description of what visuals should appear on screen for this voiceover sentence, written using only the selected images and their order of appearance.
 </description>
+
+<selection_justification>
+Explain why the selected images, taken together, fully and directly support the voiceover sentence. Describe how the selected images cover all the key ideas or visual requirements expressed in the voiceover sentence,
+</selection_justification>
 
 <selected_images>
 (List of all selected images in this exact format)
@@ -838,7 +857,7 @@ A simple, clear description of what visuals appear on screen for this voiceover 
     
     print(f"         🤖 Using Gemini vision model to analyze {len(search_results)} images...")
     messages = [("user", content_parts)]
-    raw_response = llm_with_retry(messages, llm_name="gemini_2_5_flash")
+    raw_response = llm_with_retry(messages, llm_name="gemini_2_5_pro")
     
     # Extract response
     if hasattr(raw_response, "content"):
@@ -854,7 +873,7 @@ A simple, clear description of what visuals appear on screen for this voiceover 
     print(raw_text)
     print(f"         {'─'*50}\n")
 
-    parser_chain = Chain(llm="gemini_2_5_flash", tags=["evaluation_breakdown", "graphics_definition"])
+    parser_chain = Chain(llm="gemini_2_5_pro", tags=["evaluation_breakdown", "graphics_definition"])
     parsed = parser_chain.extract_text_in_tags(raw_text)
     refined_definition = parsed.get("graphics_definition", "")
     
@@ -948,11 +967,24 @@ def finalize_segment(
     Returns:
         Success confirmation
     """
+    print(f"\n      {'─'*50}")
+    print(f"      ✅ Tool: finalize_segment ▶ START")
+    print(f"      {'─'*50}")
+    
     review_verdict = state.get("review_verdict", "pending")
     graphics_definition = state.get("graphics_definition", "")
     references = state.get("references", [])
+    iteration_count = state.get("iteration_count", 0)
+    max_iterations = state.get("max_iterations", 1)
+    
+    print(f"         📝 Graphics definition: {len(graphics_definition)} chars")
+    print(f"         🖼️  References: {len(references)}")
+    print(f"         📊 Iterations: {iteration_count}/{max_iterations}")
+    print(f"         📋 Review verdict: {review_verdict}")
     
     if not graphics_definition and not references:
+        print(f"         ❌ Error: No graphics definition or references")
+        print(f"      {'─'*50}\n")
         return Command(
             update={
                 "messages": [
@@ -966,6 +998,8 @@ def finalize_segment(
         )
 
     if not references:
+        print(f"         ❌ Error: No references found")
+        print(f"      {'─'*50}\n")
         return Command(
             update={
                 "messages": [
@@ -995,10 +1029,25 @@ Summary:
 - References: {len(references)}
 - Status: {status}
 - Iterations: {iteration_count}/{max_iterations}
-- Timestamp: {timestamp}{status_note}
 
-Ready to return to Slide Supervisor.
+
+✅ SEGMENT PROCESSING COMPLETE - YOUR WORK IS DONE
+
+CRITICAL: Do NOT call any more tools. Your work for this segment is finished.
+Return a final answer stating the segment is complete and ready for assembly.
+The Slide Supervisor will handle the rest.
 """
+
+    print(f"\n      {'─'*50}")
+    print(f"      ✅ Tool: finalize_segment ◀ END")
+    print(f"      {'─'*50}")
+    print(f"         ✅ Status: {status}")
+    print(f"         📝 Graphics definition: {len(graphics_definition)} chars")
+    print(f"         🖼️  References: {len(references)}")
+    print(f"         📊 Iterations: {iteration_count}/{max_iterations}")
+    if status_note:
+        print(f"         ⚠️  {status_note.strip()}")
+    print(f"      {'─'*50}\n")
 
     # No state update needed - supervisor will handle it
     return Command(

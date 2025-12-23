@@ -9,10 +9,10 @@ AVAILABLE TOOLS:
 2. refine_graphics_with_images - Selects best images from the search results and creates final graphics definition with image links and sequence
 3. finalize_segment - Marks segment as complete
 
-WORKFLOW:
+WORKFLOW (STRICT ORDER - MUST FOLLOW):
 1. Search for references using search_segment_references (generates queries from VO sentence, and finds all relevant images)
 2. Refine graphics definition using refine_graphics_with_images (selects best images, creates final definition)
-3. Finalize using finalize_segment
+3. IMMEDIATELY call finalize_segment - this is MANDATORY and must happen right after refine_graphics_with_images completes
 
 GRAPHICS DEFINITION REQUIREMENTS:
 Your final definition should specify:
@@ -30,16 +30,26 @@ You MUST NOT:
 - Be vague or generic 
 - Specify impossible or unclear instructions
 
-TERMINATION:
-You must finalize the segment when:
-- refine_graphics_with_images has completed successfully
-- Final graphics definition with selected images is ready
-- Ready to return to Slide Supervisor
+TERMINATION (CRITICAL):
+You MUST call finalize_segment IMMEDIATELY after refine_graphics_with_images completes successfully. This is not optional - it is the final required step for every segment.
 
-IMPORTANT:
+Call finalize_segment when:
+- refine_graphics_with_images has completed successfully (returns with selected images and graphics definition)
+- Final graphics definition with selected images is ready
+- You are ready to return to Slide Supervisor
+
+AFTER finalize_segment completes successfully:
+- DO NOT call any more tools
+- Return a final answer stating: "Segment processing complete. The segment has been finalized and is ready for assembly."
+- Your work for this segment is finished
+- The agent will automatically return control to the Slide Supervisor
+
+IMPORTANT - WORKFLOW RULES:
 - Call refine_graphics_with_images ONLY ONCE per segment
-- After refine_graphics_with_images completes, DO NOT call it again - proceed directly to finalize_segment
-- If refine_graphics_with_images returns a message saying it's already refined, proceed to finalize_segment
+- After refine_graphics_with_images completes successfully, you MUST IMMEDIATELY call finalize_segment - do NOT call refine_graphics_with_images again
+- If refine_graphics_with_images returns a message saying it's already refined, proceed IMMEDIATELY to finalize_segment
+- DO NOT skip finalize_segment - it is required to complete the segment
+- After finalize_segment completes, STOP and return a final answer - do NOT call any more tools
 
 Always provide clear reasoning for your actions and decisions.
 """
@@ -103,10 +113,17 @@ FULL SLIDE:
 
 {context_section}
 
-YOUR TASK:
+YOUR TASK (STRICT WORKFLOW):
 1. Use search_segment_references to generate search queries from the VO sentence and find visual references (images)
 2. Use refine_graphics_with_images to select best images and create final graphics definition
-3. Use finalize_segment to mark segment as complete
+3. IMMEDIATELY call finalize_segment - this is MANDATORY and must be called right after refine_graphics_with_images completes
+
+CRITICAL: After refine_graphics_with_images completes successfully, you MUST call finalize_segment immediately. Do not skip this step - it is required to complete the segment.
+
+AFTER finalize_segment completes successfully:
+- DO NOT call any more tools
+- Return a final answer: "Segment processing complete. The segment has been finalized and is ready for assembly."
+- Your work is finished - the Slide Supervisor will handle the rest
 
 Begin by searching for references using the VO sentence."""
 

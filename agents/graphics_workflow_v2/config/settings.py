@@ -13,22 +13,22 @@ from typing import Literal
 # ============================================================================
 
 # Highest intelligence for orchestration
-SLIDE_SUPERVISOR_MODEL = "openai:gpt-5-mini"
+SLIDE_SUPERVISOR_MODEL = "google_genai:gemini-2.5-pro"
 
 # Good balance for segment work
-SEGMENT_PROCESSOR_MODEL = "openai:gpt-5-mini"
+SEGMENT_PROCESSOR_MODEL = "google_genai:gemini-2.5-pro"
 
 # Fast/cheap for search operations
-SEARCH_AGENT_MODEL = "openai:gpt-5-mini"
+SEARCH_AGENT_MODEL = "google_genai:gemini-2.5-pro"
 
 # Good evaluation capabilities for review
-REVIEW_CHAIN_MODEL = "gpt5_mini_thinking"
+REVIEW_CHAIN_MODEL = "gemini_2_5_pro"
 
 # Chain model for definition generation
-DEFINITION_CHAIN_MODEL = "gpt5_mini_thinking"
+DEFINITION_CHAIN_MODEL = "gemini_2_5_pro"
 
 # Chain model for segmentation
-SEGMENTATION_CHAIN_MODEL = "gpt5_mini_thinking"
+SEGMENTATION_CHAIN_MODEL = "gemini_2_5_pro"
 
 # ============================================================================
 # Iteration & Recursion Limits

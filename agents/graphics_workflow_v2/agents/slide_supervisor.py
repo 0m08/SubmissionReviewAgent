@@ -35,8 +35,8 @@ def create_slide_supervisor_agent():
         Compiled LangGraph agent
     """
     # Initialize LLM
-    # Note: GPT-5 models only support temperature=1
-    llm = init_chat_model(SLIDE_SUPERVISOR_MODEL, temperature=1)
+    # Note: Gemini 3 Pro requires include_thoughts=True for function calling
+    llm = init_chat_model(SLIDE_SUPERVISOR_MODEL, temperature=1, include_thoughts=True)
 
     # Create agent with tools
     agent = create_react_agent(
