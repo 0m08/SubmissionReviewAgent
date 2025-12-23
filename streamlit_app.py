@@ -14,6 +14,7 @@ import os
 from dotenv import load_dotenv
 from streamlit_clickable_images import clickable_images
 from utils.role_utils import get_user_info, get_user_pages
+from mcp_ui_app import mcp_ui_page
 
 # from jira import JIRA
 
@@ -376,6 +377,24 @@ graphics_v2_slideshow_page = st.Page(
     icon="🎬",
 )
 
+paraphraser_page = st.Page(
+    "paraphraser.py",
+    title="Paraphraser",
+    icon=":material/edit:",
+)
+
+image_translation_page = st.Page(
+    "image_translation.py",
+    title="Image Translation",
+    icon=":material/translate:",
+)
+
+mcp_ui_page_obj = st.Page(
+    mcp_ui_page,
+    title="MCP Server Manager",
+    icon=":material/settings:",
+)
+
 #######################
 # 3) Common app layout
 #######################
@@ -416,6 +435,9 @@ page_name_to_object = {
     "template_sheet_setup_page": template_sheet_setup_page,
     "graphics_image_viewer_page": graphics_image_viewer_page,
     "graphics_v2_slideshow_page": graphics_v2_slideshow_page,
+    "paraphraser_page": paraphraser_page,
+    "image_translation_page": image_translation_page,
+    "mcp_ui_page": mcp_ui_page_obj,
 }
 
 # Define which pages belong to which category
@@ -437,6 +459,9 @@ tool_pages = [
     "video_search_tool_page",
     "graphics_image_viewer_page",
     "graphics_v2_slideshow_page",
+    "paraphraser_page",
+    "image_translation_page",
+    "mcp_ui_page"
 ]
 
 if st.session_state.role:

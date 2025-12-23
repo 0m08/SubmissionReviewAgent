@@ -211,3 +211,7 @@ windows-curses==2.4.1
 # langgraph==0.4.8
 lightning-sdk
 # jira==3.10.5
+
+# MCP Integration
+mcp[cli]>=1.0.0
+pytest-asyncio>=0.21.0

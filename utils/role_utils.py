@@ -32,6 +32,11 @@ def get_user_role(email: str) -> Optional[str]:
     if role:
         return role
     
+    # Check domain-based access for skillcatapp.com
+    email_lower = email.lower()
+    if email_lower.endswith("@skillcatapp.com"):
+        return "Basic User"
+    
     # If no direct mapping found, return default role
     return default_role
 
