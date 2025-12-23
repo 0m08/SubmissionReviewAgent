@@ -371,6 +371,8 @@ graphics_v2_slideshow_page = st.Page(
     "graphics_v2_slideshow.py",
     title="Graphics Slideshow",
     icon="🎬",
+)
+
 paraphraser_page = st.Page(
     "paraphraser.py",
     title="Paraphraser",
