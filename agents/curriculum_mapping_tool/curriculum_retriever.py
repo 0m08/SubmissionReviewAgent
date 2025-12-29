@@ -406,11 +406,19 @@ def _format_selected_video(videos: List[Dict[str, Any]], selected_idx: Optional[
 
     url = chosen.get("url") or chosen.get("video_link") or ""
     title = chosen.get("video_title") or chosen.get("title") or "No relevant match found"
+    channel_name = chosen.get("channel_name") or chosen.get("channel") or ""
 
     if not url:
         return "No relevant match found"
 
-    safe_title = str(title).replace('"', '""')
+    # Limit channel name to 20 characters
+    if channel_name:
+        channel_name = str(channel_name)[:20]
+        display_title = f"{channel_name}: {title}"
+    else:
+        display_title = str(title)
+
+    safe_title = str(display_title).replace('"', '""')
     safe_url = str(url).replace('"', '""')
     return f'=HYPERLINK("{safe_url}", "{safe_title}")'
 
