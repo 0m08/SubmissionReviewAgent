@@ -2,14 +2,14 @@ import os
 import pickle
 import streamlit as st
 from modules.chain import Chain
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_cohere import CohereRerank
 from langchain_community.vectorstores import Chroma
 from typing import List, Optional, Dict, Any
-from langchain.retrievers import EnsembleRetriever
+from langchain_classic.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from services.embedding_service import get_embedding_model
-from langchain.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
 
 

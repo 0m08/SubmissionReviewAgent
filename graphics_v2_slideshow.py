@@ -20,8 +20,8 @@ from openai import OpenAI
 
 from services.sheets_service import get_sheet_data_and_df
 
-# Import parsing function from graphics_image_viewer
-from graphics_image_viewer import parse_graphics_definition
+# Import parsing function from populate_sheet_with_selected_images
+from agents.graphics_definition_v2.populate_sheet_with_selected_images import parse_graphics_definition
 
 # =============================================================================
 # AUTHENTICATION CHECK
@@ -240,10 +240,21 @@ def ensure_sheet_loaded():
     if "graphics_v2_sheet" in st.session_state:
         return True
 
+    # Single input section - prevent duplicates
     default_link = st.session_state.get("graphics_v2_sheet_link", "")
-    sheet_link = st.text_input("📋 Enter Google Sheet link", value=default_link)
+    
+    sheet_link = st.text_input(
+        "📋 Enter Google Sheet link", 
+        value=default_link,
+        placeholder="https://docs.google.com/spreadsheets/d/...",
+        key="graphics_slideshow_sheet_input_single"
+    )
 
-    if st.button("Load Data", type="primary"):
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        load_button = st.button("Load Data", type="primary", key="graphics_slideshow_load_button_single")
+    
+    if load_button:
         if not sheet_link.strip():
             st.error("Please paste a valid Google Sheet link.")
         else:
@@ -256,7 +267,8 @@ def ensure_sheet_loaded():
             except Exception as exc:
                 st.error(f"Failed to open sheet: {exc}")
 
-    st.caption("💡 Tip: Load the sheet containing the 'Slide Chunks' worksheet with 'Graphics Definition V2' column.")
+    st.caption("💡 Tip: Load the sheet containing the 'Slide Chunks' worksheet with 'graphics_definition' column.")
+    
     return False
 
 
@@ -268,12 +280,23 @@ def render_inspector_mode(filtered_df):
     """Render Inspector mode for browsing slides and images."""
     st.markdown("#### 🔍 Slides Inspector")
 
+    # Find graphics_definition column
+    gd_column = None
+    for col in filtered_df.columns:
+        if "graphics_definition" in col.lower() or "graphics definition" in col.lower():
+            gd_column = col
+            break
+    
+    if not gd_column:
+        st.error("❌ No 'graphics_definition' column found in filtered data.")
+        return
+
     # Pre-load all images with progress bar
     all_urls = []
     url_to_location = {}  # Map URL to (row_index, segment_idx, image_idx)
 
     for row_index, row in filtered_df.iterrows():
-        gd_content = str(row.get("Graphics Definition V2", "")).strip()
+        gd_content = str(row.get(gd_column, "")).strip()
         if not gd_content:
             continue
 
@@ -328,14 +351,14 @@ def render_inspector_mode(filtered_df):
                 st.markdown("**📄 Slide Content**")
                 st.write(str(row.get("Slide Chunk", "")).strip() or "(empty)")
 
-            gd_content = str(row.get("Graphics Definition V2", "")).strip()
+            gd_content = str(row.get(gd_column, "")).strip()
             if not gd_content:
-                st.info("No Graphics Definition V2 found for this slide.")
+                st.info("No graphics_definition found for this slide.")
                 continue
 
             segments = parse_graphics_definition(gd_content)
             if not segments:
-                st.info("No segments found in Graphics Definition V2.")
+                st.info("No segments found in graphics_definition.")
                 continue
 
             for seg_idx, segment in enumerate(segments, 1):
@@ -370,6 +393,17 @@ def render_slideshow_mode(filtered_df):
     st.markdown("#### 🎬 Slideshow Preview")
     st.info("📢 Click **Start** to begin automatic narration. Images will appear for each segment with its VO text.")
 
+    # Find graphics_definition column
+    gd_column = None
+    for col in filtered_df.columns:
+        if "graphics_definition" in col.lower() or "graphics definition" in col.lower():
+            gd_column = col
+            break
+    
+    if not gd_column:
+        st.error("❌ No 'graphics_definition' column found in filtered data.")
+        return
+
     # Build playlist grouped by slides and segments
     slides_data = []  # List of slides with their segments
     image_data = {}   # Store base64 images for each segment
@@ -383,7 +417,7 @@ def render_slideshow_mode(filtered_df):
         slide_title = str(row.get("Slide Chunk Title") or row.get("Topic") or "Slide")
         topic = str(row.get("Topic") or "")
 
-        gd_content = str(row.get("Graphics Definition V2", "")).strip()
+        gd_content = str(row.get(gd_column, "")).strip()
         if not gd_content:
             continue
 
@@ -837,15 +871,15 @@ def main():
         st.info("📭 Slide Chunks worksheet is empty.")
         return
 
-    # Check for Graphics Definition V2 column
+    # Check for graphics_definition column
     gd_column = None
     for col in df.columns:
-        if "graphics definition v2" in col.lower():
+        if "graphics_definition" in col.lower() or "graphics definition" in col.lower():
             gd_column = col
             break
 
     if not gd_column:
-        st.error("❌ No 'Graphics Definition V2' column found. Please generate graphics definitions first.")
+        st.error("❌ No 'graphics_definition' column found. Please generate graphics definitions first.")
         st.write("Available columns:", list(df.columns))
         return
 
@@ -854,7 +888,7 @@ def main():
     preview_rows = df[df[gd_column].str.strip() != ""].copy()
 
     if preview_rows.empty:
-        st.info("📭 No slides with Graphics Definition V2 found. Generate graphics definitions first.")
+        st.info("📭 No slides with graphics_definition found. Generate graphics definitions first.")
         return
 
     # Filters
@@ -890,7 +924,7 @@ def main():
         st.warning("⚠️ No slides match current filters.")
         return
 
-    st.success(f"✅ Found {len(filtered)} slide(s) with Graphics Definition V2")
+    st.success(f"✅ Found {len(filtered)} slide(s) with graphics_definition")
 
     # Tabs
     st.markdown("---")

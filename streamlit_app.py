@@ -313,9 +313,9 @@ graphics_definition_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
-graphics_workflow_v2_page = st.Page(
-    "graphics_workflow_v2_page.py",
-    title="Graphics Workflow V2",
+graphics_definition_v2_page = st.Page(
+    "graphics_definition_v2.py",
+    title="Graphics Definition V2",
     icon=":material/auto_awesome:",
 )
 
@@ -365,15 +365,9 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
-graphics_image_viewer_page = st.Page(
-    "graphics_image_viewer.py",
-    title="Graphics Image Populator",
-    icon="🖼️",
-)
-
 graphics_v2_slideshow_page = st.Page(
     "graphics_v2_slideshow.py",
-    title="Graphics Slideshow",
+    title="Graphics Definition V2 Output Slideshow",
     icon="🎬",
 )
 
@@ -424,7 +418,7 @@ page_name_to_object = {
     "research_notes_page": research_notes_page,
     "slide_chunks_page": slide_chunks_page,
     "graphics_definition_page": graphics_definition_page,
-    "graphics_workflow_v2_page": graphics_workflow_v2_page,
+    "graphics_definition_v2_page": graphics_definition_v2_page,
     "assessments_generation_page": assessments_generation_page,
     "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
@@ -433,7 +427,6 @@ page_name_to_object = {
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
-    "graphics_image_viewer_page": graphics_image_viewer_page,
     "graphics_v2_slideshow_page": graphics_v2_slideshow_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
@@ -448,7 +441,7 @@ agent_pages = [
     "research_notes_page",
     "slide_chunks_page",
     "graphics_definition_page",
-    "graphics_workflow_v2_page",
+    "graphics_definition_v2_page",
     "assessments_generation_page",
     "get_images_page",
 ]
@@ -457,7 +450,6 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
-    "graphics_image_viewer_page",
     "graphics_v2_slideshow_page",
     "paraphraser_page",
     "image_translation_page",

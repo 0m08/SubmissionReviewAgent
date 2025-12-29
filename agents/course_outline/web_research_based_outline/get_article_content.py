@@ -13,7 +13,7 @@ import html2text
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 import streamlit as st
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_community.document_loaders import AsyncHtmlLoader, PyPDFLoader, AsyncChromiumLoader
 from langchain_community.document_transformers import Html2TextTransformer
 from langchain_community.document_loaders import PyPDFLoader
