@@ -5,13 +5,20 @@ from modules.chain import Chain
 from langchain.schema import Document
 from langchain_cohere import CohereRerank
 from langchain.vectorstores import Chroma
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from services.embedding_service import get_embedding_model
 from langchain.retrievers import ContextualCompressionRetriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
 
+
+
+VIDEO_CENTRAL_FOLDER_ID = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
+
+_VIDEO_VECTOR_DB_CACHE: Dict[str, Tuple[Chroma, Any]] = {}
+_VIDEO_BM25_CACHE: Dict[str, BM25Retriever] = {}
+_VIDEO_COMPRESSION_CACHE: Dict[str, ContextualCompressionRetriever] = {}
 
 
 def load_video_chroma_db(embedding_function, drive, central_folder_id):
@@ -58,7 +65,7 @@ def load_video_chroma_db(embedding_function, drive, central_folder_id):
     return video_chroma
 
 
-def load_video_vector_db_retriever(drive):
+def load_video_vector_db_retriever(drive, central_folder_id: str = VIDEO_CENTRAL_FOLDER_ID):
     """
     Load the vector database retriever.
     :param course_name: The name of the course.
@@ -68,7 +75,10 @@ def load_video_vector_db_retriever(drive):
     :return: Loaded vector database retriever object.
     """
 
-    central_folder_id = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
+    cache_key = central_folder_id
+    if cache_key in _VIDEO_VECTOR_DB_CACHE:
+        return _VIDEO_VECTOR_DB_CACHE[cache_key]
+
     embedding_model = get_embedding_model()
 
     chroma_db = load_video_chroma_db(embedding_model, drive, central_folder_id)
@@ -79,6 +89,7 @@ def load_video_vector_db_retriever(drive):
     )
     print("Loaded vector database retriever.")
 
+    _VIDEO_VECTOR_DB_CACHE[cache_key] = (chroma_db, vector_db_retriever)
     return chroma_db, vector_db_retriever
 
 
@@ -95,6 +106,9 @@ def load_bm25_retriever_with_pydrive(central_folder_id: str, drive):
     :param all_doc_chunk_list: The list of all document chunks.
     :return: Loaded BM25 retriever object.
     """
+    if central_folder_id in _VIDEO_BM25_CACHE:
+        return _VIDEO_BM25_CACHE[central_folder_id]
+
     local_pickle_path = "/tmp/bm25_retriever.pkl"
 
     # Check if already downloaded
@@ -156,6 +170,7 @@ def load_bm25_retriever_with_pydrive(central_folder_id: str, drive):
             bm25_file.SetContentFile(local_pickle_path)
             bm25_file.Upload()
             print("bm25_research_db.pkl uploaded to Google Drive.")
+            _VIDEO_BM25_CACHE[central_folder_id] = bm_25_retriever
             return bm_25_retriever
 
         else:
@@ -169,6 +184,7 @@ def load_bm25_retriever_with_pydrive(central_folder_id: str, drive):
         bm_25_retriever = pickle.load(file)
     print("Successfully loaded the BM25 retriever from Google Drive.")
 
+    _VIDEO_BM25_CACHE[central_folder_id] = bm_25_retriever
     return bm_25_retriever
 
 
@@ -185,7 +201,7 @@ def get_ensemble_retriever(central_folder_id, drive, retriever_1_weight = 0.5, r
     :return: Ensemble retriever object.
     """
     with st.spinner(text = "Loading the embedding vectorstore...", show_time = True):
-        _, vector_db_retriever = load_video_vector_db_retriever(drive)
+        _, vector_db_retriever = load_video_vector_db_retriever(drive, central_folder_id)
 
     with st.spinner(text = "Loading the bm25 vectorstore...", show_time = True):
         bm_25_retriever = load_bm25_retriever_with_pydrive(central_folder_id, drive)
@@ -210,6 +226,10 @@ def get_compression_retriever(central_folder_id, drive, retriever_1_weight = 0.5
     :return: Compression retriever object.
     """
 
+    cache_key = central_folder_id
+    if cache_key in _VIDEO_COMPRESSION_CACHE:
+        return _VIDEO_COMPRESSION_CACHE[cache_key]
+
     ensemble_retriever = get_ensemble_retriever(central_folder_id, drive, retriever_1_weight, retriever_2_weight)
 
     compressor = CohereRerank(
@@ -221,6 +241,7 @@ def get_compression_retriever(central_folder_id, drive, retriever_1_weight = 0.5
         base_compressor = compressor, base_retriever = ensemble_retriever
     )
 
+    _VIDEO_COMPRESSION_CACHE[cache_key] = compression_retriever
     return compression_retriever
 
 
@@ -261,7 +282,7 @@ def video_retriever(
     - 'transcript' 
     """
 
-    central_folder_id = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
+    central_folder_id = VIDEO_CENTRAL_FOLDER_ID
     compression_retriever = get_compression_retriever(
         central_folder_id=central_folder_id,
         drive=drive,
@@ -315,6 +336,16 @@ def video_retriever(
         results.append(result)
 
     return results
+
+
+def warmup_video_retriever(drive) -> None:
+    """Preload caches so later queries avoid repeated initialization."""
+    get_compression_retriever(
+        central_folder_id=VIDEO_CENTRAL_FOLDER_ID,
+        drive=drive,
+        retriever_1_weight=0.5,
+        retriever_2_weight=0.5,
+    )
 
 
 video_search_retriever_agent_prompt = """
