@@ -379,6 +379,12 @@ mcp_ui_page_obj = st.Page(
     icon=":material/settings:",
 )
 
+image_editing_tool_page = st.Page(
+    "image_editing_tool.py",
+    title="Image Editing",
+    icon=":material/palette:",
+)
+
 curriculum_mapping_tool_page = st.Page(
     "curriculum_mapping_tool.py",
     title="Curriculum Mapping Tool",
@@ -424,6 +430,7 @@ page_name_to_object = {
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
+    "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
 }
 
@@ -445,6 +452,7 @@ tool_pages = [
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",
+    "image_editing_tool_page"
     "curriculum_mapping_tool_page",
 ]
 
