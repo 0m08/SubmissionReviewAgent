@@ -14,6 +14,7 @@ import os
 from dotenv import load_dotenv
 from streamlit_clickable_images import clickable_images
 from utils.role_utils import get_user_info, get_user_pages
+from config.logging_config import get_logger, setup_logging
 from mcp_ui_app import mcp_ui_page
 
 # from jira import JIRA
@@ -24,6 +25,10 @@ def load_image_as_base64(path):
     with open(path, "rb") as f:
         data = f.read()
     return "data:image/png;base64," + base64.b64encode(data).decode()
+
+# Initialize logging early so any downstream imports inherit the handlers.
+setup_logging()
+logger = get_logger(__name__)
 
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
@@ -389,6 +394,17 @@ mcp_ui_page_obj = st.Page(
     icon=":material/settings:",
 )
 
+image_editing_tool_page = st.Page(
+    "image_editing_tool.py",
+    title="Image Editing",
+    icon=":material/palette:",
+)
+
+curriculum_mapping_tool_page = st.Page(
+    "curriculum_mapping_tool.py",
+    title="Curriculum Mapping Tool",
+    icon=":material/menu_book:",
+)
 #######################
 # 3) Common app layout
 #######################
@@ -431,6 +447,8 @@ page_name_to_object = {
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
+    "image_editing_tool_page": image_editing_tool_page,
+    "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
 }
 
 # Define which pages belong to which category
@@ -443,8 +461,7 @@ agent_pages = [
     "graphics_definition_page",
     "graphics_definition_v2_page",
     "assessments_generation_page",
-    "get_images_page",
-]
+    "get_images_page"]
 tool_pages = [
     # "graphics_search_page",
     "vectorstore_page",
@@ -453,7 +470,9 @@ tool_pages = [
     "graphics_v2_slideshow_page",
     "paraphraser_page",
     "image_translation_page",
-    "mcp_ui_page"
+    "mcp_ui_page",
+    "image_editing_tool_page"
+    "curriculum_mapping_tool_page",
 ]
 
 if st.session_state.role:
