@@ -9,10 +9,6 @@ from io import BytesIO
 from PIL import Image
 from services.llm_service import llm_with_retry
 from modules.chain import Chain
-from agents.graphics_workflow_v2.tools.search_agent.search_tools import (
-    load_image_from_drive_url,
-    extract_drive_file_id,
-)
 from agents.vector_store_image_search.graphics_retriever_agent import pil_to_base64_data_uri
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from dotenv import load_dotenv
@@ -144,12 +140,64 @@ Explain why the selected images, taken together, fully and directly support the 
 </graphics_definition>
 """
 
+def extract_drive_file_id(url):
+    """
+    Extract the Google Drive file ID from a URL.
 
-def _get_drive_instance():
+    :param url: Google Drive URL
+    :return: Google Drive file ID or None if not found
+    """
+    if not url:
+        return None
+    
+    # Pattern for /file/d/FILE_ID/
+    match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
+    if match:
+        return match.group(1)
+    
+    # Pattern for ?id=FILE_ID or &id=FILE_ID
+    match = re.search(r'[?&]id=([a-zA-Z0-9_-]+)', url)
+    if match:
+        return match.group(1)
+    
+    # If it looks like just a file ID (no slashes, reasonable length)
+    if '/' not in url and 'http' not in url.lower() and len(url) > 10:
+        return url
+    
+    return None
+
+
+def load_image_from_drive_url(url, drive, ref_id=""):
+    """
+    Load an image from a Google Drive URL using the Drive API.
+    
+    :param url: Google Drive URL
+    :param drive: Google Drive instance
+    :param ref_id: Reference ID for logging
+    :return: PIL Image or None if loading fails
+    """
+    if not url or not drive:
+        return None
+    
+    file_id = extract_drive_file_id(url)
+    if not file_id:
+        print(f"⚠️  Could not extract file ID from URL for {ref_id}: {url}")
+        return None
+    
+    try:
+        img = download_image_from_drive(drive, file_id)
+        if img:
+            print(f"✅ Loaded image from Drive for {ref_id}")
+        return img
+    except Exception as e:
+        print(f"⚠️  Failed to load image from Drive for {ref_id}: {e}")
+        return None
+
+def get_drive_instance():
     """
     Get Google Drive instance from session state or initialize from environment.
     
-    :return: Google Drive instance
+    :return: Google Drive instance or None if initialization fails
     """
     # First try to get from session state
     if "drive" in st.session_state:
@@ -168,13 +216,23 @@ def _get_drive_instance():
         return None
 
 
-def _is_drive_url(url: str) -> bool:
-    """Check if URL is a Google Drive URL."""
+def is_drive_url(url):
+    """
+    Check if URL is a Google Drive URL.
+    
+    :param url: URL to check
+    :return: True if URL is a Google Drive URL, False otherwise
+    """
     return bool(re.search(r'drive\.google\.com', url, re.IGNORECASE))
 
 
-def _download_image_from_web_url(web_url: str) -> Image.Image:
-    """Download image from a direct web URL."""
+def download_image_from_web_url(web_url):
+    """
+    Download image from a direct web URL.
+    
+    :param web_url: Web URL to download image from
+    :return: PIL Image or None if download fails
+    """
     try:
         response = requests.get(web_url, timeout=10, stream=True, allow_redirects=True)
         if response.status_code == 200:
@@ -187,30 +245,30 @@ def _download_image_from_web_url(web_url: str) -> Image.Image:
         return None
 
 
-def _load_image_from_url(url: str, drive=None) -> Image.Image:
+def load_image_from_url(url, drive=None):
     """
     Load image from either Google Drive URL or web URL.
     
     :param url: Image URL (can be Google Drive or web URL)
     :param drive: Google Drive instance (optional, for Drive images)
-    :return: PIL Image or None if download fails
+    :return: PIL Image or None if loading fails
     """
     if not url or not url.startswith('http'):
         return None
     
-    if _is_drive_url(url):
+    if is_drive_url(url):
         return load_image_from_drive_url(url, drive, "")
     else:
-        return _download_image_from_web_url(url)
+        return download_image_from_web_url(url)
 
 
-def _parse_urls_from_results(results_text, segment_num):
+def parse_urls_from_results(results_text, segment_num):
     """
     Parse titles and URLs from drive_results or web_results for a specific segment.
     
     :param results_text: The drive_results or web_results column content
     :param segment_num: Segment number to extract URLs for
-    :return: List of dictionaries with 'title' and 'url' keys
+    :return: List of dictionaries with 'title' and 'url' keys or empty list if no URLs found
     """
     if not results_text or results_text.strip() == "" or results_text == "nan":
         return []
@@ -253,12 +311,12 @@ def _parse_urls_from_results(results_text, segment_num):
     return items
 
 
-def _parse_segments_from_voiceover(voiceover_text):
+def parse_segments_from_voiceover(voiceover_text):
     """
     Parse segments from voiceover_segment column (newline-separated).
     
     :param voiceover_text: The voiceover_segment column content
-    :return: List of tuples (segment_index, segment_text) where segment_index is 1-based
+    :return: List of tuples (segment_index, segment_text) where segment_index is 1-based or empty list if no segments found
     """
     if not voiceover_text or voiceover_text.strip() == "" or voiceover_text == "nan":
         return []
@@ -273,13 +331,13 @@ def format_graphics_definition_for_sheet(vo_text, graphics_definition_xml):
 
     :param vo_text: Voiceover text for the segment
     :param graphics_definition_xml: Graphics definition XML
-    :return: Formatted graphics definition text
+    :return: Formatted graphics definition text or empty string if graphics definition XML is empty
     """
     if not graphics_definition_xml or graphics_definition_xml.strip() == "":
         return ""
     
     # Parse XML tags
-    parser_chain = Chain(llm="gemini_2_5_pro", tags=["description", "selection_justification", "selected_images"])
+    parser_chain = Chain(llm="gemini_3_flash_thinking", tags=["description", "selection_justification", "selected_images"])
     parsed = parser_chain.extract_text_in_tags(graphics_definition_xml)
     
     description = parsed.get("description", "").strip()
@@ -327,7 +385,7 @@ Images to use for this segment:"""
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def finalize_graphics_definition_for_segment(vo_text, slide_chunk, image_urls, url_to_title, course_name, topic_name, subtopic_name, drive, llm="gemini_2_5_pro"):
+def finalize_graphics_definition_for_segment(vo_text, slide_chunk, image_urls, url_to_title, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking"):
     """
     Finalize graphics definition for a single segment using vision model.
     
@@ -340,7 +398,7 @@ def finalize_graphics_definition_for_segment(vo_text, slide_chunk, image_urls, u
     :param subtopic_name: Subtopic name
     :param drive: Google Drive instance
     :param llm: Language model to use
-    :return: Finalized graphics definition text
+    :return: Finalized graphics definition text or empty string if no images available
     """
     print(f"\n{'─'*45}")
     print(f" 🎨 Finalizing graphics for segment")
@@ -378,7 +436,7 @@ def finalize_graphics_definition_for_segment(vo_text, slide_chunk, image_urls, u
         # Get title for this image
         img_title = url_to_title.get(img_url, "Untitled")
         
-        pil_image = _load_image_from_url(img_url, drive)
+        pil_image = load_image_from_url(img_url, drive)
         
         if pil_image:
             # Add label text with Title and URL
@@ -448,12 +506,88 @@ def finalize_graphics_definition_for_segment(vo_text, slide_chunk, image_urls, u
     metadata={
         "agent_name": "graphics_definition_v2",
         "step_name": "Finalize Graphics",
+        "function_name": "process_finalize_graphics_definition_segment",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
+def process_finalize_graphics_definition_segment(segment_idx, vo_text, slide_chunk, drive_results, web_results, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking"):
+    """
+    Process a single segment: finalize graphics definition.
+    
+    :param segment_idx: Segment index (1-based)
+    :param vo_text: Voiceover text for the segment
+    :param slide_chunk: Full slide content
+    :param drive_results: Drive search results text
+    :param web_results: Web search results text
+    :param course_name: Course name
+    :param topic_name: Topic name
+    :param subtopic_name: Subtopic name
+    :param drive: Google Drive instance
+    :param llm: Language model to use
+    :return: Tuple of (segment_idx, formatted_segment_text) or (segment_idx, None) if no definition generated
+    """
+    print(f"\n📦 Processing SEGMENT_{segment_idx}")
+    
+    # Get image items (with title and URL) for this segment from both drive and web results
+    drive_items = parse_urls_from_results(drive_results, segment_idx)
+    web_items = parse_urls_from_results(web_results, segment_idx)
+    
+    # Combine and deduplicate by URL
+    seen_urls = set()
+    all_items = []
+    for item in drive_items + web_items:
+        url = item.get("url", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            all_items.append(item)
+    
+    # Extract URLs list for the function
+    all_urls = [item["url"] for item in all_items]
+    # Create a mapping of URL to title for easy lookup
+    url_to_title = {item["url"]: item.get("title", "Untitled") for item in all_items}
+    
+    print(f"🔗 Found {len(drive_items)} drive items, {len(web_items)} web items")
+    print(f"📎 Total unique images: {len(all_urls)}")
+    
+    if not all_urls:
+        print(f"⚠️  No images available for segment {segment_idx}, skipping")
+        return segment_idx, None
+    
+    # Finalize graphics for this segment
+    segment_definition_xml = finalize_graphics_definition_for_segment(
+        vo_text=vo_text,
+        slide_chunk=slide_chunk,
+        image_urls=all_urls,
+        url_to_title=url_to_title,
+        course_name=course_name,
+        topic_name=topic_name,
+        subtopic_name=subtopic_name,
+        drive=drive,
+        llm=llm
+    )
+    
+    if segment_definition_xml:
+        # Format the definition for the sheet
+        formatted_segment = format_graphics_definition_for_sheet(vo_text, segment_definition_xml)
+        if formatted_segment:
+            # Replace SEGMENT 1 with actual segment number
+            formatted_segment = formatted_segment.replace("SEGMENT 1", f"SEGMENT {segment_idx}")
+            return segment_idx, formatted_segment
+    
+    return segment_idx, None
+
+
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition_v2",
+        "step_name": "Finalize Graphics",
         "function_name": "process_finalize_graphics_definition_row",
         "user_id": st.session_state.get("role", "anonymous"),
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_finalize_graphics_definition_row(index, row, course_name, drive, llm="gemini_2_5_pro"):
+def process_finalize_graphics_definition_row(index, row, course_name, drive, llm="gemini_3_flash_thinking"):
     """
     Process a single row: refine graphics for all segments and combine into final definition.
     
@@ -462,7 +596,7 @@ def process_finalize_graphics_definition_row(index, row, course_name, drive, llm
     :param course_name: Course name
     :param drive: Google Drive instance
     :param llm: Language model to use
-    :return: Tuple of (index, graphics_definition_text)
+    :return: Tuple of (index, graphics_definition_text) or (index, empty string) if no segments found
     """
     try:
         voiceover_segments = str(row.get("voiceover_segment", "")).strip()
@@ -480,7 +614,7 @@ def process_finalize_graphics_definition_row(index, row, course_name, drive, llm
             return index, ""
         
         # Parse segments
-        segments = _parse_segments_from_voiceover(voiceover_segments)
+        segments = parse_segments_from_voiceover(voiceover_segments)
         
         if not segments:
             return index, ""
@@ -489,57 +623,41 @@ def process_finalize_graphics_definition_row(index, row, course_name, drive, llm
         print(f"📋 Processing row {index}: {len(segments)} segments")
         print(f"{'═'*50}")
         
-        # Process each segment
-        segment_definitions = []
+        # Execute all segments in parallel
+        with ThreadPoolExecutor(max_workers=len(segments)) as executor:
+            # Submit all segments
+            futures = {
+                executor.submit(
+                    process_finalize_graphics_definition_segment,
+                    segment_idx,
+                    vo_text,
+                    slide_chunk,
+                    drive_results,
+                    web_results,
+                    course_name,
+                    topic_name,
+                    subtopic_name,
+                    drive,
+                    llm
+                ): segment_idx
+                for segment_idx, vo_text in segments
+            }
+            
+            # Collect results as they complete
+            segment_results = {}
+            for future in as_completed(futures):
+                segment_idx = futures[future]
+                try:
+                    seg_idx, formatted_segment = future.result()
+                    if formatted_segment:
+                        segment_results[seg_idx] = formatted_segment
+                except Exception as e:
+                    print(f"❌ Error processing segment {segment_idx}: {e}")
         
-        for segment_idx, vo_text in segments:
-            print(f"\n📦 Processing SEGMENT_{segment_idx}")
-            
-            # Get image items (with title and URL) for this segment from both drive and web results
-            drive_items = _parse_urls_from_results(drive_results, segment_idx)
-            web_items = _parse_urls_from_results(web_results, segment_idx)
-            
-            # Combine and deduplicate by URL
-            seen_urls = set()
-            all_items = []
-            for item in drive_items + web_items:
-                url = item.get("url", "")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_items.append(item)
-            
-            # Extract URLs list for the function
-            all_urls = [item["url"] for item in all_items]
-            # Create a mapping of URL to title for easy lookup
-            url_to_title = {item["url"]: item.get("title", "Untitled") for item in all_items}
-            
-            print(f"🔗 Found {len(drive_items)} drive items, {len(web_items)} web items")
-            print(f"📎 Total unique images: {len(all_urls)}")
-            
-            if not all_urls:
-                print(f"⚠️  No images available for segment {segment_idx}, skipping")
-                continue
-            
-            # Finalize graphics for this segment
-            segment_definition_xml = finalize_graphics_definition_for_segment(
-                vo_text=vo_text,
-                slide_chunk=slide_chunk,
-                image_urls=all_urls,
-                url_to_title=url_to_title,
-                course_name=course_name,
-                topic_name=topic_name,
-                subtopic_name=subtopic_name,
-                drive=drive,
-                llm=llm
-            )
-            
-            if segment_definition_xml:
-                # Format the definition for the sheet
-                formatted_segment = format_graphics_definition_for_sheet(vo_text, segment_definition_xml)
-                if formatted_segment:
-                    # Replace SEGMENT 1 with actual segment number
-                    formatted_segment = formatted_segment.replace("SEGMENT 1", f"SEGMENT {segment_idx}")
-                    segment_definitions.append(formatted_segment)
+        # Format results in order (by segment_idx)
+        segment_definitions = []
+        for segment_idx in sorted(segment_results.keys()):
+            segment_definitions.append(segment_results[segment_idx])
         
         # Combine all segment definitions with double newline separator
         if segment_definitions:
@@ -566,19 +684,19 @@ def process_finalize_graphics_definition_row(index, row, course_name, drive, llm
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_finalize_graphics_definition_for_all_rows(sheet, llm="gemini_2_5_pro", max_workers=3):
+def run_finalize_graphics_definition_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=3):
     """
     Refine graphics definitions for all rows in the Slide Chunks sheet.
     
     :param sheet: The gspread sheet object.
     :param llm: Language model to use.
     :param max_workers: Number of parallel workers (default 3, lower due to image loading).
-    :return: None
+    :return: None if initialization fails
     """
     worksheet_name = "Slide Chunks"
     
     # Get drive instance
-    drive = _get_drive_instance()
+    drive = get_drive_instance()
     if not drive:
         print("⚠️ Drive instance not available. Some Drive images may not load.")
     

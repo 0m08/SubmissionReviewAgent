@@ -5,9 +5,9 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
-from agents.graphics_workflow_v2.config.settings import (
-    WEB_SEARCH_K,
-)
+
+# Configuration constants
+web_search_k = 5  # Number of results to retrieve per web image search query
 
 
 @traceable(
@@ -19,7 +19,7 @@ from agents.graphics_workflow_v2.config.settings import (
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def execute_web_search_for_query(query, k=WEB_SEARCH_K):
+def execute_web_search_for_query(query, k=web_search_k):
     """
     Execute web search for a single query and return reference data with URLs.
     
@@ -109,12 +109,82 @@ def parse_search_queries_column(search_queries_text):
     metadata={
         "agent_name": "graphics_definition_v2",
         "step_name": "Web Search",
+        "function_name": "process_web_search_segment",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
+def process_web_search_segment(segment_num, queries, k=web_search_k):
+    """
+    Process a single segment: execute queries in parallel, deduplicate, format output.
+    
+    :param segment_num: Segment number
+    :param queries: List of search queries for this segment
+    :param k: Number of results per query
+    :return: Tuple of (segment_num, segment_output_string) or (segment_num, None) if no results
+    """
+    print(f"\n{'─'*45}")
+    print(f"📦 Processing SEGMENT_{segment_num} with {len(queries)} queries")
+    print(f"{'─'*45}")
+    
+    # Execute all queries for this segment
+    all_results_for_segment = []
+    seen_urls = set()  # Deduplicate within segment by URL
+    
+    # Filter out empty queries
+    valid_queries = [(idx, q.strip()) for idx, q in enumerate(queries, 1) if q.strip()]
+    
+    if not valid_queries:
+        return segment_num, None
+    
+    # Execute queries in parallel
+    with ThreadPoolExecutor(max_workers=len(valid_queries)) as executor:
+        # Submit all queries
+        futures = {
+            executor.submit(execute_web_search_for_query, query, k): (query_idx, query)
+            for query_idx, query in valid_queries
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(futures):
+            query_idx, query = futures[future]
+            try:
+                print(f"🔍 Query {query_idx}: \"{query}\"")
+                results = future.result()
+                print(f"✅ Query {query_idx} returned {len(results)} results")
+                
+                # Deduplicate by URL within this segment
+                for ref in results:
+                    url = ref.get("url", "").strip()
+                    title = ref.get("title", "Untitled")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_results_for_segment.append({"url": url, "title": title})
+            except Exception as e:
+                print(f"❌ Error executing query {query_idx} (\"{query}\"): {e}")
+    
+    # Format segment results with title and URL
+    segment_items = [f"Title: {ref['title']} | URL: {ref['url']}" for ref in all_results_for_segment]
+    
+    print(f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results")
+    
+    # Format segment results
+    if segment_items:
+        segment_output = [f"---SEGMENT_{segment_num}---"] + segment_items
+        return segment_num, '\n'.join(segment_output)
+    return segment_num, None
+
+
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition_v2",
+        "step_name": "Web Search",
         "function_name": "process_web_search_row",
         "user_id": st.session_state.get("role", "anonymous"),
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_web_search_row(index, row, k=WEB_SEARCH_K):
+def process_web_search_row(index, row, k=web_search_k):
     """
     Process a single row: parse search queries, execute web searches for each segment, deduplicate, format output.
     
@@ -136,49 +206,29 @@ def process_web_search_row(index, row, k=WEB_SEARCH_K):
         if not segments:
             return index, ""
         
-        # Process each segment
-        all_segment_results = []
+        # Execute all segments in parallel
+        with ThreadPoolExecutor(max_workers=len(segments)) as executor:
+            # Submit all segments
+            futures = {
+                executor.submit(process_web_search_segment, segment_num, queries, k): segment_num
+                for segment_num, queries in segments
+            }
+            
+            # Collect results as they complete
+            segment_results = {}
+            for future in as_completed(futures):
+                segment_num = futures[future]
+                try:
+                    seg_num, segment_output = future.result()
+                    if segment_output:
+                        segment_results[seg_num] = segment_output
+                except Exception as e:
+                    print(f"❌ Error processing segment {segment_num}: {e}")
         
-        for segment_num, queries in segments:
-            print(f"\n{'─'*45}")
-            print(f"📦 Processing SEGMENT_{segment_num} with {len(queries)} queries")
-            print(f"{'─'*45}")
-            
-            # Execute all queries for this segment
-            all_results_for_segment = []
-            seen_urls = set()  # Deduplicate within segment by URL
-            
-            for query_idx, query in enumerate(queries, 1):
-                if not query.strip():
-                    continue
-                
-                print(f"🔍 Query {query_idx}: \"{query}\"")
-                
-                # Execute search
-                results = execute_web_search_for_query(
-                    query=query,
-                    k=k
-                )
-                
-                print(f"✅ Query {query_idx} returned {len(results)} results")
-                
-                # Deduplicate by URL within this segment
-                for ref in results:
-                    url = ref.get("url", "").strip()
-                    title = ref.get("title", "Untitled")
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        all_results_for_segment.append({"url": url, "title": title})
-            
-            # Format segment results with title and URL
-            segment_items = [f"Title: {ref['title']} | URL: {ref['url']}" for ref in all_results_for_segment]
-            
-            print(f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results")
-            
-            # Format segment results
-            if segment_items:
-                segment_output = [f"---SEGMENT_{segment_num}---"] + segment_items
-                all_segment_results.append('\n'.join(segment_output))
+        # Format results in order (by segment_num)
+        all_segment_results = []
+        for segment_num in sorted(segment_results.keys()):
+            all_segment_results.append(segment_results[segment_num])
         
         # Join all segments with double newline
         web_results_text = '\n\n'.join(all_segment_results)
@@ -199,7 +249,7 @@ def process_web_search_row(index, row, k=WEB_SEARCH_K):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_web_search_for_all_rows(sheet, k=WEB_SEARCH_K, max_workers=5):
+def run_web_search_for_all_rows(sheet, k=web_search_k, max_workers=5):
     """
     Execute web search for all rows in the Slide Chunks sheet.
     

@@ -35,7 +35,7 @@ pipeline_sections = [
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_pro"
+                    "llm": "gemini_3_flash"
                 },
                 "estimated_time": "2-5 minutes",
                 "description": "This function segments each slide chunk into individual voiceover (VO) segments using sentence-based segmentation and saves them to the voiceover_segment column.",
@@ -55,7 +55,7 @@ pipeline_sections = [
                 "depends_on": ["Segment Slide into Voiceover Segments"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_pro"
+                    "llm": "gemini_3_flash_thinking"
                 },
                 "estimated_time": "5-10 minutes",
                 "description": "This function generates 3 search queries for each voiceover segment and saves them to the search_queries column",
@@ -108,7 +108,7 @@ pipeline_sections = [
                 "depends_on": ["Execute Web Search"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_pro"
+                    "llm": "gemini_3_flash_thinking"
                 },
                 "estimated_time": "20-40 minutes",
                 "description": "This step uses vision model to select best images and create fianl graphics definitions for each segment, then combines them into a final definition",

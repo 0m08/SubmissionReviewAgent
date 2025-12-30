@@ -1,11 +1,6 @@
-
 from modules.chain import Chain
 from langsmith import traceable
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
-from services.smart_progress_bar import SmartProgressBar
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import re
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -84,7 +79,7 @@ Always provide your output strictly in the following format:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, llm="gemini_2_5_pro"):
+def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, llm="gemini_3_flash_thinking"):
     """
     Generate search queries for a single voiceover segment.
 
@@ -144,7 +139,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_search_query_row(index, row, course_name, llm="gemini_2_5_pro"):
+def process_search_query_row(index, row, course_name, llm="gemini_3_flash_thinking"):
     """
     Process a single row and generate search queries for all segments.
     
@@ -173,32 +168,55 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_pro"):
         
         # Generate queries for each segment
         all_queries_formatted = []
-        for segment_idx, segment in enumerate(segments, start=1):
-            # Generate queries for this segment
-            queries_output = generate_search_query_from_segment(
-                vo_text=segment,
-                slide_chunk=slide_chunk,
-                course_name=course_name,
-                topic_name=topic_name,
-                subtopic_name=subtopic_name,
-                llm=llm
-            )
+        
+        if not segments:
+            return index, ""
+        
+        # Execute segments in parallel
+        with ThreadPoolExecutor(max_workers=len(segments)) as executor:
+            # Submit all segments
+            futures = {
+                executor.submit(
+                    generate_search_query_from_segment,
+                    segment,
+                    slide_chunk,
+                    course_name,
+                    topic_name,
+                    subtopic_name,
+                    llm
+                ): (segment_idx, segment)
+                for segment_idx, segment in enumerate(segments, start=1)
+            }
             
-            # Extract queries from XML format
-            query_matches = re.findall(r'<queries>(.*?)</queries>', queries_output, re.DOTALL)
-            if query_matches:
-                queries_text = query_matches[0].strip()
-                # Extract individual queries (lines starting with "- ")
-                individual_queries = [q.strip()[2:] if q.strip().startswith("- ") else q.strip() 
-                                     for q in queries_text.split('\n') if q.strip()]
-            else:
-                # Fallback: try to extract queries without XML tags
-                individual_queries = [q.strip() for q in queries_output.split('\n') 
-                                    if q.strip() and not q.strip().startswith('<')]
+            # Collect results as they complete
+            segment_results = {}
+            for future in as_completed(futures):
+                segment_idx, segment = futures[future]
+                try:
+                    queries_output = future.result()
+                    
+                    # Extract queries from XML format
+                    query_matches = re.findall(r'<queries>(.*?)</queries>', queries_output, re.DOTALL)
+                    if query_matches:
+                        queries_text = query_matches[0].strip()
+                        # Extract individual queries (lines starting with "- ")
+                        individual_queries = [q.strip()[2:] if q.strip().startswith("- ") else q.strip() 
+                                             for q in queries_text.split('\n') if q.strip()]
+                    else:
+                        # Fallback: try to extract queries without XML tags
+                        individual_queries = [q.strip() for q in queries_output.split('\n') 
+                                            if q.strip() and not q.strip().startswith('<')]
+                    
+                    # Store result with segment index for ordering
+                    segment_results[segment_idx] = (f"---SEGMENT_{segment_idx}---", individual_queries)
+                except Exception as e:
+                    print(f"❌ Error processing segment {segment_idx} (\"{segment[:50]}...\"): {e}")
             
-            # Format with segment marker
-            segment_queries = [f"---SEGMENT_{segment_idx}---"] + individual_queries
-            all_queries_formatted.append('\n'.join(segment_queries))
+            # Format results in order (by segment_idx)
+            for segment_idx in sorted(segment_results.keys()):
+                segment_header, individual_queries = segment_results[segment_idx]
+                segment_queries = [segment_header] + individual_queries
+                all_queries_formatted.append('\n'.join(segment_queries))
         
         # Join all segments with double newline
         search_queries_text = '\n\n'.join(all_queries_formatted)
@@ -218,7 +236,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_pro"):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_pro", max_workers=5):
+def run_generate_search_query_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=5):
     """
     Generate search queries for all segments in all rows in the Slide Chunks sheet.
 

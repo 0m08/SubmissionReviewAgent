@@ -6,10 +6,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import uuid
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
-from agents.graphics_workflow_v2.config.settings import (
-    SEARCH_K,
-    RELEVANCE_THRESHOLD,
-)
 from dotenv import load_dotenv
 import os
 import json
@@ -19,6 +15,9 @@ from pydrive2.drive import GoogleDrive
 
 load_dotenv()
 
+# Configuration constants
+search_k = 5  # Number of results to retrieve per search query
+relevance_threshold = 1.5  # Minimum similarity/relevance score to consider a reference
 
 def _get_drive_instance():
     """
@@ -52,7 +51,7 @@ def _get_drive_instance():
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def execute_drive_search_for_query(query, drive, k=SEARCH_K, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
+def execute_drive_search_for_query(query, drive, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
     """
     Execute drive search for a single query and return reference data.
     
@@ -114,10 +113,10 @@ def execute_drive_search_for_query(query, drive, k=SEARCH_K, filters=None, root_
     # Filter by relevance threshold 
     filtered_results = [
         ref for ref in reference_data_list
-        if ref["metadata"].get("similarity_distance", 999) <= RELEVANCE_THRESHOLD
+        if ref["metadata"].get("similarity_distance", 999) <= relevance_threshold
     ]
     
-    print(f"🎯 After relevance filter (≤{RELEVANCE_THRESHOLD}): {len(filtered_results)} results")
+    print(f"🎯 After relevance filter (≤{relevance_threshold}): {len(filtered_results)} results")
     
     return filtered_results
 
@@ -168,12 +167,96 @@ def parse_search_queries_column(search_queries_text):
     metadata={
         "agent_name": "graphics_definition_v2",
         "step_name": "Drive Search",
+        "function_name": "process_drive_search_segment",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
+def process_drive_search_segment(segment_num, queries, drive, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
+    """
+    Process a single segment: execute queries in parallel, deduplicate, format output.
+    
+    :param segment_num: Segment number
+    :param queries: List of search queries for this segment
+    :param drive: Google Drive instance
+    :param k: Number of results per query
+    :param filters: Optional filters
+    :param root_folder_id: Root folder ID
+    :return: Tuple of (segment_num, segment_output_string) or (segment_num, None) if no results
+    """
+    print(f"\n{'─'*45}")
+    print(f"📦 Processing SEGMENT_{segment_num} with {len(queries)} queries")
+    print(f"{'─'*45}")
+    
+    # Execute all queries for this segment
+    all_results_for_segment = []
+    seen_ids = set()  # Deduplicate within segment
+    
+    # Filter out empty queries
+    valid_queries = [(idx, q.strip()) for idx, q in enumerate(queries, 1) if q.strip()]
+    
+    if not valid_queries:
+        return segment_num, None
+    
+    # Execute queries in parallel
+    with ThreadPoolExecutor(max_workers=len(valid_queries)) as executor:
+        # Submit all queries
+        futures = {
+            executor.submit(
+                execute_drive_search_for_query,
+                query,
+                drive,
+                k,
+                filters,
+                root_folder_id
+            ): (query_idx, query)
+            for query_idx, query in valid_queries
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(futures):
+            query_idx, query = futures[future]
+            try:
+                print(f"🔍 Query {query_idx}: \"{query}\"")
+                results = future.result()
+                print(f"✅ Query {query_idx} returned {len(results)} results")
+                
+                # Deduplicate by reference_id within this segment
+                for ref in results:
+                    ref_id = ref["reference_id"]
+                    if ref_id not in seen_ids:
+                        seen_ids.add(ref_id)
+                        all_results_for_segment.append(ref)
+            except Exception as e:
+                print(f"❌ Error executing query {query_idx} (\"{query}\"): {e}")
+    
+    # Extract title and URL for this segment
+    segment_items = []
+    for ref in all_results_for_segment:
+        url = ref.get("url", "")
+        title = ref.get("title", "Untitled")
+        if url:
+            segment_items.append(f"Title: {title} | URL: {url}")
+    
+    print(f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results")
+    
+    # Format segment results
+    if segment_items:
+        segment_output = [f"---SEGMENT_{segment_num}---"] + segment_items
+        return segment_num, '\n'.join(segment_output)
+    return segment_num, None
+
+
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition_v2",
+        "step_name": "Drive Search",
         "function_name": "process_drive_search_row",
         "user_id": st.session_state.get("role", "anonymous"),
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_drive_search_row(index, row, drive, k=SEARCH_K, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
+def process_drive_search_row(index, row, drive, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
     """
     Process a single row: parse search queries, execute searches for each segment, deduplicate, format output.
     
@@ -198,56 +281,29 @@ def process_drive_search_row(index, row, drive, k=SEARCH_K, filters=None, root_f
         if not segments:
             return index, ""
         
-        # Process each segment
-        all_segment_results = []
+        # Execute all segments in parallel
+        with ThreadPoolExecutor(max_workers=len(segments)) as executor:
+            # Submit all segments
+            futures = {
+                executor.submit(process_drive_search_segment, segment_num, queries, drive, k, filters, root_folder_id): segment_num
+                for segment_num, queries in segments
+            }
+            
+            # Collect results as they complete
+            segment_results = {}
+            for future in as_completed(futures):
+                segment_num = futures[future]
+                try:
+                    seg_num, segment_output = future.result()
+                    if segment_output:
+                        segment_results[seg_num] = segment_output
+                except Exception as e:
+                    print(f"❌ Error processing segment {segment_num}: {e}")
         
-        for segment_num, queries in segments:
-            print(f"\n{'─'*45}")
-            print(f"📦 Processing SEGMENT_{segment_num} with {len(queries)} queries")
-            print(f"{'─'*45}")
-            
-            # Execute all queries for this segment
-            all_results_for_segment = []
-            seen_ids = set()  # Deduplicate within segment
-            
-            for query_idx, query in enumerate(queries, 1):
-                if not query.strip():
-                    continue
-                
-                print(f"🔍 Query {query_idx}: \"{query}\"")
-                
-                # Execute search
-                results = execute_drive_search_for_query(
-                    query=query,
-                    drive=drive,
-                    k=k,
-                    filters=filters,
-                    root_folder_id=root_folder_id
-                )
-                
-                print(f"✅ Query {query_idx} returned {len(results)} results")
-                
-                # Deduplicate by reference_id within this segment
-                for ref in results:
-                    ref_id = ref["reference_id"]
-                    if ref_id not in seen_ids:
-                        seen_ids.add(ref_id)
-                        all_results_for_segment.append(ref)
-            
-            # Extract title and URL for this segment
-            segment_items = []
-            for ref in all_results_for_segment:
-                url = ref.get("url", "")
-                title = ref.get("title", "Untitled")
-                if url:
-                    segment_items.append(f"Title: {title} | URL: {url}")
-            
-            print(f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results")
-            
-            # Format segment results
-            if segment_items:
-                segment_output = [f"---SEGMENT_{segment_num}---"] + segment_items
-                all_segment_results.append('\n'.join(segment_output))
+        # Format results in order (by segment_num)
+        all_segment_results = []
+        for segment_num in sorted(segment_results.keys()):
+            all_segment_results.append(segment_results[segment_num])
         
         # Join all segments with double newline
         drive_results_text = '\n\n'.join(all_segment_results)
@@ -268,7 +324,7 @@ def process_drive_search_row(index, row, drive, k=SEARCH_K, filters=None, root_f
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_drive_search_for_all_rows(sheet, k=SEARCH_K, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', max_workers=5):
+def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', max_workers=5):
     """
     Execute drive search for all rows in the Slide Chunks sheet.
     

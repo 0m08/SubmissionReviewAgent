@@ -239,22 +239,13 @@ def ensure_sheet_loaded():
     """Ensure the Google Sheet is loaded in session state."""
     if "graphics_v2_sheet" in st.session_state:
         return True
-
-    # Single input section - prevent duplicates
-    default_link = st.session_state.get("graphics_v2_sheet_link", "")
     
-    sheet_link = st.text_input(
-        "📋 Enter Google Sheet link", 
-        value=default_link,
-        placeholder="https://docs.google.com/spreadsheets/d/...",
-        key="graphics_slideshow_sheet_input_single"
-    )
 
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        load_button = st.button("Load Data", type="primary", key="graphics_slideshow_load_button_single")
+    root_folder_id = st.text_input("Enter course Drive folder ID", key="graphics_slideshow_drive_folder_id")
+    sheet_link = st.text_input("Enter Google Sheet link", key="graphics_slideshow_sheet_link")
     
-    if load_button:
+    # Button to load data
+    if st.button("Load Data", type="primary", key="graphics_slideshow_load_button"):
         if not sheet_link.strip():
             st.error("Please paste a valid Google Sheet link.")
         else:
@@ -262,12 +253,12 @@ def ensure_sheet_loaded():
                 sheet = gc.open_by_url(sheet_link.strip())
                 st.session_state["graphics_v2_sheet"] = sheet
                 st.session_state["graphics_v2_sheet_link"] = sheet_link.strip()
+                if root_folder_id.strip():
+                    st.session_state["graphics_v2_root_folder_id"] = root_folder_id.strip()
                 st.success("✅ Data loaded successfully!")
                 st.rerun()
             except Exception as exc:
                 st.error(f"Failed to open sheet: {exc}")
-
-    st.caption("💡 Tip: Load the sheet containing the 'Slide Chunks' worksheet with 'graphics_definition' column.")
     
     return False
 
@@ -852,7 +843,7 @@ def render_slideshow_mode(filtered_df):
 # =============================================================================
 
 def main():
-    st.title("🖼️ Graphics Definition V2 Slideshow Preview")
+    st.title("Graphics Definition V2 Slideshow Preview")
     st.markdown("View and preview images from Graphics Definition V2 output in a slideshow format.")
 
     if not ensure_sheet_loaded():
