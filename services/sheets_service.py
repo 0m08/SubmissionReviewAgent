@@ -247,10 +247,15 @@ def hide_columns_by_name(worksheet, column_names, df):
             }
         })
     
-    # Apply the changes
     if requests:
-        worksheet.spreadsheet.batch_update({'requests': requests})
-        print(f"Successfully hid {len(requests)} columns: {', '.join([column_names[column_indices.index(i)] for i in column_indices])}")
+        try:
+            worksheet.spreadsheet.batch_update({'requests': requests})
+            print(f"Successfully hid {len(requests)} columns: {', '.join([column_names[column_indices.index(i)] for i in column_indices])}")
+        except Exception as e:
+            if "can't hide all the columns" in str(e).lower():
+                print(f"Warning: Cannot hide requested columns as it would hide all visible columns. Skipping hide operation.")
+            else:
+                raise
     else:
         print("No columns were hidden")
 
