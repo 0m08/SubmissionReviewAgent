@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import pickle
@@ -16,8 +17,9 @@ from services.embedding_service import get_embedding_model
 from agents.course_outline.video_search_tool.video_retriever import video_retriever, warmup_video_retriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
 from agents.curriculum_mapping_tool.curriculum_mapping_agent import select_best_resources_unified
+from agents.curriculum_mapping_tool.consolidation_agent import consolidate_category
     
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, resize_column_by_name
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
 
@@ -294,6 +296,14 @@ def retrieve_course_docs(cfg: Dict[str, str], drive, query: str, k: int = 15) ->
     docs = retriever.invoke(query)
     if not docs:
         return []
+    
+    # Filter out documents without course_link for skillcat and nextech
+    if cfg["name"] in ("skillcat", "nextech"):
+        docs = [
+            doc for doc in docs
+            if (getattr(doc, "metadata", {}) or {}).get("course_link")
+        ]
+    
     return list(docs[: max(0, k)])
 
 
@@ -368,6 +378,67 @@ def _apply_video_hyperlinks(worksheet, df: pd.DataFrame) -> None:
     worksheet.update(rng, values, value_input_option="USER_ENTERED")
 
 
+def _format_consolidated_hyperlink(resource_json: str) -> str:
+    """
+    Format consolidated resource as a HYPERLINK with source prefix.
+    Example: =HYPERLINK("url", "SkillCat: Course Name")
+    """
+    if not resource_json or not resource_json.strip():
+        return "No match found"
+
+    try:
+        resource = json.loads(resource_json)
+    except json.JSONDecodeError:
+        return "Invalid resource"
+
+    name = resource.get("name", "")
+    link = resource.get("link", "")
+    source = resource.get("source", "").lower()
+
+    if not name:
+        return "No match found"
+
+    # Add source prefix
+    if source == "skillcat":
+        display_name = f"SkillCat: {name}"
+    elif source == "nextech":
+        display_name = f"NexTech: {name}"
+    elif source == "video":
+        display_name = f"Video: {name}"
+    else:
+        display_name = name
+
+    if not link:
+        return display_name
+
+    # Format as HYPERLINK formula
+    safe_name = str(display_name).replace('"', '""')
+    safe_url = str(link).replace('"', '""')
+    return f'=HYPERLINK("{safe_url}", "{safe_name}")'
+
+
+def _apply_consolidated_hyperlinks(worksheet, df: pd.DataFrame) -> None:
+    """
+    Rewrites the Consolidated Resource Name column using USER_ENTERED semantics
+    so Google Sheets treats =HYPERLINK() strings as formulas.
+    """
+    if "Consolidated Resource Name" not in df.columns or df.empty:
+        return
+
+    col_idx = df.columns.get_loc("Consolidated Resource Name") + 1  # 1-based
+    start_row = 2  # header occupies row 1
+    end_row = len(df) + 1
+    if end_row < start_row:
+        return
+
+    start_cell = rowcol_to_a1(start_row, col_idx)
+    end_cell = rowcol_to_a1(end_row, col_idx)
+    rng = f"{start_cell}:{end_cell}"
+
+    values = [[("" if pd.isna(v) else str(v))] for v in df["Consolidated Resource Name"].tolist()]
+    worksheet.update(rng, values, value_input_option="USER_ENTERED")
+
+
 # def _seconds_to_timestamp(value: Optional[Any]) -> Optional[str]:
 #     if value in (None, "", "None"):
 #         return None
@@ -423,6 +494,92 @@ def _format_selected_video(videos: List[Dict[str, Any]], selected_idx: Optional[
     return f'=HYPERLINK("{safe_url}", "{safe_title}")'
 
 
+def _extract_best_resource_metadata(
+    selection: Dict[str, Any],
+    skillcat_docs: List[Document],
+    nextech_docs: List[Document],
+    video_candidates: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """
+    Extract full metadata for the overall best resource.
+    Returns a dict with standardized fields for PDF export.
+    """
+    best_source = selection.get("overall_best_source")
+    if not best_source:
+        return None
+
+    best_metadata = {
+        "source": best_source,
+        "reason": selection.get("overall_best_reason", ""),
+    }
+
+    if best_source == "skillcat" and skillcat_docs:
+        idx = selection.get("skillcat_idx")
+        if idx is None:
+            idx = 0
+        idx = min(idx, len(skillcat_docs) - 1)
+        doc = skillcat_docs[idx]
+        md = getattr(doc, "metadata", {}) or {}
+
+        best_metadata.update({
+            "name": md.get("course_name") or "Untitled",
+            "description": md.get("course_description") or "",
+            "duration": md.get("course_duration_hours"),
+            "topics": md.get("course_topics") or "",
+            "category": md.get("course_category") or "",
+            "link": md.get("course_link") or "",
+            "learning_objectives": md.get("course_learning_objectives") or "",
+            "prerequisites": md.get("course_prerequisites") or "",
+            "nps_score": md.get("nps_score"),
+        })
+
+    elif best_source == "nextech" and nextech_docs:
+        idx = selection.get("nextech_idx")
+        if idx is None:
+            idx = 0
+        idx = min(idx, len(nextech_docs) - 1)
+        doc = nextech_docs[idx]
+        md = getattr(doc, "metadata", {}) or {}
+
+        best_metadata.update({
+            "name": md.get("course_name") or md.get("title") or "Untitled",
+            "description": md.get("description") or "",
+            "duration": md.get("duration"),
+            "topics": md.get("tags") or "",
+            "category": md.get("category") or md.get("trade") or "",
+            "link": md.get("course_link") or "",
+            "level": md.get("level") or "",
+        })
+
+    elif best_source == "video" and video_candidates:
+        idx = selection.get("video_idx")
+        if idx is None:
+            idx = 0
+        idx = min(idx, len(video_candidates) - 1)
+        video = video_candidates[idx]
+
+        # Calculate duration from timestamps if available
+        start_time = video.get("start_time")
+        end_time = video.get("end_time")
+        duration = None
+        if start_time is not None and end_time is not None:
+            try:
+                duration = f"{int(end_time) - int(start_time)} seconds"
+            except (ValueError, TypeError):
+                pass
+
+        best_metadata.update({
+            "name": video.get("video_title") or video.get("title") or "Untitled",
+            "description": video.get("transcript") or video.get("text_0") or "",
+            "duration": duration,
+            "category": video.get("channel_name") or video.get("channel") or "",
+            "link": video.get("url") or video.get("video_link") or "",
+            "published": video.get("published") or "",
+        })
+
+    return best_metadata
+
+
 @traceable(metadata={
     "agent_name": "curriculum_mapping",
     "step_name": "Map Row",
@@ -463,18 +620,34 @@ def map_one_row(category: str, course: str, drive, k_each: int = 5) -> Dict[str,
             "skillcat_idx": None,
             "nextech_idx": None,
             "video_idx": None,
+            "overall_best_source": None,
+            "overall_best_reason": "",
         }
 
     skillcat_display = _format_selected_course(skillcat_docs, selection.get("skillcat_idx"))
     nextech_display = _format_selected_course(nextech_docs, selection.get("nextech_idx"))
     video_display = _format_selected_video(video_candidates, selection.get("video_idx"))
 
+    # Extract best resource metadata for PDF export
+    best_metadata = _extract_best_resource_metadata(
+        selection=selection,
+        skillcat_docs=skillcat_docs,
+        nextech_docs=nextech_docs,
+        video_candidates=video_candidates,
+    )
+
     logger.info(
-        "Selected | SkillCat=%s | NexTech=%s | Video=%s",
+        "Selected | SkillCat=%s | NexTech=%s | Video=%s | Overall=%s",
         selection.get("skillcat_idx"),
         selection.get("nextech_idx"),
         selection.get("video_idx"),
+        selection.get("overall_best_source"),
     )
+
+    # Extract best resource name for clear display
+    best_resource_name = ""
+    if best_metadata:
+        best_resource_name = best_metadata.get("name", "")
 
     return {
         "Category": category,
@@ -482,6 +655,8 @@ def map_one_row(category: str, course: str, drive, k_each: int = 5) -> Dict[str,
         "SkillCat Resource": skillcat_display,
         "NexTech Resource": nextech_display,
         "YT Videos": video_display,
+        "Best Resource Name": best_resource_name,
+        "Best Resource": json.dumps(best_metadata) if best_metadata else "",
     }
 
 
@@ -515,7 +690,7 @@ def run_curriculum_mapping(
     if missing:
         raise ValueError(f"Input sheet missing columns: {missing}")
 
-    for col in ["SkillCat Resource", "NexTech Resource", "YT Videos"]:
+    for col in ["SkillCat Resource", "NexTech Resource", "YT Videos", "Best Resource Name", "Best Resource"]:
         if col not in df.columns:
             df[col] = ""
 
@@ -576,6 +751,8 @@ def run_curriculum_mapping(
             df.at[idx, "SkillCat Resource"] = mapped["SkillCat Resource"]
             df.at[idx, "NexTech Resource"] = mapped["NexTech Resource"]
             df.at[idx, "YT Videos"] = mapped["YT Videos"]
+            df.at[idx, "Best Resource Name"] = mapped.get("Best Resource Name", "")
+            df.at[idx, "Best Resource"] = mapped.get("Best Resource", "")
 
             progress.update()
 
@@ -586,5 +763,230 @@ def run_curriculum_mapping(
     # -------- Final save --------
     save_to_sheet(ws_in, df)
     _apply_video_hyperlinks(ws_in, df)
+
+    return df
+
+
+@traceable(metadata={
+    "agent_name": "curriculum_mapping",
+    "step_name": "Run Curriculum Consolidation",
+    "function_name": "run_curriculum_consolidation",
+    "user_id": st.session_state.get("role", "anonymous"),
+    "user_email": st.session_state.get("user_email", "anonymous")
+})
+def run_curriculum_consolidation(
+    sheet,
+    drive,
+    input_worksheet_name: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Runs consolidation on existing curriculum mapping results.
+
+    This function groups mapping results by Category and uses an LLM agent
+    to intelligently consolidate minority courses into majority courses
+    when the majority course adequately covers the concept.
+
+    Prerequisites: run_curriculum_mapping() must have been completed first.
+
+    Returns DataFrame with added columns:
+    - Consolidated Resource: The consolidated course assignment (JSON)
+    - Consolidation Reason: Explanation for the consolidation decision
+    """
+
+    # -------- Load worksheet --------
+    if input_worksheet_name:
+        ws_in, df = get_sheet_data_and_df(sheet, input_worksheet_name)
+    else:
+        first_ws = sheet.get_worksheet(0)
+        ws_in, df = get_sheet_data_and_df(sheet, first_ws.title)
+
+    # Verify required columns exist
+    required = {"Category", "Course", "Best Resource"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Consolidation requires columns: {missing}. Run mapping first.")
+
+    # Check if Best Resource has data
+    best_resource_filled = df["Best Resource"].notna() & (df["Best Resource"].str.strip() != "")
+    if not best_resource_filled.any():
+        raise ValueError("No 'Best Resource' data found. Run mapping first.")
+
+    # Initialize consolidation columns
+    if "Consolidated Resource Name" not in df.columns:
+        df["Consolidated Resource Name"] = ""
+    if "Consolidated Resource" not in df.columns:
+        df["Consolidated Resource"] = ""
+    if "Consolidation Reason" not in df.columns:
+        df["Consolidation Reason"] = ""
+
+    # -------- Group by Category --------
+    categories = df["Category"].dropna().unique()
+    categories = [c for c in categories if str(c).strip()]
+
+    if not categories:
+        st.info("No categories found to consolidate.")
+        return df
+
+    total_categories = len(categories)
+    llm_name = _get_default_llm_name()
+
+    logger.info(f"Starting consolidation for {total_categories} categories")
+
+    # -------- Build category tasks --------
+    category_tasks = []
+    for category in categories:
+        category = str(category).strip()
+        if not category:
+            continue
+
+        # Get rows for this category
+        category_mask = df["Category"] == category
+        category_indices = df.index[category_mask].tolist()
+
+        if not category_indices:
+            continue
+
+        # Build concepts_data for this category
+        concepts_data = []
+        for idx in category_indices:
+            row = df.loc[idx]
+            concept = str(row.get("Course", "")).strip()
+            best_resource = str(row.get("Best Resource", "")).strip()
+
+            if concept:
+                concepts_data.append({
+                    "concept": concept,
+                    "best_resource": best_resource,
+                    "row_idx": idx
+                })
+
+        if concepts_data:
+            category_tasks.append((category, concepts_data))
+
+    if not category_tasks:
+        st.info("No categories with valid data found to consolidate.")
+        return df
+
+    total_tasks = len(category_tasks)
+
+    # Helper function to process a single category
+    def _consolidate_one_category(category: str, concepts_data: List[Dict]) -> Dict[str, Any]:
+        logger.info(f"Processing category '{category}' with {len(concepts_data)} concepts")
+        try:
+            consolidation_results = consolidate_category(
+                category_name=category,
+                concepts_data=concepts_data,
+                llm=llm_name
+            )
+            return {
+                "category": category,
+                "concepts_data": concepts_data,
+                "results": consolidation_results,
+                "error": None
+            }
+        except Exception as exc:
+            logger.exception(f"Consolidation failed for category '{category}'")
+            return {
+                "category": category,
+                "concepts_data": concepts_data,
+                "results": None,
+                "error": str(exc)[:100]
+            }
+
+    # -------- Process categories in parallel --------
+    with st.spinner(f"Consolidating {total_tasks} categories..."):
+        progress_bar = st.progress(0, text="Consolidating categories...")
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(_consolidate_one_category, category, concepts_data): category
+                for category, concepts_data in category_tasks
+            }
+
+            completed = 0
+            for future in as_completed(futures):
+                result = future.result()
+                completed += 1
+
+                category = result["category"]
+                concepts_data = result["concepts_data"]
+                consolidation_results = result["results"]
+                error = result["error"]
+
+                if error:
+                    # On error, copy original Best Resource to Consolidated Resource
+                    for item in concepts_data:
+                        idx = item["row_idx"]
+                        original_json = item["best_resource"]
+                        # Format as hyperlink with source prefix
+                        df.at[idx, "Consolidated Resource Name"] = _format_consolidated_hyperlink(original_json)
+                        df.at[idx, "Consolidated Resource"] = original_json
+                        df.at[idx, "Consolidation Reason"] = f"Error during consolidation: {error}"
+                else:
+                    # Map results back to DataFrame
+                    results_by_concept = {
+                        r["concept"].lower().strip(): r
+                        for r in consolidation_results
+                    }
+
+                    for item in concepts_data:
+                        concept = item["concept"]
+                        idx = item["row_idx"]
+
+                        res = results_by_concept.get(concept.lower().strip())
+
+                        if res:
+                            consolidated_json = res.get("consolidated_resource_json", "")
+                            # Format as hyperlink with source prefix
+                            df.at[idx, "Consolidated Resource Name"] = _format_consolidated_hyperlink(consolidated_json)
+                            df.at[idx, "Consolidated Resource"] = consolidated_json
+                            df.at[idx, "Consolidation Reason"] = res.get("reason", "")
+                        else:
+                            # Fallback: keep original
+                            original_json = item["best_resource"]
+                            # Format as hyperlink with source prefix
+                            df.at[idx, "Consolidated Resource Name"] = _format_consolidated_hyperlink(original_json)
+                            df.at[idx, "Consolidated Resource"] = original_json
+                            df.at[idx, "Consolidation Reason"] = "No consolidation decision"
+
+                # Update progress
+                progress = completed / total_tasks
+                progress_bar.progress(progress, text=f"Consolidated {completed}/{total_tasks} categories")
+
+        progress_bar.progress(1.0, text="Consolidation complete!")
+
+    # -------- Calculate and log stats --------
+    changes = 0
+    for idx, row in df.iterrows():
+        original = str(row.get("Best Resource", "")).strip()
+        consolidated = str(row.get("Consolidated Resource", "")).strip()
+
+        if original and consolidated and original != consolidated:
+            try:
+                orig_json = json.loads(original) if original else {}
+                cons_json = json.loads(consolidated) if consolidated else {}
+                if orig_json.get("name") != cons_json.get("name"):
+                    changes += 1
+            except json.JSONDecodeError:
+                pass
+
+    total_rows = len(df[df["Best Resource"].str.strip() != ""])
+    logger.info(f"Consolidation complete: {changes} of {total_rows} assignments changed")
+
+    # -------- Save to sheet --------
+    save_to_sheet(ws_in, df)
+
+    # -------- Apply hyperlinks for Consolidated Resource Name --------
+    _apply_consolidated_hyperlinks(ws_in, df)
+
+    # -------- Hide all columns except Consolidated Resource Name --------
+    columns_to_hide = [
+        col for col in df.columns
+        if col not in ["Category", "Course", "Consolidated Resource Name"]
+    ]
+    if columns_to_hide:
+        hide_columns_by_name(ws_in, columns_to_hide, df)
+
+    # resize_column_by_name(worksheet=ws_in, column_name="Consolidated Resource Name", pixel_size=250, wrap="OVERFLOW")
 
     return df

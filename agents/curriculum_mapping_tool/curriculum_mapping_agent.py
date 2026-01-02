@@ -8,7 +8,7 @@ You are an expert curriculum mapping reviewer.
 
 The learner query is created by combining the category and the course.
 Your task is to select the single best resource from EACH source below.
-For each source, analyze how well each candidate resource serves the learner query. Make sure the resource closely aligns with both the category and the course. 
+For each source, analyze how well each candidate resource serves the learner query. Make sure the resource closely aligns with both the category and the course.
 Beware of resources that closely match keywords but are wrong in scope or topic.
 For every candidate in each source:
 1. Reference it by "ID <number>"
@@ -24,6 +24,15 @@ Rules:
 - Each source must be evaluated independently
 - If no candidate matches well, respond with NONE for that source
 - Beware of candidates that match keywords but are wrong in scope or topic
+
+After selecting the best from each source, determine which ONE resource is the OVERALL BEST match for the learner query. Consider:
+- Relevance to the category and course
+- Completeness of content
+- Quality of the resource
+If all sources have NONE, respond with NONE for overall_best_source.
+**Preference factor:**
+- User preference is as follows: Source - skillcat courses > nextech courses > youtube videos.
+- Give slight preference to higher-preference sources when coverage is adequate.
 
 Respond EXACTLY in the following format:
 
@@ -48,6 +57,9 @@ ID 1: ...
 <skillcat_reason>...</skillcat_reason>
 <nextech_reason>...</nextech_reason>
 <video_reason>...</video_reason>
+
+<overall_best_source>skillcat OR nextech OR video OR NONE</overall_best_source>
+<overall_best_reason>Brief explanation of why this is the best overall match</overall_best_reason>
 """
 
 def select_best_resources_unified(
@@ -56,12 +68,14 @@ def select_best_resources_unified(
     nextech_docs: List[Document],
     video_docs: List[Dict[str, Any]],
     llm: str = "gemini_2_5_flash",
-) -> Dict[str, Optional[int]]:
+) -> Dict[str, Any]:
 
     chain = Chain(
-    llm=llm,
-tags=["skillcat_best_id", "nextech_best_id", "video_best_id"],
-    # optionally add "analysis"/reason tags if you plan to read them
+        llm=llm,
+        tags=[
+            "skillcat_best_id", "nextech_best_id", "video_best_id",
+            "overall_best_source", "overall_best_reason"
+        ],
     )
 
     chain.add_message(
@@ -81,11 +95,17 @@ tags=["skillcat_best_id", "nextech_best_id", "video_best_id"],
 
     response = chain.run()
 
-    # ✅ DO NOT TOUCH <analysis> AT ALL
+    # Parse overall_best_source (normalize to lowercase)
+    overall_source = (response.get("overall_best_source") or "").strip().lower()
+    if overall_source not in {"skillcat", "nextech", "video"}:
+        overall_source = None
+
     return {
         "skillcat_idx": _parse_index(response.get("skillcat_best_id")),
         "nextech_idx": _parse_index(response.get("nextech_best_id")),
         "video_idx": _parse_index(response.get("video_best_id")),
+        "overall_best_source": overall_source,
+        "overall_best_reason": (response.get("overall_best_reason") or "").strip(),
     }
 
 
