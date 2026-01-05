@@ -452,7 +452,7 @@ tool_pages = [
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",
-    "image_editing_tool_page"
+    "image_editing_tool_page",
     "curriculum_mapping_tool_page",
 ]
 
