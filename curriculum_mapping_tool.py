@@ -16,6 +16,8 @@ from agents.course_outline.video_search_tool.update_video_vectorstore import upd
 # from agents.course_outline.video_search_tool.video_retriever import video_retriever
 from agents.course_outline.video_search_tool.create_video_vectorstore import create_video_vectorstore
 from agents.curriculum_mapping_tool.curriculum_retriever import run_curriculum_mapping, run_curriculum_consolidation
+from agents.curriculum_mapping_tool.supabase_export import transform_df_for_supabase
+from agents.curriculum_mapping_tool.supabase_service import save_curriculum_to_supabase
 
 
 
@@ -269,6 +271,39 @@ if st.session_state.get("mapping_results_df") is not None:
     )
 
     st.caption("The PDF groups resources by category and shows which concepts each resource covers.")
+
+    # Save to SkillCat Platform section
+    st.markdown("---")
+    st.markdown("#### Save to SkillCat Platform")
+
+    if st.button("Save to SkillCat", type="secondary", use_container_width=True):
+        with st.spinner("Saving curriculum to SkillCat..."):
+            try:
+                # Transform data for Supabase
+                export_data = transform_df_for_supabase(
+                    df=st.session_state["mapping_results_df"],
+                    curriculum_name=st.session_state.get("mapping_sheet_title", "Untitled Curriculum")
+                )
+
+                if not export_data["courses"]:
+                    st.warning("No SkillCat courses found to save. Ensure the mapping includes SkillCat resources.")
+                else:
+                    # Save to Supabase
+                    result = save_curriculum_to_supabase(
+                        curriculum_name=export_data["curriculum_name"],
+                        courses=export_data["courses"]
+                    )
+
+                    if result["success"]:
+                        st.success(f"Saved '{export_data['curriculum_name']}' with {result['courses_count']} SkillCat courses to the platform!")
+                    else:
+                        st.error(f"Failed to save: {result.get('error', 'Unknown error')}")
+            except ValueError as e:
+                st.error(f"Data validation error: {str(e)}")
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {str(e)}")
+
+    st.caption("This saves only SkillCat courses to the SkillCat platform for display in the course catalog.")
 
 st.markdown("---")
 

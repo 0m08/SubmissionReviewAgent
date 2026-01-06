@@ -694,6 +694,35 @@ def run_curriculum_mapping(
         if col not in df.columns:
             df[col] = ""
 
+    # Check if mapping has already been completed
+    total_rows_to_map = 0
+    mapped_rows = 0
+
+    for idx, row in df.iterrows():
+        category = str(row.get("Category", "") or "").strip()
+        course = str(row.get("Course", "") or "").strip()
+
+        if not category and not course:
+            continue
+
+        total_rows_to_map += 1
+
+        # Check if this row has all mapping results
+        if (
+            str(row.get("SkillCat Resource", "")).strip()
+            and str(row.get("NexTech Resource", "")).strip()
+            and str(row.get("YT Videos", "")).strip()
+        ):
+            mapped_rows += 1
+
+    if total_rows_to_map > 0:
+        completion_rate = mapped_rows / total_rows_to_map
+
+        if completion_rate >= 0.95:  # 95% or more already mapped
+            st.info(f"Mapping already completed ({mapped_rows}/{total_rows_to_map} rows). Skipping mapping step.")
+            logger.info(f"Skipping mapping - already {completion_rate*100:.1f}% complete ({mapped_rows}/{total_rows_to_map} rows)")
+            return df
+
     # -------- Warm up retrievers once --------
     with st.spinner("Preparing SkillCat and NexTech retrievers..."):
         get_compression_retriever(SKILLCAT_CFG, drive)
@@ -818,6 +847,19 @@ def run_curriculum_consolidation(
         df["Consolidated Resource"] = ""
     if "Consolidation Reason" not in df.columns:
         df["Consolidation Reason"] = ""
+
+    # Check if consolidation has already been completed
+    consolidated_filled = df["Consolidated Resource"].notna() & (df["Consolidated Resource"].str.strip() != "")
+    total_rows_with_best_resource = (df["Best Resource"].notna() & (df["Best Resource"].str.strip() != "")).sum()
+
+    if total_rows_with_best_resource > 0:
+        completed_rows = consolidated_filled.sum()
+        completion_rate = completed_rows / total_rows_with_best_resource
+
+        if completion_rate >= 0.95:  # 95% or more already consolidated
+            st.info(f"Consolidation already completed ({completed_rows}/{total_rows_with_best_resource} rows). Skipping consolidation step.")
+            logger.info(f"Skipping consolidation - already {completion_rate*100:.1f}% complete ({completed_rows}/{total_rows_with_best_resource} rows)")
+            return df
 
     # -------- Group by Category --------
     categories = df["Category"].dropna().unique()
