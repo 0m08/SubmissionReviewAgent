@@ -45,6 +45,8 @@ def ddgs_search(search_query, max_results=30, backend = 'api'):
 def exa_search(search_query):
     """
     Search the web with Exa.
+    Returns empty list if no results found (instead of raising exception).
+    Retries on network/API errors, but returns empty list for "no results" case.
     """
     exa = Exa(api_key = os.environ.get("EXA_API_KEY"))
 
@@ -55,18 +57,20 @@ def exa_search(search_query):
         summary=True
     )
 
-    # Ensure response is valid and contains results
+    # Check if response is valid and contains results
+    # Return empty list (don't raise exception) - this allows workflow to continue
     if not response or not hasattr(response, 'results') or not response.results:
-        raise ValueError("Exa AI returned no valid results")
+        print(f"Exa AI returned no valid results for query: {search_query}")
+        return []
 
     # Process results correctly
     search_results = [
         {
-            "title": getattr(result, "title", "No title"),  # Use getattr() for safety
-            "href": getattr(result, "url", ""),             # Ensure URL is always present
-            "body": getattr(result, "summary", "No found")  # Provide fallback text
+            "title": getattr(result, "title", "No title"),
+            "href": getattr(result, "url", ""),
+            "body": getattr(result, "summary", "No found")
         }
-        for result in response.results  # Access results directly
+        for result in response.results
     ]
 
     return search_results
