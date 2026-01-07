@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+from datetime import datetime
 import gspread
 import pandas as pd
 import streamlit as st
@@ -8,12 +9,15 @@ from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 from services.sheets_service import get_sheet_data_and_df
 from services.drive_service import login_with_service_account
+from services.pdf_export_service import generate_curriculum_mapping_pdf
 from agents.curriculum_mapping_tool.create_skillcat_vectorstore import create_skillcat_vectorstore, update_skillcat_vectorstore
 from agents.curriculum_mapping_tool.create_nextech_vectorstore import create_nextech_vectorstore, update_nextech_vectorstore
 from agents.course_outline.video_search_tool.update_video_vectorstore import update_video_vectorstore
 # from agents.course_outline.video_search_tool.video_retriever import video_retriever
 from agents.course_outline.video_search_tool.create_video_vectorstore import create_video_vectorstore
-from agents.curriculum_mapping_tool.curriculum_retriever import run_curriculum_mapping
+from agents.curriculum_mapping_tool.curriculum_retriever import run_curriculum_mapping, run_curriculum_consolidation
+from agents.curriculum_mapping_tool.supabase_export import transform_df_for_supabase
+from agents.curriculum_mapping_tool.supabase_service import save_curriculum_to_supabase
 
 
 
@@ -119,11 +123,14 @@ def sample_format_df():
 
 
 st.title("Curriculum Mapping Tool")
-st.caption("Map curriculum courses to the best learning resources automatically.")
+st.caption("Automatically map your curriculum to the best learning resources from SkillCat, NexTech, and YouTube.")
 
+# Input Section
+st.markdown("#### Enter your Google Sheet URL")
 sheet_url = st.text_input(
     "Google Sheet URL",
-    placeholder="https://docs.google.com/spreadsheets/..."
+    placeholder="https://docs.google.com/spreadsheets/...",
+    label_visibility="collapsed"
 )
 
 mapping_sheet = None
@@ -134,31 +141,180 @@ if sheet_url:
 
     if validation_error:
         st.error(validation_error)
-        st.markdown("**Required sheet format:**")
-        st.dataframe(sample_format_df(), use_container_width=True)
+        with st.expander("View required sheet format"):
+            st.dataframe(sample_format_df(), use_container_width=True)
+            st.caption(f"Your sheet must have a worksheet named **'{REQUIRED_SHEET_NAME}'** with columns: **Category** and **Course**")
     else:
         st.success("Sheet validated successfully.")
 
+# Check if mapping is already complete
+mapping_complete = st.session_state.get("mapping_results_df") is not None
+
 run_disabled = (not sheet_url) or (validation_error is not None)
 
+# Single button to run both mapping and consolidation
 if st.button(
-    "Run Curriculum Mapping",
+    "Map Curriculum",
     type="primary",
-    disabled=run_disabled
+    disabled=run_disabled,
+    use_container_width=True
 ):
-    run_curriculum_mapping(
+    # Step 1: Run curriculum mapping
+    st.info("Step 1/2: Mapping concepts to resources...")
+    result_df = run_curriculum_mapping(
         sheet=mapping_sheet,
         drive=drive,
         input_worksheet_name=REQUIRED_SHEET_NAME,
     )
-    st.success("Curriculum mapping completed. Results written to the sheet.")
+
+    # Store intermediate results
+    st.session_state["mapping_results_df"] = result_df
+    st.session_state["mapping_sheet_title"] = mapping_sheet.title if mapping_sheet else "Curriculum Mapping"
+    st.session_state["mapping_sheet"] = mapping_sheet
+
+    # Step 2: Run consolidation
+    st.info("Step 2/2: Consolidating resources by category...")
+    consolidated_df = run_curriculum_consolidation(
+        sheet=mapping_sheet,
+        drive=drive,
+        input_worksheet_name=REQUIRED_SHEET_NAME,
+    )
+
+    # Store final results
+    st.session_state["mapping_results_df"] = consolidated_df
+
+    # Calculate stats for success message
+    total_concepts = len(consolidated_df)
+    unique_resources = set()
+    changes = 0
+
+    for _, row in consolidated_df.iterrows():
+        original = str(row.get("Best Resource", "")).strip()
+        consolidated = str(row.get("Consolidated Resource", "")).strip()
+
+        # Count unique resources
+        if consolidated:
+            try:
+                res = json.loads(consolidated)
+                name = res.get("name", "")
+                if name:
+                    unique_resources.add(name)
+            except:
+                pass
+
+        # Count consolidation changes
+        if original and consolidated and original != consolidated:
+            try:
+                orig_json = json.loads(original)
+                cons_json = json.loads(consolidated)
+                if orig_json.get("name") != cons_json.get("name"):
+                    changes += 1
+            except:
+                pass
+
+    st.success(f"Mapping complete! {total_concepts} concepts mapped to {len(unique_resources)} unique resources. Consolidation optimized {changes} assignments.")
+    st.rerun()
+
+# Results Section - show after mapping is complete
+if st.session_state.get("mapping_results_df") is not None:
+    st.markdown("---")
+
+    df = st.session_state["mapping_results_df"]
+
+    # Calculate summary stats
+    total_concepts = len(df)
+    unique_resources = set()
+    for _, row in df.iterrows():
+        consolidated = str(row.get("Consolidated Resource", "")).strip()
+        best = str(row.get("Best Resource", "")).strip()
+        resource_json = consolidated if consolidated else best
+        if resource_json:
+            try:
+                res = json.loads(resource_json)
+                name = res.get("name", "")
+                if name:
+                    unique_resources.add(name)
+            except:
+                pass
+
+    # Display summary metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Concepts", total_concepts)
+    with col2:
+        st.metric("Unique Resources", len(unique_resources))
+    with col3:
+        categories = df["Category"].nunique()
+        st.metric("Categories", categories)
+
+    st.markdown("---")
+
+    # Export Section
+    st.markdown("#### Export Results")
+
+    with st.spinner("Generating PDF..."):
+        pdf_bytes = generate_curriculum_mapping_pdf(
+            df=st.session_state["mapping_results_df"],
+            sheet_title=st.session_state.get("mapping_sheet_title", "Curriculum Mapping"),
+        )
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"curriculum_mapping_{timestamp}.pdf"
+
+    st.download_button(
+        label="Download PDF Report",
+        data=pdf_bytes,
+        file_name=filename,
+        mime="application/pdf",
+        type="primary",
+        use_container_width=True
+    )
+
+    st.caption("The PDF groups resources by category and shows which concepts each resource covers.")
+
+    # Save to SkillCat Platform section
+    st.markdown("---")
+    st.markdown("#### Save to SkillCat Platform")
+
+    if st.button("Save to SkillCat", type="secondary", use_container_width=True):
+        with st.spinner("Saving curriculum to SkillCat..."):
+            try:
+                # Transform data for Supabase
+                export_data = transform_df_for_supabase(
+                    df=st.session_state["mapping_results_df"],
+                    curriculum_name=st.session_state.get("mapping_sheet_title", "Untitled Curriculum")
+                )
+
+                if not export_data["courses"]:
+                    st.warning("No SkillCat courses found to save. Ensure the mapping includes SkillCat resources.")
+                else:
+                    # Save to Supabase
+                    result = save_curriculum_to_supabase(
+                        curriculum_name=export_data["curriculum_name"],
+                        courses=export_data["courses"]
+                    )
+
+                    if result["success"]:
+                        st.success(f"Saved '{export_data['curriculum_name']}' with {result['courses_count']} SkillCat courses to the platform!")
+                    else:
+                        st.error(f"Failed to save: {result.get('error', 'Unknown error')}")
+            except ValueError as e:
+                st.error(f"Data validation error: {str(e)}")
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {str(e)}")
+
+    st.caption("This saves only SkillCat courses to the SkillCat platform for display in the course catalog.")
 
 st.markdown("---")
 
 # ==========================================================
 # TOGGLE
 # ==========================================================
-show_advanced = st.toggle("Advanced: Vectorstore Management", value=False)
+# print("Current role:", st.session_state.get("role"))
+if st.session_state.get("role") == "Admin":
+    show_advanced = st.toggle("Advanced: Vectorstore Management", value=False)
+else:
+    show_advanced = False
 
 if show_advanced:
     tabs = st.tabs([
