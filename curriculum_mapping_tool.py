@@ -125,6 +125,20 @@ def sample_format_df():
 st.title("Curriculum Mapping Tool")
 st.caption("Automatically map your curriculum to the best learning resources from SkillCat, NexTech, and YouTube.")
 
+# Template and Instructions
+TEMPLATE_SHEET_URL = "https://docs.google.com/spreadsheets/d/138DuziG0OvK0JAtTod4bh4b3LqbpzYUx9v1ev1-KSRw/edit?gid=1488886042#gid=1488886042"
+
+with st.expander("How to create your input sheet", expanded=False):
+    st.markdown(f"""
+**Step 1:** Open the [Template Sheet]({TEMPLATE_SHEET_URL}) and make a copy (File > Make a copy)
+
+**Step 2:** Rename your copied spreadsheet to match your curriculum name (e.g., "Company XYZ Curriculum")
+
+**Step 3:** Replace the dummy data in the **Category** and **Course** columns with your actual curriculum data
+
+**Important:** Ensure no cells are left blank between rows - all Category and Course cells must be filled.
+""")
+
 # Input Section
 st.markdown("#### Enter your Google Sheet URL")
 sheet_url = st.text_input(
@@ -274,9 +288,10 @@ if st.session_state.get("mapping_results_df") is not None:
 
     # Save to SkillCat Platform section
     st.markdown("---")
-    st.markdown("#### Save to SkillCat Platform")
+    st.markdown("#### Save as Custom Curriculum")
+    st.markdown("Save your curriculum to the SkillCat course catalog. Once saved, you'll get a **shareable webpage** where anyone can view your custom curriculum.")
 
-    if st.button("Save to SkillCat", type="secondary", use_container_width=True):
+    if st.button("Save to Course Catalog", type="secondary", use_container_width=True):
         with st.spinner("Saving curriculum to SkillCat..."):
             try:
                 # Transform data for Supabase
@@ -295,7 +310,13 @@ if st.session_state.get("mapping_results_df") is not None:
                     )
 
                     if result["success"]:
-                        st.success(f"Saved '{export_data['curriculum_name']}' with {result['courses_count']} SkillCat courses to the platform!")
+                        curriculum_id = result.get("curriculum_id")
+                        curriculum_url = f"https://content.skillcatapp.com/curriculum/{curriculum_id}"
+
+                        st.success(f"Saved '{export_data['curriculum_name']}' with {result['courses_count']} SkillCat courses!")
+                        st.markdown("**Your curriculum is now live at:**")
+                        st.code(curriculum_url, language=None)
+                        st.link_button("Open Curriculum Page", curriculum_url, use_container_width=True)
                     else:
                         st.error(f"Failed to save: {result.get('error', 'Unknown error')}")
             except ValueError as e:
@@ -303,7 +324,7 @@ if st.session_state.get("mapping_results_df") is not None:
             except Exception as e:
                 st.error(f"An unexpected error occurred: {str(e)}")
 
-    st.caption("This saves only SkillCat courses to the SkillCat platform for display in the course catalog.")
+    st.caption("Only SkillCat courses from your mapping will be included in the custom curriculum page.")
 
 st.markdown("---")
 
