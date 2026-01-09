@@ -376,6 +376,12 @@ graphics_v2_slideshow_page = st.Page(
     icon="🎬",
 )
 
+graphics_definition_v2_slideshow_page = st.Page(
+    "graphics_definition_v2_slideshow.py",
+    title="Aggregation Agent Slideshow",
+    icon="🎥",
+)
+
 paraphraser_page = st.Page(
     "paraphraser.py",
     title="Paraphraser",
@@ -444,6 +450,7 @@ page_name_to_object = {
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
     "graphics_v2_slideshow_page": graphics_v2_slideshow_page,
+    "graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
@@ -468,6 +475,7 @@ tool_pages = [
     "quality_compliance_scoring_page",
     "video_search_tool_page",
     "graphics_v2_slideshow_page",
+    "graphics_definition_v2_slideshow_page",
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",

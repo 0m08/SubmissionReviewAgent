@@ -863,3 +863,28 @@ def iterate_scope(
             # Standard groupby for non-Topic/Subtopic columns
             for key, grp in data_df.groupby(group_cols, dropna=False, sort=False):
                 yield key, grp
+
+
+def parse_start_end_from_url(url: str):
+    """
+    Extract start & end seconds from a timestamped URL query 
+    
+    :param url: The URL string to parse for start and end parameters
+    :return: Tuple of (start_seconds, end_seconds) as integers, or (None, None) if not found
+    """
+    
+    parsed = urllib.parse.urlparse(url)
+    qs = urllib.parse.parse_qs(parsed.query)
+    start = None
+    end = None
+    if 'start' in qs:
+        try:
+            start = int(qs['start'][0])
+        except:
+            pass
+    if 'end' in qs:
+        try:
+            end = int(qs['end'][0])
+        except:
+            pass
+    return start, end

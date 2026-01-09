@@ -21,7 +21,7 @@ from openai import OpenAI
 from services.sheets_service import get_sheet_data_and_df
 
 # Import parsing function from populate_sheet_with_selected_images
-from agents.graphics_definition_v2.populate_sheet_with_selected_images import parse_graphics_definition
+from agents.graphics_definition_v2.image_graphics_agent.populate_sheet_with_selected_images import parse_graphics_definition
 
 # =============================================================================
 # AUTHENTICATION CHECK
