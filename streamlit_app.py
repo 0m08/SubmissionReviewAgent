@@ -370,12 +370,6 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
-graphics_v2_slideshow_page = st.Page(
-    "graphics_v2_slideshow.py",
-    title="Graphics Definition V2 Output Slideshow",
-    icon="🎬",
-)
-
 graphics_definition_v2_slideshow_page = st.Page(
     "graphics_definition_v2_slideshow.py",
     title="Aggregation Agent Slideshow",
@@ -449,7 +443,6 @@ page_name_to_object = {
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
-    "graphics_v2_slideshow_page": graphics_v2_slideshow_page,
     "graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
@@ -474,7 +467,6 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
-    "graphics_v2_slideshow_page",
     "graphics_definition_v2_slideshow_page",
     "paraphraser_page",
     "image_translation_page",
