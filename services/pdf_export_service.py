@@ -7,10 +7,84 @@ showing individual course entries grouped by Category.
 
 import io
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
+
+def _normalize_duration_for_pdf(duration_value: Any) -> str:
+    """
+    Normalize duration from various formats to a consistent 'Xh Ym' format.
+
+    Input formats:
+    - SkillCat: number (e.g., 1.5 means 1.5 hours)
+    - Videos: "X seconds" format
+    - NexTech: "1h 15m" or "1 hour 15 minutes" format
+
+    Output format: "1h 30m" or "45m" (if less than an hour)
+    """
+    if duration_value is None or duration_value == "" or duration_value == "None":
+        return ""
+
+    duration_str = str(duration_value).strip().lower()
+
+    if not duration_str:
+        return ""
+
+    total_minutes = 0
+
+    # Handle "X seconds" format (videos)
+    if "second" in duration_str:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*second', duration_str)
+        if match:
+            seconds = float(match.group(1))
+            total_minutes = seconds / 60
+
+    # Handle "Xh Ym" or "X hour(s) Y minute(s)" format (NexTech)
+    elif "h" in duration_str or "hour" in duration_str or "m" in duration_str or "minute" in duration_str:
+        hours = 0
+        minutes = 0
+
+        # Match hours: "1h", "1 h", "1hour", "1 hour", "1hours", "1 hours"
+        hour_match = re.search(r'(\d+(?:\.\d+)?)\s*h(?:our)?s?', duration_str)
+        if hour_match:
+            hours = float(hour_match.group(1))
+
+        # Match minutes: "15m", "15 m", "15min", "15 min", "15minute", "15 minute", "15minutes", "15 minutes"
+        min_match = re.search(r'(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?', duration_str)
+        if min_match:
+            # Avoid matching the 'm' from 'hour' accidentally
+            min_str = min_match.group(0)
+            if 'h' not in min_str:
+                minutes = float(min_match.group(1))
+
+        total_minutes = hours * 60 + minutes
+
+    # Handle plain number (SkillCat - hours as decimal)
+    else:
+        try:
+            hours = float(duration_str)
+            total_minutes = hours * 60
+        except ValueError:
+            return duration_str  # Return original if can't parse
+
+    # Format output
+    if total_minutes <= 0:
+        return ""
+
+    hours = int(total_minutes // 60)
+    minutes = int(round(total_minutes % 60))
+
+    if hours > 0 and minutes > 0:
+        return f"{hours}h {minutes}m"
+    elif hours > 0:
+        return f"{hours}h"
+    elif minutes > 0:
+        return f"{minutes}m"
+    else:
+        return ""
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -403,7 +477,9 @@ class CurriculumMappingPDFExporter:
 
             duration = resource.get("duration")
             if duration:
-                metadata_parts.append(f"<b>Duration:</b> {duration}")
+                normalized_duration = _normalize_duration_for_pdf(duration)
+                if normalized_duration:
+                    metadata_parts.append(f"<b>Duration:</b> {normalized_duration}")
 
             topics = resource.get("topics")
             if topics:
