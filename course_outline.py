@@ -87,6 +87,12 @@ from agents.research_notes.load_references import delete_all_references
 from agents.research_notes.retriever_agent import delete_retriever_context
 from agents.course_outline.enhance_outline.map_original_outline_to_revised_outline import map_original_outline_to_revised_outline_for_all_topics
 from agents.course_outline.video_search_tool.get_youtube_videos_for_los import run_video_search_for_los, delete_youtube_videos
+from agents.course_outline.video_reference_validation.validate_video_references import (
+    run_validate_video_references,
+    delete_video_references,
+    preview_video_references,
+    manual_preview_video_references
+)
 
 from agents.research_notes.load_references import load_references
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
@@ -1050,6 +1056,54 @@ pipeline_sections.append({
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",
             }
+        },
+        {
+            "name": "Validate Video References",
+            "func": run_validate_video_references,
+            "depends_on": ["Retrieve relevant HVAC Videos for Learning Objectives"],
+            "args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+                "model": "models/gemini-3-flash-preview",
+                "llm": "gemini_2_5_flash",
+                "max_workers": 5,
+            },
+            "estimated_time": "~ 15 - 30 minutes",
+            "description": "Analyzes video links using Gemini's video understanding to validate which videos are appropriate for each learning objective. Uses a two-stage process: visual analysis with Gemini, then transcript-based selection with LLM. Populates the References column with validated video clips and precise timestamps.",
+            "delete_func": delete_video_references,
+            "delete_args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+            }
+        },
+        {
+            "name": "Preview Video References",
+            "func": manual_preview_video_references,
+            "depends_on": ["Validate Video References"],
+            "args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+                "skip_manual_step": "skip_manual_step",
+            },
+            "instructions": [
+                "**Instructions:**",
+                "- Use the dropdown below to select a Learning Objective.",
+                "- Preview the validated video references for each LO.",
+                "- Videos will play with the correct start and end timestamps.",
+                "- Review if the video clips are appropriate for the learning objective.",
+                "---",
+                "Click **Confirm Preview Video References** when you're done reviewing.",
+            ],
+            "is_manual_step": True,
+            "estimated_time": "Manual step",
+            "description": "Preview and review the validated video references with embedded YouTube players.",
+            "pre_exec_func": preview_video_references,
+            "pre_exec_always_run": True,
+            "pre_exec_args": {
+                "sheet": "sheet",
+                "worksheet_name": "Final Outline",
+            },
+            "delete_func": noop,
         },
     ]
 })
