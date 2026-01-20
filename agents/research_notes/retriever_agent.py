@@ -493,28 +493,87 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                 for video_num, video_url in enumerate(video_urls, 1):
                     try:
                         video_id = get_video_id_from_url(video_url)
-                        
+
+                        # Extract start and end timestamps from URL if present
+                        start_time = None
+                        end_time = None
+                        try:
+                            parsed_url = urlparse.urlparse(video_url)
+                            query_params = urlparse.parse_qs(parsed_url.query)
+                            start_param = query_params.get('start', [None])[0]
+                            end_param = query_params.get('end', [None])[0]
+                            if start_param:
+                                start_time = int(start_param)
+                            if end_param:
+                                end_time = int(end_param)
+                            if start_time is not None or end_time is not None:
+                                print(f"Video {video_id}: Filtering transcript to start={start_time}, end={end_time}")
+                        except Exception as e:
+                            print(f"Could not parse timestamps from URL {video_url}: {e}")
+
                         #First try youtube transcripts CSV fallback
                         transcript = get_transcript_from_youtube_transcript_csv(video_id)
-                        
+
                         # If not found in youtube transcript CSV, fall back to existing methods
                         if not transcript:
                             print(f"Video {video_id} not found in youtube_transcript.csv, trying other methods...")
                             transcript = get_transcript_with_fallback(video_id, return_text_only=False)
-                        
+
                         if not transcript:
                             print(f"No transcript returned for video {video_id}")
                             continue
-                        
-                        # Format each segment as "- '{seconds}': {text}" (convert timestamp to seconds)
-                        lines = []
+
+                        # Convert all timestamps to seconds and prepare for filtering
+                        items_with_seconds = []
                         for item in transcript:
                             # Convert timestamp from HH:MM:SS to seconds (if needed)
-                            if ':' in item['timestamp']:
-                                total_seconds = convert_time_to_sec(item['timestamp'])
+                            if ':' in str(item['timestamp']):
+                                item_time = convert_time_to_sec(item['timestamp'])
                             else:
                                 # Already in seconds format from video chunks CSV
-                                total_seconds = item['timestamp']
+                                item_time = int(item['timestamp'])
+                            items_with_seconds.append({
+                                'time': item_time,
+                                'text': item['text']
+                            })
+
+                        # Filter transcript based on start/end times if specified
+                        if start_time is not None or end_time is not None:
+                            # Find the starting index (include overlap from start)
+                            start_idx = 0
+                            if start_time is not None:
+                                # Find the last segment that starts BEFORE start_time (it's likely still playing)
+                                last_before_start = None
+                                for i, item in enumerate(items_with_seconds):
+                                    if item['time'] < start_time:
+                                        last_before_start = i
+                                    elif item['time'] >= start_time:
+                                        break
+
+                                # If there's a segment before start_time, include it (overlap)
+                                if last_before_start is not None:
+                                    start_idx = last_before_start
+                                else:
+                                    # No segment before start_time, find first segment at or after start_time
+                                    for i, item in enumerate(items_with_seconds):
+                                        if item['time'] >= start_time:
+                                            start_idx = i
+                                            break
+
+                            # Filter based on start_idx and end_time
+                            filtered_items = []
+                            for i in range(start_idx, len(items_with_seconds)):
+                                item = items_with_seconds[i]
+                                # For end_time: include segments that START at or before end_time (overlap)
+                                if end_time is not None and item['time'] > end_time:
+                                    break
+                                filtered_items.append(item)
+                            items_with_seconds = filtered_items
+
+                        # Format each segment as "- '{seconds}': {text}"
+                        lines = []
+                        for item in items_with_seconds:
+                            total_seconds = item['time']
                             lines.append(f"- '{total_seconds}': {item['text']}")
                         
                         # Add video header and content - include video ID only for "Video" usage

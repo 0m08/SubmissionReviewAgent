@@ -22,8 +22,82 @@ from agents.curriculum_mapping_tool.consolidation_agent import consolidate_categ
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, resize_column_by_name
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_duration(duration_value: Any) -> str:
+    """
+    Normalize duration from various formats to a consistent 'Xh Ym' format.
+
+    Input formats:
+    - SkillCat: number (e.g., 1.5 means 1.5 hours)
+    - Videos: "X seconds" format
+    - NexTech: "1h 15m" or "1 hour 15 minutes" format
+
+    Output format: "1h 30m" or "45m" (if less than an hour)
+    """
+    if duration_value is None or duration_value == "" or duration_value == "None":
+        return ""
+
+    duration_str = str(duration_value).strip().lower()
+
+    if not duration_str:
+        return ""
+
+    total_minutes = 0
+
+    # Handle "X seconds" format (videos)
+    if "second" in duration_str:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*second', duration_str)
+        if match:
+            seconds = float(match.group(1))
+            total_minutes = seconds / 60
+
+    # Handle "Xh Ym" or "X hour(s) Y minute(s)" format (NexTech)
+    elif "h" in duration_str or "hour" in duration_str or "m" in duration_str or "minute" in duration_str:
+        hours = 0
+        minutes = 0
+
+        # Match hours: "1h", "1 h", "1hour", "1 hour", "1hours", "1 hours"
+        hour_match = re.search(r'(\d+(?:\.\d+)?)\s*h(?:our)?s?', duration_str)
+        if hour_match:
+            hours = float(hour_match.group(1))
+
+        # Match minutes: "15m", "15 m", "15min", "15 min", "15minute", "15 minute", "15minutes", "15 minutes"
+        min_match = re.search(r'(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?', duration_str)
+        if min_match:
+            # Avoid matching the 'm' from 'hour' accidentally
+            min_str = min_match.group(0)
+            if 'h' not in min_str:
+                minutes = float(min_match.group(1))
+
+        total_minutes = hours * 60 + minutes
+
+    # Handle plain number (SkillCat - hours as decimal)
+    else:
+        try:
+            hours = float(duration_str)
+            total_minutes = hours * 60
+        except ValueError:
+            return duration_str  # Return original if can't parse
+
+    # Format output
+    if total_minutes <= 0:
+        return ""
+
+    hours = int(total_minutes // 60)
+    minutes = int(round(total_minutes % 60))
+
+    if hours > 0 and minutes > 0:
+        return f"{hours}h {minutes}m"
+    elif hours > 0:
+        return f"{hours}h"
+    elif minutes > 0:
+        return f"{minutes}m"
+    else:
+        return ""
 
 
 
@@ -376,6 +450,23 @@ def _apply_video_hyperlinks(worksheet, df: pd.DataFrame) -> None:
 
     values = [[("" if pd.isna(v) else str(v))] for v in df["YT Videos"].tolist()]
     worksheet.update(rng, values, value_input_option="USER_ENTERED")
+
+
+def _extract_duration_from_resource(resource_json: str) -> str:
+    """
+    Extract and normalize duration from a resource JSON string.
+    Returns normalized duration string or empty string if not available.
+    """
+    if not resource_json or not resource_json.strip():
+        return ""
+
+    try:
+        resource = json.loads(resource_json)
+    except json.JSONDecodeError:
+        return ""
+
+    duration = resource.get("duration")
+    return normalize_duration(duration)
 
 
 def _format_consolidated_hyperlink(resource_json: str) -> str:
@@ -843,6 +934,8 @@ def run_curriculum_consolidation(
     # Initialize consolidation columns
     if "Consolidated Resource Name" not in df.columns:
         df["Consolidated Resource Name"] = ""
+    if "Time Duration" not in df.columns:
+        df["Time Duration"] = ""
     if "Consolidated Resource" not in df.columns:
         df["Consolidated Resource"] = ""
     if "Consolidation Reason" not in df.columns:
@@ -962,6 +1055,7 @@ def run_curriculum_consolidation(
                         original_json = item["best_resource"]
                         # Format as hyperlink with source prefix
                         df.at[idx, "Consolidated Resource Name"] = _format_consolidated_hyperlink(original_json)
+                        df.at[idx, "Time Duration"] = _extract_duration_from_resource(original_json)
                         df.at[idx, "Consolidated Resource"] = original_json
                         df.at[idx, "Consolidation Reason"] = f"Error during consolidation: {error}"
                 else:
@@ -981,6 +1075,7 @@ def run_curriculum_consolidation(
                             consolidated_json = res.get("consolidated_resource_json", "")
                             # Format as hyperlink with source prefix
                             df.at[idx, "Consolidated Resource Name"] = _format_consolidated_hyperlink(consolidated_json)
+                            df.at[idx, "Time Duration"] = _extract_duration_from_resource(consolidated_json)
                             df.at[idx, "Consolidated Resource"] = consolidated_json
                             df.at[idx, "Consolidation Reason"] = res.get("reason", "")
                         else:
@@ -988,6 +1083,7 @@ def run_curriculum_consolidation(
                             original_json = item["best_resource"]
                             # Format as hyperlink with source prefix
                             df.at[idx, "Consolidated Resource Name"] = _format_consolidated_hyperlink(original_json)
+                            df.at[idx, "Time Duration"] = _extract_duration_from_resource(original_json)
                             df.at[idx, "Consolidated Resource"] = original_json
                             df.at[idx, "Consolidation Reason"] = "No consolidation decision"
 
@@ -1021,10 +1117,10 @@ def run_curriculum_consolidation(
     # -------- Apply hyperlinks for Consolidated Resource Name --------
     _apply_consolidated_hyperlinks(ws_in, df)
 
-    # -------- Hide all columns except Consolidated Resource Name --------
+    # -------- Hide all columns except Category, Course, Consolidated Resource Name, and Time Duration --------
     columns_to_hide = [
         col for col in df.columns
-        if col not in ["Category", "Course", "Consolidated Resource Name"]
+        if col not in ["Category", "Course", "Consolidated Resource Name", "Time Duration"]
     ]
     if columns_to_hide:
         hide_columns_by_name(ws_in, columns_to_hide, df)
