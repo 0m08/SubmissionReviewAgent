@@ -1,25 +1,31 @@
 import streamlit as st
 from agents.quality_compliance_scoring.quality_scoring import run_update_quality_scores
-import os
-import json
-import base64
 import gspread
-from dotenv import load_dotenv
-from pydrive2.drive import GoogleDrive
-from services.drive_service import login_with_service_account
-
-load_dotenv()
-key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
-sa_json = key_bytes.decode()
-sa_dict = json.loads(sa_json)
-gauth = login_with_service_account(json_str=sa_json)
-gauth.ServiceAuth()
-drive = GoogleDrive(gauth)
-gc = gspread.service_account_from_dict(sa_dict)
 
 
-# Extract spreadsheet ID from URL
+def _get_gspread_client():
+    gc_client = st.session_state.get("gspread_client") or st.session_state.get("gc")
+    if gc_client:
+        st.session_state.setdefault("gspread_client", gc_client)
+        return gc_client
 
+    creds = st.session_state.get("google_credentials")
+    if not creds:
+        raise RuntimeError("Google OAuth credentials missing. Please sign in from the agent UI.")
+
+    gc_client = gspread.authorize(creds)
+    st.session_state["gspread_client"] = gc_client
+    return gc_client
+
+
+try:
+    gc = _get_gspread_client()
+except RuntimeError as auth_err:
+    gc = None
+    st.error(str(auth_err))
+    st.stop()
+
+# === Helper Function ===
 def extract_spreadsheet_id(url):
     try:
         return url.split("/d/")[1].split("/")[0]
@@ -33,25 +39,36 @@ st.title("Quality Compliance Scoring Automation")
 st.info(
     """
     ### 📝 Instructions
-    1. Please paste the **Checklist Sheet Link** of the course checklist reviewed below.  
-    2. Make sure the sheet contains the reviewed stages with properly labeled columns.
+    1. Enter the **Course Folder ID** (the Google Drive folder containing all course files).
+    2. Paste the **Checklist Sheet Link** of the reviewed course checklist.
+    3. Make sure the sheet contains the reviewed stages with properly labeled columns.
     """
 )
 
+# --- Step 1: Input for Course Folder ID ---
+course_folder_id = st.text_input("Enter Course Folder ID")
+
+# --- Step 2: Input for Google Spreadsheet URL ---
 spreadsheet_url = st.text_input("Enter Google Spreadsheet URL")
 
-if spreadsheet_url:
+# --- Step 3: Process Inputs ---
+if course_folder_id and spreadsheet_url:
     spreadsheet_id = extract_spreadsheet_id(spreadsheet_url)
     if not spreadsheet_id:
         st.error("Invalid Google Sheets URL. Please check the format.")
     else:
         try:
+            # Open the spreadsheet
             spreadsheet = gc.open_by_key(spreadsheet_id)
             st.success(f"Loaded Spreadsheet: {spreadsheet.title}")
 
+            # Run scoring logic
             if st.button("Run Quality Scoring"):
-                run_update_quality_scores(spreadsheet)
+                run_update_quality_scores(spreadsheet, course_folder_id, spreadsheet_url)
                 st.success("Task Logs updated successfully!")
 
         except Exception as e:
             st.error(f"Error loading spreadsheet: {e}")
+
+elif not course_folder_id and spreadsheet_url:
+    st.warning(" Please enter the Course Folder ID before continuing.")
