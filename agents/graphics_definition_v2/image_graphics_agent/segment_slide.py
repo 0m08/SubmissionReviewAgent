@@ -220,6 +220,10 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_3_flash_t
                 df.at[index, "voiceover_segment"] = f"ERROR: {str(e)}"
                 progress.update()
 
+    # Save final results before validation
+    save_to_sheet(worksheet, df)
+    format_worksheet(worksheet)
+
     # Validation and retry logic
     max_retries = 3
     retry_count = 0

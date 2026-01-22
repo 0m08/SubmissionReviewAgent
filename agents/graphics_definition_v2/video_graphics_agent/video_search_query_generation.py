@@ -380,6 +380,10 @@ def run_generate_video_search_query_for_all_rows(sheet, llm="gemini_3_flash_thin
                 df.at[index, "video_search_query"] = f"ERROR: {str(e)}"
                 progress.update()
 
+    # Save final results before validation
+    save_to_sheet(worksheet, df)
+    format_worksheet(worksheet)
+
     # Validation and retry logic
     max_retries = 3
     retry_count = 0

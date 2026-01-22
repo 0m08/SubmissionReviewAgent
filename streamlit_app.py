@@ -376,6 +376,12 @@ graphics_definition_v2_slideshow_page = st.Page(
     icon="🎥",
 )
 
+slideshow_generator_page = st.Page(
+    "slideshow_streamlit.py",
+    title="Slideshow Generator",
+    icon=":material/slow_motion_video:",
+)
+
 paraphraser_page = st.Page(
     "paraphraser.py",
     title="Paraphraser",
@@ -403,6 +409,12 @@ image_editing_tool_page = st.Page(
 curriculum_mapping_tool_page = st.Page(
     "curriculum_mapping_tool.py",
     title="Curriculum Mapping Tool",
+    icon=":material/menu_book:",
+)
+
+video_embeddings_page = st.Page(
+    "video_embeddings.py",
+    title="Video Embeddings",
     icon=":material/menu_book:",
 )
 #######################
@@ -444,11 +456,13 @@ page_name_to_object = {
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
     "graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
+    "slideshow_generator_page": slideshow_generator_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
     "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
+    "video_embeddings_page": video_embeddings_page,
 }
 
 # Define which pages belong to which category
@@ -467,7 +481,9 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
+    "video_embeddings_page",
     "graphics_definition_v2_slideshow_page",
+    "slideshow_generator_page",
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",

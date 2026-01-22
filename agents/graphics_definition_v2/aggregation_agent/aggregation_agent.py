@@ -29,7 +29,7 @@ video_frames_drive_folder_id = "1sab6wSDPLj54q7KMumGwB1oZHRzXmVf-"
 
 
 aggregation_agent_prompt = """You are a senior expert graphics designer specializing in the field of HVAC. Your role is to assemble the final, production-ready graphics definition for a single voiceover sentence so that it can be directly used by a graphics team to design the corresponding visuals for an educational e-learning slide. 
-You will be given the voiceover sentence, the full course and slide context for reference, and a set of image and video candidates that have already been identified for this sentence by upstream agents, some of which may be only partially relevant or not ultimately suitable for use. Your task is to decide which visuals should be selected from the provided image and video candidates to best support the entire voiceover sentence visually, and whether those visuals should be images, video clips, still frames extracted from videos, or a combination of these.
+You will be given the voiceover sentence, the full course and slide context for reference, and a set of image and video candidates that have already been identified for this sentence by upstream agents, some of which may be only partially relevant or not ultimately suitable for use. Your task is to decide which visuals should be selected from the provided image and video candidates to best support the entire voiceover sentence visually, and whether those visuals should be images, video clips, still frames extracted from videos, or a combination of these. You will also be given a storyboard reference that describes the intended visual ideas for the slide; use it as guidance, but do not treat it as a strict template—your final decisions must be based on what is most clear and accurate given the provided candidates.
 
 These are the inputs:
 
@@ -39,14 +39,18 @@ Topic name: {topic_name}
 Subtopic name: {subtopic_name}
 </course_information>
 
-<voiceover_sentence>
+<voiceover_sentence_for_which_to_assemble_graphics_definition>
 {vo_text}
-</voiceover_sentence>
+</voiceover_sentence_for_which_to_assemble_graphics_definition>
 
 <whole_slide_context>
 Slide Title: {slide_title}
 Slide Content: {slide_chunk}
 </whole_slide_context>
+
+<storyboard_reference>
+{storyboard}
+</storyboard_reference>
 
 <image_candidates>
 {image_candidates}
@@ -59,42 +63,55 @@ Slide Content: {slide_chunk}
 Instructions:
 
 1. Scope and Decision Responsibility
-
-- Your task is to assemble a final graphics definition for the given voiceover sentence only.
-- Use the full slide context strictly for reference and continuity awareness, not to design visuals for other sentences.
-- Select visuals only from the provided image and video candidates.
+   - Your task is to assemble a final graphics definition for the given voiceover sentence only.
+   - Use the full slide context strictly for reference and continuity awareness, not to design visuals for other sentences.
+   - Select visuals only from the provided image and video candidates.
+   - The provided storyboard reference describes the intended visual plan for the slide. 
+   - Use the storyboard to understand the visual intent and progression for the voiceover sentence for which you are assembling the graphics definition.
+   - Aim to follow the storyboard’s visual idea and sequencing as closely as possible when suitable image or video candidates are available. 
+   - If the available image and video candidates do not fully support a storyboard-suggested visual idea, adapt by selecting the most instructionally clear and relevant visuals based on the voiceover sentence and the available candidates.
 
 2. Visual Coverage of the Entire Sentence  
-   
-- First, understand the full meaning and instructional intent of the entire voiceover sentence.
-- Identify the key visual ideas that must be shown on screen for the sentence to be clearly understood
-- Select visuals so that the chosen visual or visuals, taken together, fully support the complete meaning of the voiceover sentence.
+   - First, understand the full meaning and instructional intent of the entire voiceover sentence.
+   - Identify the key visual ideas that must be shown on screen for the sentence to be clearly understood
+   - Select visuals so that the chosen visual or visuals, taken together, fully support the complete meaning of the voiceover sentence.
 
 3. Allowed Visual Selection Forms
+   - You may select one or more still images from the provided image candidates.
+   - You may select one or more segments from the provided video candidates, including short portions of a video clip that are most relevant to the voiceover sentence.
+   - You may select a specific still frame from a provided video clip and use it as a static image.
+   - You may use a combination of still images, video clips, and still frames extracted from video clips, as long as the selected visuals collectively support the entire voiceover sentence.
 
-- You may select one or more still images from the provided image candidates.
-- You may select one or more segments from the provided video candidates, including short portions of a video clip that are most relevant to the voiceover sentence.
-- You may select a specific still frame from a provided video clip and use it as a static image.
-- You may use a combination of still images, video clips, and still frames extracted from video clips, as long as the selected visuals collectively support the entire voiceover sentence.
+4. Source-Specific Video Usage Constraints
+   - Video candidates are divided into two distinct groups based on their source.
+      - Videos listed under:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        - short video clips with start and end timestamps
+        - still frames extracted from the video
 
-4. Time-Constrained Visual Design
+      - Video candidates listed under:
+        "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
+        - You MUST NOT select them as playable video clips
+        - You MUST NOT assign start–end timestamps
+        - You MAY ONLY extract still frames and use them as static images
+        - When using these videos, the asset MUST be represented as a video URL with a single start timestamp only
 
-- Visuals are displayed only during the narration of the voiceover sentence.
-- Select the minimum number of visuals required to clearly support the sentence within this limited time.
-- Do not select lots of visuals or long video clips that cannot be realistically shown during the narration of the given sentence.
+5. Time-Constrained Visual Design
+   - Visuals are displayed only during the narration of the voiceover sentence.
+   - Select the minimum number of visuals required to clearly support the sentence within this limited time.
+   - Do not select lots of visuals or long video clips that cannot be realistically shown during the narration of the given sentence.
 
-5. Alignment of Visuals to the Voiceover Sentence
+6. Alignment of Visuals to the Voiceover Sentence
+   - For each selected visual, indicate which part of the voiceover sentence it should appear with during narration.
+   - Align visuals to the natural progression of the sentence so that each visual appears when the corresponding idea is being spoken.
+   - If multiple visuals are selected, ensure they are ordered and aligned in a way that makes the sentence easy to follow visually within the narration time.
+   - Do not assign visuals to parts of the sentence that they do not clearly support.
+   - If strict adherence to the storyboard’s narration-to-visual mapping is not feasible due to the available image or video candidates, you may adjust how visuals are aligned to narration parts, provided the final alignment remains instructionally clear and faithful to the meaning of the voiceover sentence.
 
-- For each selected visual, indicate which part of the voiceover sentence it should appear with during narration.
-- Align visuals to the natural progression of the sentence so that each visual appears when the corresponding idea is being spoken.
-- If multiple visuals are selected, ensure they are ordered and aligned in a way that makes the sentence easy to follow visually within the narration time.
-- Do not assign visuals to parts of the sentence that they do not clearly support.
-
-6. Instructional Clarity Priority
-
-- Prioritize instructional clarity over visual richness or variety.
-- When you find both a video clip and a still image that are equally clear, directly relevant, and instructionally effective for any part of the voiceover sentence, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule—do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration.
-
+7. Instructional Clarity Priority
+   - Prioritize instructional clarity and accuracyover visual richness, variety or strict adherence to the storyboard.
+   - When you find both a video clip and a still image that are equally clear, directly relevant, and instructionally effective for any part of the voiceover sentence, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration.
+   - Always remember that the storyboard is a reference and not a strict template regarding the kind of visuals that should be used for the voiceover sentence. Try your best to follow the storyboard's visual ideas and sequencing, but do not be too rigid about it.
 
 Strictly provide your output in the following format:
 
@@ -104,17 +121,21 @@ Strictly provide your output in the following format:
 
 This section is your reasoning scratchpad used to analyze the voiceover sentence and the available visual candidates before producing the final graphics definition output. Use it to document your observations, reasoning, and decision process. Provide the following sections:
 
+<voiceover_sentence_understanding>
+Briefly explain, in your own words, what the voiceover sentence is communicating. Use the full slide context to resolve any references, pronouns, or implied meaning if needed.
+</voiceover_sentence_understanding>
+
+<storyboard_reference_scan>
+Explain the storyboard’s intended visual idea(s) that correspond to this voiceover sentence. Summarize what the storyboard is trying to show for this sentence in 1–3 concise bullet points.
+</storyboard_reference_scan>
+
 <image_candidates_scan>
 Create a numbered list of all provided image candidates and briefly describe what you see in each of the image candidate.
 </image_candidates_scan>
 
 <video_candidate_scan>
-Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate. Focus on explaining the visual content of the video, and not what is being spoken in the video.
+Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate. Focus on explaining the visual content of the video, and not what is being spoken in the video. Split the list into two sections: one for videos from which video clips (with timestamps) or still frames as images can be used, and one for videos from which ONLY still frames as images can be used (NOT playable video clips with timestamps).
 </video_candidate_scan>
-
-<voiceover_sentence_understanding>
-Briefly explain, in your own words, what the voiceover sentence is communicating. Use the full slide context to resolve any references, pronouns, or implied meaning if needed.
-</voiceover_sentence_understanding>
 
 <detailed_overall_analysis>
 Use this section to reason through how to assemble the final graphics definition for the given voiceover sentence.
@@ -122,10 +143,13 @@ Use this section to reason through how to assemble the final graphics definition
 Apply the instruction guidelines to:
 - Carefully review each of the provided image and video candidate in detail before making any selection decisions.
 - For video candidates, pay close attention to the visual content within the video to identify whether a video segment or a specific still frame from the video can be used as a suitable visual for the corresponding part of the voiceover sentence. Consider whether any visually clear, frame-worthy moments within the videos could be used as static images.
+- Carefully review the storyboard reference to understand the intended visual idea(s) for this sentence, then evaluate how well the available image and video candidates can satisfy that intent.
 - Decide whether to use still images, video segments, still frames from videos, or a combination of these. While considering the use of any specific video clip for a particular part of the voiceover sentence, determine exactly which portion of the video is visually relevant to help assign correct start and end timestamps for the video clip that you will select.
+- If strict adherence to the storyboard’s narration-to-visual alignment is not feasible due to the available image or video candidates, explain how you plan to adjust the alignment to best support the voiceover sentence, while still maintaining instructionally clear and faithful to the meaning of the voiceover sentence.
 - Ensure the selected visuals, taken together, fully support the entire meaning of the voiceover sentence.
 - Account for the narration time of the voiceover sentence and how all selected visuals should realistically fit within that timeframe.
 - Plan how the selected visuals align with the progression of the voiceover sentence.
+- Consider the source-specific video usage constraints when selecting video candidates.
 - Address any other reasoning considerations needed to arrive at a clear and instructionally useful final decision.
 
 Document your reasoning, tradeoffs, and decision process as you work toward the final selection. It is ok for this evaluation breakdown section to be quite long to fit all your reasoning and intermediate thinking needed to arrive at the best final decision.
@@ -286,20 +310,22 @@ def load_image_from_url(url, drive, title=""):
         return download_image_from_web_url(url)
 
 
-def parse_urls_from_image_pool(image_pool_text, segment_num):
+def parse_urls_from_results(results_text, segment_num):
     """
-    Parse image URLs from image_pool column for a specific segment.
+    Parse titles and URLs from drive_results or web_results for a specific segment.
     
-    :param image_pool_text: The image_pool column content
+    Format: "Title: {title} | URL: {url}"
+    
+    :param results_text: The drive_results or web_results column content
     :param segment_num: Segment number to extract URLs for
     :return: List of dictionaries with 'title' and 'url' keys or empty list if no URLs found
     """
-    if not image_pool_text or image_pool_text.strip() == "" or image_pool_text == "nan":
+    if not results_text or results_text.strip() == "" or results_text == "nan":
         return []
     
     # Find the segment section
     segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
-    match = re.search(segment_pattern, image_pool_text, re.DOTALL)
+    match = re.search(segment_pattern, results_text, re.DOTALL)
     
     if not match:
         return []
@@ -307,45 +333,30 @@ def parse_urls_from_image_pool(image_pool_text, segment_num):
     segment_content = match.group(1).strip()
     items = []
     
-    # Parse each line: "Title | URL: ..." or "Title | URL"
+    # Parse each line: "Title: {title} | URL: {url}"
     for line in segment_content.split('\n'):
         line = line.strip()
         if not line:
             continue
         
-        # Try to parse "Title | URL" or "Title | `URL`" format
-        if " | " in line:
-            parts = line.split(" | ", 1)
+        # Try to parse "Title: ... | URL: ..." format
+        if " | URL: " in line:
+            parts = line.split(" | URL: ", 1)
             if len(parts) == 2:
-                title = parts[0].strip()
-                url_part = parts[1].strip()
+                title_part = parts[0]
+                url = parts[1].strip()
                 
-                # Remove backticks if present (format: "Title | `URL`")
-                if url_part.startswith("`") and url_part.endswith("`"):
-                    url = url_part[1:-1].strip()
-                # Handle "Title | URL: ..." format (if URL: is present)
-                elif url_part.startswith("URL: "):
-                    url = url_part[5:].strip()
-                    # Remove backticks if present
-                    if url.startswith("`") and url.endswith("`"):
-                        url = url[1:-1].strip()
-                elif url_part.startswith("URL:"):
-                    url = url_part[4:].strip()
-                    # Remove backticks if present
-                    if url.startswith("`") and url.endswith("`"):
-                        url = url[1:-1].strip()
+                # Extract title (remove "Title: " prefix)
+                if title_part.startswith("Title: "):
+                    title = title_part[7:].strip()
                 else:
-                    url = url_part
+                    title = title_part.strip()
                 
                 if url:
                     items.append({"title": title, "url": url})
-        # Fallback: if line is just a URL
-        elif line.startswith('http') or (line.startswith('`http') and line.endswith('`')):
-            url = line
-            # Remove backticks if present
-            if url.startswith("`") and url.endswith("`"):
-                url = url[1:-1].strip()
-            items.append({"title": "Untitled", "url": url})
+        # Fallback: if line is just a URL (for backward compatibility)
+        elif line.startswith('http'):
+            items.append({"title": "Untitled", "url": line})
     
     return items
 
@@ -378,6 +389,79 @@ def parse_urls_from_video_pool(video_pool_text, segment_num):
             urls.append(line)
     
     return urls
+
+
+def parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, segment_num):
+    """
+    Parse video URLs from video_pool_other_channels column for a specific segment.
+    
+    Format: "Title: {title} | Duration: {duration} | Channel: {channel} | URL: {url}"
+    
+    :param video_pool_other_channels_text: The video_pool_other_channels column content
+    :param segment_num: Segment number to extract URLs for
+    :return: List of video URLs (YouTube watch URLs without timestamps) or empty list if no URLs found
+    """
+    if not video_pool_other_channels_text or video_pool_other_channels_text.strip() == "" or video_pool_other_channels_text == "nan":
+        return []
+    
+    # Find the segment section
+    segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
+    match = re.search(segment_pattern, video_pool_other_channels_text, re.DOTALL)
+    
+    if not match:
+        return []
+    
+    segment_content = match.group(1).strip()
+    urls = []
+    
+    # Parse each line: "Title: ... | Duration: ... | Channel: ... | URL: ..."
+    for line in segment_content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Try to extract URL from the formatted line
+        # Format: "Title: ... | Duration: ... | Channel: ... | URL: ..."
+        if " | URL: " in line:
+            parts = line.split(" | URL: ", 1)
+            if len(parts) == 2:
+                url = parts[1].strip()
+                if url and url.startswith('http'):
+                    urls.append(url)
+        elif " | URL:" in line:
+            parts = line.split(" | URL:", 1)
+            if len(parts) == 2:
+                url = parts[1].strip()
+                if url and url.startswith('http'):
+                    urls.append(url)
+        # Fallback: if line is just a URL
+        elif line.startswith('http'):
+            urls.append(line)
+    
+    return urls
+
+
+def convert_watch_url_to_embed_url(watch_url):
+    """
+    Convert YouTube watch URL to embed URL.
+    
+    :param watch_url: YouTube watch URL (e.g., "https://www.youtube.com/watch?v=VIDEO_ID")
+    :return: YouTube embed URL (e.g., "https://www.youtube.com/embed/VIDEO_ID") or original URL if conversion fails
+    """
+    if not watch_url:
+        return watch_url
+    
+    # Extract video ID from watch URL
+    video_id = extract_video_id_from_url(watch_url)
+    if video_id:
+        return f"https://www.youtube.com/embed/{video_id}"
+    
+    # If already an embed URL, return as is
+    if 'youtube.com/embed' in watch_url:
+        return watch_url
+    
+    # If conversion fails, return original
+    return watch_url
 
 
 def parse_video_url_timestamps(video_url):
@@ -797,7 +881,7 @@ def parse_segments_from_voiceover(voiceover_text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_urls, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking"):
+def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_urls, video_urls_other_channels, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking"):
     """
     Aggregate graphics definition for a single segment using images and videos.
     
@@ -805,13 +889,15 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
     :param image_items: List of dicts with 'title' and 'url' keys
-    :param video_urls: List of YouTube embed URLs with timestamps
+    :param video_urls: List of YouTube embed URLs with timestamps (from video_pool)
+    :param video_urls_other_channels: List of YouTube watch URLs without timestamps (from video_pool_other_channels)
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
+    :param storyboard: Storyboard content from storyboard_planning column
     :param drive: Google Drive instance
     :param llm: Language model to use
-    :return: Graphics definition XML text or None if generation fails
+    :return: Tuple of (graphics_definition_xml, evaluation_breakdown) or (None, evaluation_breakdown) if generation fails
     """
     print(f"📝 Generating aggregation for segment: \"{vo_text[:60]}...\"")
     
@@ -825,15 +911,31 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     else:
         image_candidates_text = "No image candidates provided."
     
-    # Build video candidates text
+    # Build video candidates text with two sections
     video_candidates_text = ""
+    
+    # First section: video_pool (clips or frames)
     if video_urls:
-        video_candidates_text = "\n".join([
+        video_candidates_text += "Videos from which you can use video clips (with timestamps) or still frames as images\n"
+        video_candidates_text += "\n".join([
             f"{idx + 1}. {url}"
             for idx, url in enumerate(video_urls)
         ])
-    else:
+        video_candidates_text += "\n\n"
+    
+    # Second section: video_pool_other_channels (frames only)
+    if video_urls_other_channels:
+        video_candidates_text += "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps):\n"
+        video_candidates_text += "\n".join([
+            f"{idx + 1}. {url}"
+            for idx, url in enumerate(video_urls_other_channels)
+        ])
+    
+    if not video_candidates_text.strip():
         video_candidates_text = "No video candidates provided."
+    
+    # Use storyboard if provided, otherwise use empty string
+    storyboard_text = storyboard if storyboard and storyboard.strip() and storyboard != "nan" else "No storyboard reference provided."
     
     # Format prompt
     prompt_text = aggregation_agent_prompt.format(
@@ -843,6 +945,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         vo_text=vo_text,
         slide_title=slide_title,
         slide_chunk=slide_chunk,
+        storyboard=storyboard_text,
         image_candidates=image_candidates_text,
         video_candidates=video_candidates_text
     )
@@ -871,25 +974,43 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             else:
                 print(f"⚠️ Failed to load image {idx}: {image_title}")
     
-    # Add videos
-    for idx, video_url in enumerate(video_urls, start=1):
+    # Add videos from video_pool (with timestamps)
+    video_idx = 1
+    for video_url in video_urls:
         clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
         if clip_url:
             # Add text label
-            parts.append(types.Part(text=f"Video {idx}:\nURL: {video_url}"))
-            # Add video part
+            parts.append(types.Part(text=f"Video {video_idx}:\nURL: {video_url}"))
+            # Add video part with timestamps
             video_part = build_video_part(clip_url, start_seconds, end_seconds)
             parts.append(video_part)
-            print(f"✅ Added video {idx}: start={start_seconds}s, end={end_seconds}s")
+            print(f"✅ Added video {video_idx} (with timestamps): start={start_seconds}s, end={end_seconds}s")
+            video_idx += 1
         else:
-            print(f"⚠️ Failed to parse video URL {idx}: {video_url}")
+            print(f"⚠️ Failed to parse video URL: {video_url}")
+    
+    # Add videos from video_pool_other_channels (without timestamps - full video)
+    for video_url in video_urls_other_channels:
+        # Convert watch URL to embed URL
+        embed_url = convert_watch_url_to_embed_url(video_url)
+        if embed_url:
+            # Add text label
+            parts.append(types.Part(text=f"Video {video_idx}:\nURL: {video_url}"))
+            # Add video part without timestamps (full video)
+            video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+            parts.append(video_part)
+            print(f"✅ Added video {video_idx} (full video, no timestamps): {embed_url}")
+            video_idx += 1
+        else:
+            print(f"⚠️ Failed to convert video URL: {video_url}")
     
     # Add prompt text at the end
     parts.append(types.Part(text=prompt_text))
         
     # Call LLM
+    total_videos = len(video_urls) + len(video_urls_other_channels)
     try:
-        print(f" 🤖 Calling {llm} with {len(image_items)} images and {len(video_urls)} videos...")
+        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({len(video_urls)} with timestamps, {len(video_urls_other_channels)} full videos)...")
         response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
         
         # Print the full response for debugging
@@ -898,6 +1019,20 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         print(f"{'─'*80}")
         print(response_text)
         print(f"{'─'*80}\n")
+        
+        # Extract <evaluation_breakdown> content
+        eval_breakdown_match = re.search(
+            r'<evaluation_breakdown>(.*?)</evaluation_breakdown>',
+            response_text,
+            re.DOTALL | re.IGNORECASE
+        )
+        
+        evaluation_breakdown = ""
+        if eval_breakdown_match:
+            evaluation_breakdown = eval_breakdown_match.group(1).strip()
+            print(f" ✅ Successfully extracted evaluation breakdown")
+        else:
+            print(f" ⚠️  Could not extract <evaluation_breakdown> from response")
         
         # Extract <final_graphics_definition> content
         final_def_match = re.search(
@@ -909,10 +1044,10 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         if final_def_match:
             final_graphics_definition = final_def_match.group(1).strip()
             print(f" ✅ Successfully generated graphics definition")
-            return final_graphics_definition
+            return final_graphics_definition, evaluation_breakdown
         else:
             print(f" ⚠️  Could not extract <final_graphics_definition> from response")
-            return None
+            return None, evaluation_breakdown
             
     except Exception as e:
         print(f" ❌ Error calling LLM: {e}")
@@ -1000,7 +1135,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking"):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, drive_results_text, web_results_text, video_pool_text, video_pool_other_channels_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking"):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -1008,38 +1143,51 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     :param vo_text: Voiceover text for the segment
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
-    :param image_pool_text: Image pool column content
-    :param video_pool_text: Video pool column content
+    :param drive_results_text: Drive results column content
+    :param web_results_text: Web results column content
+    :param video_pool_text: Video pool column content (with timestamps)
+    :param video_pool_other_channels_text: Video pool other channels column content (without timestamps)
+    :param storyboard_text: Storyboard content 
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
     :param drive: Google Drive instance
     :param llm: Language model to use
-    :return: Tuple of (segment_idx, formatted_segment_text) or (segment_idx, None) if no definition generated
+    :return: Tuple of (segment_idx, formatted_segment_text, formatted_eval_breakdown) or (segment_idx, None, formatted_eval_breakdown) if no definition generated
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
     
-    # Parse image and video items for this segment
-    image_items = parse_urls_from_image_pool(image_pool_text, segment_idx)
+    # Parse image items from drive_results and web_results for this segment
+    drive_image_items = parse_urls_from_results(drive_results_text, segment_idx)
+    web_image_items = parse_urls_from_results(web_results_text, segment_idx)
+    
+    # Combine both sources (drive_results + web_results)
+    image_items = drive_image_items + web_image_items
+    
+    # Parse video items for this segment
     video_urls = parse_urls_from_video_pool(video_pool_text, segment_idx)
+    video_urls_other_channels = parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, segment_idx)
     
-    print(f" 🖼️  Found {len(image_items)} image candidates")
-    print(f" 🎥 Found {len(video_urls)} video candidates")
+    print(f" 🖼️  Found {len(image_items)} image candidates ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
+    print(f" 🎥 Found {len(video_urls)} video candidates (with timestamps)")
+    print(f" 🎬 Found {len(video_urls_other_channels)} video candidates (other channels, full videos)")
     
-    if not image_items and not video_urls:
+    if not image_items and not video_urls and not video_urls_other_channels:
         print(f" ⚠️  No image or video candidates available for segment {segment_idx}, skipping")
         return segment_idx, None
     
     # Generate aggregated graphics definition
-    graphics_definition_xml = aggregate_graphics_definition_for_segment(
+    graphics_definition_xml, evaluation_breakdown = aggregate_graphics_definition_for_segment(
         vo_text=vo_text,
         slide_title=slide_title,
         slide_chunk=slide_chunk,
         image_items=image_items,
         video_urls=video_urls,
+        video_urls_other_channels=video_urls_other_channels,
         course_name=course_name,
         topic_name=topic_name,
         subtopic_name=subtopic_name,
+        storyboard=storyboard_text,
         drive=drive,
         llm=llm
     )
@@ -1059,10 +1207,21 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
             graphics_definition_xml,
             segment_idx
         )
+        
+        # Format evaluation breakdown for the sheet (with segment marker)
+        formatted_eval_breakdown = ""
+        if evaluation_breakdown:
+            formatted_eval_breakdown = f"---SEGMENT_{segment_idx}---\n{evaluation_breakdown}"
+        
         if formatted_segment:
-            return segment_idx, formatted_segment
+            return segment_idx, formatted_segment, formatted_eval_breakdown
     
-    return segment_idx, None
+    # Return evaluation breakdown even if graphics definition failed
+    formatted_eval_breakdown = ""
+    if evaluation_breakdown:
+        formatted_eval_breakdown = f"---SEGMENT_{segment_idx}---\n{evaluation_breakdown}"
+    
+    return segment_idx, None, formatted_eval_breakdown
 
 
 @traceable(
@@ -1084,21 +1243,24 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
     :param drive: Google Drive instance
     :param llm: Language model to use
     :param max_workers: Max parallel workers for segment processing
-    :return: Tuple of (index, final_graphics_definition_text) or (index, empty string) if no segments found
+    :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text) or (index, empty string, empty string) if no segments found
     """
     try:
         voiceover_text = str(row.get("voiceover_segment", "")).strip()
-        image_pool_text = str(row.get("image_pool", "")).strip()
+        drive_results_text = str(row.get("drive_results", "")).strip()
+        web_results_text = str(row.get("web_results", "")).strip()
         video_pool_text = str(row.get("video_pool", "")).strip()
+        video_pool_other_channels_text = str(row.get("video_pool_other_channels", "")).strip()
+        storyboard_text = str(row.get("storyboard_planning", "")).strip()
         
         # Skip if voiceover_segment is empty
         if not voiceover_text or voiceover_text == "nan":
-            return index, ""
+            return index, "", ""
         
         # Parse segments
         segments = parse_segments_from_voiceover(voiceover_text)
         if not segments:
-            return index, ""
+            return index, "", ""
         
         # Get row data
         topic_name = str(row.get("Topic", "")).strip()
@@ -1121,8 +1283,11 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     vo_text,
                     slide_title,
                     slide_chunk,
-                    image_pool_text,
+                    drive_results_text,
+                    web_results_text,
                     video_pool_text,
+                    video_pool_other_channels_text,
+                    storyboard_text,
                     course_name,
                     topic_name,
                     subtopic_name,
@@ -1134,29 +1299,41 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             
             # Collect results as they complete
             segment_results = {}
+            eval_breakdown_results = {}
             for future in as_completed(futures):
                 segment_idx, vo_text = futures[future]
                 try:
-                    result_idx, formatted_segment = future.result()
+                    result_idx, formatted_segment, formatted_eval_breakdown = future.result()
                     if formatted_segment:
                         segment_results[result_idx] = formatted_segment
+                    if formatted_eval_breakdown:
+                        eval_breakdown_results[result_idx] = formatted_eval_breakdown
                 except Exception as e:
                     print(f"❌ Error processing segment {segment_idx} (\"{vo_text[:50]}...\"): {e}")
         
         # Combine all segments in order
+        final_graphics_definition_text = ""
         if segment_results:
             all_segment_results = [
                 segment_results[seg_idx]
                 for seg_idx in sorted(segment_results.keys())
             ]
             final_graphics_definition_text = '\n\n'.join(all_segment_results)
-            return index, final_graphics_definition_text
         
-        return index, ""
+        # Combine evaluation breakdowns in order
+        evaluation_breakdown_text = ""
+        if eval_breakdown_results:
+            all_eval_breakdowns = [
+                eval_breakdown_results[seg_idx]
+                for seg_idx in sorted(eval_breakdown_results.keys())
+            ]
+            evaluation_breakdown_text = '\n\n'.join(all_eval_breakdowns)
+        
+        return index, final_graphics_definition_text, evaluation_breakdown_text
         
     except Exception as e:
         print(f"Error processing row {index}: {e}")
-        return index, ""
+        return index, "", ""
 
 
 def validate_final_graphics_definition_row(row):
@@ -1255,9 +1432,11 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         print("❌ Could not initialize Google Drive. Aborting.")
         return
     
-    # Ensure final_graphics_definition column exists
+    # Ensure final_graphics_definition and evaluation_breakdown columns exist
     if "final_graphics_definition" not in df.columns:
         df["final_graphics_definition"] = ""
+    if "evaluation_breakdown" not in df.columns:
+        df["evaluation_breakdown"] = ""
     
     # Filter rows that have voiceover_segment but missing final_graphics_definition
     rows_to_process = []
@@ -1304,10 +1483,11 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         for future in as_completed(futures):
             index = futures[future]
             try:
-                row_index, final_graphics_def_text = future.result()
+                row_index, final_graphics_def_text, evaluation_breakdown_text = future.result()
                 
                 # Update dataframe
                 df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
+                df.at[row_index, "evaluation_breakdown"] = evaluation_breakdown_text
                 
                 # Update progress
                 progress.update()
@@ -1321,7 +1501,12 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
+                df.at[index, "evaluation_breakdown"] = f"ERROR: {str(e)}"
                 progress.update()
+
+    # Save final results before validation
+    save_to_sheet(ws, df)
+    format_worksheet(ws)
 
     # Validation and retry logic
     max_retries = 3
@@ -1346,9 +1531,10 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         for idx, row, error in invalid_rows[:3]:  # Show first 3 errors
             print(f"  Row {idx}: {error}")
         
-        # Clear final_graphics_definition for invalid rows
+        # Clear final_graphics_definition and evaluation_breakdown for invalid rows
         for index, row, error_msg in invalid_rows:
             df.at[index, "final_graphics_definition"] = ""
+            df.at[index, "evaluation_breakdown"] = ""
         
         # Save cleared state
         save_to_sheet(ws, df)
@@ -1372,11 +1558,13 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
             for future in as_completed(futures):
                 index = futures[future]
                 try:
-                    row_index, final_graphics_def_text = future.result()
+                    row_index, final_graphics_def_text, evaluation_breakdown_text = future.result()
                     df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
+                    df.at[row_index, "evaluation_breakdown"] = evaluation_breakdown_text
                 except Exception as e:
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
+                    df.at[index, "evaluation_breakdown"] = f"ERROR: {str(e)}"
         
         # Save after retry
         save_to_sheet(ws, df)

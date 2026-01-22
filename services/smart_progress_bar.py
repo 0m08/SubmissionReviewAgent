@@ -20,26 +20,34 @@ class SmartProgressBar:
             return
 
         self.completed_count += increment
+        
+        # Clamp completed_count to prevent exceeding total_tasks
+        if self.completed_count > self.total_tasks:
+            self.completed_count = self.total_tasks
+        
         current_time = time.time()
         elapsed_seconds = current_time - self.start_time
         fraction_complete = self.completed_count / self.total_tasks
+        
+        # Clamp fraction to valid range
+        fraction_complete = max(0.0, min(1.0, fraction_complete))
         
         # Estimate remaining time
         if self.completed_count > 0:
             seconds_per_task = elapsed_seconds / self.completed_count
             remaining_tasks = self.total_tasks - self.completed_count
-            estimated_remaining_seconds = seconds_per_task * remaining_tasks
+            estimated_remaining_seconds = max(0, seconds_per_task * remaining_tasks)
             
             elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_seconds)))
             remaining_time_str = str(datetime.timedelta(seconds=int(estimated_remaining_seconds)))
             
             self.progress_bar.progress(
-                max(0, min(1, fraction_complete)),  # Ensure fraction_complete stays within 0-1 range
+                fraction_complete,
                 text=f"{self.description}: {int(fraction_complete * 100)}% | Elapsed: {elapsed_time_str} | Remaining: {remaining_time_str}"
             )
 
             # Close the bar once all tasks are done
-            if self.completed_count == self.total_tasks:
+            if self.completed_count >= self.total_tasks:
                 self.progress_bar.empty()
 
         else:

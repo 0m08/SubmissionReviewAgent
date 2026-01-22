@@ -4,6 +4,10 @@ from agents.graphics_definition_v2.image_graphics_agent.segment_slide import (
     run_segment_slide_from_slide_chunk_for_all_rows,
     delete_segment_slide,
 )
+from agents.graphics_definition_v2.image_graphics_agent.storyboard_agent import (
+    run_storyboard_agent_for_all_rows,
+    delete_storyboard_planning,
+)
 from agents.graphics_definition_v2.image_graphics_agent.generate_search_query import (
     run_generate_search_query_for_all_rows,
     delete_search_queries,
@@ -40,6 +44,14 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     run_aggregation_agent_for_all_rows,
     delete_final_graphics_definition,
 )
+from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_in_other_channels import (
+    run_youtube_video_search_other_channels_for_all_rows,
+    delete_video_pool_other_channels,
+)
+from agents.graphics_definition_v2.layout_agent.layout_agent import (
+    run_layout_agent_for_all_rows,
+    delete_layout_columns,
+)
 
 pipeline_sections = [
     {
@@ -56,6 +68,26 @@ pipeline_sections = [
                 "estimated_time": "2-5 minutes",
                 "description": "This function segments each slide chunk into individual voiceover (VO) segments using sentence-based segmentation and saves them to the voiceover_segment column.",
                 "delete_func": delete_segment_slide,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 2: Generate Storyboard Planning for each Slide",
+        "steps": [
+            {
+                "name": "Generate Storyboard for each Slide",
+                "func": run_storyboard_agent_for_all_rows,
+                "depends_on": ["Segment Slide into Voiceover Segments"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking"
+                },
+                "estimated_time": "5-10 minutes",
+                "description": "This function generates a storyboard for each slide and saves them to the storyboard column",
+                "delete_func": delete_storyboard_planning,
                 "delete_args": {
                     "sheet": "sheet"
                 }
@@ -154,33 +186,33 @@ pipeline_sections = [
     #         },
     #     ]
     # },
+    # {
+    #     "section_name": "Section 6: Generate Search Queries for Video Retrieval",
+    #     "steps": [
+    #         {
+    #             "name": "Generate Search Queries for Video Retrieval",
+    #             "func": run_generate_video_search_query_for_all_rows,
+    #             "depends_on": ["Execute Web Search"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "llm": "gemini_3_flash_thinking"
+    #             },
+    #             "estimated_time": "5-10 minutes",
+    #             "description": "This function generates 2-4 video search queries for each voiceover segment and saves them to the video_search_query column",
+    #             "delete_func": delete_video_search_queries,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             }
+    #         },
+    #     ]
+    # },
     {
-        "section_name": "Section 6: Generate Search Queries for Video Retrieval",
-        "steps": [
-            {
-                "name": "Generate Search Queries for Video Retrieval",
-                "func": run_generate_video_search_query_for_all_rows,
-                "depends_on": ["Execute Web Search"],
-                "args": {
-                    "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
-                },
-                "estimated_time": "5-10 minutes",
-                "description": "This function generates 2-4 video search queries for each voiceover segment and saves them to the video_search_query column",
-                "delete_func": delete_video_search_queries,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
-        ]
-    },
-    {
-        "section_name": "Section 7: Generate Asset Pool for the Aggregation Agent",
+        "section_name": "Section 7: Generate Video Pool for the Aggregation Agent",
         "steps": [
             {
                 "name": "Generate Video Pool",
                 "func": run_youtube_video_search_for_all_rows,
-                "depends_on": ["Generate Search Queries for Video Retrieval"],
+                "depends_on": [],
                 "args": {
                     "sheet": "sheet"
                 },
@@ -192,20 +224,34 @@ pipeline_sections = [
                 }
             },
             {
-                "name": "Generate Image Pool",
-                "func": run_image_selection_from_all_images_for_all_rows,
+                "name": "Execute YouTube Video Search in Other Channels",
+                "func": run_youtube_video_search_other_channels_for_all_rows,
                 "depends_on": ["Generate Video Pool"],
                 "args": {
-                    "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
+                    "sheet": "sheet"
                 },
-                "estimated_time": "20-40 minutes",
-                "description": "This function selects all relevant images from drive_results and web_results for each segment and saves them to image_pool column",
-                "delete_func": delete_image_pool,
+                "estimated_time": "10-20 minutes",
+                "description": "This function executes YouTube video search in other channels for all queries in each segment and saves results to video_pool_other_channels column",
+                "delete_func": delete_video_pool_other_channels,
                 "delete_args": {
                     "sheet": "sheet"
                 }
             },
+            # {
+            #     "name": "Generate Image Pool",
+            #     "func": run_image_selection_from_all_images_for_all_rows,
+            #     "depends_on": ["Generate Video Pool"],
+            #     "args": {
+            #         "sheet": "sheet",
+            #         "llm": "gemini_3_flash_thinking"
+            #     },
+            #     "estimated_time": "20-40 minutes",
+            #     "description": "This function selects all relevant images from drive_results and web_results for each segment and saves them to image_pool column",
+            #     "delete_func": delete_image_pool,
+            #     "delete_args": {
+            #         "sheet": "sheet"
+            #     }
+            # },
         ]
     },
     {
@@ -214,7 +260,7 @@ pipeline_sections = [
             {
                 "name": "Run Aggregation Agent",
                 "func": run_aggregation_agent_for_all_rows,
-                "depends_on": ["Generate Image Pool"],
+                "depends_on": [],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking"
@@ -222,6 +268,26 @@ pipeline_sections = [
                 "estimated_time": "30-60 minutes",
                 "description": "This function combines images and videos from image_pool and video_pool to create final graphics definitions that can use images, video segments, or still frames from videos",
                 "delete_func": delete_final_graphics_definition,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 9: Layout Agent",
+        "steps": [
+            {
+                "name": "Run Layout Agent",
+                "func": run_layout_agent_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking"
+                },
+                "estimated_time": "15-30 minutes",
+                "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
+                "delete_func": delete_layout_columns,
                 "delete_args": {
                     "sheet": "sheet"
                 }

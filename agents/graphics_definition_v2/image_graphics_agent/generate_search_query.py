@@ -16,17 +16,22 @@ You will be given a single voiceover sentence from an educational slide, along w
  
 These are the inputs:
 
-Course Name: {course_name}
-
-Topic Name: {topic_name}
-
-Subtopic Name: {subtopic_name}
+<course_information>
+Course name: {course_name}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
 
 Voiceover sentence for which you need to generate search queries:
 "{vo_text}"
 
 Full slide content:
 {slide_chunk}
+
+Visual storyboard for the full slide (for planning context and intent reference):
+<visual_storyboard>
+{visual_storyboard}
+</visual_storyboard>
 
 Instructions:
 
@@ -46,6 +51,12 @@ Instructions:
    - Queries should not be near-duplicates of each other.
    - Each query should represent a slightly different but relevant visual angle.
 
+5. Use of Visual Storyboard Context
+   - The visual storyboard represents the planned visual flow for the entire slide.
+   - Refer to it to understand the intended visual ideas for the specific voiceover sentence you are processing.
+   - Focus only on the storyboard planning that corresponds to this sentence.
+   - Do not generate queries that are not supported by the visual storyboard.
+
 Always provide your output strictly in the following format:
 
 <output>
@@ -57,6 +68,7 @@ Always provide your output strictly in the following format:
 
 2. Query Planning
 - Reason about the kinds of image searches that would best retrieve visuals to support this sentence.
+- Refer to the visual storyboard to understand the intended visual ideas for the specific voiceover sentence you are processing and what visuals are required to support the sentence.
 - Consider how such images are typically searched for or labeled.
 
 </evaluation_breakdown>
@@ -82,7 +94,7 @@ Always provide your output strictly in the following format:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, llm="gemini_3_flash_thinking"):
+def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, visual_storyboard="", llm="gemini_3_flash_thinking"):
     """
     Generate search queries for a single voiceover segment.
 
@@ -91,6 +103,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     :param course_name: The course name.
     :param topic_name: The topic name.
     :param subtopic_name: The subtopic name.
+    :param visual_storyboard: The visual storyboard content.
     :param llm: The language model to use.
     :return: The search query output.
     """
@@ -104,7 +117,8 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     #     topic_name=topic_name,
     #     subtopic_name=subtopic_name,
     #     vo_text=vo_text,
-    #     slide_chunk=slide_chunk
+    #     slide_chunk=slide_chunk,
+    #     visual_storyboard=visual_storyboard
     # ))
     # print("\n" + "=" * 100 + "\n")
 
@@ -116,7 +130,8 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
             topic_name=topic_name,
             subtopic_name=subtopic_name,
             vo_text=vo_text,
-            slide_chunk=slide_chunk
+            slide_chunk=slide_chunk,
+            visual_storyboard=visual_storyboard
         )
     )
 
@@ -158,6 +173,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_3_flash_thinki
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
         topic_name = str(row.get("Topic", "")).strip()
         subtopic_name = str(row.get("Subtopic", "")).strip()
+        visual_storyboard = str(row.get("storyboard_planning", "")).strip()
         
         # Skip if no segments
         if not vo_segments or vo_segments == "nan":
@@ -186,6 +202,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_3_flash_thinki
                     course_name,
                     topic_name,
                     subtopic_name,
+                    visual_storyboard,
                     llm
                 ): (segment_idx, segment)
                 for segment_idx, segment in enumerate(segments, start=1)
@@ -316,6 +333,10 @@ def run_generate_search_query_for_all_rows(sheet, llm="gemini_3_flash_thinking",
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "search_queries"] = f"ERROR: {str(e)}"
                 progress.update()
+
+    # Save final results before validation
+    save_to_sheet(worksheet, df)
+    format_worksheet(worksheet)
 
     # Validation and retry logic
     max_retries = 3

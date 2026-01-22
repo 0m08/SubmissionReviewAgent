@@ -16,10 +16,11 @@ from pydrive2.drive import GoogleDrive
 load_dotenv()
 
 # Configuration constants
-search_k = 5  # Number of results to retrieve per search query
+search_k = 10  # Number of results to retrieve per search query
 use_reranking = True  # Whether to use Cohere reranking
-video_embeddings_folder_id = '1SSvxx1EJ3zgMPfvD8Zy5DaEgmI2prys7'  # Google Drive folder ID for video embeddings
-
+#video_embeddings_folder_id = '1SSvxx1EJ3zgMPfvD8Zy5DaEgmI2prys7'  # Google Drive folder ID for video embeddings
+video_embeddings_folder_id = '15H9thXq02JX3ldADSj1oD78mbV-fXfvu'  # Google Drive folder ID for video embeddings
+video_embeddings_folder_name = 'Vectorstore for HVAC school video embeddings (Category - 3D Animations and Simulations, Hands-On Field Work, Equipment Demos & Teardowns)'  # Name of the vectorstore folder inside the parent folder
 
 def get_drive_instance():
     """
@@ -60,7 +61,7 @@ def retrieve_video_docs_for_query(query, drive, k=search_k, use_reranking=use_re
     
     try:
         # Load video embeddings retriever from Google Drive
-        video_embeddings_chroma = load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id)
+        video_embeddings_chroma = load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video_embeddings_folder_name)
         video_embeddings_retriever = video_embeddings_chroma.as_retriever(
             search_kwargs={"k": k * 2 if use_reranking else k}  # Get more if reranking
         )
@@ -144,9 +145,9 @@ def execute_video_search_for_query(query, drive, k=search_k):
     return video_urls
 
 
-def parse_video_search_queries_column(video_search_queries_text):
+def parse_search_queries_column(search_queries_text):
     """
-    Parse the video_search_query column to extract segments and their queries.
+    Parse the search_queries column to extract segments and their queries.
     
     Format:
     ---SEGMENT_1---
@@ -159,16 +160,16 @@ def parse_video_search_queries_column(video_search_queries_text):
     query2
     query3
     
-    :param video_search_queries_text: The video_search_query column content
+    :param search_queries_text: The search_queries column content
     :return: List of tuples (segment_number, list_of_queries)
     """
-    if not video_search_queries_text or video_search_queries_text.strip() == "" or video_search_queries_text == "nan":
+    if not search_queries_text or search_queries_text.strip() == "" or search_queries_text == "nan":
         return []
     
     segments = []
     # Split by segment markers
     segment_pattern = r'---SEGMENT_(\d+)---'
-    parts = re.split(segment_pattern, video_search_queries_text)
+    parts = re.split(segment_pattern, search_queries_text)
     
     for i in range(1, len(parts), 2):
         if i + 1 < len(parts):
@@ -283,14 +284,14 @@ def process_video_search_row(index, row, drive, k=search_k):
     :return: Tuple of (index, video_pool_text)
     """
     try:
-        video_search_queries_text = str(row.get("video_search_query", "")).strip()
+        search_queries_text = str(row.get("search_queries", "")).strip()
         
-        # Skip if video_search_query is empty
-        if not video_search_queries_text or video_search_queries_text == "nan":
+        # Skip if search_queries is empty
+        if not search_queries_text or search_queries_text == "nan":
             return index, ""
         
         # Parse segments and queries
-        segments = parse_video_search_queries_column(video_search_queries_text)
+        segments = parse_search_queries_column(search_queries_text)
         
         if not segments:
             return index, ""
@@ -331,19 +332,19 @@ def process_video_search_row(index, row, drive, k=search_k):
 
 def validate_video_pool_row(row):
     """
-    Validate that video_pool matches video_search_query:
+    Validate that video_pool matches search_queries:
     - Row is not empty
-    - All segments from video_search_query have results
+    - All segments from search_queries have results
     - No gaps in segment numbering
     
     :param row: Pandas Series with row data
     :return: Tuple (is_valid, error_message)
     """
-    video_search_queries_text = str(row.get("video_search_query", "")).strip()
+    search_queries_text = str(row.get("search_queries", "")).strip()
     video_pool_text = str(row.get("video_pool", "")).strip()
     
-    # Skip validation if video_search_query is empty
-    if not video_search_queries_text or video_search_queries_text == "nan":
+    # Skip validation if search_queries is empty
+    if not search_queries_text or search_queries_text == "nan":
         return True, None
     
     # Check if video_pool is empty
@@ -354,8 +355,8 @@ def validate_video_pool_row(row):
     if video_pool_text.startswith("ERROR:"):
         return False, "video_pool contains error marker"
     
-    # Parse expected segments from video_search_query
-    expected_segments = parse_video_search_queries_column(video_search_queries_text)
+    # Parse expected segments from search_queries
+    expected_segments = parse_search_queries_column(search_queries_text)
     if not expected_segments:
         return True, None  # No segments to validate
     
@@ -427,11 +428,11 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=5):
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
-            video_search_queries = str(row.get("video_search_query", "")).strip()
+            search_queries = str(row.get("search_queries", "")).strip()
             video_pool = str(row.get("video_pool", "")).strip()
             
-            # Skip if video_search_query is empty
-            if not video_search_queries or video_search_queries == "nan":
+            # Skip if search_queries is empty
+            if not search_queries or search_queries == "nan":
                 continue
             
             # Skip if video_pool is already filled
@@ -444,7 +445,7 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=5):
         
         # If no rows to process, return early
         if not futures_map:
-            print("All rows already processed or no valid video search queries found.")
+            print("All rows already processed or no valid search queries found.")
             return
         
         # Initialize progress tracker
@@ -477,6 +478,10 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=5):
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "video_pool"] = f"ERROR: {str(e)}"
                 progress.update()
+
+    # Save final results before validation
+    save_to_sheet(worksheet, df)
+    format_worksheet(worksheet)
 
     # Validation and retry logic
     max_retries = 3

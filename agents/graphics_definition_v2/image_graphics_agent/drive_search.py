@@ -466,6 +466,10 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
                 df.at[index, "drive_results"] = f"ERROR: {str(e)}"
                 progress.update()
     
+    # Save final results before validation
+    save_to_sheet(worksheet, df)
+    format_worksheet(worksheet)
+    
     # Validation and retry logic
     max_retries = 3
     retry_count = 0
