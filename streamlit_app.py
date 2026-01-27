@@ -16,6 +16,7 @@ from streamlit_clickable_images import clickable_images
 from utils.role_utils import get_user_info, get_user_pages
 from config.logging_config import get_logger, setup_logging
 from mcp_ui_app import mcp_ui_page
+from services.activity_tracking_service import track_login, track_page_view
 
 # from jira import JIRA
 
@@ -96,6 +97,10 @@ def login():
                     st.session_state["role"] = user_info["role"]
                     st.session_state["user_email"] = user_email
                     st.session_state["user_pages"] = user_info["pages"]
+
+                    # Track login event
+                    track_login(gc, user_email)
+
                     st.session_state.pop("oauth_state", None)
                     st.query_params.clear()
                     st.rerun()
@@ -202,7 +207,10 @@ def login():
                                 st.session_state["role"] = user_info["role"]
                                 st.session_state["user_email"] = user_email
                                 st.session_state["user_pages"] = user_info["pages"]
-                                
+
+                                # Track login event
+                                track_login(gc, user_email)
+
                                 st.success(f"✅ Authentication successful! Welcome {user_info['role']} - {user_email}")
                                 st.rerun()
                             else:
@@ -503,6 +511,14 @@ else:
     # Show only the login page
     current_page = st.navigation([st.Page(login, title="Login", icon=":material/login:")])
 
+
+# Track page navigation
+if st.session_state.role and "gc" in st.session_state and "user_email" in st.session_state:
+    track_page_view(
+        st.session_state["gc"],
+        st.session_state["user_email"],
+        current_page.title
+    )
 
 # Finally, call run() on whichever page the user selected in the nav.
 current_page.run()
