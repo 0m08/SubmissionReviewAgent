@@ -3,6 +3,7 @@ import streamlit as st
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
 from services.smart_progress_bar import SmartProgressBar
 import re
+import time
 import requests
 from io import BytesIO
 from PIL import Image
@@ -479,13 +480,14 @@ def extract_graphics_from_definition(final_graphics_definition: str) -> List[Dic
     return graphics
 
 
-def invoke_gemini_multimodal(parts: List[types.Part], llm: str = "gemini_3_flash_thinking", temperature: float = 0.7) -> str:
+def invoke_gemini_multimodal(parts: List[types.Part], llm: str = "gemini_3_flash_thinking", temperature: float = 0.7, max_retries: int = 5) -> str:
     """
-    Invoke Gemini multimodal model with the given parts.
+    Invoke Gemini multimodal model with the given parts and retry logic for quota errors.
     
     :param parts: List of multimodal parts (text, images, videos)
     :param llm: Model name
     :param temperature: Temperature for generation
+    :param max_retries: Maximum number of retry attempts for quota errors
     :return: Response text
     """
     # Map LLM name to model ID
@@ -502,25 +504,103 @@ def invoke_gemini_multimodal(parts: List[types.Part], llm: str = "gemini_3_flash
     # Initialize client
     client = genai.Client()
     
-    # Generate content
-    response = client.models.generate_content(
-        model=model_id,
-        contents=types.Content(parts=parts),
-        config=types.GenerateContentConfig(
+    # Enable thinking mode for gemini_3_flash_thinking
+    if llm == "gemini_3_flash_thinking" and "gemini-3" in model_id:
+        config = types.GenerateContentConfig(
             temperature=temperature,
-        ),
-    )
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True
+            )
+        )
+    else:
+        config = types.GenerateContentConfig(temperature=temperature)
     
-    # Handle response - try multiple ways to extract text
-    if hasattr(response, "text") and response.text:
-        return response.text
-    if getattr(response, "candidates", None):
-        first_candidate = response.candidates[0]
-        if getattr(first_candidate, "content", None) and first_candidate.content.parts:
-            part = first_candidate.content.parts[0]
-            if hasattr(part, "text"):
-                return part.text
-    return str(response)
+    # Retry logic for quota errors
+    retries = 0
+    while retries < max_retries:
+        try:
+            # Generate content
+            response = client.models.generate_content(
+                model=model_id,
+                contents=types.Content(parts=parts),
+                config=config,
+            )
+            
+            # Handle response - try multiple ways to extract text
+            if hasattr(response, "text") and response.text:
+                return response.text
+            if getattr(response, "candidates", None):
+                first_candidate = response.candidates[0]
+                if getattr(first_candidate, "content", None) and first_candidate.content.parts:
+                    part = first_candidate.content.parts[0]
+                    if hasattr(part, "text"):
+                        return part.text
+            return str(response)
+            
+        except Exception as e:
+            error_str = str(e)
+            # Check if it's a 429 quota error
+            is_quota_error = (
+                "429" in error_str or 
+                "RESOURCE_EXHAUSTED" in error_str or 
+                "quota" in error_str.lower() or
+                "quotaExceeded" in error_str
+            )
+            
+            if is_quota_error:
+                # Try to extract retry delay from error message
+                retry_delay = None
+                # First, try to access error details if available (for Google Genai SDK exceptions)
+                try:
+                    if hasattr(e, 'error') and isinstance(e.error, dict):
+                        error_dict = e.error
+                        # Check for retryDelay in details
+                        if 'details' in error_dict:
+                            for detail in error_dict.get('details', []):
+                                if isinstance(detail, dict) and 'retryDelay' in detail:
+                                    retry_delay = float(detail['retryDelay'])
+                                    break
+                except (AttributeError, KeyError, ValueError, TypeError):
+                    pass
+                
+                # If not found in structured format, parse from string
+                if retry_delay is None and ("retry in" in error_str.lower() or "retrydelay" in error_str.lower()):
+                    # Look for patterns like "Please retry in 32.427229495s"
+                    delay_match = re.search(r'retry\s+in\s+([\d.]+)\s*s', error_str, re.IGNORECASE)
+                    if delay_match:
+                        retry_delay = float(delay_match.group(1))
+                    else:
+                        # Try to find retryDelay in JSON-like structure
+                        delay_match = re.search(r'["\']retryDelay["\']\s*:\s*["\']?([\d.]+)', error_str, re.IGNORECASE)
+                        if delay_match:
+                            retry_delay = float(delay_match.group(1))
+                        else:
+                            # Try to find it in the error message format: "retryDelay": "32s"
+                            delay_match = re.search(r'retryDelay["\']?\s*[:=]\s*["\']?([\d.]+)s?', error_str, re.IGNORECASE)
+                            if delay_match:
+                                retry_delay = float(delay_match.group(1))
+                
+                if retry_delay is None:
+                    # Fallback to exponential backoff
+                    retry_delay = min(2 ** retries * 5, 60)  # Cap at 60 seconds
+                else:
+                    # Add a small buffer to the API-specified delay to be safe
+                    retry_delay = retry_delay + 1.0
+                
+                if retries < max_retries - 1:
+                    print(f"  ⚠️  Quota exceeded (429). Waiting {retry_delay:.1f}s before retry {retries + 1}/{max_retries}...")
+                    time.sleep(retry_delay)
+                    retries += 1
+                    continue
+                else:
+                    print(f"  ❌ Max retries ({max_retries}) exceeded for quota error.")
+                    raise
+            else:
+                # For non-quota errors, raise immediately
+                raise
+    
+    # Should never reach here, but just in case
+    raise Exception(f"Failed after {max_retries} retries")
 
 
 @traceable(

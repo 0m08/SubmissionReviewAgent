@@ -3,3 +3,4 @@
 __pycache__/
 *.pyc
 token_usage_log.csv
+logging.csv

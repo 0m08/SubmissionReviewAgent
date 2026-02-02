@@ -107,7 +107,8 @@ def initialize_vertex_ai():
         
         vertexai.init(
             # project="dam-images-tagging",  # Old project - commented out
-            project="handy-reference-478614-e2",  # Niket's project
+            #project="handy-reference-478614-e2",  # Niket's project
+            project="beaming-theorem-485115-k5",
             location="us-central1",
             credentials=creds
         )

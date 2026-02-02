@@ -55,7 +55,8 @@ Instructions and Guidelines:
    - Favor clarity and relevance over visual variety.
    - Each visual idea must directly help the learner understand the narration at that moment.
    - Avoid suggesting redundant or too many visuals that do not add instructional value.
-
+   - IMPORTANT: You should strictly assign only 1 visual to the respective narattion parts.
+   
 Output:
 
 Provide your output strictly in the following format:

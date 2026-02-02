@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 _LOGGING_INITIALIZED = False
 _PRINT_PATCHED = False
 _ORIGINAL_PRINT = builtins.print
+_HANDLING_LOGGING_ERROR = False  # Guard against logging recursion
 
 
 class JsonFormatter(logging.Formatter):
@@ -98,6 +99,76 @@ class CSVFormatter(logging.Formatter):
         return ",".join(field_values)
 
 
+class SafeHandler(logging.Handler):
+    """
+    A wrapper handler that prevents recursion when handler errors occur.
+    Silently swallows handler errors to prevent infinite recursion loops.
+    """
+    def __init__(self, wrapped_handler: logging.Handler):
+        super().__init__()
+        self.wrapped_handler = wrapped_handler
+        self._in_error = False
+        # Copy important attributes from wrapped handler
+        self.setLevel(wrapped_handler.level)
+        self.setFormatter(wrapped_handler.formatter)
+        
+    def emit(self, record):
+        if self._in_error:
+            return
+        try:
+            self.wrapped_handler.emit(record)
+        except (OSError, IOError, RecursionError, RuntimeError) as e:
+            # Silently ignore handler errors to prevent recursion
+            self._in_error = True
+            try:
+                # Try to close the problematic handler
+                self.wrapped_handler.close()
+            except Exception:
+                pass
+        except Exception:
+            # Catch any other exceptions silently
+            pass
+        finally:
+            self._in_error = False
+    
+    def flush(self):
+        if self._in_error:
+            return
+        try:
+            self.wrapped_handler.flush()
+        except (OSError, IOError, RecursionError, RuntimeError):
+            # Silently ignore flush errors
+            self._in_error = True
+            try:
+                self.wrapped_handler.close()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        finally:
+            self._in_error = False
+    
+    def handleError(self, record):
+        """
+        Override handleError to prevent recursion.
+        By default, handleError tries to write to sys.stderr, which would
+        trigger our patched print function, causing infinite recursion.
+        """
+        # Silently ignore errors - don't try to log them
+        pass
+    
+    def close(self):
+        try:
+            self.wrapped_handler.close()
+        except Exception:
+            pass
+        super().close()
+    
+    def __getattr__(self, name):
+        # Delegate all other attributes to wrapped handler
+        return getattr(self.wrapped_handler, name)
+
+
 def _build_logging_config(env: str, level: str) -> dict:
     console_formatter = {
         "format": "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -161,6 +232,31 @@ def setup_logging(env: Optional[str] = None, default_level: str = "INFO") -> Non
     config = _build_logging_config(resolved_env, log_level)
 
     logging.config.dictConfig(config)
+    
+    # Override handleError on all handlers to prevent recursion
+    def safe_handle_error(handler):
+        """Create a safe handleError method for a handler"""
+        original_handle_error = handler.handleError
+        
+        def handle_error(record):
+            """Override handleError to prevent recursion"""
+            # Silently ignore errors - don't try to log them
+            # This prevents infinite recursion when handler errors occur
+            pass
+        
+        handler.handleError = handle_error
+    
+    # Apply safe error handling to all root logger handlers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        safe_handle_error(handler)
+    
+    # Also apply to app.print loggers
+    for logger_name in ["app.print", "app.print.stderr"]:
+        logger = logging.getLogger(logger_name)
+        for handler in logger.handlers:
+            safe_handle_error(handler)
+    
     _LOGGING_INITIALIZED = True
     _patch_print()
 
@@ -315,11 +411,17 @@ def _patch_print():
     automatically respect the configured handlers. Set DISABLE_PRINT_REDIRECT=1
     to opt out.
     """
-    global _PRINT_PATCHED
+    global _PRINT_PATCHED, _HANDLING_LOGGING_ERROR
     if _PRINT_PATCHED or os.getenv("DISABLE_PRINT_REDIRECT"):
         return
 
     def logging_print(*args, **kwargs):
+        global _HANDLING_LOGGING_ERROR
+        
+        # Prevent recursion if we're already handling a logging error
+        if _HANDLING_LOGGING_ERROR:
+            return _ORIGINAL_PRINT(*args, **kwargs)
+        
         file = kwargs.get("file", sys.stdout)
         sep = kwargs.get("sep", " ")
         end = kwargs.get("end", "\n")
@@ -329,21 +431,44 @@ def _patch_print():
         if end and end != "\n":
             message = f"{message}{end}"
 
-        if file is sys.stderr:
-            logging.getLogger("app.print.stderr").error(message)
-            target_logger = logging.getLogger("app.print.stderr")
-        elif file in (None, sys.stdout):
-            logging.getLogger("app.print").info(message)
-            target_logger = logging.getLogger("app.print")
-        else:
-            return _ORIGINAL_PRINT(*args, **kwargs)
+        try:
+            if file is sys.stderr:
+                target_logger = logging.getLogger("app.print.stderr")
+                target_logger.error(message)
+            elif file in (None, sys.stdout):
+                target_logger = logging.getLogger("app.print")
+                target_logger.info(message)
+            else:
+                return _ORIGINAL_PRINT(*args, **kwargs)
 
-        if flush:
-            for handler in target_logger.handlers or logging.getLogger().handlers:
+            if flush:
+                # Safely flush handlers with recursion protection
+                _HANDLING_LOGGING_ERROR = True
                 try:
-                    handler.flush()
-                except Exception:
-                    continue
+                    handlers_to_flush = list(target_logger.handlers) or list(logging.getLogger().handlers)
+                    for handler in handlers_to_flush:
+                        try:
+                            handler.flush()
+                        except (OSError, IOError, RecursionError):
+                            # Silently ignore handler errors to prevent recursion
+                            # Remove problematic handler to prevent future issues
+                            try:
+                                handler.close()
+                                target_logger.removeHandler(handler)
+                            except Exception:
+                                pass
+                        except Exception:
+                            # Catch any other exceptions silently
+                            pass
+                finally:
+                    _HANDLING_LOGGING_ERROR = False
+        except (RecursionError, RuntimeError):
+            # If we hit recursion anyway, fall back to original print
+            _HANDLING_LOGGING_ERROR = True
+            try:
+                _ORIGINAL_PRINT(*args, **kwargs)
+            finally:
+                _HANDLING_LOGGING_ERROR = False
 
     builtins.print = logging_print
     _PRINT_PATCHED = True

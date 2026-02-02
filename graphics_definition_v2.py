@@ -44,6 +44,10 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     run_aggregation_agent_for_all_rows,
     delete_final_graphics_definition,
 )
+from agents.graphics_definition_v2.review_agent.review_and_revise import (
+    run_review_and_revise_graphics_definition_v2_for_all_rows,
+    delete_review_and_revise_graphics_definition_v2,
+)
 from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_in_other_channels import (
     run_youtube_video_search_other_channels_for_all_rows,
     delete_video_pool_other_channels,
@@ -212,7 +216,7 @@ pipeline_sections = [
             {
                 "name": "Generate Video Pool",
                 "func": run_youtube_video_search_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Execute Web Search"],
                 "args": {
                     "sheet": "sheet"
                 },
@@ -260,10 +264,10 @@ pipeline_sections = [
             {
                 "name": "Run Aggregation Agent",
                 "func": run_aggregation_agent_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Execute YouTube Video Search in Other Channels"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
+                    "llm": "gemini_3_flash_thinking" 
                 },
                 "estimated_time": "30-60 minutes",
                 "description": "This function combines images and videos from image_pool and video_pool to create final graphics definitions that can use images, video segments, or still frames from videos",
@@ -275,7 +279,27 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 9: Layout Agent",
+        "section_name": "Section 9: Review and Revise Graphics Definition V2",
+        "steps": [
+            {
+                "name": "Review and Revise Graphics Definition V2",
+                "func": run_review_and_revise_graphics_definition_v2_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking" 
+                },
+                "estimated_time": "30-90 minutes",
+                "description": "This step reviews assigned visuals against alignment, specificity, and redundancy criteria, revises using existing pools, and regenerates only when necessary.",
+                "delete_func": delete_review_and_revise_graphics_definition_v2,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 10: Layout Agent",
         "steps": [
             {
                 "name": "Run Layout Agent",
@@ -283,7 +307,7 @@ pipeline_sections = [
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
+                    "llm": "gemini_3_flash_thinking" 
                 },
                 "estimated_time": "15-30 minutes",
                 "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
@@ -297,4 +321,3 @@ pipeline_sections = [
 ]
 
 agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections)
-
