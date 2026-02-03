@@ -119,7 +119,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 3: Image Search in Drive and Web",
+        "section_name": "Section 3: Generate Image Pool for the Aggregation Agent",
         "steps": [
             {
                 "name": "Execute Drive Search",
@@ -214,7 +214,7 @@ pipeline_sections = [
         "section_name": "Section 7: Generate Video Pool for the Aggregation Agent",
         "steps": [
             {
-                "name": "Generate Video Pool",
+                "name": "Execute Video Search in the 'HVAC School' and 'Love2HVAC with Ty Branaman' Youtube Channel",
                 "func": run_youtube_video_search_for_all_rows,
                 "depends_on": ["Execute Web Search"],
                 "args": {
@@ -228,9 +228,9 @@ pipeline_sections = [
                 }
             },
             {
-                "name": "Execute YouTube Video Search in Other Channels",
+                "name": "Execute Video Search in other Youtube Channels",
                 "func": run_youtube_video_search_other_channels_for_all_rows,
-                "depends_on": ["Generate Video Pool"],
+                "depends_on": ["Execute Video Search in the 'HVAC School' and 'Love2HVAC with Ty Branaman' Youtube Channel"],
                 "args": {
                     "sheet": "sheet"
                 },
@@ -264,13 +264,13 @@ pipeline_sections = [
             {
                 "name": "Run Aggregation Agent",
                 "func": run_aggregation_agent_for_all_rows,
-                "depends_on": ["Execute YouTube Video Search in Other Channels"],
+                "depends_on": ["Execute Video Search in other Youtube Channels"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking" 
                 },
                 "estimated_time": "30-60 minutes",
-                "description": "This function combines images and videos from image_pool and video_pool to create final graphics definitions that can use images, video segments, or still frames from videos",
+                "description": "This step selects the best visuals from the Image and Video pool for the voiceover segments to create the final graphics definitions for the slide content",
                 "delete_func": delete_final_graphics_definition,
                 "delete_args": {
                     "sheet": "sheet"
@@ -320,4 +320,10 @@ pipeline_sections = [
     },
 ]
 
-agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections)
+llm_pricing = {
+    "input_per_million": 0.50,
+    "output_per_million": 3.00,
+    "currency": "$",
+}
+
+agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing)

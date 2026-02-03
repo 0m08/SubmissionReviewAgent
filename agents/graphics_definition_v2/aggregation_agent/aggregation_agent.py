@@ -10,6 +10,7 @@ from PIL import Image
 from agents.vector_store_image_search.graphics_retriever_agent import pil_to_base64_data_uri
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from services.video_clip_tools import build_video_part
+from services.llm_service import log_token_usage
 from dotenv import load_dotenv
 import os
 import base64
@@ -1107,6 +1108,18 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
             temperature=temperature,
         ),
     )
+    try:
+        meta = getattr(response, "usage_metadata", None)
+        input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
+        output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+        log_token_usage(
+            llm=llm,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            log_file="token_usage_log.csv",
+        )
+    except Exception as e:
+        print(f"Token usage logging failed: {e}")
     if hasattr(response, "text") and response.text:
         return response.text
     if getattr(response, "candidates", None):

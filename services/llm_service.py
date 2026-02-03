@@ -32,6 +32,10 @@ def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.
         # Handle case where Streamlit session_state is not available
         agent_name = agent_name or ""
         step_name = step_name or ""
+    if not agent_name:
+        agent_name = os.environ.get("CURRENT_AGENT_NAME", agent_name or "")
+    if not step_name:
+        step_name = os.environ.get("CURRENT_STEP_NAME", step_name or "")
 
     # Check if the log file already exists to decide if we need a header row.
     file_exists = os.path.isfile(log_file)

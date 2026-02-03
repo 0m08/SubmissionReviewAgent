@@ -22,6 +22,7 @@ from services.sheets_service import (
 )
 from services.smart_progress_bar import SmartProgressBar
 from services.video_clip_tools import build_video_part
+from services.llm_service import log_token_usage
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     get_drive_instance,
@@ -116,11 +117,12 @@ Follow the below evaluation rules to guide your evaluation:
    - The visual represents the general topic but not the specific clause or item being spoken in that segment.
    - The visual contradicts the voiceover or implies a different instructional idea.
    - The assigned visual(s) do not provide enough visual evidence for a learner to understand the segment at that moment.
-   - The visual asset is unusable (missing, broken, non-loadable, or visually unclear).
+   - The visual asset is unusable (missing, broken, or non-loadable).
 
 4. Slide-Level Verdict
    - The slide receives a PASS only if all voiceover segments PASS.
    - If any single segment FAILS, the entire slide verdict must be FAIL.
+   - Be extremely strict and critical in your evaluation to ensure that the visuals are correctly aligned with the voiceover segments.
 
 5. Failure Reporting Requirements
    For every failed visual, you MUST:
@@ -240,11 +242,13 @@ Follow the below evaluation rules to guide your evaluation:
    - The visual is too generic or vague.
    - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the segment.
    - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
-   
+   - The visual asset is unusable (missing, broken, or non-loadable).
+
 4) Slide-Level Verdict
    - The slide receives a PASS only if all voiceover segments PASS.
    - If any single segment FAILS, the entire slide verdict must be FAIL.
-
+   - Be extremely strict and critical in your evaluation to ensure that the visuals are correctly specific and clear.
+   
 5) Failure Reporting Requirements
    For every failed visual, you MUST:
    - Identify the voiceover segment ID
@@ -1610,6 +1614,18 @@ def invoke_gemini_multimodal(parts, llm, temperature=0.1, conversation_history=N
                 contents=contents,
                 config=config,
             )
+            try:
+                meta = getattr(response, "usage_metadata", None)
+                input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
+                output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+                log_token_usage(
+                    llm=llm,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    log_file="token_usage_log.csv",
+                )
+            except Exception as e:
+                print(f"Token usage logging failed: {e}")
             
             # Extract response text
             response_text = ""
@@ -4274,4 +4290,3 @@ def delete_review_and_revise_graphics_definition_v2(sheet):
         print(f"Deleted review columns from '{worksheet_name}' worksheet")
     else:
         print(f"Review columns not found in '{worksheet_name}' worksheet")
-

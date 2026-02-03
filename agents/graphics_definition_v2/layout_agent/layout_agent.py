@@ -9,6 +9,7 @@ from io import BytesIO
 from PIL import Image
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from services.video_clip_tools import build_video_part
+from services.llm_service import log_token_usage
 from dotenv import load_dotenv
 import os
 import base64
@@ -525,6 +526,18 @@ def invoke_gemini_multimodal(parts: List[types.Part], llm: str = "gemini_3_flash
                 contents=types.Content(parts=parts),
                 config=config,
             )
+            try:
+                meta = getattr(response, "usage_metadata", None)
+                input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
+                output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+                log_token_usage(
+                    llm=llm,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    log_file="token_usage_log.csv",
+                )
+            except Exception as e:
+                print(f"Token usage logging failed: {e}")
             
             # Handle response - try multiple ways to extract text
             if hasattr(response, "text") and response.text:
