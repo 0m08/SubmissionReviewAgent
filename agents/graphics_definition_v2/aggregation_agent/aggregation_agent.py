@@ -29,6 +29,7 @@ load_dotenv()
 video_frames_drive_folder_id = "1sab6wSDPLj54q7KMumGwB1oZHRzXmVf-"
 
 
+# Prompt to use when we want the visual assingment to be flexible
 aggregation_agent_prompt = """You are a senior expert graphics designer specializing in the field of HVAC. Your role is to assemble the final, production-ready graphics definition for a single voiceover sentence so that it can be directly used by a graphics team to design the corresponding visuals for an educational e-learning slide. 
 You will be given the voiceover sentence, the full course and slide context for reference, and a set of image and video candidates that have already been identified for this sentence by upstream agents, some of which may be only partially relevant or not ultimately suitable for use. Your task is to decide which visuals should be selected from the provided image and video candidates to best support the entire voiceover sentence visually, and whether those visuals should be images, video clips, still frames extracted from videos, or a combination of these. You will also be given a storyboard reference that describes the intended visual ideas for the slide; use it as guidance, but do not treat it as a strict template—your final decisions must be based on what is most clear and accurate given the provided candidates.
 
@@ -66,7 +67,7 @@ Instructions:
 1. Scope and Decision Responsibility
    - Your task is to assemble a final graphics definition for the given voiceover sentence only.
    - Use the full slide context for reference and continuity awareness.
-   - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
+   - The assigned visuals will be displayed on screen as the voiceover text for that sentence is played/narrated.
    - When interpreting any part of the voiceover sentences, you must use the surrounding text in the slide content to understand the context and the instructional intent, before selecting visuals for the respective parts of the slide. Do not interpret a sentence, phrase or a clause literally in isolation. Always derive the meaning of a sentence, phrase or a clause from the surrounding text in the slide content.
    - Select visuals only from the provided image and video candidates.
    - The provided storyboard reference describes the intended visual plan for the slide. 
@@ -82,7 +83,7 @@ Instructions:
 3. Allowed Visual Selection Forms
    - You may select one or more still images from the provided image candidates.
    - You may select one or more segments from the provided video candidates, including short portions of a video clip that are most relevant to the voiceover sentence.
-   - You may select a specific still frame from a provided video clip and use it as a static image.
+   - You may select a specific still frame from any provided video candidates and use it as a static image.
    - You may use a combination of still images, video clips, and still frames extracted from video clips, as long as the selected visuals collectively support the entire voiceover sentence.
 
 4. Source-Specific Video Usage Constraints
@@ -125,7 +126,7 @@ Strictly provide your output in the following format:
 This section is your reasoning scratchpad used to analyze the voiceover sentence and the available visual candidates before producing the final graphics definition output. Use it to document your observations, reasoning, and decision process. Provide the following sections:
 
 - Voiceover sentence understanding: 
-Briefly explain, in your own words, what the voiceover sentence is communicating. Use the full slide context to resolve any references, pronouns, or implied meaning if needed.
+Briefly explain, in your own words, what the voiceover sentence is communicating. Use the full slide context to resolve any references, pronouns, or implied meaning if needed. Also shortly explain the overall instructional intent and meaning of the entire slide.
 
 - Storyboard reference scan: 
 Explain the storyboard’s intended visual idea(s) that correspond to this voiceover sentence. Summarize what the storyboard is trying to show for this sentence in 1–3 concise bullet points.
@@ -179,7 +180,7 @@ The visual asset selected to use for this step, in one of the following forms:
 </asset>
 
 <selection_justification>
-Briefly explain how the selected visual clearly supports this specific part of the voiceover sentence, based on what is visibly shown in the asset. Do not refer to the visual number/index while giving the justification (eg. don't say "Image 9 supports the voiceover sentence because it shows...", instead say "the selectedimage supports the voiceover sentence because it shows...")
+Briefly explain how the selected visual clearly supports this specific part of the voiceover sentence, based on what is visibly shown in the asset. Do not refer to the visual number/index while giving the justification (eg. don't say "Image 9 supports the voiceover sentence because it shows...", instead say "the selected image supports the voiceover sentence because it shows...")
 </selection_justification>
 
 </visual_step>
@@ -196,6 +197,312 @@ Briefly explain how the selected visual clearly supports this specific part of t
 """
 
 
+# Prompt to use when we want exactly one visual assignment for each sentence
+aggregation_agent_prompt_per_sentence = """You are a senior expert graphics designer specializing in the field of HVAC. Your role is to assemble the final, production-ready graphics definition for a single voiceover sentence so that it can be directly used by a graphics team to design the corresponding visuals for an educational e-learning slide. 
+You will be given the voiceover sentence, the full course and slide context for reference, and a set of image and video candidates that have already been identified for this sentence by upstream agents, some of which may be only partially relevant or not ultimately suitable for use. Your task is to decide which SINGLE visual should be selected from the provided image and video candidates to best support the entire voiceover sentence visually. This visual can be an image, a video clip, or a still frame extracted from a video. You will also be given a storyboard reference that describes the intended visual ideas for the slide; use it as guidance, but do not treat it as a strict template—your final decision must be based on what is most clear and accurate given the provided candidates.
+
+These are the inputs:
+
+<course_information>
+Course name: {course_name}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<voiceover_sentence_for_which_to_assemble_graphics_definition>
+{vo_text}
+</voiceover_sentence_for_which_to_assemble_graphics_definition>
+
+<whole_slide_context>
+Slide Title: {slide_title}
+Slide Content: {slide_chunk}
+</whole_slide_context>
+
+<storyboard_reference>
+{storyboard}
+</storyboard_reference>
+
+<image_candidates>
+{image_candidates}
+</image_candidates>
+
+<video_candidates>
+{video_candidates}
+</video_candidates>
+
+Instructions:
+
+1. Scope and Decision Responsibility
+   - Your task is to assemble a final graphics definition for the given voiceover sentence only.
+   - Use the full slide context for reference and continuity awareness.
+   - The assigned visual will be displayed on screen as the voiceover text for that sentence is played/narrated.
+   - When interpreting the voiceover sentence, you must use the surrounding text in the slide content to understand the context and the instructional intent, before selecting a visual for the sentence. Do not interpret a sentence literally in isolation. Always derive the meaning of a sentence from the surrounding text in the slide content.
+   - Select visuals only from the provided image and video candidates.
+   - The provided storyboard reference describes the intended visual plan for the slide. 
+   - Use the storyboard to understand the visual intent for the voiceover sentence for which you are assembling the graphics definition.
+   - Aim to follow the storyboard's visual idea as closely as possible when suitable image or video candidates are available. 
+   - If the available image and video candidates do not fully support a storyboard-suggested visual idea, adapt by selecting the most instructionally clear and relevant visual based on the voiceover sentence and the available candidates.
+
+2. Visual Coverage of the Entire Sentence  
+   - First, understand the full meaning and instructional intent of the entire voiceover sentence.
+   - Identify the key visual idea that must be shown on screen for the sentence to be clearly understood.
+   - IMPORTANT: You must strictly assign only 1 visual for this voiceover sentence from the provided image and video candidates. This single visual must fully support the complete meaning of the entire voiceover sentence.
+
+3. Allowed Visual Selection Forms
+   - You may select ONE still image from the provided image candidates for this voiceover sentence.
+   - You may select ONE segment from the provided video candidates for this voiceover sentence.
+   - You may select ONE specific still frame from any provided video candidates for this voiceover sentence and use it as a static image.
+   - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
+
+4. Source-Specific Video Usage Constraints
+   - Video candidates are divided into two distinct groups based on their source.
+      - Videos listed under:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        - short video clip with start and end timestamps
+        - still frame extracted from the video
+
+      - Video candidates listed under:
+        "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
+        - You MUST NOT select them as playable video clips
+        - You MUST NOT assign start–end timestamps
+        - You MAY ONLY extract still frame from the video and use it as a static image
+        - When using these videos, the asset MUST be represented as a video URL with a single start timestamp only
+
+5. Time-Constrained Visual Design
+   - If you find a video clip that is the best visual for this voiceover sentence from the provided video candidates, determine exactly which portion of the video is visually relevant to help assign correct start and end timestamps for the video clip that you will select.
+     - The visual is displayed only during the narration of the voiceover sentence.
+     - Select a visual that can clearly support the entire sentence within this limited time.
+     - Do not select a long video clip that cannot be realistically shown during the narration of the given sentence.
+
+6. Alignment of Visual to the Voiceover Sentence
+   - The selected visual should appear for the entire voiceover sentence during narration.
+   - The visual must support the complete meaning of the sentence as it is spoken.
+   - Since you are selecting only one visual for the entire sentence, it must be comprehensive enough to support the entire sentence meaning.
+
+7. Instructional Clarity Priority
+   - Prioritize instructional clarity and accuracy over visual richness or strict adherence to the storyboard.
+   - When you find both a video clip and a still image that are equally clear, directly relevant, and instructionally effective for the voiceover sentence, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration.
+   - Always remember that the storyboard is a reference and not a strict template regarding the kind of visual that should be used for the voiceover sentence. Try your best to follow the storyboard's visual idea, but do not be too rigid about it.
+
+Strictly provide your output in the following format:
+
+<output>
+
+<evaluation_breakdown>
+
+This section is your reasoning scratchpad used to analyze the voiceover sentence and the available visual candidates before producing the final graphics definition output. Use it to document your observations, reasoning, and decision process. Provide the following sections:
+
+- Voiceover sentence understanding: 
+Briefly explain, in your own words, what the voiceover sentence is communicating. Use the full slide context to resolve any references, pronouns, or implied meaning if needed.
+
+- Storyboard reference scan: 
+Explain the storyboard's intended visual idea that corresponds to this voiceover sentence. Summarize what the storyboard is trying to show for this sentence in 1–3 concise bullet points.
+
+- Image candidates scan:
+Create a numbered list of all provided image candidates and briefly describe what you see in each of the image candidate.
+
+- Video candidate scan: 
+Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate. Focus on explaining the visual content of the video, and not what is being spoken in the video. Split the list into two sections: one for videos from which video clips (with timestamps) or still frames as images can be used, and one for videos from which ONLY still frames as images can be used (NOT playable video clips with timestamps).
+
+- Detailed overall analysis: 
+Use this section to reason through how to select the SINGLE best visual for the given voiceover sentence.
+
+Apply the instruction guidelines to:
+- Carefully review each of the provided image and video candidate in detail before making any selection decision.
+- For video candidates, pay close attention to the visual content within the video to identify whether a video segment or a specific still frame from the video can be used as a suitable visual for the entire voiceover sentence. Consider whether any visually clear, frame-worthy moments within the videos could be used as static images.
+- Carefully review the storyboard reference to understand the intended visual idea for this sentence, then evaluate how well the available image and video candidates can satisfy that intent.
+- Decide which SINGLE visual (one image, one video clip, or one still frame from a video) best supports the entire voiceover sentence. While considering the use of any specific video clip, determine exactly which portion of the video is visually relevant to help assign correct start and end timestamps for the video clip that you will select.
+- If the storyboard's visual idea is not feasible due to the available image or video candidates, explain how you plan to select the best alternative visual that still supports the voiceover sentence, while maintaining instructional clarity and faithfulness to the meaning of the voiceover sentence.
+- Ensure the selected SINGLE visual fully supports the entire meaning of the voiceover sentence.
+- Consider the source-specific video usage constraints when selecting video candidates.
+- Address any other reasoning considerations needed to arrive at a clear and instructionally useful final decision.
+
+Document your reasoning, tradeoffs, and decision process as you work toward selecting the single best visual. It is ok for this evaluation breakdown section to be quite long to fit all your reasoning and intermediate thinking needed to arrive at the best final decision.
+
+</evaluation_breakdown>
+
+(Based on your above evaluation, provide the final graphics definition for the voiceover sentence in the following format. IMPORTANT: You must provide exactly ONE visual_step.)
+
+<final_graphics_definition>
+
+<voiceover_part>
+Provide the entire voiceover sentence here, as this single visual supports the complete sentence
+</voiceover_part>
+
+<visual_instruction>
+Concise description of what appears on screen for this sentence, using only the selected visual asset.
+</visual_instruction>
+
+<asset>
+The visual asset selected to use for this sentence, in one of the following forms:
+- Image URL (Exact image URL as provided in the image candidates if an image is selected for this voiceover sentence)
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10")
+</asset>
+
+<selection_justification>
+Briefly explain how the selected visual clearly supports the entire voiceover sentence, based on what is visibly shown in the asset. Do not refer to the visual number/index while giving the justification (eg. don't say "Image 9 supports the voiceover sentence because it shows...", instead say "the selected image supports the voiceover sentence because it shows..."
+</selection_justification>
+
+</final_graphics_definition>
+
+</output>
+
+(Ensure that you strictly follow this exact XML format in your output and provide exactly ONE visual_step)
+"""
+
+
+# Prompt to use when we want only one visual for the entire slide
+aggregation_agent_prompt_for_entire_slide = """You are a senior expert graphics designer specializing in the field of HVAC. Your role is to assemble the final, production-ready graphics definition for an entire slide so that it can be directly used by a graphics team to design the corresponding visuals for an educational e-learning slide. 
+You will be given the entire slide content, the full course context for reference, and a set of image and video candidates that have already been identified for this slide by upstream agents, some of which may be only partially relevant or not ultimately suitable for use. Your task is to decide which SINGLE visual should be selected from the provided image and video candidates to best support the entire slide visually as it is narrated. This visual can be an image, a video clip, or a still frame extracted from a video. You will also be given a storyboard reference that describes the intended visual idea for the entire slide; use it as guidance, but do not treat it as a strict template—your final decision must be based on what is most clear and accurate given the provided candidates.
+
+These are the inputs:
+
+<course_information>
+Course name: {course_name}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<slide_content_for_which_to_assemble_graphics_definition>
+Slide Title: {slide_title}
+Slide Content: {slide_chunk}
+</slide_content_for_which_to_assemble_graphics_definition>
+
+<storyboard_reference>
+{storyboard}
+</storyboard_reference>
+
+<image_candidates>
+{image_candidates}
+</image_candidates>
+
+<video_candidates>
+{video_candidates}
+</video_candidates>
+
+Instructions:
+
+1. Scope and Decision Responsibility
+   - Your task is to assemble a final graphics definition for the entire slide.
+   - The assigned visual will be displayed on screen as the entire slide content is narrated.
+   - When interpreting the slide content, you must understand the full context and instructional intent of the entire slide before selecting a visual.
+   - Select visuals only from the provided image and video candidates.
+   - The provided storyboard reference describes the intended visual idea for the entire slide. 
+   - Use the storyboard to understand the visual intent for the slide for which you are assembling the graphics definition.
+   - Aim to follow the storyboard's visual idea as closely as possible when suitable image or video candidates are available. 
+   - If the available image and video candidates do not fully support a storyboard-suggested visual idea, adapt by selecting the most instructionally clear and relevant visual based on the slide content and the available candidates.
+
+2. Visual Coverage of the Entire Slide  
+   - First, understand the full meaning and instructional intent of the entire slide content.
+   - Identify the key visual idea that must be shown on screen for the slide to be clearly understood as it is narrated.
+   - IMPORTANT: You must strictly assign only 1 visual for the entire slide from the provided image and video candidates. This single visual must fully support the complete meaning of the entire slide content.
+
+3. Allowed Visual Selection Forms
+   - You may select ONE still image from the provided image candidates for the entire slide.
+   - You may select ONE segment from the provided video candidates for the entire slide.
+   - You may select ONE specific still frame from any provided video candidates for the entire slide and use it as a static image.
+   - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
+
+4. Source-Specific Video Usage Constraints
+   - Video candidates are divided into two distinct groups based on their source.
+      - Videos listed under:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        - short video clip with start and end timestamps
+        - still frame extracted from the video
+
+      - Video candidates listed under:
+        "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
+        - You MUST NOT select them as playable video clips
+        - You MUST NOT assign start–end timestamps
+        - You MAY ONLY extract still frame and use them as static image
+        - When using these videos, the asset MUST be represented as a video URL with a single start timestamp only
+
+5. Time-Constrained Visual Design
+   - If you find a video clip that is the best visual for this entire slide from the provided video candidates, determine exactly which portion of the video is visually relevant to help assign correct start and end timestamps for the video clip that you will select.
+     - The visual is displayed only during the narration of the entire slide.
+     - Select a visual that can clearly support the entire slide within this limited time.
+     - Do not select a long video clip that cannot be realistically shown during the narration of the entire slide.
+
+6. Alignment of Visual to the Entire Slide
+   - The selected visual should appear for the entire slide content during narration.
+   - The visual must support the complete meaning of the slide as it is spoken.
+   - Since you are selecting only one visual for the entire slide, it must be comprehensive enough to support the slide meaning.
+
+7. Instructional Clarity Priority
+   - Prioritize instructional clarity and accuracy over visual richness or strict adherence to the storyboard.
+   - When you find both a video clip and a still image that are equally clear, directly relevant, and instructionally effective for the entire slide, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration.
+   - Always remember that the storyboard is a reference and not a strict template regarding the kind of visual that should be used for the slide. Try your best to follow the storyboard's visual idea, but do not be too rigid about it.
+
+Strictly provide your output in the following format:
+
+<output>
+
+<evaluation_breakdown>
+
+This section is your reasoning scratchpad used to analyze the slide content and the available visual candidates before producing the final graphics definition output. Use it to document your observations, reasoning, and decision process. Provide the following sections:
+
+- Slide content understanding: 
+Briefly explain, in your own words, what the slide content is communicating. 
+
+- Storyboard reference scan: 
+Explain the storyboard's intended visual idea for the slide. Summarize what the storyboard is trying to show for this slide in 1–3 concise bullet points.
+
+- Image candidates scan:
+Create a numbered list of all provided image candidates and briefly describe what you see in each of the image candidate.
+
+- Video candidate scan: 
+Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate. Focus on explaining the visual content of the video, and not what is being spoken in the video. Split the list into two sections: one for videos from which video clips (with timestamps) or still frames as images can be used, and one for videos from which ONLY still frames as images can be used (NOT playable video clips with timestamps).
+
+- Detailed overall analysis: 
+Use this section to reason through how to select the SINGLE best visual for the slide.
+
+Apply the instruction guidelines to:
+- Carefully review each of the provided image and video candidate in detail before making any selection decision.
+- For video candidates, pay close attention to the visual content within the video to identify whether a video segment or a specific still frame from the video can be used as a suitable visual for the slide. Consider whether any visually clear, frame-worthy moments within the videos could be used as static images.
+- Carefully review the storyboard reference to understand the intended visual idea for the entire slide, then evaluate how well the available image and video candidates can satisfy that intent.
+- Decide which SINGLE visual (one image, one video clip, or one still frame from a video) best supports the entire slide. While considering the use of any specific video clip, determine exactly which portion of the video is visually relevant to help assign correct start and end timestamps for the video clip that you will select.
+- If the storyboard's visual idea is not feasible due to the available image or video candidates, explain how you plan to select the best alternative visual that still supports the slide, while maintaining instructional clarity and faithfulness to the meaning of the slide content.
+- Ensure the selected SINGLE visual fully supports the entire meaning of the slide content.
+- Consider the source-specific video usage constraints when selecting video candidates.
+- Address any other reasoning considerations needed to arrive at a clear and instructionally useful final decision.
+
+Document your reasoning, tradeoffs, and decision process as you work toward selecting the single best visual. It is ok for this evaluation breakdown section to be quite long to fit all your reasoning and intermediate thinking needed to arrive at the best final decision.
+
+</evaluation_breakdown>
+
+(Based on your above evaluation, provide the final graphics definition for the entire slide in the following format. IMPORTANT: You must provide exactly ONE visual for the entire slide.)
+
+<final_graphics_definition>
+
+<voiceover_part>
+Provide the entire slide content here, as this single visual supports the complete slide
+</voiceover_part>
+
+<visual_instruction>
+Concise description of what appears on screen for this entire slide, using only the selected visual asset.
+</visual_instruction>
+
+<asset>
+The visual asset selected to use for this entire slide, in one of the following forms:
+- Image URL (Exact image URL as provided in the image candidates if an image is selected for this slide)
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10")
+</asset>
+
+<selection_justification>
+Briefly explain how the selected visual clearly supports the entire slide content, based on what is visibly shown in the asset. Do not refer to the visual number/index while giving the justification (eg. don't say "Image 9 supports the voiceover sentence because it shows...", instead say "the selectedimage supports the voiceover sentence because it shows..."
+</selection_justification>
+
+</final_graphics_definition>
+
+</output>
+
+(Ensure that you strictly follow this exact XML format in your output and provide exactly ONE visual for the entire slide)
+"""
+
+
+# Prompt used by the reviser agent during regeneration, used when we have flexible visual assingment strategy
 aggregation_agent_regeneration_prompt = """You are a Graphics Definition Regeneration Agent specializing in the field of HVAC. Your task is to regenerate and assemble a complete, production-ready graphics definition for a SINGLE voiceover (VO) segment when one or more of its previously assigned visuals have failed review checks, by selecting the most appropriate visuals from newly generated candidate image and video pools that were specifically searched based on the review feedback.
 
 You will be given the voiceover segment, the slide and course context for reference, explicit review feedback describing what was wrong with the failed visuals and what is required instead, and a pool of newly searched candidate visuals from which to select visuals that directly address the feedback requirements and fully support the voiceover segment.
@@ -242,9 +549,9 @@ These are the newly searched candidate images and videos from which to select vi
 Instructions:
 
 1. Scope and Regeneration Responsibility
-   - Your task is to regenerate visuals ONLY for the specific part(s) of the voiceover segment that are addressed by the feedback (i.e., the failed visuals).
-   - Use the slide content and the specific voiceover segment to understand the context and the instructional intent.
-   - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
+   - Your task is to replace visuals ONLY for the specific part(s) of the voiceover segment that are addressed by the feedback (i.e., the failed visuals).
+   - Use the slide content and the specific voiceover segment to understand the whole context and the instructional intent.
+   - The assigned visuals are displayed on screen as the voiceover text for that segment is narrated.
    - When interpreting any part of the voiceover sentences, you must use the surrounding text in the slide content to understand the context and the instructional intent, before selecting visuals for the respective parts of the slide. Do not interpret a sentence, phrase or a clause literally in isolation. Always derive the meaning of a sentence, phrase or a clause from the surrounding text in the slide content.
    - The candidate visuals provided were specifically searched based on the feedback requirements, so they should be more targeted to addressing the issues described in the feedback.
    - The feedback explicitly identifies which visual(s) failed and what is needed instead. Your primary responsibility is to select visuals that address these specific feedback requirements.
@@ -311,8 +618,8 @@ Always provide your output strictly in the following format:
 
 Use this section as a structured reasoning and scratchpad space for you to address the feedback and assemble a complete graphics definition for the voiceover segment. Use it to document your observations, reasoning, and decision process. Provide the following sections:
 
-1. Voiceover Sentence Understanding
-   - Briefly explain, in your own words, what the voiceover sentence is communicating. Use the slide content to resolve any references, pronouns, or implied meaning if needed.
+- Voiceover sentence understanding: 
+Briefly explain, in your own words, what the voiceover sentence is communicating. Use the full slide context to resolve any references, pronouns, or implied meaning if needed. Also shortly explain the overall instructional intent and meaning of the entire slide.
 
 2. Feedback Interpretation
    - Carefully analyze the feedback to identify what was wrong with the previously failed visual(s).
@@ -388,6 +695,379 @@ Use this section as a structured reasoning and scratchpad space for you to addre
 Repeat one <visual> block per failed visual that needs to be replaced based on the feedback for this voiceover segment.
 
 </replacement_visuals>
+
+</output>
+
+(Remember to strictly use this exact format for the output with the XML tags and structure, and nothing else.)
+"""
+
+
+# Prompt used by the reviser agent during regeneration, used when we have 1 visual per sentence visual assignment strategy
+aggregation_agent_regeneration_prompt_for_one_visual_per_sentence = """You are a Graphics Definition Regeneration Agent specializing in the field of HVAC. Your task is to regenerate and assemble a complete, production-ready graphics definition for a SINGLE voiceover (VO) sentence when its previously assigned visual has failed review checks, by selecting the most appropriate SINGLE visual from newly generated candidate image and video pools that were specifically searched based on the review feedback.
+
+You will be given the voiceover sentence, the slide and course context for reference, explicit review feedback describing what was wrong with the failed visual and what is required instead, and a pool of newly searched candidate visuals from which to select a SINGLE visual that directly addresses the feedback requirements and fully supports the entire voiceover sentence.
+
+Inputs:
+These are the inputs for your regeneration:
+
+<course_information>
+Course name: {course_name}
+Target audience: {target_audience}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<slide_information>
+Slide title: {slide_title}
+Slide content: {slide_chunk}
+</slide_information>
+
+This is the voiceover sentence from the slide content for which the regeneration is needed:
+<voiceover_segment>
+{vo_text}
+</voiceover_segment>
+
+This is the explicit review feedback describing what was wrong with the previously failed visuals and what is required instead:
+<feedback>
+{feedback}
+</feedback>
+
+These are the newly searched candidate images and videos from which to select a SINGLE visual that best addresses the feedback requirements:
+
+<candidates>
+
+<image_candidates>
+{image_candidates}
+</image_candidates>
+
+<video_candidates>
+{video_candidates}
+</video_candidates>
+
+</candidates>
+
+Instructions:
+
+1. Scope and Regeneration Responsibility
+   - Your task is to replace visual for the voiceover sentence when its previously assigned visual has failed review checks.
+   - IMPORTANT: You must strictly select only ONE replacement visual for this entire voiceover sentence. This single replacement visual must fully support the complete meaning of the entire voiceover sentence and address the feedback requirements.
+   - Use the slide content and the specific voiceover sentence to understand the whole context and the instructional intent.
+   - The assigned visual will be displayed on screen as the voiceover text for that sentence is narrated.
+   - When interpreting the voiceover sentence, you must use the surrounding text in the slide content to understand the context and the instructional intent, before selecting a visual for the sentence. Do not interpret a sentence literally in isolation. Always derive the meaning of a sentence from the surrounding text in the slide content.
+   - The candidate visuals provided were specifically searched based on the feedback requirements, so they should be more targeted to addressing the issues described in the feedback.
+   - The feedback explicitly identifies the failed visual and what is needed instead. Your primary responsibility is to select a SINGLE replacement visual that addresses the feedback requirement while supporting the voiceover sentence.
+   - Select visuals only from the provided candidate image and video pools.
+
+2. Feedback-Driven Visual Selection
+   - Carefully analyze the feedback to understand what was wrong with the previously failed visual and what specific visual requirements must be satisfied.
+   - Extract from the feedback: which Visual ID failed, what was wrong with it, and what is needed instead.
+   - IMPORTANT: You must select only ONE visual that addresses the feedback requirements. This single visual must support the entire voiceover sentence meaning.
+   - Ensure that the selected replacement visual avoids the same issues that caused the previous visual to fail.
+   - The single replacement visual you select must be comprehensive enough to support the entire sentence meaning and address the feedback concerns.
+
+4. Candidate Evaluation and Visual Selection
+   - Carefully review all provided image and video candidates for this voiceover sentence.
+   - Evaluate each candidate against both the feedback requirements and the overall voiceover sentence needs.
+   - Select the SINGLE candidate that most directly and clearly satisfies the feedback while remaining aligned with the voiceover sentence's complete instructional intent.
+   - If no candidate fully satisfies the feedback requirements, determine the closest acceptable alternative that still addresses the core feedback concerns and supports the entire sentence.
+   - Ensure the selected SINGLE visual is instructionally clear and effective for the entire voiceover sentence.
+
+5. Visual Form and Usage Constraints
+   - You may select ONE still image, ONE video clip with timestamps, or ONE still frame extracted from a video, using only the provided candidate visuals.
+   - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
+   - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the feedback requirements..
+   - When you find both a video clip and a still image that equally satisfy the feedback, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at addressing the feedback.
+   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20"
+   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"
+   - Respect source-specific constraints when selecting video candidates from the provided candidate video pools.
+     - Video candidates listed under:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        - short video clip with start and end timestamps
+        - still frame extracted from the video
+     - Video candidates listed under:
+        "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
+        - You MUST NOT select them as playable video clip
+        - You MUST NOT assign start–end timestamps
+        - You MAY ONLY extract still frame from the video and use it as a static image
+        - When using these videos, the asset MUST be represented as a video URL with a single start timestamp only
+
+6. Time-Constrained Visual Design
+   - The visual is displayed only during the narration of the voiceover sentence.
+   - If selecting a video clip, ensure that the selected portion can realistically fit within the narration timing of the entire voiceover sentence.
+   - Select a visual that can clearly support the entire sentence within this limited time.
+
+7. Alignment of Visual to the Voiceover Sentence
+   - The selected SINGLE visual will appear for the entire voiceover sentence during narration.
+   - The visual must support the complete meaning of the sentence as it is spoken.
+   - Since you are selecting only one visual for the entire sentence, it must be comprehensive enough to support the entire sentence meaning and address all feedback requirements.
+
+Output:
+
+Always provide your output strictly in the following format:
+
+<output>
+
+<evaluation_breakdown>
+
+Use this section as a structured reasoning and scratchpad space for you to address the feedback and select the SINGLE best visual for the voiceover sentence. Use it to document your observations, reasoning, and decision process. Provide the following sections:
+
+- Voiceover sentence understanding: 
+Briefly explain, in your own words, what the voiceover sentence is communicating. Use the full slide context to resolve any references, pronouns, or implied meaning if needed. Also shortly explain the overall instructional intent and meaning of the entire slide.
+
+2. Feedback Interpretation
+   - Carefully analyze the feedback to identify what was wrong with the previously failed visual.
+   - Extract from the feedback: which Visual ID failed (e.g., S1V1), what was wrong with it, and what visual is needed instead.
+   - Clearly state the specific visual requirements that must be satisfied based on the feedback.
+
+3. Image Candidates Scan
+   - Create a numbered list of all provided image candidates and briefly describe what you see in each of the image candidate.
+
+4. Video Candidates Scan
+   - Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate.
+   - Focus on explaining the visual content of the video, and not what is being spoken in the video.
+   - Split the list into two sections: one for videos from which video clips (with timestamps) or still frames as images can be used, and one for videos from which ONLY still frames as images can be used (NOT playable video clips with timestamps).
+
+5. Candidate Fit Analysis Against Feedback
+   - Compare all the provided candidates against the feedback requirement.
+   - Identify which SINGLE candidate most directly satisfies the feedback requirement.
+   - Evaluate how well each candidate addresses the feedback issue.
+   - If multiple candidates partially satisfy the feedback requirement, reason about which one best addresses the requirement.
+   - If no candidate fully satisfies the feedback requirement, determine the closest acceptable alternative and explain why it is acceptable despite not fully matching.
+
+6. Video Timestamp / Frame Selection Thinking (only if selecting video)
+   - If selecting a playable video clip that best satisfies the feedback requirements:
+     - Determine exactly which portion of the video is visually relevant and will satisfy the feedback.
+     - Plan the correct start and end timestamps for that portion, ensuring the selected video clip can realistically fit within the narration timing of the voiceover sentence.
+   - If selecting a still frame from a video, determine the moment (single timestamp) that captures the required visual so that it can be used as a static image.
+
+7. Additional Analysis
+   - Note any additional observations, thoughts or analysis that can help you arrive at the correct output and decision that addresses the given feedback with a single visual.
+   - Consider how the selected SINGLE replacement visual avoids the same issues that caused the previous visual to fail.
+   - Confirm that the selected visual supports the entire voiceover sentence meaning and addresses the feedback requirements.
+
+(It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+
+</evaluation_breakdown>
+
+(Based on your above evaluation, provide the replacement visual in the following format)
+
+<replacement_visual>
+
+<visual>
+
+<visual_id>
+(Provide the Visual ID of the failed visual that you are replacing, as specified in the feedback, e.g. S1V1)
+</visual_id>
+
+<voiceover_part>
+(Provide the entire voiceover sentence here for which we are replacing the visual for)
+</voiceover_part>
+
+<current_visual_url>
+(Provide the URL of the current visual that we are replacing)
+</current_visual_url>
+
+<replacement_visual_url>
+(Provide the URL of the replacement visual that you are selecting for this entire voiceover sentence, in one of the following forms:
+- Image URL (Exact URL as provided in the image candidates if an image is selected for this voiceover sentence)
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"))
+</replacement_visual_url>
+
+<visual_instruction>
+(Provide a concise description of what is visibly shown in the replacement visual)
+</visual_instruction>
+
+<selection_justification>
+(Provide a concise justification for why this replacement visual is the most appropriate for the entire voiceover sentence and how it addresses the feedback requirements)
+</selection_justification>
+
+</visual>
+
+</replacement_visual>
+
+</output>
+
+(Remember to strictly use this exact format for the output with the XML tags and structure, and nothing else.)
+"""
+
+
+# Prompt used by the reviser agent during regeneration, used when we have one visual for the whole slide visual assignment strategy
+aggregation_agent_regeneration_prompt_for_one_visual_per_slide = """You are a Graphics Definition Regeneration Agent specializing in the field of HVAC. Your task is to regenerate and assemble a complete, production-ready graphics definition for an entire slide when its previously assigned visual has failed review checks, by selecting the most appropriate SINGLE visual from newly generated candidate image and video pools that were specifically searched based on the review feedback.
+
+You will be given the entire slide content, the course context for reference, explicit review feedback describing what was wrong with the previously assigned visual and what is required instead, and a pool of newly searched candidate visuals from which to select a SINGLE visual that directly addresses the feedback requirements and fully supports the entire slide content.
+
+Inputs:
+These are the inputs for your regeneration:
+
+<course_information>
+Course name: {course_name}
+Target audience: {target_audience}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<slide_information>
+Slide title: {slide_title}
+Slide content: {slide_chunk}
+</slide_information>
+
+This is the explicit review feedback describing what was wrong with the previously assigned visual that failed the review check and what is required instead:
+<feedback>
+{feedback}
+</feedback>
+
+These are the newly searched candidate images and videos from which to select a SINGLE visual that best addresses the feedback requirements:
+
+<candidates>
+
+<image_candidates>
+{image_candidates}
+</image_candidates>
+
+<video_candidates>
+{video_candidates}
+</video_candidates>
+
+</candidates>
+
+Instructions:
+
+1. Scope and Regeneration Responsibility
+   - Your task is to replace visual for the entire slide when its previously assigned visual has failed review checks.
+   - IMPORTANT: You must strictly select only ONE replacement visual for this entire slide. This single replacement visual must fully support the complete meaning of the entire slide content and address the feedback requirements.
+   - Use the slide content to understand the whole context and the instructional intent.
+   - The assigned visual will be displayed on screen as the entire slide content is narrated.
+   - The candidate visuals provided were specifically searched based on the feedback requirements, so they should be more targeted to addressing the issues described in the feedback.
+   - The feedback explicitly identifies the failed visual and what is needed instead. Your primary responsibility is to select a SINGLE replacement visual that addresses the feedback requirement while supporting the main instructional intent of the slide content.
+   - Select visuals only from the provided candidate image and video pools.
+
+2. Feedback-Driven Visual Selection
+   - Carefully analyze the feedback to understand what was wrong with the previously failed visual and what specific visual requirement must be satisfied.
+   - Extract from the feedback: which Visual ID failed, what was wrong with it, and what is needed instead.
+   - IMPORTANT: You must select only ONE visual that addresses the feedback requirement. This single visual must support the main instructional intent of the slide content.
+   - When selecting the single visual, prioritize candidates that directly address the feedback requirement while also supporting the main instructional intent of the slide content.
+   - Ensure that the selected replacement visual avoids the same issues that caused the previous visual to fail.
+
+3. Candidate Evaluation and Visual Selection
+   - Carefully review all provided image and video candidates for this entire slide.
+   - Evaluate each candidate against both the feedback requirements and the overall slide content needs.
+   - Select the SINGLE candidate that most directly and clearly satisfies the feedback.
+   - If no candidate fully satisfies the feedback requirement, determine the closest acceptable alternative that still addresses the core feedback concerns.
+   - Ensure the selected SINGLE visual is instructionally clear and effective for the main instructional intent of the slide content.
+
+4. Visual Form and Usage Constraints
+   - You may select ONE still image, ONE video clip with timestamps, or ONE still frame extracted from a video, using only the provided candidate visuals.
+   - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
+   - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the feedback requirements.
+   - When you find both a video clip and a still image that equally satisfy the feedback, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at addressing the feedback.
+   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20"
+   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"
+   - Respect source-specific constraints when selecting video candidates from the provided candidate video pools.
+     - Video candidates listed under:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        - short video clip with start and end timestamps
+        - still frame extracted from the video
+     - Video candidates listed under:
+        "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
+        - You MUST NOT select them as playable video clip
+        - You MUST NOT assign start–end timestamps
+        - You MAY ONLY extract still frame from the video and use it as a static image
+        - When using these videos, the asset MUST be represented as a video URL with a single start timestamp only
+
+5. Time-Constrained Visual Design
+   - The visual is displayed only during the narration of the entire slide.
+   - If selecting a video clip, ensure that the selected portion can realistically fit within the narration timing of the entire slide.
+   - Select a visual that can clearly support the entire slide within this limited time of the slide narration.
+
+6. Alignment of Visual to the Entire Slide
+   - The selected SINGLE visual will appear for the entire slide content during narration.
+   - Since you are selecting only one visual for the entire slide, it must be comprehensive enough to support the main instructional intent of the slide content and address the feedback requirement.
+
+Output:
+
+Always provide your output strictly in the following format:
+
+<output>
+
+<evaluation_breakdown>
+
+Use this section as a structured reasoning and scratchpad space for you to address the feedback and select the SINGLE best visual for the entire slide. Use it to document your observations, reasoning, and decision process. Provide the following sections:
+
+1. Slide content understanding: 
+   - Briefly explain, in your own words, what the slide content is communicating.
+
+2. Feedback Interpretation
+   - Carefully analyze the feedback to identify what was wrong with the previously failed visual.
+   - Extract from the feedback: which Visual ID failed (e.g., S1V1), what was wrong with it, and what visual is needed instead.
+   - Clearly state the specific visual requirements that must be satisfied based on the feedback.
+
+3. Image Candidates Scan
+   - Create a numbered list of all provided image candidates and briefly describe what you see in each of the image candidate.
+
+4. Video Candidates Scan
+   - Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate.
+   - Focus on explaining the visual content of the video, and not what is being spoken in the video.
+   - Split the list into two sections: one for videos from which video clips (with timestamps) or still frames as images can be used, and one for videos from which ONLY still frames as images can be used (NOT playable video clips with timestamps).
+
+5. Candidate Fit Analysis Against Feedback
+   - Compare all the provided candidates against the feedback requirement.
+   - Identify which SINGLE candidate most directly satisfies the feedback requirement.
+   - Evaluate how well each candidate addresses the feedback issue.
+   - If multiple candidates partially satisfy the feedback requirement, reason about which one best addresses the requirement.
+   - If no candidate fully satisfies the feedback requirement, determine the closest acceptable alternative and explain why it is acceptable despite not fully matching.
+
+6. Video Timestamp / Frame Selection Thinking (only if selecting video)
+   - If selecting a playable video clip that best satisfies the feedback requirements:
+     - Determine exactly which portion of the video is visually relevant and will satisfy the feedback.
+     - Plan the correct start and end timestamps for that portion, ensuring the selected video clip can realistically fit within the narration timing of the entire slide.
+   - If selecting a still frame from a video, determine the moment (single timestamp) that captures the required visual so that it can be used as a static image.
+
+7. Additional Analysis
+   - Note any additional observations, thoughts or analysis that can help you arrive at the correct output and decision that addresses the given feedback with a single visual.
+   - Consider how the selected SINGLE replacement visual avoids the same issues that caused the previous visual to fail.
+   - Confirm that the selected visual supports the main instructional intent of the slide content meaning and addresses the feedback requirements.
+
+(It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+
+</evaluation_breakdown>
+
+(Based on your above evaluation, provide the replacement visual in the following format)
+
+<replacement_visual>
+
+<visual>
+
+<visual_id>
+(Provide the Visual ID of the failed visual that you are replacing, as specified in the feedback, e.g. S1V1)
+</visual_id>
+
+<voiceover_part>
+(Provide the entire slide content as it is)
+</voiceover_part>
+
+<current_visual_url>
+(Provide the URL of the current visual that we are replacing)
+</current_visual_url>
+
+<replacement_visual_url>
+(Provide the URL of the replacement visual that you are selecting for this entire slide, in one of the following forms:
+- Image URL (Exact URL as provided in the image candidates if an image is selected for this slide)
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"))
+</replacement_visual_url>
+
+<visual_instruction>
+(Provide a concise description of what is visibly shown in the replacement visual)
+</visual_instruction>
+
+<selection_justification>
+(Provide a concise justification for why this replacement visual is the most appropriate for the entire slide and how it addresses the feedback requirements)
+</selection_justification>
+
+</visual>
+
+</replacement_visual>
 
 </output>
 
@@ -575,21 +1255,47 @@ def parse_urls_from_video_pool(video_pool_text, segment_num):
     if not video_pool_text or video_pool_text.strip() == "" or video_pool_text == "nan":
         return []
     
-    # Find the segment section
-    segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
-    match = re.search(segment_pattern, video_pool_text, re.DOTALL)
-    
-    if not match:
-        return []
-    
-    segment_content = match.group(1).strip()
     urls = []
     
-    # Each line is a video URL
-    for line in segment_content.split('\n'):
-        line = line.strip()
-        if line and line.startswith('http'):
-            urls.append(line)
+    if segment_num is None:
+        # Get all segments - parse the entire text without segment filtering
+        # Find all segment sections
+        segment_pattern = r'---SEGMENT_\d+---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
+        matches = re.findall(segment_pattern, video_pool_text, re.DOTALL)
+        
+        # Also check if there's content before the first segment marker
+        first_segment_match = re.search(r'^(.*?)(?=\n---SEGMENT_|\Z)', video_pool_text, re.DOTALL)
+        if first_segment_match:
+            content_before = first_segment_match.group(1).strip()
+            if content_before:
+                matches.insert(0, content_before)
+        
+        # Parse all segments
+        for segment_content in matches:
+            segment_content = segment_content.strip()
+            if not segment_content:
+                continue
+            
+            # Each line is a video URL
+            for line in segment_content.split('\n'):
+                line = line.strip()
+                if line and line.startswith('http'):
+                    urls.append(line)
+    else:
+        # Find the segment section
+        segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
+        match = re.search(segment_pattern, video_pool_text, re.DOTALL)
+        
+        if not match:
+            return []
+        
+        segment_content = match.group(1).strip()
+        
+        # Each line is a video URL
+        for line in segment_content.split('\n'):
+            line = line.strip()
+            if line and line.startswith('http'):
+                urls.append(line)
     
     return urls
 
@@ -726,6 +1432,54 @@ def parse_video_url_timestamps(video_url):
     clip_url = base_url_match.group(1)
     
     return clip_url, start_seconds, end_seconds
+
+
+def convert_video_url_to_embed(video_url):
+    """
+    Convert any YouTube URL to embed URL and extract timestamps.
+    
+    :param video_url: YouTube URL (watch, embed, youtu.be, etc.)
+    :return: Tuple of (embed_url, start_seconds, end_seconds)
+             Returns (None, None, None) if conversion fails
+    """
+    if not video_url:
+        return None, None, None
+    
+    # If already an embed URL, parse timestamps from it
+    if 'youtube.com/embed' in video_url:
+        clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+        if clip_url:
+            # Reconstruct embed URL with timestamps if they exist
+            embed_url = clip_url
+            if start_seconds is not None:
+                embed_url += f"?start={start_seconds}"
+                if end_seconds is not None:
+                    embed_url += f"&end={end_seconds}"
+            return embed_url, start_seconds, end_seconds
+        return None, None, None
+    
+    # Convert watch URL or other formats to embed URL
+    video_id = extract_video_id_from_url(video_url)
+    if not video_id:
+        return None, None, None
+    
+    # Build embed URL
+    embed_url = f"https://www.youtube.com/embed/{video_id}"
+    
+    # Try to extract timestamps from original URL if present
+    start_match = re.search(r'[?&]start=(\d+)', video_url)
+    end_match = re.search(r'[?&]end=(\d+)', video_url)
+    
+    start_seconds = int(start_match.group(1)) if start_match else None
+    end_seconds = int(end_match.group(1)) if end_match else None
+    
+    # Add timestamps to embed URL if they exist
+    if start_seconds is not None:
+        embed_url += f"?start={start_seconds}"
+        if end_seconds is not None:
+            embed_url += f"&end={end_seconds}"
+    
+    return embed_url, start_seconds, end_seconds
 
 
 def extract_video_id_from_url(youtube_url):
@@ -1154,7 +1908,7 @@ def parse_segments_from_voiceover(voiceover_text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_urls, video_urls_other_channels, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None):
+def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_urls, video_urls_other_channels, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None, visual_assignment_strategy="Flexible, let the agent decide"):
     """
     Aggregate graphics definition for a single segment using images and videos.
     
@@ -1173,6 +1927,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     :param feedback: Optional revision feedback to correct previous failures (if provided, uses regeneration prompt)
     :param target_audience: Optional target audience (required when feedback is provided for regeneration)
     :param failed_visuals: Optional list of dicts with 'visual_id' and 'asset_url' keys for failed visuals to load as multimodal inputs
+    :param visual_assignment_strategy: Visual assignment strategy ("Flexible, let the agent decide", "1 Visual per Sentence", or "1 Visual for the whole Slide")
     :return: Tuple of (graphics_definition_xml, evaluation_breakdown) or (None, evaluation_breakdown) if generation fails
     """
     print(f"📝 Generating aggregation for segment: \"{vo_text[:60]}...\"")
@@ -1213,10 +1968,10 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     # Use storyboard if provided, otherwise use empty string
     storyboard_text = storyboard if storyboard and storyboard.strip() and storyboard != "nan" else "No storyboard reference provided."
     
-    # Select prompt based on whether feedback is provided (regeneration case)
+    # Select prompt based on whether feedback is provided (regeneration case) or visual_assignment_strategy
     if feedback and feedback.strip():
         # Use regeneration-specific prompt
-        target_audience_text = target_audience if target_audience else "General audience"
+        target_audience_text = target_audience
         prompt_text = aggregation_agent_regeneration_prompt.format(
             course_name=course_name,
             target_audience=target_audience_text,
@@ -1229,27 +1984,53 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             video_candidates=video_candidates_text,
             feedback=feedback.strip()
         )
+        # Print the formatted prompt
+        print(f"\n{'='*80}")
+        print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT:")
+        print(f"{'='*80}")
+        print(prompt_text)
+        print(f"{'='*80}\n")
     else:
-        # Use standard aggregation prompt
-        prompt_text = aggregation_agent_prompt.format(
-            course_name=course_name,
-            topic_name=topic_name,
-            subtopic_name=subtopic_name,
-            vo_text=vo_text,
-            slide_title=slide_title,
-            slide_chunk=slide_chunk,
-            storyboard=storyboard_text,
-            image_candidates=image_candidates_text,
-            video_candidates=video_candidates_text
-        )
-    
-    # # Print the formatted prompt
-    # prompt_type = "REGENERATION" if feedback and feedback.strip() else "STANDARD"
-    # print(f"\n{'='*80}")
-    # print(f"📝 FORMATTED AGGREGATION {prompt_type} PROMPT:")
-    # print(f"{'='*80}")
-    # print(prompt_text)
-    # print(f"{'='*80}\n")
+        # Select prompt based on visual_assignment_strategy
+        visual_assignment_strategy = str(visual_assignment_strategy).strip()
+        if visual_assignment_strategy == "1 Visual per Sentence":
+            # Use per-sentence prompt (1 visual per sentence)
+            prompt_text = aggregation_agent_prompt_per_sentence.format(
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                vo_text=vo_text,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                storyboard=storyboard_text,
+                image_candidates=image_candidates_text,
+                video_candidates=video_candidates_text
+            )
+            # Print the formatted prompt
+            print(f"\n{'='*80}")
+            print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
+        else:
+            # Use flexible prompt (default)
+            prompt_text = aggregation_agent_prompt.format(
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                vo_text=vo_text,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                storyboard=storyboard_text,
+                image_candidates=image_candidates_text,
+                video_candidates=video_candidates_text
+            )
+            # Print the formatted prompt
+            print(f"\n{'='*80}")
+            print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
     
     # Build multimodal parts: failed visuals (if any) + candidate images + candidate videos + text
     parts: List[types.Part] = []
@@ -1390,13 +2171,192 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         return None, ""
 
 
-def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, segment_num):
+def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, image_items, video_urls, video_urls_other_channels, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking"):
+    """
+    Aggregate graphics definition for the entire slide using images and videos.
+    
+    :param slide_title: Slide title
+    :param slide_chunk: Full slide content
+    :param image_items: List of dicts with 'title' and 'url' keys
+    :param video_urls: List of YouTube embed URLs with timestamps (from video_pool)
+    :param video_urls_other_channels: List of YouTube watch URLs without timestamps (from video_pool_other_channels)
+    :param course_name: Course name
+    :param topic_name: Topic name
+    :param subtopic_name: Subtopic name
+    :param storyboard: Storyboard content from storyboard_planning column
+    :param drive: Google Drive instance
+    :param llm: Language model to use
+    :return: Tuple of (graphics_definition_xml, evaluation_breakdown) or (None, evaluation_breakdown) if generation fails
+    """
+    print(f"📝 Generating aggregation for entire slide: \"{slide_title}\"")
+    
+    # Build image candidates text
+    image_candidates_text = ""
+    if image_items:
+        image_candidates_text = "\n".join([
+            f"{idx + 1}. {item.get('title', 'Untitled')} | URL: {item.get('url', '')}"
+            for idx, item in enumerate(image_items)
+        ])
+    else:
+        image_candidates_text = "No image candidates provided."
+    
+    # Build video candidates text with two sections
+    video_candidates_text = ""
+    
+    # First section: video_pool (clips or frames)
+    if video_urls:
+        video_candidates_text += "Videos from which you can use video clips (with timestamps) or still frames as images\n"
+        video_candidates_text += "\n".join([
+            f"{idx + 1}. {url}"
+            for idx, url in enumerate(video_urls)
+        ])
+        video_candidates_text += "\n\n"
+    
+    # Second section: video_pool_other_channels (frames only)
+    if video_urls_other_channels:
+        video_candidates_text += "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps):\n"
+        video_candidates_text += "\n".join([
+            f"{idx + 1}. {url}"
+            for idx, url in enumerate(video_urls_other_channels)
+        ])
+    
+    if not video_candidates_text.strip():
+        video_candidates_text = "No video candidates provided."
+    
+    # Use storyboard if provided, otherwise use empty string
+    storyboard_text = storyboard if storyboard and storyboard.strip() and storyboard != "nan" else "No storyboard reference provided."
+    
+    # Use entire slide prompt
+    prompt_text = aggregation_agent_prompt_for_entire_slide.format(
+        course_name=course_name,
+        topic_name=topic_name,
+        subtopic_name=subtopic_name,
+        slide_title=slide_title,
+        slide_chunk=slide_chunk,
+        storyboard=storyboard_text,
+        image_candidates=image_candidates_text,
+        video_candidates=video_candidates_text
+    )
+    
+    # Print the formatted prompt
+    print(f"\n{'='*80}")
+    print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
+    print(f"{'='*80}")
+    print(prompt_text)
+    print(f"{'='*80}\n")
+    
+    # Build multimodal parts: candidate images + candidate videos + text
+    parts: List[types.Part] = []
+    
+    # Add candidate images
+    candidate_num = 1
+    for idx, item in enumerate(image_items, start=1):
+        image_url = item.get("url", "")
+        image_title = item.get("title", f"Image {idx}")
+        image_id = f"IMG_{candidate_num}"
+        
+        if image_url:
+            # Load image
+            pil_image = load_image_from_url(image_url, drive, image_title)
+            if pil_image:
+                # Convert PIL image to bytes
+                buffered = BytesIO()
+                pil_image.convert("RGB").save(buffered, format="JPEG")
+                image_bytes = buffered.getvalue()
+                # Add text label
+                label_text = f"Image Candidate {candidate_num} ({image_id}): {image_title} | URL: {image_url}"
+                parts.append(types.Part(text=label_text))
+                # Add image part
+                parts.append(types.Part(inline_data=types.Blob(
+                    mime_type="image/jpeg",
+                    data=image_bytes
+                )))
+                print(f"✅ Added image {candidate_num}: {image_title}")
+                candidate_num += 1
+            else:
+                print(f"⚠️ Failed to load image {image_title}")
+    
+    # Add candidate videos
+    candidate_num = 1
+    for video_url in video_urls:
+        embed_url, start_seconds, end_seconds = convert_video_url_to_embed(video_url)
+        if embed_url:
+            video_part = build_video_part(embed_url, start_seconds=start_seconds, end_seconds=end_seconds)
+            parts.append(video_part)
+            print(f"✅ Added video {candidate_num} (with timestamps): {embed_url}")
+            candidate_num += 1
+        else:
+            print(f"⚠️ Failed to convert video URL: {video_url}")
+    
+    for video_url in video_urls_other_channels:
+        embed_url, start_seconds, end_seconds = convert_video_url_to_embed(video_url)
+        if embed_url:
+            video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+            parts.append(video_part)
+            print(f"✅ Added video {candidate_num} (full video, no timestamps): {embed_url}")
+            candidate_num += 1
+        else:
+            print(f"⚠️ Failed to convert video URL: {video_url}")
+    
+    # Add prompt text at the end
+    parts.append(types.Part(text=prompt_text))
+        
+    # Call LLM
+    total_videos = len(video_urls) + len(video_urls_other_channels)
+    try:
+        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({len(video_urls)} with timestamps, {len(video_urls_other_channels)} full videos)...")
+        response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
+        
+        # Print the full response for debugging
+        print(f"\n{'─'*80}")
+        print(f"📤 Aggregation Agent Response from LLM for entire slide: \"{slide_title}\"")
+        print(f"{'─'*80}")
+        print(response_text)
+        print(f"{'─'*80}\n")
+        
+        # Extract <evaluation_breakdown> content
+        eval_breakdown_match = re.search(
+            r'<evaluation_breakdown>(.*?)</evaluation_breakdown>',
+            response_text,
+            re.DOTALL | re.IGNORECASE
+        )
+        
+        evaluation_breakdown = ""
+        if eval_breakdown_match:
+            evaluation_breakdown = eval_breakdown_match.group(1).strip()
+            print(f" ✅ Successfully extracted evaluation breakdown")
+        else:
+            print(f" ⚠️  Could not extract <evaluation_breakdown> from response")
+        
+        # Check for final_graphics_definition
+        final_graphics_definition_match = re.search(
+            r'<final_graphics_definition>(.*?)</final_graphics_definition>',
+            response_text,
+            re.DOTALL | re.IGNORECASE
+        )
+        
+        if final_graphics_definition_match:
+            final_graphics_definition = f"<final_graphics_definition>\n{final_graphics_definition_match.group(1).strip()}\n</final_graphics_definition>"
+            print(f" ✅ Successfully extracted <final_graphics_definition>")
+            return final_graphics_definition, evaluation_breakdown
+        
+        # If tag not found, return None for graphics definition but still return evaluation breakdown
+        print(f" ⚠️  Could not extract <final_graphics_definition> from response")
+        return None, evaluation_breakdown
+            
+    except Exception as e:
+        print(f" ❌ Error calling LLM: {e}")
+        return None, ""
+
+
+def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, segment_num, is_entire_slide=False):
     """
     Format the aggregated graphics definition XML into the readable format for the sheet.
     
-    :param vo_text: Voiceover text for the segment
+    :param vo_text: Voiceover text for the segment (or slide content for entire slide)
     :param graphics_definition_xml: Graphics definition XML from <replacement_visuals> or <final_graphics_definition>
-    :param segment_num: Segment number
+    :param segment_num: Segment number (or None for entire slide)
+    :param is_entire_slide: Whether this is for entire slide (no segment header)
     :return: Formatted graphics definition text or empty string if graphics definition XML is empty
     """
     if not graphics_definition_xml or graphics_definition_xml.strip() == "":
@@ -1412,11 +2372,12 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         if visual_blocks:
             formatted_parts = []
             
-            # Segment header
-            formatted_parts.append("=" * 80)
-            formatted_parts.append(f"SEGMENT {segment_num}")
-            formatted_parts.append("=" * 80)
-            formatted_parts.append("")  # Empty line after header
+            # Segment header (always include if segment_num is provided)
+            if segment_num:
+                formatted_parts.append("=" * 80)
+                formatted_parts.append(f"SEGMENT {segment_num}")
+                formatted_parts.append("=" * 80)
+                formatted_parts.append("")  # Empty line after header
             
             # Process each visual block
             for step_idx, visual_xml in enumerate(visual_blocks):
@@ -1459,34 +2420,93 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
             formatted_text = "\n".join(formatted_parts)
             return formatted_text
     
-    # Fallback to old format: <final_graphics_definition> with <visual_step> blocks (for aggregation agent)
-    visual_steps_pattern = r'<visual_step>(.*?)</visual_step>'
-    visual_steps = re.findall(visual_steps_pattern, graphics_definition_xml, re.DOTALL | re.IGNORECASE)
-    
-    if not visual_steps:
+    # Check for <final_graphics_definition> format
+    final_graphics_definition_match = re.search(r'<final_graphics_definition>(.*?)</final_graphics_definition>', graphics_definition_xml, re.DOTALL | re.IGNORECASE)
+    if not final_graphics_definition_match:
         return ""
     
-    # Build formatted output
-    formatted_parts = []
+    final_graphics_content = final_graphics_definition_match.group(1).strip()
     
-    # Segment header
-    formatted_parts.append("=" * 80)
-    formatted_parts.append(f"SEGMENT {segment_num}")
-    formatted_parts.append("=" * 80)
-    formatted_parts.append("")  # Empty line after header
+    # Check if it has <visual_steps> wrapper (flexible case) or direct content (per_sentence/entire_slide case)
+    visual_steps_wrapper_match = re.search(r'<visual_steps>(.*?)</visual_steps>', final_graphics_content, re.DOTALL | re.IGNORECASE)
     
-    # Process each visual step
-    for step_idx, step_xml in enumerate(visual_steps):
-        # Extract components from each visual step
-        voiceover_match = re.search(r'<voiceover_part>(.*?)</voiceover_part>', step_xml, re.DOTALL | re.IGNORECASE)
-        instruction_match = re.search(r'<visual_instruction>(.*?)</visual_instruction>', step_xml, re.DOTALL | re.IGNORECASE)
-        asset_match = re.search(r'<asset>(.*?)</asset>', step_xml, re.DOTALL | re.IGNORECASE)
-        justification_match = re.search(r'<selection_justification>(.*?)</selection_justification>', step_xml, re.DOTALL | re.IGNORECASE)
+    if visual_steps_wrapper_match:
+        # Flexible case: has <visual_steps> wrapper with multiple <visual_step> blocks
+        visual_steps_pattern = r'<visual_step>(.*?)</visual_step>'
+        visual_steps = re.findall(visual_steps_pattern, visual_steps_wrapper_match.group(1), re.DOTALL | re.IGNORECASE)
         
-        # Add separator between multiple visual steps (except before the first one)
-        if step_idx > 0:
-            formatted_parts.append("----")
-            formatted_parts.append("")
+        if not visual_steps:
+            return ""
+        
+        # Build formatted output
+        formatted_parts = []
+        
+        # Segment header (always include if segment_num is provided)
+        if segment_num:
+            formatted_parts.append("=" * 80)
+            formatted_parts.append(f"SEGMENT {segment_num}")
+            formatted_parts.append("=" * 80)
+            formatted_parts.append("")  # Empty line after header
+        
+        # Process each visual step
+        for step_idx, step_xml in enumerate(visual_steps):
+            # Extract components from each visual step
+            voiceover_match = re.search(r'<voiceover_part>(.*?)</voiceover_part>', step_xml, re.DOTALL | re.IGNORECASE)
+            instruction_match = re.search(r'<visual_instruction>(.*?)</visual_instruction>', step_xml, re.DOTALL | re.IGNORECASE)
+            asset_match = re.search(r'<asset>(.*?)</asset>', step_xml, re.DOTALL | re.IGNORECASE)
+            justification_match = re.search(r'<selection_justification>(.*?)</selection_justification>', step_xml, re.DOTALL | re.IGNORECASE)
+            
+            # Add separator between multiple visual steps (except before the first one)
+            if step_idx > 0:
+                formatted_parts.append("----")
+                formatted_parts.append("")
+            
+            # When VO: (with quotes)
+            if voiceover_match:
+                vo_part = voiceover_match.group(1).strip()
+                formatted_parts.append(f'When VO: "{vo_part}"')
+                formatted_parts.append("")  # One line gap
+            
+            # Visual Instructions:
+            if instruction_match:
+                instruction = instruction_match.group(1).strip()
+                formatted_parts.append(f"Visual Instructions: {instruction}")
+                formatted_parts.append("")  # One line gap
+            
+            # Graphics to use:
+            if asset_match:
+                asset_url = asset_match.group(1).strip()
+                formatted_parts.append(f"Graphics to use: {asset_url}")
+                formatted_parts.append("")  # One line gap
+            
+            # Selection Justification:
+            if justification_match:
+                justification = justification_match.group(1).strip()
+                formatted_parts.append(f"Selection Justification: {justification}")
+                formatted_parts.append("")  # One line gap
+        
+        # Join all parts with newlines
+        formatted_text = "\n".join(formatted_parts)
+        return formatted_text
+    else:
+        # Per sentence or entire slide case: direct content under <final_graphics_definition> (no visual_steps wrapper)
+        # Extract components directly from final_graphics_content
+        voiceover_match = re.search(r'<voiceover_part>(.*?)</voiceover_part>', final_graphics_content, re.DOTALL | re.IGNORECASE)
+        instruction_match = re.search(r'<visual_instruction>(.*?)</visual_instruction>', final_graphics_content, re.DOTALL | re.IGNORECASE)
+        asset_match = re.search(r'<asset>(.*?)</asset>', final_graphics_content, re.DOTALL | re.IGNORECASE)
+        justification_match = re.search(r'<selection_justification>(.*?)</selection_justification>', final_graphics_content, re.DOTALL | re.IGNORECASE)
+        
+        if not (voiceover_match or instruction_match or asset_match):
+            return ""
+        
+        formatted_parts = []
+        
+        # Segment header (always include if segment_num is provided)
+        if segment_num:
+            formatted_parts.append("=" * 80)
+            formatted_parts.append(f"SEGMENT {segment_num}")
+            formatted_parts.append("=" * 80)
+            formatted_parts.append("")  # Empty line after header
         
         # When VO: (with quotes)
         if voiceover_match:
@@ -1511,11 +2531,10 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
             justification = justification_match.group(1).strip()
             formatted_parts.append(f"Selection Justification: {justification}")
             formatted_parts.append("")  # One line gap
-    
-    # Join all parts with newlines
-    formatted_text = "\n".join(formatted_parts)
-    
-    return formatted_text
+        
+        # Join all parts with newlines
+        formatted_text = "\n".join(formatted_parts)
+        return formatted_text
 
 
 @traceable(
@@ -1527,7 +2546,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, drive_results_text, web_results_text, video_pool_text, video_pool_other_channels_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, drive_results_text, web_results_text, video_pool_text, video_pool_other_channels_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide"):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -1546,6 +2565,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     :param drive: Google Drive instance
     :param llm: Language model to use
     :param feedback: Optional revision feedback for this segment
+    :param visual_assignment_strategy: Visual assignment strategy ("Flexible, let the agent decide", "1 Visual per Sentence", or "1 Visual for the whole Slide")
     :return: Tuple of (segment_idx, formatted_segment_text, formatted_eval_breakdown) or (segment_idx, None, formatted_eval_breakdown) if no definition generated
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
@@ -1584,6 +2604,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         drive=drive,
         llm=llm,
         feedback=feedback,
+        visual_assignment_strategy=visual_assignment_strategy,
     )
     
     if graphics_definition_xml:
@@ -1599,7 +2620,8 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         formatted_segment = format_aggregation_definition_for_sheet(
             vo_text,
             graphics_definition_xml,
-            segment_idx
+            segment_idx,
+            is_entire_slide=False
         )
         
         # Format evaluation breakdown for the sheet (with segment marker)
@@ -1647,6 +2669,86 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         video_pool_other_channels_text = str(row.get("video_pool_other_channels", "")).strip()
         storyboard_text = str(row.get("storyboard_planning", "")).strip()
         
+        # Get Visual Assignment Strategy
+        visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+        if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+            visual_assignment_strategy = "Flexible, let the agent decide"
+        
+        # Get row data
+        topic_name = str(row.get("Topic", "")).strip()
+        subtopic_name = str(row.get("Subtopic", "")).strip()
+        slide_title = str(row.get("Slide Chunk Title", "")).strip()
+        slide_chunk = str(row.get("Slide Chunk", "")).strip()
+        
+        # Handle "1 Visual for the whole Slide" case differently
+        if visual_assignment_strategy == "1 Visual for the whole Slide":
+            print(f"\n{'='*80}")
+            print(f"📋 Row {index + 2}: Processing entire slide (1 visual for whole slide)")
+            print(f"{'='*80}")
+            
+            # Parse image items from drive_results and web_results
+            # For "entire slide" case, all candidates are under SEGMENT_1
+            drive_image_items = parse_urls_from_results(drive_results_text, segment_num=1)  # Get all images from SEGMENT_1
+            web_image_items = parse_urls_from_results(web_results_text, segment_num=1)  # Get all images from SEGMENT_1
+            image_items = drive_image_items + web_image_items
+            
+            # Parse video items
+            # For "entire slide" case, all candidates are under SEGMENT_1
+            video_urls = parse_urls_from_video_pool(video_pool_text, segment_num=1)  # Get all videos from SEGMENT_1
+            video_urls_other_channels = parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, segment_num=1)  # Get all videos from SEGMENT_1
+            
+            print(f" 🖼️  Found {len(image_items)} image candidates ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
+            print(f" 🎥 Found {len(video_urls)} video candidates (with timestamps)")
+            print(f" 🎬 Found {len(video_urls_other_channels)} video candidates (other channels, full videos)")
+            
+            if not image_items and not video_urls and not video_urls_other_channels:
+                print(f" ⚠️  No image or video candidates available for entire slide, skipping")
+                return index, "", ""
+            
+            # Generate aggregated graphics definition for entire slide
+            graphics_definition_xml, evaluation_breakdown = aggregate_graphics_definition_for_entire_slide(
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                image_items=image_items,
+                video_urls=video_urls,
+                video_urls_other_channels=video_urls_other_channels,
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                storyboard=storyboard_text,
+                drive=drive,
+                llm=llm
+            )
+            
+            if graphics_definition_xml:
+                # Post-processing: Extract video frames and replace with Drive URLs
+                print(f"🔄 Processing video frames in graphics definition...")
+                video_frames_drive_folder_id = os.environ.get("VIDEO_FRAMES_DRIVE_FOLDER_ID", "")
+                graphics_definition_xml = process_video_frames_in_xml(
+                    graphics_definition_xml,
+                    drive,
+                    video_frames_drive_folder_id
+                )
+                
+                # Format the definition for the sheet (entire slide, but still include SEGMENT 1 marker)
+                formatted_segment = format_aggregation_definition_for_sheet(
+                    slide_chunk,  # Use slide content as vo_text
+                    graphics_definition_xml,
+                    segment_num=1,  # Use segment 1 for entire slide to maintain consistency
+                    is_entire_slide=True
+                )
+                
+                # Format evaluation breakdown for the sheet
+                formatted_eval_breakdown = evaluation_breakdown if evaluation_breakdown else ""
+                
+                if formatted_segment:
+                    return index, formatted_segment, formatted_eval_breakdown
+            
+            # Return evaluation breakdown even if graphics definition failed
+            formatted_eval_breakdown = evaluation_breakdown if evaluation_breakdown else ""
+            return index, "", formatted_eval_breakdown
+        
+        # For "Flexible" and "1 Visual per Sentence" cases, process segments
         # Skip if voiceover_segment is empty
         if not voiceover_text or voiceover_text == "nan":
             return index, "", ""
@@ -1656,14 +2758,8 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         if not segments:
             return index, "", ""
         
-        # Get row data
-        topic_name = str(row.get("Topic", "")).strip()
-        subtopic_name = str(row.get("Subtopic", "")).strip()
-        slide_title = str(row.get("Slide Chunk Title", "")).strip()
-        slide_chunk = str(row.get("Slide Chunk", "")).strip()
-        
         print(f"\n{'='*80}")
-        print(f"📋 Row {index + 2}: Processing {len(segments)} segment(s)")
+        print(f"📋 Row {index + 2}: Processing {len(segments)} segment(s) (Strategy: {visual_assignment_strategy})")
         print(f"{'='*80}")
         
         # Process all segments in parallel
@@ -1686,7 +2782,9 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     topic_name,
                     subtopic_name,
                     drive,
-                    llm
+                    llm,
+                    None,  # feedback
+                    visual_assignment_strategy
                 ): (segment_idx, vo_text)
                 for segment_idx, vo_text in segments
             }
@@ -1736,20 +2834,14 @@ def validate_final_graphics_definition_row(row):
     - Row is not empty
     - All segments from voiceover_segment have results
     - No gaps in segment numbering (must be sequential starting from 1)
+    - For "1 Visual for the whole Slide", expect exactly SEGMENT 1
     
     :param row: Pandas Series with row data
     :return: Tuple (is_valid, error_message)
     """
     vo_segments_text = str(row.get("voiceover_segment", "")).strip()
     final_graphics_def_text = str(row.get("final_graphics_definition", "")).strip()
-    
-    # Skip validation if voiceover_segment is empty
-    if not vo_segments_text or vo_segments_text == "nan":
-        return True, None
-    
-    # Count segments in voiceover_segment (split by newline)
-    vo_segments = [seg.strip() for seg in vo_segments_text.split('\n') if seg.strip()]
-    expected_count = len(vo_segments)
+    visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
     
     # Skip validation if final_graphics_definition is empty (will be caught by retry logic)
     if not final_graphics_def_text or final_graphics_def_text == "nan" or final_graphics_def_text.strip() == "":
@@ -1763,6 +2855,26 @@ def validate_final_graphics_definition_row(row):
     # Format: "SEGMENT X" (not "---SEGMENT_X---")
     segment_pattern = r'SEGMENT\s+(\d+)'
     segment_numbers = [int(match) for match in re.findall(segment_pattern, final_graphics_def_text, re.IGNORECASE)]
+    
+    # For "1 Visual for the whole Slide" strategy, expect exactly 1 segment (SEGMENT 1)
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        if not segment_numbers:
+            return False, "No segment markers found in final_graphics_definition (expected SEGMENT 1)"
+        
+        # Should have exactly 1 segment (SEGMENT 1)
+        if len(segment_numbers) != 1 or segment_numbers[0] != 1:
+            return False, f"Expected exactly SEGMENT 1 for '1 Visual for the whole Slide', found: {segment_numbers}"
+        
+        return True, None
+    
+    # For other strategies, validate against voiceover_segment
+    # Skip validation if voiceover_segment is empty
+    if not vo_segments_text or vo_segments_text == "nan":
+        return True, None
+    
+    # Count segments in voiceover_segment (split by newline)
+    vo_segments = [seg.strip() for seg in vo_segments_text.split('\n') if seg.strip()]
+    expected_count = len(vo_segments)
     
     if not segment_numbers:
         return False, "No segment markers found in final_graphics_definition"

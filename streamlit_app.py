@@ -417,6 +417,12 @@ video_embeddings_page = st.Page(
     title="Video Embeddings",
     icon=":material/menu_book:",
 )
+
+course_qa_vectorization_page = st.Page(
+    "course_qa_vectorization.py",
+    title="Course Q&A Vectorization",
+    icon=":material/storage:",
+)
 #######################
 # 3) Common app layout
 #######################
@@ -463,6 +469,7 @@ page_name_to_object = {
     "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
     "video_embeddings_page": video_embeddings_page,
+    "course_qa_vectorization_page": course_qa_vectorization_page,
 }
 
 # Define which pages belong to which category
@@ -487,8 +494,9 @@ tool_pages = [
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",
-    "image_editing_tool_page"
+    "image_editing_tool_page",
     "curriculum_mapping_tool_page",
+    "course_qa_vectorization_page",
 ]
 
 if st.session_state.role:

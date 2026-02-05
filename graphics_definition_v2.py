@@ -3,6 +3,7 @@ from agent_ui_template import agent_ui
 from agents.graphics_definition_v2.image_graphics_agent.segment_slide import (
     run_segment_slide_from_slide_chunk_for_all_rows,
     delete_segment_slide,
+    ensure_visual_assignment_strategy_column,
 )
 from agents.graphics_definition_v2.image_graphics_agent.storyboard_agent import (
     run_storyboard_agent_for_all_rows,
@@ -20,14 +21,14 @@ from agents.graphics_definition_v2.image_graphics_agent.web_search import (
     run_web_search_for_all_rows,
     delete_web_results,
 )
-from agents.graphics_definition_v2.image_graphics_agent.finalize_graphics_definition import (
-    run_finalize_graphics_definition_for_all_rows,
-    delete_graphics_definition,
-)
-from agents.graphics_definition_v2.image_graphics_agent.populate_sheet_with_selected_images import (
-    run_populate_sheet_with_selected_images_for_all_rows,
-    delete_populated_images,
-)
+#from agents.graphics_definition_v2.image_graphics_agent.finalize_graphics_definition import (
+#    run_finalize_graphics_definition_for_all_rows,
+#    delete_graphics_definition,
+#)
+#from agents.graphics_definition_v2.image_graphics_agent.populate_sheet_with_selected_images import (
+#    run_populate_sheet_with_selected_images_for_all_rows,
+#    delete_populated_images,
+#)
 from agents.graphics_definition_v2.video_graphics_agent.video_search_query_generation import (
     run_generate_video_search_query_for_all_rows,
     delete_video_search_queries,
@@ -36,10 +37,10 @@ from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_fro
     run_youtube_video_search_for_all_rows,
     delete_video_pool,
 )
-from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
-    run_image_selection_from_all_images_for_all_rows,
-    delete_image_pool,
-)
+#from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
+#    run_image_selection_from_all_images_for_all_rows,
+#    delete_image_pool,
+#)
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     run_aggregation_agent_for_all_rows,
     delete_final_graphics_definition,
@@ -64,6 +65,11 @@ pipeline_sections = [
             {
                 "name": "Segment Slide into Voiceover Segments",
                 "func": run_segment_slide_from_slide_chunk_for_all_rows,
+                "pre_exec_func": ensure_visual_assignment_strategy_column,
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks"
+                },
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
@@ -99,10 +105,10 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 2: Generate Search Queries for Image Retrieval",
+        "section_name": "Section 2: Generate Search Queries for Image and Video Retrieval",
         "steps": [
             {
-                "name": "Generate Search Queries for Image Retrieval",
+                "name": "Generate Search Queries for Image and Video Retrieval",
                 "func": run_generate_search_query_for_all_rows,
                 "depends_on": ["Segment Slide into Voiceover Segments"],
                 "args": {
@@ -110,7 +116,7 @@ pipeline_sections = [
                     "llm": "gemini_3_flash_thinking"
                 },
                 "estimated_time": "5-10 minutes",
-                "description": "This function generates 3 search queries for each voiceover segment and saves them to the search_queries column",
+                "description": "This function generates search queries for image and video retrieval and saves them to the search_queries column",
                 "delete_func": delete_search_queries,
                 "delete_args": {
                     "sheet": "sheet"
@@ -124,7 +130,7 @@ pipeline_sections = [
             {
                 "name": "Execute Drive Search",
                 "func": run_drive_search_for_all_rows,
-                "depends_on": ["Generate Search Queries for Image Retrieval"],
+                "depends_on": ["Generate Search Queries for Image and Video Retrieval"],
                 "args": {
                     "sheet": "sheet"
                 },

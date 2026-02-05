@@ -1,13 +1,95 @@
 from modules.chain import Chain
 from langsmith import traceable
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet, resize_column_by_name
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import re
 
 load_dotenv()
+
+
+def ensure_visual_assignment_strategy_column(sheet, worksheet_name="Slide Chunks"):
+    """
+    Adds the 'Visual Assignment Strategy' column if missing in Slide Chunks sheet.
+    Fills all rows with default value and sets up dropdown with 3 options.
+    This is designed to run as a pre_exec_func before the main agent starts.
+    
+    :param sheet: The gspread sheet object.
+    :param worksheet_name: Name of the worksheet (default: "Slide Chunks").
+    :return: None
+    """
+    worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
+    
+    column_name = "Visual Assignment Strategy"
+    default_value = "Flexible, let the agent decide"
+    dropdown_options = [
+        "1 Visual per Sentence",
+        "1 Visual for the whole Slide",
+        "Flexible, let the agent decide"
+    ]
+    
+    # Check if column exists
+    if column_name not in df.columns:
+        # Add column to DataFrame
+        df[column_name] = default_value
+        save_to_sheet(worksheet=worksheet, df=df)
+        print(f"✅ '{column_name}' column added.")
+    else:
+        print(f"ℹ️ '{column_name}' column already exists.")
+    
+    # Get updated data to find column index
+    worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
+    
+    # Fill empty cells with default value
+    if column_name in df.columns:
+        # Find rows that are empty or NaN
+        empty_mask = df[column_name].isna() | (df[column_name].astype(str).str.strip() == "")
+        if empty_mask.any():
+            df.loc[empty_mask, column_name] = default_value
+            save_to_sheet(worksheet=worksheet, df=df)
+            print(f"✅ Filled empty cells in '{column_name}' with default value.")
+    
+    # Set up data validation (dropdown) for the column
+    headers = worksheet.row_values(1)
+    if column_name in headers:
+        col_index = headers.index(column_name)
+        
+        # Get total number of rows (including header)
+        total_rows = len(df) + 1  # +1 for header row
+        
+        # Create data validation rule
+        # Note: Google Sheets API uses 0-based indexing
+        validation_request = {
+            'setDataValidation': {
+                'range': {
+                    'sheetId': worksheet.id,
+                    'startRowIndex': 1,  # Start from row 2 (skip header)
+                    'endRowIndex': total_rows,
+                    'startColumnIndex': col_index,
+                    'endColumnIndex': col_index + 1
+                },
+                'rule': {
+                    'condition': {
+                        'type': 'ONE_OF_LIST',
+                        'values': [{'userEnteredValue': option} for option in dropdown_options]
+                    },
+                    'showCustomUi': True,  # Shows dropdown arrow
+                    'strict': True  # Only allows values from the list
+                }
+            }
+        }
+        
+        # Apply the validation
+        worksheet.spreadsheet.batch_update({'requests': [validation_request]})
+        print(f"✅ Dropdown validation set for '{column_name}' column with {len(dropdown_options)} options.")
+        
+        # Resize column to 160 pixels
+        resize_column_by_name(worksheet, column_name, pixel_size=160)
+        print(f"✅ Column '{column_name}' resized to 160 pixels.")
+    else:
+        print(f"⚠️ Column '{column_name}' not found after creation attempt.")
 
 
 segment_slide_prompt = """You are an expert instructional designer. Your task is to split the slide content into individual voiceover (VO) segments using sentence-based segmentation. Each complete sentence becomes one segment.
