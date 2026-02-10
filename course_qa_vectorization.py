@@ -330,7 +330,7 @@ def main():
     gc = st.session_state.gc
     
     # Main UI - Two Sections
-    tab1, tab2 = st.tabs(["🔧 Vectorization", "❓ Q&A (Coming Soon)"])
+    tab1, tab2 = st.tabs(["🔧 Vectorization", "❓ Q&A"])
     
     with tab1:
         st.header("Vectorize Slide Chunks")

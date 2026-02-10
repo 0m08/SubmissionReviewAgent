@@ -5,7 +5,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import re as regex_module
 import streamlit as st
 from dotenv import load_dotenv
@@ -30,6 +30,8 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     parse_urls_from_results,
     parse_urls_from_video_pool,
     parse_urls_from_video_pool_other_channels,
+    parse_urls_from_image_pool,
+    parse_urls_from_video_pool_filtered,
     parse_segments_from_voiceover,
     parse_video_url_timestamps,
     convert_watch_url_to_embed_url,
@@ -56,11 +58,22 @@ from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_fro
 from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_in_other_channels import (
     process_segment_other_channels,
 )
+from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
+    select_images_from_all_for_segment,
+    select_images_from_all_for_entire_slide,
+    format_selected_images_for_segment,
+)
+from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
+    select_videos_from_all_for_segment,
+    select_videos_from_all_for_entire_slide,
+    format_selected_videos_for_segment,
+    parse_video_items_from_pool_other_channels,
+)
 
 load_dotenv()
 
-MAX_REVIEW_ATTEMPTS = 2
-MAX_REGEN_ATTEMPTS = 2
+MAX_REVIEW_ATTEMPTS = 1
+MAX_REGEN_ATTEMPTS = 1
 
 
 # Alingment prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -199,7 +212,7 @@ ALIGNMENT_REVIEW_PROMPT_FOR_ONE_VISUAL_PER_SLIDE = """You are a Graphics Definit
 
 Criterion: Visual–Voiceover Alignment Accuracy
 
-Definition: For the given slide, verify that the assigned visual clearly and directly show what the voiceover is saying at that moment.
+Definition: For the given slide, verify that the assigned visual clearly and directly shows what the slide is trying to convey.
 
 Inputs:
 These are the inputs for your evaluation:
@@ -284,7 +297,7 @@ Use this section as a structured reasoning and scratchpad space for you to evalu
 <review>
 
 <verdict>
-PASS|FAIL
+PASS|FAIL 
 </verdict>
 
 (If the slide verdict is FAIL, provide the details of the failed segment in the following format)
@@ -410,7 +423,7 @@ Use this section as a structured reasoning and scratchpad space for you to evalu
 
 <verdict>
 PASS|FAIL
-</verdict>
+</verdict> 
 
 (If the slide verdict is FAIL, provide the details of the failed segments in the following format)
 <failures>
@@ -1636,16 +1649,25 @@ def add_snapshot_label_to_drive_links(graphics_definition_text, drive, target_fo
         return graphics_definition_text
 
 
-def build_segment_visual_map(voiceover_text, final_graphics_definition):
+def build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy=None, slide_chunk=None):
     """
     Build a map of voiceover segments to their corresponding visual steps.
     
     :param voiceover_text: The voiceover text to parse.
     :param final_graphics_definition: The final graphics definition to parse.
+    :param visual_assignment_strategy: Visual assignment strategy (optional, for handling entire slide case)
+    :param slide_chunk: Full slide content (optional, for handling entire slide case)
     :return: A dictionary mapping segment numbers to their corresponding visual steps.
     """
 
     segments = parse_segments_from_voiceover(voiceover_text)
+    
+    # Handle "1 Visual for the whole Slide" case where voiceover_text might be empty
+    if visual_assignment_strategy == "1 Visual for the whole Slide" and not segments:
+        # Use slide_chunk as voiceover for SEGMENT 1
+        if slide_chunk and slide_chunk.strip() and slide_chunk != "nan":
+            segments = [(1, slide_chunk.strip())]
+    
     graphics_segments = parse_final_graphics_definition(final_graphics_definition)
     result: Dict[int, Dict[str, object]] = {}
     print(f"  Building segment visual map: {len(segments)} voiceover segments, {len(graphics_segments)} graphics segments")
@@ -1934,6 +1956,36 @@ def build_review_targets(segments_map, segment_nums, slide_id):
     return "\n".join(lines).strip()
 
 
+def build_review_targets_for_whole_slide(segments_map, slide_id, slide_chunk):
+    """
+    Build review targets for "1 Visual for the whole Slide" strategy.
+    Formats as a single visual for the entire slide content.
+    
+    :param segments_map: Map of segment_num -> segment data
+    :param slide_id: Slide identifier
+    :param slide_chunk: Full slide content
+    :return: Formatted review targets string
+    """
+    lines: List[str] = []
+    # For "1 Visual for the whole Slide", there should be only segment 1
+    segment = segments_map.get(1)
+    if not segment:
+        return "No visuals assigned."
+    
+    visual_steps = segment.get("visual_steps", [])
+    if not visual_steps:
+        return "No visuals assigned."
+    
+    # Format as single visual for entire slide
+    for step in visual_steps:
+        lines.append(
+            f"{step.get('visual_id')} | When VO: {slide_chunk} | "
+            f"Asset: {step.get('asset', '')}"
+        )
+    
+    return "\n".join(lines).strip()
+
+
 def build_review_targets_for_visuals(segments_map, visual_ids_by_segment, slide_id):
     """
     Build review targets including only specific visual IDs for each segment.
@@ -2172,13 +2224,30 @@ def parse_review_response(text):
     """
     Parse review response text to extract verdict and failures.
     
+    Handles both formats:
+    - Original: <failures><failure>...</failure></failures> (multiple failures)
+    - Entire slide: <failure>...</failure> (single failure, no wrapper)
+    
     :param text: Review response text with XML tags
     :return: Tuple of (verdict, failures) where failures is a list of failure dictionaries
     """
     
     verdict = _extract_tag(text, "verdict").upper() or "FAIL"
     failures: List[Dict[str, str]] = []
-    for block in re.findall(r"<failure>(.*?)</failure>", text or "", re.DOTALL | re.IGNORECASE):
+    
+    # Check if <failures> wrapper exists (original format)
+    if re.search(r'<failures>', text, re.IGNORECASE):
+        # Original format: extract failures from within <failures> wrapper
+        failures_block = _extract_tag(text, "failures")
+        if failures_block:
+            failure_blocks = re.findall(r"<failure>(.*?)</failure>", failures_block, re.DOTALL | re.IGNORECASE)
+        else:
+            failure_blocks = []
+    else:
+        # Entire slide format: single <failure> without wrapper
+        failure_blocks = re.findall(r"<failure>(.*?)</failure>", text or "", re.DOTALL | re.IGNORECASE)
+    
+    for block in failure_blocks:
         # Extract segment_key with fallback: try slide_segment_id first (for redundancy), then segment_id (for alignment/specificity)
         segment_key = _extract_tag(block, "slide_segment_id") or _extract_tag(block, "segment_id")
         failures.append({
@@ -2202,7 +2271,7 @@ def parse_review_response(text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def review_slide_segments(prompt_template, course_name, target_audience, topic_name, subtopic_name, slide_id, slide_title, slide_chunk, segments_map, segment_nums, drive, llm, conversation_history=None, criterion_name="review"):
+def review_slide_segments(prompt_template, course_name, target_audience, topic_name, subtopic_name, slide_id, slide_title, slide_chunk, segments_map, segment_nums, drive, llm, conversation_history=None, criterion_name="review", visual_assignment_strategy="Flexible, let the agent decide"):
     """
     Review slide segments using multimodal LLM.
     
@@ -2220,11 +2289,16 @@ def review_slide_segments(prompt_template, course_name, target_audience, topic_n
     :param llm: Language model to use
     :param conversation_history: Optional conversation history
     :param criterion_name: Name of the review criterion (e.g., "alignment", "specificity")
+    :param visual_assignment_strategy: Visual assignment strategy
     :return: Tuple of (verdict, failures, response_text, updated_conversation_history)
     """
     
     print(f"  Reviewing {len(segment_nums)} segment(s): {segment_nums}")
-    review_targets = build_review_targets(segments_map, segment_nums, slide_id)
+    # Use different format for "1 Visual for the whole Slide" strategy
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        review_targets = build_review_targets_for_whole_slide(segments_map, slide_id, slide_chunk)
+    else:
+        review_targets = build_review_targets(segments_map, segment_nums, slide_id)
     asset_parts = build_assets_for_segments(segments_map, segment_nums, drive)
     print(f"  Loaded {len(asset_parts)} asset part(s) for review")
     prompt = prompt_template.format(
@@ -2237,12 +2311,19 @@ def review_slide_segments(prompt_template, course_name, target_audience, topic_n
         slide_chunk=slide_chunk,
         review_targets=review_targets,
     )
-    # print(f"\n{'='*80}")
-    # print(f"📝 FORMATTED REVIEW PROMPT ({slide_id}):")
-    # print(f"{'='*80}")
-    # print(prompt)
-    # print(f"{'='*80}\n")
+    strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
+    print(f"\n{'='*80}")
+    print(f"📝 FORMATTED {criterion_name.upper()} REVIEW PROMPT ({slide_id}){strategy_label}:")
+    print(f"{'='*80}")
+    print(prompt)
+    print(f"{'='*80}\n")
     print(f"  Starting {criterion_name} review for {slide_id}...")
+    print(f"  Multimodal parts to be sent:")
+    for idx, part in enumerate(asset_parts, 1):
+        if hasattr(part, 'text') and part.text:
+            print(f"    Part {idx} (text): {part.text}...")
+        elif hasattr(part, 'inline_data'):
+            print(f"    Part {idx} (image/video data)")
     print(f"  Invoking Gemini multimodal review (model: {llm})...")
     response_text, updated_history = invoke_gemini_multimodal(
         asset_parts + [types.Part(text=prompt)], 
@@ -2267,7 +2348,7 @@ def review_slide_segments(prompt_template, course_name, target_audience, topic_n
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def review_slide_segments_followup(course_name, target_audience, topic_name, subtopic_name, slide_id, slide_title, slide_chunk, segments_map, visual_ids_by_segment, old_asset_urls_by_visual_id, previous_feedback, drive, llm, conversation_history, criterion_name="review"):
+def review_slide_segments_followup(course_name, target_audience, topic_name, subtopic_name, slide_id, slide_title, slide_chunk, segments_map, visual_ids_by_segment, old_asset_urls_by_visual_id, previous_feedback, drive, llm, conversation_history, criterion_name="review", visual_assignment_strategy="Flexible, let the agent decide"):
     """
     Follow-up review in the same conversation, reviewing only revised visuals.
     
@@ -2275,13 +2356,19 @@ def review_slide_segments_followup(course_name, target_audience, topic_name, sub
     :param old_asset_urls_by_visual_id: Map of visual_id -> old_asset_url (the failed visual before replacement)
     :param previous_feedback: The feedback from the previous review
     :param conversation_history: The conversation history from previous review
+    :param criterion_name: Name of the review criterion (e.g., "alignment", "specificity")
+    :param visual_assignment_strategy: Visual assignment strategy
     :return: Tuple of (verdict, failures, response_text, updated_conversation_history)
     """
     
     segment_nums = list(visual_ids_by_segment.keys())
     print(f"  Follow-up review for {len(segment_nums)} segment(s): {segment_nums}")
     print(f"  Reviewing only replaced visuals: {visual_ids_by_segment}")
-    review_targets = build_review_targets_for_visuals(segments_map, visual_ids_by_segment, slide_id)
+    # Use different format for "1 Visual for the whole Slide" strategy
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        review_targets = build_review_targets_for_whole_slide(segments_map, slide_id, slide_chunk)
+    else:
+        review_targets = build_review_targets_for_visuals(segments_map, visual_ids_by_segment, slide_id)
     
     # Build asset parts for both old (failed) and new (replacement) visuals
     asset_parts: List[types.Part] = []
@@ -2347,12 +2434,19 @@ Be very strict in your evaluation. Do not give a PASS verdict if any visual stil
 
 Remember: Striclty use the same output format as before while reviewing the NEW REPLACEMENT visuals and providing your output. Do not provide any additional text or commentary."""
     
-    # print(f"\n{'='*80}")
-    # print(f"📝 FORMATTED FOLLOW-UP REVIEW PROMPT ({slide_id}):")
-    # print(f"{'='*80}")
-    # print(followup_prompt)
-    # print(f"{'='*80}\n")
+    strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
+    print(f"\n{'='*80}")
+    print(f"📝 FORMATTED {criterion_name.upper()} FOLLOW-UP REVIEW PROMPT ({slide_id}){strategy_label}:")
+    print(f"{'='*80}")
+    print(followup_prompt)
+    print(f"{'='*80}\n")
     print(f"  Starting {criterion_name} follow-up review for {slide_id}...")
+    print(f"  Multimodal parts to be sent:")
+    for idx, part in enumerate(asset_parts, 1):
+        if hasattr(part, 'text') and part.text:
+            print(f"    Part {idx} (text): {part.text}...")
+        elif hasattr(part, 'inline_data'):
+            print(f"    Part {idx} (image/video data)")
     print(f"  Invoking Gemini multimodal follow-up review (model: {llm})...")
     response_text, updated_history = invoke_gemini_multimodal(
         asset_parts + [types.Part(text=followup_prompt)], 
@@ -2427,10 +2521,17 @@ def review_topic_segments(course_name, target_audience, topic_name, subtopic_nam
     )
     print(f"  Starting redundancy review for {topic_name}...")
     # print(f"\n{'='*80}")
-    # print(f"📝 FORMATTED REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
-    # print(f"{'='*80}")
-    # print(prompt)
-    # print(f"{'='*80}\n")
+    print(f"\n{'='*80}")
+    print(f"📝 FORMATTED REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
+    print(f"{'='*80}")
+    print(prompt)
+    print(f"{'='*80}\n")
+    print(f"  Multimodal parts to be sent:")
+    for idx, part in enumerate(asset_parts, 1):
+        if hasattr(part, 'text') and part.text:
+            print(f"    Part {idx} (text): {part.text}...")
+        elif hasattr(part, 'inline_data'):
+            print(f"    Part {idx} (image/video data)")
     print(f"  Invoking Gemini multimodal redundancy review (model: {llm})...")
     response_text, updated_history = invoke_gemini_multimodal(
         asset_parts + [types.Part(text=prompt)], 
@@ -2589,19 +2690,27 @@ def build_video_candidates_text(videos, frame_videos):
     return video_candidates_text
 
 
-def build_candidates_for_segment(drive_results_text, web_results_text, video_pool_text, video_pool_other_text, segment_num):
+def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num):
     """
     Build candidate images and videos for a specific segment.
     
-    :param drive_results_text: Drive results column content
-    :param web_results_text: Web results column content
-    :param video_pool_text: Video pool column content (with timestamps)
-    :param video_pool_other_text: Video pool other channels column content (without timestamps)
+    :param image_pool_text: Image pool column content (filtered images)
+    :param video_pool_filtered_text: Video pool filtered column content (filtered videos)
+    :param drive_results_text: Drive results column content (fallback for images)
+    :param web_results_text: Web results column content (fallback for images)
     :param segment_num: Segment number to extract candidates for
     :return: Tuple of (images, videos, frame_videos) where each is a list of candidate dictionaries
     """
-    image_items = parse_urls_from_results(drive_results_text, segment_num)
-    image_items += parse_urls_from_results(web_results_text, segment_num)
+    # Parse images from image_pool first, fallback to drive_results + web_results if empty
+    image_items = parse_urls_from_image_pool(image_pool_text, segment_num)
+    if not image_items:
+        # Fallback to original search results
+        image_items = parse_urls_from_results(drive_results_text, segment_num)
+        image_items += parse_urls_from_results(web_results_text, segment_num)
+        print(f"  Segment {segment_num}: Using fallback image sources (drive_results + web_results)")
+    else:
+        print(f"  Segment {segment_num}: Using image_pool")
+    
     images: List[Dict[str, str]] = []
     for idx, item in enumerate(image_items, start=1):
         images.append({
@@ -2610,22 +2719,29 @@ def build_candidates_for_segment(drive_results_text, web_results_text, video_poo
             "url": item.get("url", ""),
         })
 
-    video_urls = parse_urls_from_video_pool(video_pool_text, segment_num)
-    videos: List[Dict[str, str]] = []
-    for idx, url in enumerate(video_urls, start=1):
+    # Parse videos from video_pool_filtered
+    video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num)
+    
+    # Separate embed videos (can use clips or frames) from full videos (frames only)
+    embed_videos = [item for item in video_items_filtered if item.get("type") == "embed"]
+    full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
+    
+    videos: List[Dict[str, Any]] = []
+    for idx, item in enumerate(embed_videos, start=1):
         videos.append({
             "id": f"VID_1.{idx}",
             "title": "Video clip (timestamps allowed)",
-            "url": url,
+            "url": item.get("url", ""),
+            "type": "embed",
         })
 
-    frame_urls = parse_urls_from_video_pool_other_channels(video_pool_other_text, segment_num)
-    frame_videos: List[Dict[str, str]] = []
-    for idx, url in enumerate(frame_urls, start=1):
+    frame_videos: List[Dict[str, Any]] = []
+    for idx, item in enumerate(full_video_items, start=1):
         frame_videos.append({
             "id": f"VID_2.{idx}",
             "title": "Frames only (no clip timestamps)",
-            "url": url,
+            "url": item.get("url", ""),
+            "type": "full_video",
         })
 
     print(f"  Segment {segment_num} candidates: {len(images)} image(s), {len(videos)} video clip(s), {len(frame_videos)} frame video(s)")
@@ -2667,7 +2783,7 @@ def resolve_asset_urls_in_definition(graphics_definition_xml, candidate_map):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, feedback, drive_results_text, web_results_text, video_pool_text, video_pool_other_text, segment_num, drive, llm):
+def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide"):
     """
     Revise segment visuals based on review feedback.
     
@@ -2677,25 +2793,26 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
     :param subtopic_name: Subtopic name
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
-    :param vo_text: Voiceover text for the segment
+    :param vo_text: Voiceover text for the segment (or slide_chunk for entire slide case)
     :param current_visuals: Current visual assignments text
     :param feedback: Review feedback describing what needs to be changed
-    :param drive_results_text: Drive results column content
-    :param web_results_text: Web results column content
-    :param video_pool_text: Video pool column content (with timestamps)
-    :param video_pool_other_text: Video pool other channels column content (without timestamps)
+    :param image_pool_text: Image pool column content (filtered images)
+    :param video_pool_filtered_text: Video pool filtered column content (filtered videos)
+    :param drive_results_text: Drive results column content (fallback for images)
+    :param web_results_text: Web results column content (fallback for images)
     :param segment_num: Segment number
     :param drive: Google Drive instance
     :param llm: Language model to use
+    :param visual_assignment_strategy: Visual assignment strategy (default: "Flexible, let the agent decide")
     :return: Graphics definition XML with replacement visuals or None if revision fails
     """
     print(f"  Revising segment {segment_num} visuals...")
-    print(f"    Feedback: {feedback[:200]}...")
+    print(f"    Feedback: {feedback}...")
     images, videos, frame_videos = build_candidates_for_segment(
+        image_pool_text,
+        video_pool_filtered_text,
         drive_results_text,
         web_results_text,
-        video_pool_text,
-        video_pool_other_text,
         segment_num,
     )
     candidate_map = {
@@ -2723,34 +2840,64 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                     "asset_url": asset_url
                 })
 
+    # Select prompt based on visual_assignment_strategy
+    visual_assignment_strategy = str(visual_assignment_strategy).strip()
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        prompt_template = REVISION_PROMPT_FOR_ONE_VISUAL_PER_SLIDE
+        print(f"  Using REVISION_PROMPT_FOR_ONE_VISUAL_PER_SLIDE (strategy: {visual_assignment_strategy})")
+        # For entire slide, use slide_chunk as vo_text
+        actual_vo_text = slide_chunk
+        split_tag = "</current_visual_assigned>"  # Different tag for entire slide prompt
+        include_one_visual_note = False
+    else:
+        prompt_template = REVISION_PROMPT
+        print(f"  Using REVISION_PROMPT (strategy: {visual_assignment_strategy})")
+        actual_vo_text = vo_text
+        split_tag = "</current_visuals_assigned>"  # Original tag for segment-based prompts
+        # Only include the "1 visual" note for "1 Visual per Sentence" strategy, not for "Flexible"
+        include_one_visual_note = (visual_assignment_strategy == "1 Visual per Sentence")
+
     # Format the full prompt
-    full_prompt = REVISION_PROMPT.format(
+    full_prompt = prompt_template.format(
         course_name=course_name,
         target_audience=target_audience,
         topic_name=topic_name,
         subtopic_name=subtopic_name,
+        slide_id=f"SLIDE_{segment_num}",  # For entire slide, segment_num is 1
         slide_title=slide_title,
         slide_chunk=slide_chunk,
-        vo_text=vo_text,
+        vo_text=actual_vo_text,
         current_visuals=current_visuals,
         feedback=feedback,
         image_candidates=image_candidates_text,
         video_candidates=video_candidates_text,
     )
+    
+    # Add the "1 visual" note only for "1 Visual per Sentence" strategy
+    if include_one_visual_note:
+        # Insert the note after </candidates> and before Instructions:
+        candidates_end = full_prompt.find("</candidates>")
+        if candidates_end != -1:
+            insert_pos = full_prompt.find("\n\nInstructions:", candidates_end)
+            if insert_pos != -1:
+                note = "\n\nIMPORTANT: Remember, you have been allowed to use only 1 visual for replacing the failed visual for this voiceover segment. So keep that in mind as you select the replacement visual."
+                full_prompt = full_prompt[:insert_pos] + note + full_prompt[insert_pos:]
+    
     print(f"Starting segment {segment_num} revision...")
-    # print(f"\n{'='*80}")
-    # print(f"📝 FORMATTED REVISION PROMPT (Segment {segment_num}):")
-    # print(f"{'='*80}")
-    # print(full_prompt)
-    # print(f"{'='*80}\n")
+    print(f"\n{'='*80}")
+    strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
+    print(f"📝 FORMATTED REVISION PROMPT (Segment {segment_num}){strategy_label}:")
+    print(f"{'='*80}")
+    print(full_prompt)
+    print(f"{'='*80}\n")
     
     # Split prompt at specific points and insert multimodal parts
     parts: List[types.Part] = []
     
-    # Split after </current_visuals_assigned>
-    split1 = full_prompt.split("</current_visuals_assigned>", 1)
+    # Split after current visuals tag (different for entire slide vs segment-based)
+    split1 = full_prompt.split(split_tag, 1)
     if len(split1) == 2:
-        parts.append(types.Part(text=split1[0] + "</current_visuals_assigned>"))
+        parts.append(types.Part(text=split1[0] + split_tag))
         
         # Insert current visuals as multimodal
         for idx, step in enumerate(current_visual_steps, start=1):
@@ -2786,21 +2933,58 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
         parts.append(types.Part(text=split3[0] + "</video_candidates>"))
         
         # Insert video candidates as multimodal
+        # Handle embed videos (can use clips or frames)
         for candidate in videos:
-            label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {candidate['url']}"
-            parts.append(types.Part(text=label_text))
-            visual_part = build_visual_part_only(candidate["url"], drive)
-            if visual_part:
-                parts.append(visual_part)
-            candidate_num += 1
+            video_type = candidate.get("type", "embed")
+            video_url = candidate.get("url", "")
+            
+            if video_type == "embed":
+                # Embed URL with timestamps - can be used as clips or frames
+                clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+                if clip_url:
+                    label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                    parts.append(types.Part(text=label_text))
+                    video_part = build_video_part(clip_url, start_seconds, end_seconds)
+                    if video_part:
+                        parts.append(video_part)
+                    candidate_num += 1
+                else:
+                    print(f"      WARNING: Failed to parse embed video URL: {video_url}")
+            else:
+                # Fallback: treat as regular video
+                label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                parts.append(types.Part(text=label_text))
+                visual_part = build_visual_part_only(video_url, drive)
+                if visual_part:
+                    parts.append(visual_part)
+                candidate_num += 1
         
+        # Handle full videos (frames only)
         for candidate in frame_videos:
-            label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {candidate['url']}"
-            parts.append(types.Part(text=label_text))
-            visual_part = build_visual_part_only(candidate["url"], drive)
-            if visual_part:
-                parts.append(visual_part)
-            candidate_num += 1
+            video_type = candidate.get("type", "full_video")
+            video_url = candidate.get("url", "")
+            
+            if video_type == "full_video":
+                # Full video - frames only
+                embed_url = convert_watch_url_to_embed_url(video_url)
+                if embed_url:
+                    label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                    parts.append(types.Part(text=label_text))
+                    # Add video part without timestamps (full video)
+                    video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+                    if video_part:
+                        parts.append(video_part)
+                    candidate_num += 1
+                else:
+                    print(f"      WARNING: Failed to convert video URL: {video_url}")
+            else:
+                # Fallback: treat as regular video
+                label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                parts.append(types.Part(text=label_text))
+                visual_part = build_visual_part_only(video_url, drive)
+                if visual_part:
+                    parts.append(visual_part)
+                candidate_num += 1
         
         # Add the rest of the prompt
         parts.append(types.Part(text=split3[1]))
@@ -2814,10 +2998,14 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
     response_text, _ = invoke_gemini_multimodal(parts, llm=llm)
     print(f"\nRevision response (SEGMENT {segment_num}):\n{response_text}\n")
     
-    # Extract replacement_visuals 
+    # Extract replacement visuals - handle both plural and singular wrappers
     replacement_visuals = _extract_tag(response_text, "replacement_visuals")
     if not replacement_visuals:
-        print(f"  WARNING: No replacement_visuals found in revision response for segment {segment_num}")
+        # Try singular wrapper (for entire slide case)
+        replacement_visuals = _extract_tag(response_text, "replacement_visual")
+    
+    if not replacement_visuals:
+        print(f"  WARNING: No replacement_visuals or replacement_visual found in revision response for segment {segment_num}")
         return None
     
     # Resolve asset URLs 
@@ -2843,6 +3031,7 @@ def generate_search_queries_with_feedback(
     segment_num: int,
     segments_map: Dict[int, Dict[str, object]],
     drive,
+    visual_assignment_strategy: str = "Flexible, let the agent decide",
 ) -> List[str]:
     print(f"  Generating revised search queries (model: {llm})...")
     
@@ -2876,27 +3065,46 @@ def generate_search_queries_with_feedback(
                 elif len(visual_parts) == 1:
                     asset_parts.extend(visual_parts)
     
+    # Select prompt based on visual_assignment_strategy
+    visual_assignment_strategy = str(visual_assignment_strategy).strip()
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        prompt_template = SEARCH_QUERY_REVISION_PROMPT_FOR_ONE_VISUAL_PER_SLIDE
+        print(f"  Using SEARCH_QUERY_REVISION_PROMPT_FOR_ONE_VISUAL_PER_SLIDE (strategy: {visual_assignment_strategy})")
+        # For entire slide, use slide_chunk instead of vo_text
+        actual_vo_text = slide_chunk
+    else:
+        prompt_template = SEARCH_QUERY_REVISION_PROMPT
+        print(f"  Using SEARCH_QUERY_REVISION_PROMPT (strategy: {visual_assignment_strategy})")
+        actual_vo_text = vo_text
+    
     # Format the prompt
-    prompt_text = SEARCH_QUERY_REVISION_PROMPT.format(
+    prompt_text = prompt_template.format(
         course_name=course_name,
         target_audience=target_audience,
         topic_name=topic_name,
         subtopic_name=subtopic_name,
         slide_title=slide_title,
         slide_chunk=slide_chunk,
-        vo_text=vo_text,
+        vo_text=actual_vo_text,
         feedback=feedback,
     )
     print(f"  Generating search queries for segment {segment_num}...")
-    # print(f"\n{'='*80}")
-    # print(f"📝 FORMATTED SEARCH QUERY REVISION PROMPT (Segment {segment_num}):")
-    # print(f"{'='*80}")
-    # print(prompt_text)
-    # print(f"{'='*80}\n")
+    strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
+    print(f"\n{'='*80}")
+    print(f"📝 FORMATTED SEARCH QUERY REVISION PROMPT (Segment {segment_num}){strategy_label}:")
+    print(f"{'='*80}")
+    print(prompt_text)
+    print(f"{'='*80}\n")
     
     # Use multimodal API if we have visuals, otherwise fallback to text-only
     if asset_parts:
         print(f"    Using multimodal input with {len([p for p in asset_parts if hasattr(p, 'text') and p.text and 'FAILED VISUAL' in p.text])} failed visual(s)")
+        print(f"    Multimodal parts to be sent:")
+        for idx, part in enumerate(asset_parts, 1):
+            if hasattr(part, 'text') and part.text:
+                print(f"      Part {idx} (text): {part.text}...")
+            elif hasattr(part, 'inline_data'):
+                print(f"      Part {idx} (image/video data)")
         response_text, _ = invoke_gemini_multimodal(
             asset_parts + [types.Part(text=prompt_text)],
             llm=llm,
@@ -2958,12 +3166,20 @@ def merge_replacements_into_segment(
         if "visual_id" not in step:
             step["visual_id"] = f"S{segment_num}V{idx}"
     
-    # Parse replacement visuals from XML
+    # Parse replacement visuals from XML - handle both plural and singular wrappers
     replacement_visuals_match = re.search(
         r'<replacement_visuals>(.*?)</replacement_visuals>',
         replacement_visuals_xml,
         re.DOTALL | re.IGNORECASE
     )
+    if not replacement_visuals_match:
+        # Try singular wrapper (for entire slide case)
+        replacement_visuals_match = re.search(
+            r'<replacement_visual>(.*?)</replacement_visual>',
+            replacement_visuals_xml,
+            re.DOTALL | re.IGNORECASE
+        )
+    
     if not replacement_visuals_match:
         return existing_segment_text
     
@@ -3102,9 +3318,14 @@ def regenerate_failed_segments(
     subtopic_name = _safe_str(row.get("Subtopic", ""))
     voiceover_text = _safe_str(row.get("voiceover_segment", ""))
     final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
+    
+    # Get visual assignment strategy
+    visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+    if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+        visual_assignment_strategy = "Flexible, let the agent decide"
 
     voiceover_segments = parse_segments_from_voiceover(voiceover_text)
-    segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition)
+    segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
 
     print(f"  Generating search queries for {len(failed_segments)} failed segment(s)...")
     for segment_num in failed_segments:
@@ -3127,6 +3348,7 @@ def regenerate_failed_segments(
             segment_num=segment_num,
             segments_map=segments_map,
             drive=drive,
+            visual_assignment_strategy=visual_assignment_strategy,
         )
         if queries:
             df.at[row_index, "search_queries"] = replace_segment_block(
@@ -3223,10 +3445,190 @@ def regenerate_failed_segments(
                 print(f"      Segment {segment_num}: Saved video_pool_other_channels to sheet")
 
     row = df.loc[row_index]
+    image_pool_text = _safe_str(row.get("image_pool", ""))
+    video_pool_filtered_text = _safe_str(row.get("video_pool_filtered", ""))
     drive_results_text = _safe_str(row.get("drive_results", ""))
     web_results_text = _safe_str(row.get("web_results", ""))
+
+    # Select images from new search results using feedback prompts
+    print(f"  Selecting images from new search results for {len(failed_segments)} failed segment(s)...")
+    for segment_num in failed_segments:
+        vo_text = ""
+        for seg_idx, seg_text in voiceover_segments:
+            if seg_idx == segment_num:
+                vo_text = seg_text
+                break
+        
+        feedback = feedback_by_segment.get(segment_num, "")
+        
+        # Get new image items from drive_results and web_results for this segment
+        drive_items = parse_urls_from_results(drive_results_text, segment_num)
+        web_items = parse_urls_from_results(web_results_text, segment_num)
+        
+        # Combine and deduplicate by URL
+        seen_urls = set()
+        all_items = []
+        for item in drive_items + web_items:
+            url = item.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_items.append(item)
+        
+        # Extract URLs list and create URL to title mapping
+        all_urls = [item["url"] for item in all_items]
+        url_to_title = {item["url"]: item.get("title", "Untitled") for item in all_items}
+        
+        if not all_urls:
+            print(f"    Segment {segment_num}: No images found in new search results, skipping image selection")
+            continue
+        
+        print(f"    Segment {segment_num}: Selecting from {len(all_urls)} image(s) with feedback...")
+        
+        # Select prompt and function based on visual_assignment_strategy
+        if visual_assignment_strategy == "1 Visual for the whole Slide":
+            # Use entire slide prompt and function
+            selected_images_text = select_images_from_all_for_entire_slide(
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                image_urls=all_urls,
+                url_to_title=url_to_title,
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                drive=drive,
+                llm=llm,
+                feedback=feedback
+            )
+        else:
+            # Use segment prompt and function
+            selected_images_text = select_images_from_all_for_segment(
+                vo_text=vo_text,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                image_urls=all_urls,
+                url_to_title=url_to_title,
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                drive=drive,
+                llm=llm,
+                feedback=feedback
+            )
+        
+        if selected_images_text:
+            # Format the selected images
+            formatted_images = format_selected_images_for_segment(selected_images_text)
+            if formatted_images:
+                # For "1 Visual for the whole Slide", always use segment 1 for image_pool
+                # For other strategies, use the actual segment_num
+                image_pool_segment_num = 1 if visual_assignment_strategy == "1 Visual for the whole Slide" else segment_num
+                
+                # Update image_pool for this segment
+                image_pool_text = replace_segment_block(
+                    image_pool_text,
+                    image_pool_segment_num,
+                    formatted_images
+                )
+                df.at[row_index, "image_pool"] = image_pool_text
+                print(f"      Segment {segment_num}: Updated image_pool (segment {image_pool_segment_num}) with {len(formatted_images)} selected image(s)")
+                # Save to sheet immediately after image_pool is updated
+                if ws is not None:
+                    with _sheet_lock:
+                        save_to_sheet(ws, df)
+                    print(f"      Segment {segment_num}: Saved image_pool to sheet")
+            else:
+                print(f"      Segment {segment_num}: WARNING - No formatted images generated")
+        else:
+            print(f"      Segment {segment_num}: WARNING - No images selected")
+    
+    # Reload row to get updated image_pool
+    row = df.loc[row_index]
+    image_pool_text = _safe_str(row.get("image_pool", ""))
     video_pool_text = _safe_str(row.get("video_pool", ""))
-    video_pool_other_text = _safe_str(row.get("video_pool_other_channels", ""))
+    video_pool_other_channels_text = _safe_str(row.get("video_pool_other_channels", ""))
+    video_pool_filtered_text = _safe_str(row.get("video_pool_filtered", ""))
+
+    # Select videos from new search results using feedback prompts
+    print(f"  Selecting videos from new search results for {len(failed_segments)} failed segment(s)...")
+    for segment_num in failed_segments:
+        vo_text = ""
+        for seg_idx, seg_text in voiceover_segments:
+            if seg_idx == segment_num:
+                vo_text = seg_text
+                break
+        
+        feedback = feedback_by_segment.get(segment_num, "")
+        
+        # Get new video URLs from video_pool and video_pool_other_channels for this segment
+        video_urls_pool = parse_urls_from_video_pool(video_pool_text, segment_num)
+        video_items_other_channels = parse_video_items_from_pool_other_channels(video_pool_other_channels_text, segment_num)
+        
+        if not video_urls_pool and not video_items_other_channels:
+            print(f"    Segment {segment_num}: No videos found in new search results, skipping video selection")
+            continue
+        
+        print(f"    Segment {segment_num}: Selecting from {len(video_urls_pool)} video(s) from pool and {len(video_items_other_channels)} video(s) from other channels with feedback...")
+        
+        # Select prompt and function based on visual_assignment_strategy
+        if visual_assignment_strategy == "1 Visual for the whole Slide":
+            # Use entire slide prompt and function
+            selected_videos_text = select_videos_from_all_for_entire_slide(
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                video_urls_pool=video_urls_pool,
+                video_items_other_channels=video_items_other_channels,
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                drive=drive,
+                llm=llm,
+                feedback=feedback
+            )
+        else:
+            # Use segment prompt and function
+            selected_videos_text = select_videos_from_all_for_segment(
+                vo_text=vo_text,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                video_urls_pool=video_urls_pool,
+                video_items_other_channels=video_items_other_channels,
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                drive=drive,
+                llm=llm,
+                feedback=feedback
+            )
+        
+        if selected_videos_text:
+            # Format the selected videos
+            formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels)
+            if formatted_videos:
+                # For "1 Visual for the whole Slide", always use segment 1 for video_pool_filtered
+                # For other strategies, use the actual segment_num
+                video_pool_filtered_segment_num = 1 if visual_assignment_strategy == "1 Visual for the whole Slide" else segment_num
+                
+                # Update video_pool_filtered for this segment
+                video_pool_filtered_text = replace_segment_block(
+                    video_pool_filtered_text,
+                    video_pool_filtered_segment_num,
+                    formatted_videos
+                )
+                df.at[row_index, "video_pool_filtered"] = video_pool_filtered_text
+                print(f"      Segment {segment_num}: Updated video_pool_filtered (segment {video_pool_filtered_segment_num}) with {len(formatted_videos)} selected video(s)")
+                # Save to sheet immediately after video_pool_filtered is updated
+                if ws is not None:
+                    with _sheet_lock:
+                        save_to_sheet(ws, df)
+                    print(f"      Segment {segment_num}: Saved video_pool_filtered to sheet")
+            else:
+                print(f"      Segment {segment_num}: WARNING - No formatted videos generated")
+        else:
+            print(f"      Segment {segment_num}: WARNING - No videos selected")
+    
+    # Reload row to get updated video_pool_filtered
+    row = df.loc[row_index]
+    video_pool_filtered_text = _safe_str(row.get("video_pool_filtered", ""))
 
     print(f"  Aggregating graphics definitions for {len(failed_segments)} segment(s)...")
     updated_segments: Dict[int, str] = {}
@@ -3236,14 +3638,27 @@ def regenerate_failed_segments(
             if seg_idx == segment_num:
                 vo_text = seg_text
                 break
-        image_items = parse_urls_from_results(drive_results_text, segment_num)
-        image_items += parse_urls_from_results(web_results_text, segment_num)
-        video_urls = parse_urls_from_video_pool(video_pool_text, segment_num)
-        video_other_urls = parse_urls_from_video_pool_other_channels(video_pool_other_text, segment_num)
-        if not image_items and not video_urls and not video_other_urls:
+        
+        # Parse images from image_pool first, fallback to drive_results + web_results if empty
+        image_items = parse_urls_from_image_pool(image_pool_text, segment_num)
+        if not image_items:
+            # Fallback to original search results
+            image_items = parse_urls_from_results(drive_results_text, segment_num)
+            image_items += parse_urls_from_results(web_results_text, segment_num)
+            print(f"    Segment {segment_num}: Using fallback image sources (drive_results + web_results)")
+        else:
+            print(f"    Segment {segment_num}: Using image_pool")
+        
+        # Parse videos from video_pool_filtered
+        video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num)
+        
+        if not image_items and not video_items_filtered:
             print(f"    Segment {segment_num}: WARNING - No candidates found, skipping aggregation")
             continue
-        print(f"    Segment {segment_num}: Aggregating ({len(image_items)} image(s), {len(video_urls)} video(s), {len(video_other_urls)} other video(s))...")
+        
+        embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+        full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
+        print(f"    Segment {segment_num}: Aggregating ({len(image_items)} image(s), {embed_count} embed video(s), {full_video_count} full video(s))...")
         
         # Extract failed visuals for this segment
         failed_visuals = []
@@ -3272,13 +3687,17 @@ def regenerate_failed_segments(
                             "asset_url": asset_url
                         })
         
+        # For "1 Visual for the whole Slide", use slide_chunk as vo_text when segment_num == 1
+        actual_vo_text = vo_text
+        if visual_assignment_strategy == "1 Visual for the whole Slide" and segment_num == 1:
+            actual_vo_text = slide_chunk
+        
         graphics_definition_xml, evaluation_breakdown = aggregate_graphics_definition_for_segment(
-            vo_text=vo_text,
+            vo_text=actual_vo_text,
             slide_title=slide_title,
             slide_chunk=slide_chunk,
             image_items=image_items,
-            video_urls=video_urls,
-            video_urls_other_channels=video_other_urls,
+            video_items_filtered=video_items_filtered,
             course_name=course_name,
             topic_name=topic_name,
             subtopic_name=subtopic_name,
@@ -3288,6 +3707,7 @@ def regenerate_failed_segments(
             feedback=feedback,
             target_audience=target_audience,
             failed_visuals=failed_visuals if failed_visuals else None,
+            visual_assignment_strategy=visual_assignment_strategy,
         )
         if graphics_definition_xml:
             graphics_definition_xml = process_video_frames_in_xml(graphics_definition_xml, drive)
@@ -3318,12 +3738,20 @@ def regenerate_failed_segments(
                 if "visual_id" not in step:
                     step["visual_id"] = f"S{segment_num}V{idx}"
             
-            # Parse replacement visuals to get visual IDs
+            # Parse replacement visuals to get visual IDs - handle both plural and singular wrappers
             replacement_visuals_match = re.search(
                 r'<replacement_visuals>(.*?)</replacement_visuals>',
                 replacement_xml,
                 re.DOTALL | re.IGNORECASE
             )
+            if not replacement_visuals_match:
+                # Try singular wrapper (for entire slide case)
+                replacement_visuals_match = re.search(
+                    r'<replacement_visual>(.*?)</replacement_visual>',
+                    replacement_xml,
+                    re.DOTALL | re.IGNORECASE
+                )
+            
             if replacement_visuals_match:
                 visual_blocks = re.findall(
                     r'<visual>(.*?)</visual>',
@@ -3401,10 +3829,23 @@ def run_review_loop_for_slide(
     voiceover_text = _safe_str(row.get("voiceover_segment", ""))
     final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
     segment_nums_to_review: Optional[List[int]] = None
+    
+    # Get visual assignment strategy and select appropriate prompt
+    visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+    if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+        visual_assignment_strategy = "Flexible, let the agent decide"
+    
+    # Override prompt_template based on visual_assignment_strategy if needed
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        if criterion_name == "alignment":
+            prompt_template = ALIGNMENT_REVIEW_PROMPT_FOR_ONE_VISUAL_PER_SLIDE
+        elif criterion_name == "specificity":
+            prompt_template = SPECIFICITY_REVIEW_PROMPT_FOR_ONE_VISUAL_PER_SLIDE
+        # For other criteria (e.g., redundancy), use the provided prompt_template as-is
 
     # Initialize revision tracking if not provided
     if revision_tracking is None:
-        segments_map_initial = build_segment_visual_map(voiceover_text, final_graphics_definition)
+        segments_map_initial = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
         revision_tracking = initialize_revision_tracking(segments_map_initial)
     
     conversation_history: Optional[List[types.Content]] = None
@@ -3422,7 +3863,7 @@ def run_review_loop_for_slide(
         row = df.loc[row_index]  # Refresh row reference to get latest data
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
         
-        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition)
+        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
         segment_nums = segment_nums_to_review or list(segments_map.keys())
         print(f"\n{'='*60}")
         print(f"Review {criterion_name}: Row {row_index + 1} attempt {attempt}/{MAX_REVIEW_ATTEMPTS}")
@@ -3466,6 +3907,7 @@ def run_review_loop_for_slide(
                     llm=llm,
                     conversation_history=conversation_history,
                     criterion_name=criterion_name,
+                    visual_assignment_strategy=visual_assignment_strategy,
                 )
             else:
                 # Edge case: No replaced visuals but we're on attempt > 1
@@ -3487,6 +3929,7 @@ def run_review_loop_for_slide(
                     llm=llm,
                     conversation_history=conversation_history,
                     criterion_name=criterion_name,
+                    visual_assignment_strategy=visual_assignment_strategy,
                 )
         else:
             # First review or fresh start
@@ -3505,12 +3948,13 @@ def run_review_loop_for_slide(
                 llm=llm,
                 conversation_history=conversation_history,
                 criterion_name=criterion_name,
+                visual_assignment_strategy=visual_assignment_strategy,
             )
         
         if verdict == "PASS":
             print(f"✓ {criterion_name} review PASSED for row {row_index + 1}")
             # Update tracking to mark remaining loops as "No replacement"
-            segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition)
+            segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
             total_loops = MAX_REVIEW_ATTEMPTS + MAX_REGEN_ATTEMPTS
             # Mark remaining review loops
             for loop_num in range(attempt + 1, MAX_REVIEW_ATTEMPTS + 1):
@@ -3527,7 +3971,13 @@ def run_review_loop_for_slide(
         failed_segments: List[int] = []
         feedback_by_segment: Dict[int, str] = {}
         for failure in failures:
-            segment_num = _parse_segment_marker(failure.get("segment_id", ""))
+            segment_id_text = failure.get("segment_id", "")
+            segment_num = _parse_segment_marker(segment_id_text)
+            # Handle "1 Visual for the whole Slide" case where LLM might return "SLIDE_1" instead of "SEGMENT 1"
+            if not segment_num and visual_assignment_strategy == "1 Visual for the whole Slide":
+                # If it's "SLIDE_X" format, map to segment 1
+                if re.search(r"SLIDE_", segment_id_text, re.IGNORECASE):
+                    segment_num = 1
             if not segment_num:
                 continue
             if segment_num not in failed_segments:
@@ -3559,7 +4009,7 @@ def run_review_loop_for_slide(
             # Mark all remaining loops as "No replacement"
             row = df.loc[row_index]
             final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
-            segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition)
+            segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
             total_loops = MAX_REVIEW_ATTEMPTS + MAX_REGEN_ATTEMPTS
             # Mark remaining review loops
             for loop_num in range(attempt, MAX_REVIEW_ATTEMPTS + 1):
@@ -3597,6 +4047,11 @@ def run_review_loop_for_slide(
                 f"{step.get('visual_id')} | When VO: \"{step.get('voiceover_part', '')}\" | Visual assigned: {step.get('asset', '')}"
                 for step in segment.get("visual_steps", [])
             ])
+            # For "1 Visual for the whole Slide", use slide_chunk as vo_text when segment_num == 1
+            actual_vo_text = _safe_str(segment.get("vo_text", ""))
+            if visual_assignment_strategy == "1 Visual for the whole Slide" and segment_num == 1:
+                actual_vo_text = slide_chunk
+            
             revised = revise_segment_visuals(
                 course_name=course_name,
                 target_audience=target_audience,
@@ -3604,29 +4059,38 @@ def run_review_loop_for_slide(
                 subtopic_name=subtopic_name,
                 slide_title=slide_title,
                 slide_chunk=slide_chunk,
-                vo_text=_safe_str(segment.get("vo_text", "")),
+                vo_text=actual_vo_text,
                 current_visuals=current_visuals,
                 feedback=feedback_by_segment.get(segment_num, ""),
+                image_pool_text=_safe_str(row.get("image_pool", "")),
+                video_pool_filtered_text=_safe_str(row.get("video_pool_filtered", "")),
                 drive_results_text=_safe_str(row.get("drive_results", "")),
                 web_results_text=_safe_str(row.get("web_results", "")),
-                video_pool_text=_safe_str(row.get("video_pool", "")),
-                video_pool_other_text=_safe_str(row.get("video_pool_other_channels", "")),
                 segment_num=segment_num,
                 drive=drive,
                 llm=llm,
+                visual_assignment_strategy=visual_assignment_strategy,
             )
             if revised:
-                # CRITICAL: revise_segment_visuals returns only the content inside <replacement_visuals> tags
+                # CRITICAL: revise_segment_visuals returns only the content inside <replacement_visuals> or <replacement_visual> tags
                 # We need to wrap it in the tags for the merge function and visual ID extraction
                 # Wrap the revised content in <replacement_visuals> tags if not already wrapped
-                if not revised.strip().startswith('<replacement_visuals>'):
+                revised_stripped = revised.strip()
+                if not revised_stripped.startswith('<replacement_visuals>') and not revised_stripped.startswith('<replacement_visual>'):
                     revised = f"<replacement_visuals>\n{revised}\n</replacement_visuals>"
                 
                 updated_segments[segment_num] = revised
-                # Extract visual IDs that were replaced
+                # Extract visual IDs that were replaced - handle both plural and singular wrappers
                 visual_ids = []
                 replacement_visuals_match = re.search(
                     r'<replacement_visuals>(.*?)</replacement_visuals>',
+                    revised,
+                    re.DOTALL | re.IGNORECASE
+                )
+                if not replacement_visuals_match:
+                    # Try singular wrapper (for entire slide case)
+                    replacement_visuals_match = re.search(
+                        r'<replacement_visual>(.*?)</replacement_visual>',
                     revised,
                     re.DOTALL | re.IGNORECASE
                 )
@@ -3756,6 +4220,7 @@ def run_review_loop_for_slide(
             llm=llm,
             conversation_history=conversation_history,
             criterion_name=criterion_name,
+            visual_assignment_strategy=visual_assignment_strategy,
         )
     else:
         # Fall back to regular review if no replaced visuals
@@ -3796,7 +4261,13 @@ def run_review_loop_for_slide(
     failed_segments: List[int] = []
     feedback_by_segment: Dict[int, str] = {}
     for failure in final_failures:
-        segment_num = _parse_segment_marker(failure.get("segment_id", ""))
+        segment_id_text = failure.get("segment_id", "")
+        segment_num = _parse_segment_marker(segment_id_text)
+        # Handle "1 Visual for the whole Slide" case where LLM might return "SLIDE_1" instead of "SEGMENT 1"
+        if not segment_num and visual_assignment_strategy == "1 Visual for the whole Slide":
+            # If it's "SLIDE_X" format, map to segment 1
+            if re.search(r"SLIDE_", segment_id_text, re.IGNORECASE):
+                segment_num = 1
         if not segment_num:
             continue
         if segment_num not in failed_segments:
@@ -3887,7 +4358,7 @@ def run_review_loop_for_slide(
         
         # Review the regenerated visuals using follow-up mechanism in the same conversation
         # The segments_map is built from the updated final_graphics_definition which contains the regenerated visuals
-        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition)
+        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
         print(f"  ✅ Built segments_map with latest regenerated visuals for follow-up review")
         
         # Update revision tracking for regeneration loop (dynamic based on MAX_REVIEW_ATTEMPTS)
@@ -3922,6 +4393,7 @@ def run_review_loop_for_slide(
                 llm=llm,
                 conversation_history=conversation_history,
                 criterion_name=criterion_name,
+                visual_assignment_strategy=visual_assignment_strategy,
             )
         else:
             # Fallback: if no conversation history or no replaced visuals, use regular review
@@ -4248,32 +4720,46 @@ def _run_redundancy_loop_for_url(
 
         for (slide_index, segment_num), feedback in feedback_map.items():
             row = df.loc[slide_index]
+            slide_chunk = _safe_str(row.get("Slide Chunk", ""))
+            visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+            if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+                visual_assignment_strategy = "Flexible, let the agent decide"
+            
             segments_map = build_segment_visual_map(
                 _safe_str(row.get("voiceover_segment", "")),
                 _safe_str(row.get("final_graphics_definition", "")),
+                visual_assignment_strategy,
+                slide_chunk,
             )
             segment = segments_map.get(segment_num, {})
             current_visuals = "\n".join([
                 f"{step.get('visual_id')} | When VO: \"{step.get('voiceover_part', '')}\" | Visual assigned: {step.get('asset', '')}"
                 for step in segment.get("visual_steps", [])
             ])
+            
+            # For "1 Visual for the whole Slide", use slide_chunk as vo_text when segment_num == 1
+            actual_vo_text = _safe_str(segment.get("vo_text", ""))
+            if visual_assignment_strategy == "1 Visual for the whole Slide" and segment_num == 1:
+                actual_vo_text = slide_chunk
+            
             revised = revise_segment_visuals(
                 course_name=course_name,
                 target_audience=target_audience,
                 topic_name=_safe_str(row.get("Topic", "")),
                 subtopic_name=_safe_str(row.get("Subtopic", "")),
                 slide_title=_safe_str(row.get("Slide Chunk Title", "")),
-                slide_chunk=_safe_str(row.get("Slide Chunk", "")),
-                vo_text=_safe_str(segment.get("vo_text", "")),
+                slide_chunk=slide_chunk,
+                vo_text=actual_vo_text,
                 current_visuals=current_visuals,
                 feedback=feedback,
+                image_pool_text=_safe_str(row.get("image_pool", "")),
+                video_pool_filtered_text=_safe_str(row.get("video_pool_filtered", "")),
                 drive_results_text=_safe_str(row.get("drive_results", "")),
                 web_results_text=_safe_str(row.get("web_results", "")),
-                video_pool_text=_safe_str(row.get("video_pool", "")),
-                video_pool_other_text=_safe_str(row.get("video_pool_other_channels", "")),
                 segment_num=segment_num,
                 drive=drive,
                 llm=llm,
+                visual_assignment_strategy=visual_assignment_strategy,
             )
             if revised:
                 df.at[slide_index, "final_graphics_definition"] = update_final_graphics_definition_with_replacements(
@@ -4458,13 +4944,17 @@ def process_review_revise_row(
         print("\n" + "=" * 80)
         print(f"Processing row {row_index + 1}")
         print(f"Slide Title: {_safe_str(row.get('Slide Chunk Title', ''))}")
-        print(f"Topic: {_safe_str(row.get('Topic', ''))} | Subtopic: {_safe_str(row.get('Subtopic', ''))}")
         print("=" * 80)
 
         # Initialize revision tracking for this row
         voiceover_text = _safe_str(row.get("voiceover_segment", ""))
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
-        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition)
+        slide_chunk = _safe_str(row.get("Slide Chunk", ""))
+        visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+        if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+            visual_assignment_strategy = "Flexible, let the agent decide"
+        
+        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
         revision_tracking = initialize_revision_tracking(segments_map)
         print(f"  Initialized revision tracking for {len(revision_tracking)} visual(s)")
 
@@ -4486,7 +4976,7 @@ def process_review_revise_row(
         row = df.loc[row_index]
         # Update segments_map after alignment for specificity tracking
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
-        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition)
+        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
         
         print("\n[STEP 2] Reviewing SPECIFICITY criterion...")
         specificity_status, revision_tracking = run_review_loop_for_slide(
@@ -4623,11 +5113,6 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(
 
     print(f"\n{'='*80}")
     print(f"Starting Graphics Definition V2 Review & Revise")
-    print(f"Course: {course_name}")
-    print(f"Target Audience: {target_audience}")
-    print(f"Rows to process: {len(rows_to_process)}")
-    print(f"LLM Model: {llm}")
-    print(f"Max Workers: {max_workers}")
     print(f"{'='*80}\n")
 
     progress = SmartProgressBar(total_tasks=len(rows_to_process), description="Graphics review (alignment/specificity)")

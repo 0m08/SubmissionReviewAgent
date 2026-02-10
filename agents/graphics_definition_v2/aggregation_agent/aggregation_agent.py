@@ -1244,6 +1244,57 @@ def parse_urls_from_results(results_text, segment_num):
     return items
 
 
+def parse_urls_from_image_pool(image_pool_text, segment_num):
+    """
+    Parse image items from image_pool column for a specific segment.
+    
+    Format: "Title: {title} | URL: {url}"
+    
+    :param image_pool_text: The image_pool column content
+    :param segment_num: Segment number to extract images for
+    :return: List of dictionaries with 'title' and 'url' keys or empty list if no images found
+    """
+    if not image_pool_text or image_pool_text.strip() == "" or image_pool_text == "nan":
+        return []
+    
+    # Find the segment section
+    segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
+    match = re.search(segment_pattern, image_pool_text, re.DOTALL)
+    
+    if not match:
+        return []
+    
+    segment_content = match.group(1).strip()
+    items = []
+    
+    # Parse each line: "Title: {title} | URL: {url}"
+    for line in segment_content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Try to parse "Title: ... | URL: ..." format
+        if " | URL: " in line:
+            parts = line.split(" | URL: ", 1)
+            if len(parts) == 2:
+                title_part = parts[0]
+                url = parts[1].strip()
+                
+                # Extract title (remove "Title: " prefix)
+                if title_part.startswith("Title: "):
+                    title = title_part[7:].strip()
+                else:
+                    title = title_part.strip()
+                
+                if url:
+                    items.append({"title": title, "url": url})
+        # Fallback: if line is just a URL (for backward compatibility)
+        elif line.startswith('http'):
+            items.append({"title": "Untitled", "url": line})
+    
+    return items
+
+
 def parse_urls_from_video_pool(video_pool_text, segment_num):
     """
     Parse video URLs from video_pool column for a specific segment.
@@ -1348,6 +1399,99 @@ def parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, se
             urls.append(line)
     
     return urls
+
+
+def parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num):
+    """
+    Parse video items from video_pool_filtered column for a specific segment.
+    
+    Handles two formats:
+    1. Embed URL with timestamps: "https://www.youtube.com/embed/fd0kGz0XckE?start=120&end=136"
+    2. Full video with metadata: "Title: ... | Duration: ... | Channel: ... | URL: https://www.youtube.com/watch?v=..."
+    
+    :param video_pool_filtered_text: The video_pool_filtered column content
+    :param segment_num: Segment number to extract videos for
+    :return: List of dictionaries with 'type' ('embed' or 'full_video'), 'url', and optional 'metadata' keys
+    """
+    if not video_pool_filtered_text or video_pool_filtered_text.strip() == "" or video_pool_filtered_text == "nan":
+        return []
+    
+    # Find the segment section
+    segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
+    match = re.search(segment_pattern, video_pool_filtered_text, re.DOTALL)
+    
+    if not match:
+        return []
+    
+    segment_content = match.group(1).strip()
+    items = []
+    
+    # Parse each line
+    for line in segment_content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Check if it's format 2: "Title: ... | Duration: ... | Channel: ... | URL: ..."
+        if " | URL: " in line:
+            parts = line.split(" | URL: ", 1)
+            if len(parts) == 2:
+                metadata_part = parts[0].strip()
+                url = parts[1].strip()
+                
+                if url and url.startswith('http'):
+                    # Parse metadata
+                    title = "Untitled"
+                    duration = ""
+                    channel = ""
+                    
+                    if "Title: " in metadata_part:
+                        title_match = re.search(r'Title:\s*(.+?)(?:\s*\||$)', metadata_part)
+                        if title_match:
+                            title = title_match.group(1).strip()
+                    
+                    if "Duration: " in metadata_part:
+                        duration_match = re.search(r'Duration:\s*(.+?)(?:\s*\||$)', metadata_part)
+                        if duration_match:
+                            duration = duration_match.group(1).strip()
+                    
+                    if "Channel: " in metadata_part:
+                        channel_match = re.search(r'Channel:\s*(.+?)(?:\s*\||$)', metadata_part)
+                        if channel_match:
+                            channel = channel_match.group(1).strip()
+                    
+                    items.append({
+                        "type": "full_video",
+                        "url": url,
+                        "metadata": {
+                            "title": title,
+                            "duration": duration,
+                            "channel": channel
+                        }
+                    })
+        # Check if it's format 1: Embed URL (starts with http and contains 'embed')
+        elif line.startswith('http') and 'youtube.com/embed' in line:
+            items.append({
+                "type": "embed",
+                "url": line,
+                "metadata": None
+            })
+        # Fallback: if line is just a URL (treat as embed if it contains embed, otherwise as full video)
+        elif line.startswith('http'):
+            if 'youtube.com/embed' in line:
+                items.append({
+                    "type": "embed",
+                    "url": line,
+                    "metadata": None
+                })
+            else:
+                items.append({
+                    "type": "full_video",
+                    "url": line,
+                    "metadata": None
+                })
+    
+    return items
 
 
 def convert_watch_url_to_embed_url(watch_url):
@@ -1908,7 +2052,7 @@ def parse_segments_from_voiceover(voiceover_text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_urls, video_urls_other_channels, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None, visual_assignment_strategy="Flexible, let the agent decide"):
+def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None, visual_assignment_strategy="Flexible, let the agent decide"):
     """
     Aggregate graphics definition for a single segment using images and videos.
     
@@ -1916,8 +2060,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
     :param image_items: List of dicts with 'title' and 'url' keys
-    :param video_urls: List of YouTube embed URLs with timestamps (from video_pool)
-    :param video_urls_other_channels: List of YouTube watch URLs without timestamps (from video_pool_other_channels)
+    :param video_items_filtered: List of video items from video_pool_filtered, each with 'type' ('embed' or 'full_video'), 'url', and optional 'metadata'
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
@@ -1942,24 +2085,28 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     else:
         image_candidates_text = "No image candidates provided."
     
-    # Build video candidates text with two sections
+    # Build video candidates text with two sections based on video type
     video_candidates_text = ""
     
-    # First section: video_pool (clips or frames)
-    if video_urls:
+    # Separate videos by type
+    embed_videos = [item for item in video_items_filtered if item.get("type") == "embed"]
+    full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
+    
+    # First section: embed videos (clips or frames)
+    if embed_videos:
         video_candidates_text += "Videos from which you can use video clips (with timestamps) or still frames as images\n"
         video_candidates_text += "\n".join([
-            f"{idx + 1}. {url}"
-            for idx, url in enumerate(video_urls)
+            f"{idx + 1}. {item['url']}"
+            for idx, item in enumerate(embed_videos)
         ])
         video_candidates_text += "\n\n"
     
-    # Second section: video_pool_other_channels (frames only)
-    if video_urls_other_channels:
+    # Second section: full videos (frames only)
+    if full_video_items:
         video_candidates_text += "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps):\n"
         video_candidates_text += "\n".join([
-            f"{idx + 1}. {url}"
-            for idx, url in enumerate(video_urls_other_channels)
+            f"{idx + 1}. {item['url']}"
+            for idx, item in enumerate(full_video_items)
         ])
     
     if not video_candidates_text.strip():
@@ -1970,26 +2117,64 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     
     # Select prompt based on whether feedback is provided (regeneration case) or visual_assignment_strategy
     if feedback and feedback.strip():
-        # Use regeneration-specific prompt
+        # Use regeneration-specific prompt based on visual_assignment_strategy
         target_audience_text = target_audience
-        prompt_text = aggregation_agent_regeneration_prompt.format(
-            course_name=course_name,
-            target_audience=target_audience_text,
-            topic_name=topic_name,
-            subtopic_name=subtopic_name,
-            vo_text=vo_text,
-            slide_title=slide_title,
-            slide_chunk=slide_chunk,
-            image_candidates=image_candidates_text,
-            video_candidates=video_candidates_text,
-            feedback=feedback.strip()
-        )
-        # Print the formatted prompt
-        print(f"\n{'='*80}")
-        print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT:")
-        print(f"{'='*80}")
-        print(prompt_text)
-        print(f"{'='*80}\n")
+        visual_assignment_strategy = str(visual_assignment_strategy).strip()
+        
+        if visual_assignment_strategy == "1 Visual per Sentence":
+            prompt_text = aggregation_agent_regeneration_prompt_for_one_visual_per_sentence.format(
+                course_name=course_name,
+                target_audience=target_audience_text,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                vo_text=vo_text,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                image_candidates=image_candidates_text,
+                video_candidates=video_candidates_text,
+                feedback=feedback.strip()
+            )
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual per Sentence):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
+        elif visual_assignment_strategy == "1 Visual for the whole Slide":
+            prompt_text = aggregation_agent_regeneration_prompt_for_one_visual_per_slide.format(
+                course_name=course_name,
+                target_audience=target_audience_text,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                image_candidates=image_candidates_text,
+                video_candidates=video_candidates_text,
+                feedback=feedback.strip()
+            )
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual for Entire Slide):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
+        else:
+            # Default: Flexible strategy
+            prompt_text = aggregation_agent_regeneration_prompt.format(
+                course_name=course_name,
+                target_audience=target_audience_text,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                vo_text=vo_text,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                image_candidates=image_candidates_text,
+                video_candidates=video_candidates_text,
+                feedback=feedback.strip()
+            )
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (Flexible):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
     else:
         # Select prompt based on visual_assignment_strategy
         visual_assignment_strategy = str(visual_assignment_strategy).strip()
@@ -2007,11 +2192,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text
             )
             # Print the formatted prompt
-            print(f"\n{'='*80}")
-            print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
-            print(f"{'='*80}")
-            print(prompt_text)
-            print(f"{'='*80}\n")
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
         else:
             # Use flexible prompt (default)
             prompt_text = aggregation_agent_prompt.format(
@@ -2026,11 +2211,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text
             )
             # Print the formatted prompt
-            print(f"\n{'='*80}")
-            print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
-            print(f"{'='*80}")
-            print(prompt_text)
-            print(f"{'='*80}\n")
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
     
     # Build multimodal parts: failed visuals (if any) + candidate images + candidate videos + text
     parts: List[types.Part] = []
@@ -2075,46 +2260,54 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             else:
                 print(f"⚠️ Failed to load image {idx}: {image_title}")
     
-    # Add videos from video_pool (with timestamps) - can be used as clips or frames
-    for video_url in video_urls:
-        clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
-        if clip_url:
-            video_id = f"VID_{candidate_num}"
-            # Add text label (matching revision prompt format)
-            label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
-            parts.append(types.Part(text=label_text))
-            # Add video part with timestamps
-            video_part = build_video_part(clip_url, start_seconds, end_seconds)
-            parts.append(video_part)
-            print(f"✅ Added video {candidate_num} (with timestamps): start={start_seconds}s, end={end_seconds}s")
-            candidate_num += 1
-        else:
-            print(f"⚠️ Failed to parse video URL: {video_url}")
-    
-    # Add videos from video_pool_other_channels (without timestamps - full video) - frames only
-    for video_url in video_urls_other_channels:
-        # Convert watch URL to embed URL
-        embed_url = convert_watch_url_to_embed_url(video_url)
-        if embed_url:
-            video_id = f"VID_{candidate_num}"
-            # Add text label (matching revision prompt format)
-            label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
-            parts.append(types.Part(text=label_text))
-            # Add video part without timestamps (full video)
-            video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
-            parts.append(video_part)
-            print(f"✅ Added video {candidate_num} (full video, no timestamps): {embed_url}")
-            candidate_num += 1
-        else:
-            print(f"⚠️ Failed to convert video URL: {video_url}")
+    # Add videos from video_pool_filtered - process based on type
+    for video_item in video_items_filtered:
+        video_type = video_item.get("type")
+        video_url = video_item.get("url")
+        
+        if not video_url:
+            continue
+        
+        video_id = f"VID_{candidate_num}"
+        
+        if video_type == "embed":
+            # Embed URL with timestamps - can be used as clips or frames
+            clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+            if clip_url:
+                # Add text label
+                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                parts.append(types.Part(text=label_text))
+                # Add video part with timestamps
+                video_part = build_video_part(clip_url, start_seconds, end_seconds)
+                parts.append(video_part)
+                print(f"✅ Added video {candidate_num} (embed with timestamps): start={start_seconds}s, end={end_seconds}s")
+                candidate_num += 1
+            else:
+                print(f"⚠️ Failed to parse embed video URL: {video_url}")
+        elif video_type == "full_video":
+            # Full video - frames only
+            # Convert watch URL to embed URL
+            embed_url = convert_watch_url_to_embed_url(video_url)
+            if embed_url:
+                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                parts.append(types.Part(text=label_text))
+                # Add video part without timestamps (full video)
+                video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+                parts.append(video_part)
+                print(f"✅ Added video {candidate_num} (full video, no timestamps): {embed_url}")
+                candidate_num += 1
+            else:
+                print(f"⚠️ Failed to convert video URL: {video_url}")
     
     # Add prompt text at the end
     parts.append(types.Part(text=prompt_text))
         
     # Call LLM
-    total_videos = len(video_urls) + len(video_urls_other_channels)
+    embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+    full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
+    total_videos = len(video_items_filtered)
     try:
-        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({len(video_urls)} with timestamps, {len(video_urls_other_channels)} full videos)...")
+        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} with timestamps, {full_video_count} full videos)...")
         response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
         
         # Print the full response for debugging
@@ -2150,6 +2343,19 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             print(f" ✅ Successfully extracted <replacement_visuals> (includes visual_instruction and selection_justification)")
             return final_graphics_definition, evaluation_breakdown
         
+        # Check for replacement_visual (singular - used for "1 Visual for the whole Slide" strategy)
+        replacement_visual_match = re.search(
+            r'<replacement_visual>(.*?)</replacement_visual>',
+            response_text,
+            re.DOTALL | re.IGNORECASE
+        )
+        
+        if replacement_visual_match:
+            # Wrap in replacement_visuals for consistency with downstream processing
+            final_graphics_definition = f"<replacement_visuals>\n{replacement_visual_match.group(1).strip()}\n</replacement_visuals>"
+            print(f" ✅ Successfully extracted <replacement_visual> (singular) and wrapped in <replacement_visuals>")
+            return final_graphics_definition, evaluation_breakdown
+        
         # Check for final_graphics_definition (standard aggregation case)
         final_graphics_definition_match = re.search(
             r'<final_graphics_definition>(.*?)</final_graphics_definition>',
@@ -2171,15 +2377,14 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         return None, ""
 
 
-def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, image_items, video_urls, video_urls_other_channels, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking"):
+def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking"):
     """
     Aggregate graphics definition for the entire slide using images and videos.
     
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
     :param image_items: List of dicts with 'title' and 'url' keys
-    :param video_urls: List of YouTube embed URLs with timestamps (from video_pool)
-    :param video_urls_other_channels: List of YouTube watch URLs without timestamps (from video_pool_other_channels)
+    :param video_items_filtered: List of video items from video_pool_filtered, each with 'type' ('embed' or 'full_video'), 'url', and optional 'metadata'
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
@@ -2200,24 +2405,28 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     else:
         image_candidates_text = "No image candidates provided."
     
-    # Build video candidates text with two sections
+    # Build video candidates text with two sections based on video type
     video_candidates_text = ""
     
-    # First section: video_pool (clips or frames)
-    if video_urls:
+    # Separate videos by type
+    embed_videos = [item for item in video_items_filtered if item.get("type") == "embed"]
+    full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
+    
+    # First section: embed videos (clips or frames)
+    if embed_videos:
         video_candidates_text += "Videos from which you can use video clips (with timestamps) or still frames as images\n"
         video_candidates_text += "\n".join([
-            f"{idx + 1}. {url}"
-            for idx, url in enumerate(video_urls)
+            f"{idx + 1}. {item['url']}"
+            for idx, item in enumerate(embed_videos)
         ])
         video_candidates_text += "\n\n"
     
-    # Second section: video_pool_other_channels (frames only)
-    if video_urls_other_channels:
+    # Second section: full videos (frames only)
+    if full_video_items:
         video_candidates_text += "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps):\n"
         video_candidates_text += "\n".join([
-            f"{idx + 1}. {url}"
-            for idx, url in enumerate(video_urls_other_channels)
+            f"{idx + 1}. {item['url']}"
+            for idx, item in enumerate(full_video_items)
         ])
     
     if not video_candidates_text.strip():
@@ -2239,11 +2448,11 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     )
     
     # Print the formatted prompt
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
-    print(f"{'='*80}")
-    print(prompt_text)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
+    # print(f"{'='*80}")
+    # print(prompt_text)
+    # print(f"{'='*80}\n")
     
     # Build multimodal parts: candidate images + candidate videos + text
     parts: List[types.Part] = []
@@ -2276,43 +2485,62 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
             else:
                 print(f"⚠️ Failed to load image {image_title}")
     
-    # Add candidate videos
-    candidate_num = 1
-    for video_url in video_urls:
-        embed_url, start_seconds, end_seconds = convert_video_url_to_embed(video_url)
-        if embed_url:
-            video_part = build_video_part(embed_url, start_seconds=start_seconds, end_seconds=end_seconds)
-            parts.append(video_part)
-            print(f"✅ Added video {candidate_num} (with timestamps): {embed_url}")
-            candidate_num += 1
-        else:
-            print(f"⚠️ Failed to convert video URL: {video_url}")
-    
-    for video_url in video_urls_other_channels:
-        embed_url, start_seconds, end_seconds = convert_video_url_to_embed(video_url)
-        if embed_url:
-            video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
-            parts.append(video_part)
-            print(f"✅ Added video {candidate_num} (full video, no timestamps): {embed_url}")
-            candidate_num += 1
-        else:
-            print(f"⚠️ Failed to convert video URL: {video_url}")
+    # Add videos from video_pool_filtered - process based on type
+    for video_item in video_items_filtered:
+        video_type = video_item.get("type")
+        video_url = video_item.get("url")
+        
+        if not video_url:
+            continue
+        
+        video_id = f"VID_{candidate_num}"
+        
+        if video_type == "embed":
+            # Embed URL with timestamps - can be used as clips or frames
+            clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+            if clip_url:
+                # Add text label
+                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                parts.append(types.Part(text=label_text))
+                # Add video part with timestamps
+                video_part = build_video_part(clip_url, start_seconds, end_seconds)
+                parts.append(video_part)
+                print(f"✅ Added video {candidate_num} (embed with timestamps): start={start_seconds}s, end={end_seconds}s")
+                candidate_num += 1
+            else:
+                print(f"⚠️ Failed to parse embed video URL: {video_url}")
+        elif video_type == "full_video":
+            # Full video - frames only
+            # Convert watch URL to embed URL
+            embed_url = convert_watch_url_to_embed_url(video_url)
+            if embed_url:
+                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                parts.append(types.Part(text=label_text))
+                # Add video part without timestamps (full video)
+                video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+                parts.append(video_part)
+                print(f"✅ Added video {candidate_num} (full video, no timestamps): {embed_url}")
+                candidate_num += 1
+            else:
+                print(f"⚠️ Failed to convert video URL: {video_url}")
     
     # Add prompt text at the end
     parts.append(types.Part(text=prompt_text))
         
     # Call LLM
-    total_videos = len(video_urls) + len(video_urls_other_channels)
+    embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+    full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
+    total_videos = len(video_items_filtered)
     try:
-        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({len(video_urls)} with timestamps, {len(video_urls_other_channels)} full videos)...")
+        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} with timestamps, {full_video_count} full videos)...")
         response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
         
-        # Print the full response for debugging
-        print(f"\n{'─'*80}")
-        print(f"📤 Aggregation Agent Response from LLM for entire slide: \"{slide_title}\"")
-        print(f"{'─'*80}")
-        print(response_text)
-        print(f"{'─'*80}\n")
+        # # Print the full response for debugging
+        # print(f"\n{'─'*80}")
+        # print(f"📤 Aggregation Agent Response from LLM for entire slide: \"{slide_title}\"")
+        # print(f"{'─'*80}")
+        # print(response_text)
+        # print(f"{'─'*80}\n")
         
         # Extract <evaluation_breakdown> content
         eval_breakdown_match = re.search(
@@ -2546,7 +2774,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, drive_results_text, web_results_text, video_pool_text, video_pool_other_channels_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide"):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide"):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -2554,10 +2782,10 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     :param vo_text: Voiceover text for the segment
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
-    :param drive_results_text: Drive results column content
-    :param web_results_text: Web results column content
-    :param video_pool_text: Video pool column content (with timestamps)
-    :param video_pool_other_channels_text: Video pool other channels column content (without timestamps)
+    :param image_pool_text: Image pool column content (filtered relevant images)
+    :param video_pool_filtered_text: Video pool filtered column content (filtered relevant videos)
+    :param drive_results_text: Drive results column content (fallback for images)
+    :param web_results_text: Web results column content (fallback for images)
     :param storyboard_text: Storyboard content 
     :param course_name: Course name
     :param topic_name: Topic name
@@ -2570,22 +2798,38 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
     
-    # Parse image items from drive_results and web_results for this segment
-    drive_image_items = parse_urls_from_results(drive_results_text, segment_idx)
-    web_image_items = parse_urls_from_results(web_results_text, segment_idx)
+    # Parse image items from image_pool for this segment
+    image_items = parse_urls_from_image_pool(image_pool_text, segment_idx)
+    used_fallback = False
     
-    # Combine both sources (drive_results + web_results)
-    image_items = drive_image_items + web_image_items
+    # Fallback: if no images in image_pool, check drive_results and web_results
+    if not image_items:
+        print(f" ⚠️  No images found in image_pool for segment {segment_idx}, falling back to drive_results and web_results")
+        drive_image_items = parse_urls_from_results(drive_results_text, segment_idx)
+        web_image_items = parse_urls_from_results(web_results_text, segment_idx)
+        image_items = drive_image_items + web_image_items
+        if image_items:
+            used_fallback = True
+            print(f" ✅ Found {len(image_items)} images from fallback sources ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
+        else:
+            print(f" ⚠️  No images found in fallback sources either")
     
-    # Parse video items for this segment
-    video_urls = parse_urls_from_video_pool(video_pool_text, segment_idx)
-    video_urls_other_channels = parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, segment_idx)
+    # Parse video items from video_pool_filtered for this segment
+    video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_idx)
     
-    print(f" 🖼️  Found {len(image_items)} image candidates ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
-    print(f" 🎥 Found {len(video_urls)} video candidates (with timestamps)")
-    print(f" 🎬 Found {len(video_urls_other_channels)} video candidates (other channels, full videos)")
+    embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+    full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
     
-    if not image_items and not video_urls and not video_urls_other_channels:
+    if image_items:
+        if used_fallback:
+            print(f" 🖼️  Found {len(image_items)} image candidates (from fallback: drive_results + web_results)")
+        else:
+            print(f" 🖼️  Found {len(image_items)} image candidates (from image_pool)")
+    else:
+        print(f" 🖼️  No image candidates found")
+    print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed with timestamps, {full_video_count} full videos)")
+    
+    if not image_items and not video_items_filtered:
         print(f" ⚠️  No image or video candidates available for segment {segment_idx}, skipping")
         return segment_idx, None
     
@@ -2595,8 +2839,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         slide_title=slide_title,
         slide_chunk=slide_chunk,
         image_items=image_items,
-        video_urls=video_urls,
-        video_urls_other_channels=video_urls_other_channels,
+        video_items_filtered=video_items_filtered,
         course_name=course_name,
         topic_name=topic_name,
         subtopic_name=subtopic_name,
@@ -2663,10 +2906,10 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
     """
     try:
         voiceover_text = str(row.get("voiceover_segment", "")).strip()
+        image_pool_text = str(row.get("image_pool", "")).strip()
+        video_pool_filtered_text = str(row.get("video_pool_filtered", "")).strip()
         drive_results_text = str(row.get("drive_results", "")).strip()
         web_results_text = str(row.get("web_results", "")).strip()
-        video_pool_text = str(row.get("video_pool", "")).strip()
-        video_pool_other_channels_text = str(row.get("video_pool_other_channels", "")).strip()
         storyboard_text = str(row.get("storyboard_planning", "")).strip()
         
         # Get Visual Assignment Strategy
@@ -2686,22 +2929,40 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             print(f"📋 Row {index + 2}: Processing entire slide (1 visual for whole slide)")
             print(f"{'='*80}")
             
-            # Parse image items from drive_results and web_results
+            # Parse image items from image_pool
             # For "entire slide" case, all candidates are under SEGMENT_1
-            drive_image_items = parse_urls_from_results(drive_results_text, segment_num=1)  # Get all images from SEGMENT_1
-            web_image_items = parse_urls_from_results(web_results_text, segment_num=1)  # Get all images from SEGMENT_1
-            image_items = drive_image_items + web_image_items
+            image_items = parse_urls_from_image_pool(image_pool_text, segment_num=1)  # Get all images from SEGMENT_1
+            used_fallback = False
             
-            # Parse video items
+            # Fallback: if no images in image_pool, check drive_results and web_results
+            if not image_items:
+                print(f" ⚠️  No images found in image_pool for entire slide, falling back to drive_results and web_results")
+                drive_image_items = parse_urls_from_results(drive_results_text, segment_num=1)
+                web_image_items = parse_urls_from_results(web_results_text, segment_num=1)
+                image_items = drive_image_items + web_image_items
+                if image_items:
+                    used_fallback = True
+                    print(f" ✅ Found {len(image_items)} images from fallback sources ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
+                else:
+                    print(f" ⚠️  No images found in fallback sources either")
+            
+            # Parse video items from video_pool_filtered
             # For "entire slide" case, all candidates are under SEGMENT_1
-            video_urls = parse_urls_from_video_pool(video_pool_text, segment_num=1)  # Get all videos from SEGMENT_1
-            video_urls_other_channels = parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, segment_num=1)  # Get all videos from SEGMENT_1
+            video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num=1)  # Get all videos from SEGMENT_1
             
-            print(f" 🖼️  Found {len(image_items)} image candidates ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
-            print(f" 🎥 Found {len(video_urls)} video candidates (with timestamps)")
-            print(f" 🎬 Found {len(video_urls_other_channels)} video candidates (other channels, full videos)")
+            embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+            full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
             
-            if not image_items and not video_urls and not video_urls_other_channels:
+            if image_items:
+                if used_fallback:
+                    print(f" 🖼️  Found {len(image_items)} image candidates (from fallback: drive_results + web_results)")
+                else:
+                    print(f" 🖼️  Found {len(image_items)} image candidates (from image_pool)")
+            else:
+                print(f" 🖼️  No image candidates found")
+            print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed with timestamps, {full_video_count} full videos)")
+            
+            if not image_items and not video_items_filtered:
                 print(f" ⚠️  No image or video candidates available for entire slide, skipping")
                 return index, "", ""
             
@@ -2710,8 +2971,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                 slide_title=slide_title,
                 slide_chunk=slide_chunk,
                 image_items=image_items,
-                video_urls=video_urls,
-                video_urls_other_channels=video_urls_other_channels,
+                video_items_filtered=video_items_filtered,
                 course_name=course_name,
                 topic_name=topic_name,
                 subtopic_name=subtopic_name,
@@ -2773,10 +3033,10 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     vo_text,
                     slide_title,
                     slide_chunk,
+                    image_pool_text,
+                    video_pool_filtered_text,
                     drive_results_text,
                     web_results_text,
-                    video_pool_text,
-                    video_pool_other_channels_text,
                     storyboard_text,
                     course_name,
                     topic_name,
@@ -3122,3 +3382,4 @@ def delete_final_graphics_definition(sheet):
         print(f"🗑️ Deleted 'final_graphics_definition' column from '{worksheet_name}' worksheet")
     else:
         print(f"ℹ️ 'final_graphics_definition' column does not exist in '{worksheet_name}' worksheet")
+

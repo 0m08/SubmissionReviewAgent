@@ -85,7 +85,7 @@ Always provide your output strictly in the following format:
 </output>
 """
 
-# Prompt to use when we want only one visual idea for the entire slide 
+# Prompt to use when we want only one visual for the entire slide 
 generate_search_query_prompt_for_entire_slide = """You are a Search Query Generator agent specializing in the field of HVAC. Your task is to generate concise, high-quality image search queries that can be used to retrieve relevant images from a vector store of image embeddings and web-based image search engines. The retrieved images will then be used as on-screen visuals in an educational e-learning slide as it is being narrated.
 
 You will be given a educational slide, along with its course information for context. First, reason internally about what visual elements would need to be shown on screen for the entire slide to be clearly understood. Then, based on that reasoning, generate 5 image search queries that would retrieve the most relevant visuals.
@@ -176,18 +176,6 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     """
     # Initialize the search query agent
     search_query_agent = Chain(llm=llm, tags=["queries", "evaluation_breakdown", "output"])
-
-    # # Print the formatted prompt for debugging
-    # print("\n🔍 Generate Search Query Prompt Being Sent to LLM:\n")
-    # print(generate_search_query_prompt.format(
-    #     course_name=course_name,
-    #     topic_name=topic_name,
-    #     subtopic_name=subtopic_name,
-    #     vo_text=vo_text,
-    #     slide_chunk=slide_chunk,
-    #     visual_storyboard=visual_storyboard
-    # ))
-    # print("\n" + "=" * 100 + "\n")
 
     # Add the user message
     search_query_agent.add_message(

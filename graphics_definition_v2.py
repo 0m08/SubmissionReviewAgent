@@ -37,10 +37,14 @@ from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_fro
     run_youtube_video_search_for_all_rows,
     delete_video_pool,
 )
-#from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
-#    run_image_selection_from_all_images_for_all_rows,
-#    delete_image_pool,
-#)
+from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
+   run_image_selection_from_all_images_for_all_rows,
+   delete_image_pool,
+)
+from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
+    run_video_selection_from_all_videos_for_all_rows,
+    delete_video_pool_filtered,
+)
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     run_aggregation_agent_for_all_rows,
     delete_final_graphics_definition,
@@ -247,21 +251,36 @@ pipeline_sections = [
                     "sheet": "sheet"
                 }
             },
-            # {
-            #     "name": "Generate Image Pool",
-            #     "func": run_image_selection_from_all_images_for_all_rows,
-            #     "depends_on": ["Generate Video Pool"],
-            #     "args": {
-            #         "sheet": "sheet",
-            #         "llm": "gemini_3_flash_thinking"
-            #     },
-            #     "estimated_time": "20-40 minutes",
-            #     "description": "This function selects all relevant images from drive_results and web_results for each segment and saves them to image_pool column",
-            #     "delete_func": delete_image_pool,
-            #     "delete_args": {
-            #         "sheet": "sheet"
-            #     }
-            # },
+            {
+                "name": "Generate Image Pool",
+                "func": run_image_selection_from_all_images_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking"
+                },
+                "estimated_time": "20-40 minutes",
+                "description": "This function selects all relevant images from drive_results and web_results for each segment and saves them to image_pool column",
+                "delete_func": delete_image_pool,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+            {
+                "name": "Generate Video Pool",
+                "func": run_video_selection_from_all_videos_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking"
+                },
+                "estimated_time": "20-40 minutes",
+                "description": "This function selects all relevant videos from video_pool and video_pool_other_channels for each segment and saves them to video_pool_filtered column",
+                "delete_func": delete_video_pool_filtered,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
         ]
     },
     {
@@ -270,7 +289,7 @@ pipeline_sections = [
             {
                 "name": "Run Aggregation Agent",
                 "func": run_aggregation_agent_for_all_rows,
-                "depends_on": ["Execute Video Search in other Youtube Channels"],
+                "depends_on": ["Generate Video Pool"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking" 
