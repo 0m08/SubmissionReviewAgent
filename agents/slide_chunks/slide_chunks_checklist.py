@@ -23,7 +23,7 @@ from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
 
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain.chat_models import init_chat_model
@@ -33,7 +33,7 @@ from typing import Annotated, List, Optional, Tuple
 from pydantic import Field
 # from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
-from langgraph.prebuilt.chat_agent_executor import AgentState
+from langchain.agents import AgentState
 import pandas as pd
 from services.crud_text_block_tools import create_block, read_blocks, update_block, delete_block
 import pandas as pd
@@ -476,7 +476,7 @@ def run_reviser_agent(slide_chunks, checklist_feedback, criteria_with_ops, revis
         df: pd.DataFrame = Field(default_factory=pd.DataFrame)
 
 
-    graph = create_react_agent(
+    graph = create_agent(
         model=llm,
         tools=[create_block, read_blocks, update_block, delete_block],
         state_schema=BufferState,     # <— includes the dataframe

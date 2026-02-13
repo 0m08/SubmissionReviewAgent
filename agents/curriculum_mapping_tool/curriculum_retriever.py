@@ -7,9 +7,9 @@ import streamlit as st
 from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-from langchain.schema import Document
+from langchain_classic.schema import Document
 from langchain_chroma import Chroma
-from langchain.retrievers import BM25Retriever, EnsembleRetriever, ContextualCompressionRetriever
+from langchain_classic.retrievers import BM25Retriever, EnsembleRetriever, ContextualCompressionRetriever
 from langchain_cohere import CohereRerank
 from pydrive2.files import ApiRequestError
 from gspread.utils import rowcol_to_a1
