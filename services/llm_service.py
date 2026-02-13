@@ -302,8 +302,9 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             pplx_deep_research = ChatPerplexity(model = "sonar-deep-research", temperature = 0, pplx_api_key = os.environ.get("PPLX_API_KEY")),
             gemini_2_5_flash = ChatGoogleGenerativeAI(model = "gemini-2.5-flash", temperature = 0.7, max_tokens = 640000),
             gemini_2_5_pro = ChatGoogleGenerativeAI(model = "gemini-2.5-pro", temperature = 0.7, max_tokens = 640000),
+            gemini_3_flash = ChatGoogleGenerativeAI(model = "gemini-3-flash-preview", max_tokens = 640000, thinking_level="high"),
             gpt5_thinking = ChatOpenAI(model_name = "gpt-5", max_tokens = 127000, reasoning_effort="high"),
-            gpt5_mini_thinking = ChatOpenAI(model_name = "gpt-5-mini", max_tokens = 127000), # or "minimal", "low", "medium", "high"
+            gpt5_mini_thinking = ChatOpenAI(model_name = "gpt-5-mini", max_tokens = 127000, reasoning_effort="high"), # or "minimal", "low", "medium", "high"
             # gpt5 = ChatOpenAI(model_name = "gpt-5", temperature = 0.7, max_tokens = 8192),
             # gemini_2_flash_open_router = ChatOpenAI(model = 'google/gemini-2.0-flash-exp:free', temperature = 0.7, max_completion_tokens = 8192, base_url = 'https://openrouter.ai/api/v1', api_key = os.environ.get('OPENROUTER_API_KEY'))
             )
