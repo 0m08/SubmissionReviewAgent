@@ -1,4 +1,4 @@
-from langchain.vectorstores import Chroma
+from langchain_classic.vectorstores import Chroma
 from tqdm import tqdm
 import pandas as pd
 from services.embedding_service import get_embedding_model

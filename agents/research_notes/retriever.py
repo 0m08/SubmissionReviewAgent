@@ -2,9 +2,9 @@ from agents.research_notes.vector_store import load_vector_db_with_pydrive
 from services.embedding_service import get_embedding_model
 import os
 import pickle
-from langchain.retrievers import EnsembleRetriever
+from langchain_classic.retrievers import EnsembleRetriever
 from langchain_cohere import CohereRerank
-from langchain.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers import ContextualCompressionRetriever
 # from services.helper_functions import get_short_name
 from langchain_community.retrievers import BM25Retriever
 from langchain_exa import ExaSearchRetriever

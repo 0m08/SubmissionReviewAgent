@@ -363,7 +363,7 @@ Make surgical edits to fix the issues while preserving the improvements already 
 **File:** `/agents/paraphraser/orchestrator.py`
 
 ```python
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from typing import Dict, Optional
 import os
@@ -394,7 +394,7 @@ def create_paraphraser_orchestrator(
     tools = [paraphrase_text, review_quality, refine_text]
 
     # Create ReAct agent with tools
-    graph = create_react_agent(
+    graph = create_agent(
         model=llm,
         tools=tools,
         state_schema=ParaphraserState,

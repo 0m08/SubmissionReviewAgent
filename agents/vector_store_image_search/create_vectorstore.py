@@ -5,7 +5,7 @@ from datetime import datetime
 import requests
 import imagehash
 from io import BytesIO
-from langchain.vectorstores import Chroma
+from langchain_classic.vectorstores import Chroma
 from services.embedding_service import get_embedding_model
 from services.sheets_service import save_to_sheet
 from services.drive_service import download_folder_from_drive
