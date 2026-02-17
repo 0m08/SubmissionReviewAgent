@@ -1,16 +1,16 @@
 from langsmith import traceable
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet, merge_and_save_columns
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import requests
 from io import BytesIO
 from PIL import Image
-from services.llm_service import llm_with_retry
 from modules.chain import Chain
-from agents.vector_store_image_search.graphics_retriever_agent import pil_to_base64_data_uri
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
+from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import invoke_gemini_multimodal
+from google.genai import types
 from dotenv import load_dotenv
 import os
 import base64
@@ -618,6 +618,7 @@ def select_images_from_all_for_segment(vo_text, slide_title, slide_chunk, image_
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting images for segment")
     print(f"{'─'*45}")
+    print(f"🤖 Using LLM model: {llm}")
     print(f"📝 VO text: \"{vo_text}\"")
     print(f"🖼️ Available images: {len(image_urls)}")
     if feedback:
@@ -627,8 +628,8 @@ def select_images_from_all_for_segment(vo_text, slide_title, slide_chunk, image_
         print(f"⚠️  No images available, returning empty selection")
         return ""
     
-    # Build multimodal content with images
-    content_parts = []
+    # Build multimodal parts for Gemini API (supports thinking mode)
+    parts = []
     
     # Select prompt based on whether feedback is provided
     if feedback and feedback.strip():
@@ -667,12 +668,7 @@ def select_images_from_all_for_segment(vo_text, slide_title, slide_chunk, image_
         # print(prompt_text)
         # print(f"{'='*80}\n")
     
-    content_parts.append({
-        "type": "text",
-        "text": prompt_text
-    })
-    
-    # Load and add each image
+    # Load and add each image as Gemini Part objects
     loaded_images = []
     for i, img_url in enumerate(image_urls, 1):
         print(f"📥 Loading image {i}/{len(image_urls)}: {img_url[:50]}...")
@@ -684,40 +680,26 @@ def select_images_from_all_for_segment(vo_text, slide_title, slide_chunk, image_
         
         if pil_image:
             # Add label text with Title and URL
-            label_text = f"\n--- Image {i} of {len(image_urls)} ---\n"
-            label_text += f"Title: {img_title}\n"
-            label_text += f"URL: {img_url}\n"
+            label_text = f"\n--- Image {i} of {len(image_urls)} ---\nTitle: {img_title}\nURL: {img_url}\n"
+            parts.append(types.Part(text=label_text))
             
-            content_parts.append({
-                "type": "text",
-                "text": label_text
-            })
-            
-            content_parts.append({
-                "type": "image_url",
-                "image_url": pil_to_base64_data_uri(pil_image)
-            })
+            # Convert PIL image to bytes and add as inline_data
+            buffered = BytesIO()
+            pil_image.convert("RGB").save(buffered, format="JPEG")
+            image_bytes = buffered.getvalue()
+            parts.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=image_bytes)))
             
             loaded_images.append(pil_image)
             print(f"✅ Loaded image {i}")
         else:
-            content_parts.append({
-                "type": "text",
-                "text": f"\n--- Image {i} of {len(image_urls)} ---\nTitle: {img_title}\nURL: {img_url}\n[Image {i} could not be loaded; evaluate based on metadata only]\n"
-            })
+            parts.append(types.Part(text=f"\n--- Image {i} of {len(image_urls)} ---\nTitle: {img_title}\nURL: {img_url}\n[Image {i} could not be loaded; evaluate based on metadata only]\n"))
             print(f"⚠️ Could not load image {i}: {img_title}")
     
-    print(f"🤖 Calling vision model with {len(loaded_images)} loaded images...")
-    messages = [("user", content_parts)]
-    raw_response = llm_with_retry(messages, llm_name=llm)
+    # Add prompt text at the end
+    parts.append(types.Part(text=prompt_text))
     
-    # Extract response
-    if hasattr(raw_response, "content"):
-        raw_text = raw_response.content
-    elif isinstance(raw_response, dict):
-        raw_text = raw_response.get("content") or raw_response.get("text", "")
-    else:
-        raw_text = str(raw_response)
+    print(f"🤖 Calling vision model with {len(loaded_images)} loaded images...")
+    raw_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.1)
     
     # Print segment and response for debugging
     print(f"\nSegment: {vo_text}\n")
@@ -768,6 +750,7 @@ def select_images_from_all_for_entire_slide(slide_title, slide_chunk, image_urls
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting images for entire slide")
     print(f"{'─'*45}")
+    print(f"🤖 Using LLM model: {llm}")
     print(f"📝 Slide Title: \"{slide_title}\"")
     print(f"🖼️ Available images: {len(image_urls)}")
     if feedback:
@@ -777,8 +760,8 @@ def select_images_from_all_for_entire_slide(slide_title, slide_chunk, image_urls
         print(f"⚠️  No images available, returning empty selection")
         return ""
     
-    # Build multimodal content with images
-    content_parts = []
+    # Build multimodal parts for Gemini API (supports thinking mode)
+    parts = []
     
     # Select prompt based on whether feedback is provided
     if feedback and feedback.strip():
@@ -815,12 +798,7 @@ def select_images_from_all_for_entire_slide(slide_title, slide_chunk, image_urls
         # print(prompt_text)
         # print(f"{'='*80}\n")
     
-    content_parts.append({
-        "type": "text",
-        "text": prompt_text
-    })
-    
-    # Load and add each image (same multimodal logic as segment version)
+    # Load and add each image as Gemini Part objects
     loaded_images = []
     for i, img_url in enumerate(image_urls, 1):
         print(f"📥 Loading image {i}/{len(image_urls)}: {img_url[:50]}...")
@@ -832,40 +810,26 @@ def select_images_from_all_for_entire_slide(slide_title, slide_chunk, image_urls
         
         if pil_image:
             # Add label text with Title and URL
-            label_text = f"\n--- Image {i} of {len(image_urls)} ---\n"
-            label_text += f"Title: {img_title}\n"
-            label_text += f"URL: {img_url}\n"
+            label_text = f"\n--- Image {i} of {len(image_urls)} ---\nTitle: {img_title}\nURL: {img_url}\n"
+            parts.append(types.Part(text=label_text))
             
-            content_parts.append({
-                "type": "text",
-                "text": label_text
-            })
-            
-            content_parts.append({
-                "type": "image_url",
-                "image_url": pil_to_base64_data_uri(pil_image)
-            })
+            # Convert PIL image to bytes and add as inline_data
+            buffered = BytesIO()
+            pil_image.convert("RGB").save(buffered, format="JPEG")
+            image_bytes = buffered.getvalue()
+            parts.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=image_bytes)))
             
             loaded_images.append(pil_image)
             print(f"✅ Loaded image {i}")
         else:
-            content_parts.append({
-                "type": "text",
-                "text": f"\n--- Image {i} of {len(image_urls)} ---\nTitle: {img_title}\nURL: {img_url}\n[Image {i} could not be loaded; evaluate based on metadata only]\n"
-            })
+            parts.append(types.Part(text=f"\n--- Image {i} of {len(image_urls)} ---\nTitle: {img_title}\nURL: {img_url}\n[Image {i} could not be loaded; evaluate based on metadata only]\n"))
             print(f"⚠️ Could not load image {i}: {img_title}")
        
-    print(f"🤖 Calling vision model with {len(loaded_images)} loaded images...")
-    messages = [("user", content_parts)]
-    raw_response = llm_with_retry(messages, llm_name=llm)
+    # Add prompt text at the end
+    parts.append(types.Part(text=prompt_text))
     
-    # Extract response
-    if hasattr(raw_response, "content"):
-        raw_text = raw_response.content
-    elif isinstance(raw_response, dict):
-        raw_text = raw_response.get("content") or raw_response.get("text", "")
-    else:
-        raw_text = str(raw_response)
+    print(f"🤖 Calling vision model with {len(loaded_images)} loaded images...")
+    raw_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.1)
     
     # Print slide and response for debugging
     print(f"\nSlide: {slide_title}\n")
@@ -1207,15 +1171,21 @@ def validate_image_pool_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=3):
+def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True,
+):
     """
     Select relevant images from all available images for all rows in the Slide Chunks sheet.
     
     :param sheet: The gspread sheet object.
     :param llm: Language model to use.
     :param max_workers: Number of parallel workers (default 3, lower due to image loading).
+    :param progress_callback: Optional callback invoked as each initial row completes.
+    :param show_progress: If False, disable internal Streamlit progress bar (thread-safe for parallel outer steps).
     :return: None if initialization fails
     """
+    print(f"\n{'='*80}")
+    print(f"🤖 IMAGE SELECTION: Using LLM model: {llm}")
+    print(f"{'='*80}\n")
     worksheet_name = "Slide Chunks"
     
     # Get drive instance
@@ -1247,7 +1217,8 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
                 continue
             
             # Skip if image_pool is already filled
-            if image_pool and image_pool != "nan":
+            # Rows marked with "ERROR:" should be retried on reruns.
+            if image_pool and image_pool != "nan" and not str(image_pool).startswith("ERROR:"):
                 continue
             
             # Submit task for processing
@@ -1259,13 +1230,17 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
             print("All rows already processed or no valid voiceover segments found.")
             return
         
-        # Initialize progress tracker
+        # Progress tracking:
         total_tasks = len(futures_map)
-        progress = SmartProgressBar(
-            total_tasks=total_tasks,
-            description="Selecting images from all available images",
-            save_interval=3  # Save more frequently due to longer processing time
-        )
+        save_interval = 3 
+        progress = None
+        completed_count = 0
+        if show_progress:
+            progress = SmartProgressBar(
+                total_tasks=total_tasks,
+                description="Selecting images from all available images",
+                save_interval=save_interval,
+            )
         
         # Collect results as they complete
         for future in as_completed(futures_map):
@@ -1277,22 +1252,36 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
                 df.at[row_index, "image_pool"] = image_pool_text
                 
                 # Update progress
-                progress.update()
+                if progress is not None:
+                    progress.update()
+                else:
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(1)
                 
                 # Save every 3 rows (more frequent due to longer processing)
-                if progress.should_save():
-                    print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                    save_to_sheet(worksheet, df)
-                    format_worksheet(worksheet)
+                # Use merge_and_save_columns to avoid overwriting other parallel workers' columns
+                if progress is not None:
+                    if progress.should_save():
+                        print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
+                        merge_and_save_columns(sheet, worksheet_name, df, ["image_pool"])
+                else:
+                    if save_interval > 0 and completed_count % save_interval == 0:
+                        print(f"Saving partial progress to sheet after {completed_count} tasks completed.")
+                        merge_and_save_columns(sheet, worksheet_name, df, ["image_pool"])
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "image_pool"] = f"ERROR: {str(e)}"
-                progress.update()
+                if progress is not None:
+                    progress.update()
+                else:
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(1)
 
-    # Save final results before validation
-    save_to_sheet(worksheet, df)
-    format_worksheet(worksheet)
+    # Save final results before validation (merge-safe)
+    merge_and_save_columns(sheet, worksheet_name, df, ["image_pool"])
 
     # Validation and retry logic
     max_retries = 3
@@ -1321,9 +1310,8 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
         for index, row, error_msg in invalid_rows:
             df.at[index, "image_pool"] = ""
         
-        # Save cleared state
-        save_to_sheet(worksheet, df)
-        format_worksheet(worksheet)
+        # Save cleared state (merge-safe)
+        merge_and_save_columns(sheet, worksheet_name, df, ["image_pool"])
         
         # Retry processing invalid rows
         futures_map = {}
@@ -1342,9 +1330,8 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "image_pool"] = f"ERROR: {str(e)}"
         
-        # Save after retry
-        save_to_sheet(worksheet, df)
-        format_worksheet(worksheet)
+        # Save after retry (merge-safe)
+        merge_and_save_columns(sheet, worksheet_name, df, ["image_pool"])
     
     if retry_count > 0:
         # Check final state
@@ -1362,11 +1349,13 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
         else:
             print(f"✅ All rows validated after {retry_count} retry attempt(s).")
     
-    # Final save to sheet
+    # Final save to sheet (merge-safe)
     print('All image selections completed. Saving final DataFrame to sheet.')
-    save_to_sheet(worksheet, df)
-    format_worksheet(worksheet)
+    merge_and_save_columns(sheet, worksheet_name, df, ["image_pool"])
     print("✅ Image selection from all images complete and saved to sheet.")
+
+    if not show_progress and progress_callback and total_tasks > 0:
+        progress_callback(1)
 
 
 def delete_image_pool(sheet):

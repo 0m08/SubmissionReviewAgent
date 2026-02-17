@@ -1,5 +1,6 @@
 import argparse
 import os
+import base64
 from lightning_sdk import Machine, Studio
 from dotenv import load_dotenv
 
@@ -13,6 +14,12 @@ def main():
     args = parser.parse_args()
 
     gdrive_sa_json = os.environ.get("GDRIVE_SA_JSON")
+    
+    # Base64 encode the JSON to safely pass through shell (avoids issues with special chars in private key)
+    if gdrive_sa_json:
+        gdrive_sa_b64 = base64.b64encode(gdrive_sa_json.encode()).decode()
+    else:
+        gdrive_sa_b64 = ""
 
     studio_name = "course-generation-agents"
     teamspace = "Vision-model"
@@ -27,7 +34,7 @@ def main():
 
     agent = args.agent_name
     command = (
-        f"export GDRIVE_SA_JSON='{gdrive_sa_json}' && "
+        f"export GDRIVE_SA_B64='{gdrive_sa_b64}' && "
         f"python run_agent_cli.py "
         f"--sheet_link '{args.sheet_link}' "
         f"--drive_folder_id '{args.drive_folder_id}' "

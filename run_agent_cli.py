@@ -27,6 +27,7 @@ parser.add_argument(
         "research_notes",
         "slide_chunks",
         "graphics_definition",
+        "graphics_definition_v2",
         "assessment",
     ],
     help="Agent/pipeline to run",
@@ -38,6 +39,7 @@ AGENT_DISPLAY_NAMES = {
     "research_notes": "Research Notes",
     "slide_chunks": "Slide Chunks",
     "graphics_definition": "Graphics Definition",
+    "graphics_definition_v2": "Graphics Definition V2",
     "assessment": "Assessment",
 }
 ui_agent_name = AGENT_DISPLAY_NAMES.get(args.agent_name, args.agent_name)
@@ -76,6 +78,7 @@ AGENT_PIPELINES = {
     "research_notes": "research_notes",
     "slide_chunks": "slide_chunks",
     "graphics_definition": "graphics_definition",
+    "graphics_definition_v2": "graphics_definition_v2",
     "assessment": "assessment",
 }
 pipeline_module_name = AGENT_PIPELINES.get(args.agent_name)

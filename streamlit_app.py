@@ -420,7 +420,7 @@ video_embeddings_page = st.Page(
 
 course_qa_vectorization_page = st.Page(
     "course_qa_vectorization.py",
-    title="Course Q&A Vectorization",
+    title="Course Q&A",
     icon=":material/storage:",
 )
 #######################

@@ -37,13 +37,9 @@ from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_fro
     run_youtube_video_search_for_all_rows,
     delete_video_pool,
 )
-from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
-   run_image_selection_from_all_images_for_all_rows,
-   delete_image_pool,
-)
-from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
-    run_video_selection_from_all_videos_for_all_rows,
-    delete_video_pool_filtered,
+from agents.graphics_definition_v2.image_graphics_agent.generate_pools import (
+    run_generate_image_and_video_pools,
+    delete_all_pool_results,
 )
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     run_aggregation_agent_for_all_rows,
@@ -61,6 +57,10 @@ from agents.graphics_definition_v2.layout_agent.layout_agent import (
     run_layout_agent_for_all_rows,
     delete_layout_columns,
 )
+from agents.graphics_definition_v2.image_graphics_agent.generate_candidates import (
+    run_generate_image_and_video_candidates,
+    delete_all_candidate_results,
+)
 
 pipeline_sections = [
     {
@@ -77,7 +77,7 @@ pipeline_sections = [
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash"
+                    "llm": "gemini_2_5_flash_lite"
                 },
                 "estimated_time": "2-5 minutes",
                 "description": "This function segments each slide chunk into individual voiceover (VO) segments using sentence-based segmentation and saves them to the voiceover_segment column.",
@@ -114,10 +114,10 @@ pipeline_sections = [
             {
                 "name": "Generate Search Queries for Image and Video Retrieval",
                 "func": run_generate_search_query_for_all_rows,
-                "depends_on": ["Segment Slide into Voiceover Segments"],
+                "depends_on": ["Generate Storyboard for each Slide"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
+                    "llm": "gemini_2_5_flash_lite"
                 },
                 "estimated_time": "5-10 minutes",
                 "description": "This function generates search queries for image and video retrieval and saves them to the search_queries column",
@@ -129,154 +129,40 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 3: Generate Image Pool for the Aggregation Agent",
+        "section_name": "Section 3: Generate Image and Video Candidates",
         "steps": [
             {
-                "name": "Execute Drive Search",
-                "func": run_drive_search_for_all_rows,
+                "name": "Generate Image and Video Candidates",
+                "func": run_generate_image_and_video_candidates,
                 "depends_on": ["Generate Search Queries for Image and Video Retrieval"],
                 "args": {
                     "sheet": "sheet"
                 },
                 "estimated_time": "10-20 minutes",
-                "description": "This function executes drive search for all queries in each segment",
-                "delete_func": delete_drive_results,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
-            {
-                "name": "Execute Web Search",
-                "func": run_web_search_for_all_rows,
-                "depends_on": ["Execute Drive Search"],
-                "args": {
-                    "sheet": "sheet"
-                },
-                "estimated_time": "10-20 minutes",
-                "description": "This function executes web search for all queries in each segment",
-                "delete_func": delete_web_results,
+                "description": "This step runs 4 parallel searches: Drive Search, Web Search, Video Search (HVAC channels), and Video Search (Other channels). Each writes to its respective column (drive_results, web_results, video_pool, video_pool_other_channels).",
+                "delete_func": delete_all_candidate_results,
                 "delete_args": {
                     "sheet": "sheet"
                 }
             },
         ]
     },
-    # {
-    #     "section_name": "Section 4: Generate Graphics Definitions with Images",
-    #     "steps": [
-    #         {
-    #             "name": "Generate Graphics Definitions with Images",
-    #             "func": run_finalize_graphics_definition_for_all_rows,
-    #             "depends_on": ["Execute Web Search"],
-    #             "args": {
-    #                 "sheet": "sheet",
-    #                 "llm": "gemini_3_flash_thinking"
-    #             },
-    #             "estimated_time": "20-40 minutes",
-    #             "description": "This step uses vision model to select best images and create fianl graphics definitions for each segment, then combines them into a final definition",
-    #             "delete_func": delete_graphics_definition,
-    #             "delete_args": {
-    #                 "sheet": "sheet"
-    #             }
-    #         },
-    #     ]
-    # },
-    # {
-    #     "section_name": "Section 5: Populate Images in Sheet",
-    #     "steps": [
-    #         {
-    #             "name": "Populate Sheet with Selected Images",
-    #             "func": run_populate_sheet_with_selected_images_for_all_rows,
-    #             "depends_on": ["Generate Graphics Definitions with Images"],
-    #             "args": {
-    #                 "sheet": "sheet"
-    #             },
-    #             "estimated_time": "5-15 minutes",
-    #             "description": "This step populates the selected images from graphics definitions into the sheet",
-    #             "delete_func": delete_populated_images,
-    #             "delete_args": {
-    #                 "sheet": "sheet"
-    #             }
-    #         },
-    #     ]
-    # },
-    # {
-    #     "section_name": "Section 6: Generate Search Queries for Video Retrieval",
-    #     "steps": [
-    #         {
-    #             "name": "Generate Search Queries for Video Retrieval",
-    #             "func": run_generate_video_search_query_for_all_rows,
-    #             "depends_on": ["Execute Web Search"],
-    #             "args": {
-    #                 "sheet": "sheet",
-    #                 "llm": "gemini_3_flash_thinking"
-    #             },
-    #             "estimated_time": "5-10 minutes",
-    #             "description": "This function generates 2-4 video search queries for each voiceover segment and saves them to the video_search_query column",
-    #             "delete_func": delete_video_search_queries,
-    #             "delete_args": {
-    #                 "sheet": "sheet"
-    #             }
-    #         },
-    #     ]
-    # },
     {
-        "section_name": "Section 7: Generate Video Pool for the Aggregation Agent",
+        "section_name": "Section 4: Generate Image and Video Pools",
         "steps": [
             {
-                "name": "Execute Video Search in the 'HVAC School' and 'Love2HVAC with Ty Branaman' Youtube Channel",
-                "func": run_youtube_video_search_for_all_rows,
-                "depends_on": ["Execute Web Search"],
-                "args": {
-                    "sheet": "sheet"
-                },
-                "estimated_time": "10-20 minutes",
-                "description": "This function executes YouTube video search in vectorstore for all queries in each segment and saves results to video_pool column",
-                "delete_func": delete_video_pool,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
-            {
-                "name": "Execute Video Search in other Youtube Channels",
-                "func": run_youtube_video_search_other_channels_for_all_rows,
-                "depends_on": ["Execute Video Search in the 'HVAC School' and 'Love2HVAC with Ty Branaman' Youtube Channel"],
-                "args": {
-                    "sheet": "sheet"
-                },
-                "estimated_time": "10-20 minutes",
-                "description": "This function executes YouTube video search in other channels for all queries in each segment and saves results to video_pool_other_channels column",
-                "delete_func": delete_video_pool_other_channels,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
-            {
-                "name": "Generate Image Pool",
-                "func": run_image_selection_from_all_images_for_all_rows,
-                "depends_on": [],
+                "name": "Generate Image and Video Pools",
+                "func": run_generate_image_and_video_pools,
+                "depends_on": ["Generate Image and Video Candidates"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
+                    "image_pool_llm": "gemini_2_5_flash_lite",
+                    "video_pool_llm": "gemini_3_flash_thinking"
                 },
+                "is_llm_step": True, 
                 "estimated_time": "20-40 minutes",
-                "description": "This function selects all relevant images from drive_results and web_results for each segment and saves them to image_pool column",
-                "delete_func": delete_image_pool,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
-            {
-                "name": "Generate Video Pool",
-                "func": run_video_selection_from_all_videos_for_all_rows,
-                "depends_on": [],
-                "args": {
-                    "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
-                },
-                "estimated_time": "20-40 minutes",
-                "description": "This function selects all relevant videos from video_pool and video_pool_other_channels for each segment and saves them to video_pool_filtered column",
-                "delete_func": delete_video_pool_filtered,
+                "description": "This step runs Image Pool and Video Pool generation in parallel. Image Pool selects relevant images from drive_results and web_results. Video Pool selects relevant videos from video_pool and video_pool_other_channels. Both write to their respective columns (image_pool, video_pool_filtered).",
+                "delete_func": delete_all_pool_results,
                 "delete_args": {
                     "sheet": "sheet"
                 }
@@ -284,12 +170,12 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 8: Final Aggregation Agent",
+        "section_name": "Section 5: Final Aggregation Agent",
         "steps": [
             {
                 "name": "Run Aggregation Agent",
                 "func": run_aggregation_agent_for_all_rows,
-                "depends_on": ["Generate Video Pool"],
+                "depends_on": ["Generate Image and Video Pools"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking" 
@@ -304,12 +190,12 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 9: Review and Revise Graphics Definition V2",
+        "section_name": "Section 6: Review and Revise Graphics Definition V2",
         "steps": [
             {
-                "name": "Review and Revise Graphics Definition V2",
+                "name": "Review and Revise Graphics Definition",
                 "func": run_review_and_revise_graphics_definition_v2_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Run Aggregation Agent"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking" 
@@ -324,12 +210,12 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 10: Layout Agent",
+        "section_name": "Section 7: Layout Agent",
         "steps": [
             {
                 "name": "Run Layout Agent",
                 "func": run_layout_agent_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Review and Revise Graphics Definition"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking" 
@@ -346,9 +232,21 @@ pipeline_sections = [
 ]
 
 llm_pricing = {
-    "input_per_million": 0.50,
-    "output_per_million": 3.00,
     "currency": "$",
+    "default": {
+        "input_per_million": 0.50,
+        "output_per_million": 3.00,
+    },
+    "models": {
+        "gemini_2_5_flash_lite": {
+            "input_per_million": 0.10,  
+            "output_per_million": 0.40, 
+        },
+        "gemini_3_flash_thinking": {
+            "input_per_million": 0.50,
+            "output_per_million": 3.00,
+        },
+    },
 }
 
 agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing)

@@ -5,12 +5,13 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import requests
+import time
 from io import BytesIO
 from PIL import Image
 from agents.vector_store_image_search.graphics_retriever_agent import pil_to_base64_data_uri
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from services.video_clip_tools import build_video_part
-from services.llm_service import log_token_usage
+from services.llm_service import extract_token_usage, log_token_usage
 from dotenv import load_dotenv
 import os
 import base64
@@ -1978,13 +1979,14 @@ def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=
         return graphics_definition_xml
 
 
-def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0.7):
+def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0.7, max_retries= 3):
     """
     Invoke the Gemini API with multimodal parts (images, videos, text).
 
     :param parts: List of Gemini Part objects (text, video, image, etc.)
     :param llm: Model identifier to use
     :param temperature: Temperature setting for generation
+    :param max_retries: Maximum retry attempts for transient/quota errors
     :return: Text response from the model
     """
     # Map model identifier to actual model name
@@ -1993,23 +1995,104 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
         "gemini_3_flash": "gemini-3-flash-preview",
         "gemini_3_pro": "gemini-2-pro",
         "gemini_2_5_flash": "gemini-2.5-flash",
+        "gemini_2_5_flash_lite": "gemini-2.5-flash-lite",
         "gemini-3-flash-preview": "gemini-3-flash-preview",
     }
     actual_model = model_mapping.get(llm, llm)  # Default to llm if not in mapping
     
 
     client = genai.Client()
-    response = client.models.generate_content(
-        model=actual_model,
-        contents=types.Content(parts=parts),
-        config=types.GenerateContentConfig(
-            temperature=temperature,
-        ),
-    )
+
+    # === Thinking controls ===
+    # Per Gemini docs: Gemini 2.5 models support thinking via `thinkingBudget`.
+    # - thinking_budget = -1 => dynamic thinking (recommended default)
+    # - thinking_budget = 0  => disable thinking
+    thinking_config = None
+    if "gemini-2.5" in str(actual_model):
+        try:
+            thinking_config = types.ThinkingConfig(thinking_budget=-1)
+            print(f"🧠 Thinking enabled for model {actual_model} (dynamic budget)")
+        except Exception as tc_err:
+            # If the SDK surface changes, fall back to default behavior.
+            print(f"⚠️ Could not enable thinking config: {tc_err}")
+            thinking_config = None
+
+    # Retry logic for quota/transient errors 
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = client.models.generate_content(
+                model=actual_model,
+                contents=types.Content(role="user", parts=parts),
+                config=types.GenerateContentConfig(
+                    temperature=temperature,
+                    thinking_config=thinking_config,
+                ),
+            )
+            break
+        except Exception as e:
+            error_str = str(e)
+
+            is_quota_error = (
+                "429" in error_str
+                or "RESOURCE_EXHAUSTED" in error_str
+                or "quota" in error_str.lower()
+                or "quotaExceeded" in error_str
+            )
+
+            # Only retry quota/transient errors; otherwise raise immediately.
+            if not is_quota_error:
+                raise
+
+            # Try to extract retry delay (Google GenAI errors sometimes include retryDelay).
+            retry_delay = None
+            try:
+                if hasattr(e, "error") and isinstance(e.error, dict):
+                    error_dict = e.error
+                    if "details" in error_dict:
+                        for detail in error_dict.get("details", []):
+                            if isinstance(detail, dict) and "retryDelay" in detail:
+                                # Sometimes retryDelay is a string like "32s"
+                                raw = detail["retryDelay"]
+                                if isinstance(raw, (int, float)):
+                                    retry_delay = float(raw)
+                                elif isinstance(raw, str):
+                                    m = re.search(r"([\d.]+)", raw)
+                                    if m:
+                                        retry_delay = float(m.group(1))
+                                break
+            except Exception:
+                retry_delay = None
+
+            if retry_delay is None and ("retry in" in error_str.lower() or "retrydelay" in error_str.lower()):
+                # Parse common formats: "retry in 32s", `"retryDelay": "32s"`
+                m = re.search(r"retry\s+in\s+([\d.]+)\s*s", error_str, re.IGNORECASE)
+                if m:
+                    retry_delay = float(m.group(1))
+                else:
+                    m = re.search(r"retryDelay[\"']?\s*[:=]\s*[\"']?([\d.]+)s?", error_str, re.IGNORECASE)
+                    if m:
+                        retry_delay = float(m.group(1))
+
+            if retry_delay is None:
+                # Exponential backoff with a cap (seconds)
+                retry_delay = min((2 ** retries) * 5, 60)
+            else:
+                # Add small buffer to be safe
+                retry_delay = retry_delay + 1.0
+
+            if retries < max_retries - 1:
+                print(f"  ⚠️  Gemini quota/rate limit hit. Waiting {retry_delay:.1f}s before retry {retries + 1}/{max_retries}...")
+                time.sleep(retry_delay)
+                retries += 1
+                continue
+            else:
+                print(f"  ❌ Max retries ({max_retries}) exceeded for Gemini quota/rate limit error.")
+                raise
     try:
-        meta = getattr(response, "usage_metadata", None)
-        input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
-        output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+        token_usage = extract_token_usage(response)
+        input_tokens = token_usage["input_tokens"]
+        output_tokens = token_usage["output_tokens"]
         log_token_usage(
             llm=llm,
             input_tokens=input_tokens,
@@ -2892,7 +2975,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=3):
+def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=10):
     """
     Process a single row: aggregate graphics for all segments and combine into final definition.
     
@@ -3170,7 +3253,7 @@ def validate_final_graphics_definition_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=5):
+def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=10):
     """
     Run aggregation agent for all rows in the Slide Chunks sheet.
 
@@ -3382,4 +3465,3 @@ def delete_final_graphics_definition(sheet):
         print(f"🗑️ Deleted 'final_graphics_definition' column from '{worksheet_name}' worksheet")
     else:
         print(f"ℹ️ 'final_graphics_definition' column does not exist in '{worksheet_name}' worksheet")
-

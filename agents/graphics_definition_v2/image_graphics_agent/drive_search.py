@@ -1,6 +1,6 @@
 from langsmith import traceable
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, merge_and_save_columns, format_worksheet, clear_worksheet
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
@@ -384,7 +384,7 @@ def validate_drive_search_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', max_workers=5):
+def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', max_workers=50):
     """
     Execute drive search for all rows in the Slide Chunks sheet.
     
@@ -458,7 +458,7 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
                 # Save every 5 rows
                 if progress.should_save():
                     print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                    save_to_sheet(worksheet, df)
+                    merge_and_save_columns(sheet, worksheet_name, df, ["drive_results"])
                     format_worksheet(worksheet)
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
@@ -467,7 +467,7 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
                 progress.update()
     
     # Save final results before validation
-    save_to_sheet(worksheet, df)
+    merge_and_save_columns(sheet, worksheet_name, df, ["drive_results"])
     format_worksheet(worksheet)
     
     # Validation and retry logic
@@ -498,7 +498,7 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
             df.at[index, "drive_results"] = ""
         
         # Save cleared state
-        save_to_sheet(worksheet, df)
+        merge_and_save_columns(sheet, worksheet_name, df, ["drive_results"])
         format_worksheet(worksheet)
         
         # Retry processing invalid rows
@@ -519,7 +519,7 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
                     df.at[index, "drive_results"] = f"ERROR: {str(e)}"
         
         # Save after retry
-        save_to_sheet(worksheet, df)
+        merge_and_save_columns(sheet, worksheet_name, df, ["drive_results"])
         format_worksheet(worksheet)
     
     if retry_count > 0:
@@ -540,7 +540,7 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
     
     # Final save to sheet
     print('All drive searches completed. Saving final DataFrame to sheet.')
-    save_to_sheet(worksheet, df)
+    merge_and_save_columns(sheet, worksheet_name, df, ["drive_results"])
     format_worksheet(worksheet)
     print("✅ Drive search complete and saved to sheet.")
 

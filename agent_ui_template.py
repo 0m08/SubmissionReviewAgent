@@ -24,6 +24,7 @@ AGENT_CODE_MAP = {
     "Research Notes": "research_notes",
     "Slide Chunks": "slide_chunks",
     "Graphics Definition": "graphics_definition",
+    "Graphics Definition V2": "graphics_definition_v2",
     "Assessment": "assessment",
     "Graphics Search": "graphics_search",
 }
@@ -110,15 +111,57 @@ def _iter_token_log_rows(log_file: str, start_offset: int | None = None):
         return
 
 
-def _sum_tokens_for_step(agent_name: str, step_name: str, start_time: datetime | None, end_time: datetime | None, log_file: str, start_offset: int | None = None) -> tuple[int, int]:
+def _safe_int(value: str) -> int:
+    try:
+        return int(float(value))
+    except Exception:
+        return 0
+
+
+def _resolve_pricing_for_model(llm_name: str, pricing: dict | None) -> dict | None:
+    if not pricing:
+        return None
+
+    # Optional per-model pricing support.
+    model_pricing = pricing.get("models", {})
+    if isinstance(model_pricing, dict):
+        if llm_name in model_pricing:
+            return model_pricing[llm_name]
+        normalized_name = (llm_name or "").strip().lower().replace("-", "_")
+        for key, value in model_pricing.items():
+            if key.strip().lower().replace("-", "_") == normalized_name:
+                return value
+
+    # Backward-compatible flat pricing.
+    if "input_per_million" in pricing and "output_per_million" in pricing:
+        return pricing
+
+    default_pricing = pricing.get("default")
+    if isinstance(default_pricing, dict):
+        return default_pricing
+
+    return None
+
+
+def _sum_tokens_for_step(
+    agent_name: str,
+    step_name: str,
+    start_time: datetime | None,
+    end_time: datetime | None,
+    log_file: str,
+    start_offset: int | None = None,
+    pricing: dict | None = None,
+) -> tuple[int, int, float | None]:
     total_input = 0
     total_output = 0
+    total_cost = 0.0
+    has_cost = False
     if not step_name:
-        return total_input, total_output
+        return total_input, total_output, None
     for row in _iter_token_log_rows(log_file, start_offset):
         if not row or len(row) < 6:
             continue
-        row_agent, row_step, timestamp, _llm, input_tokens, output_tokens = row[:6]
+        row_agent, row_step, timestamp, row_llm, input_tokens, output_tokens = row[:6]
         if row_step != step_name:
             continue
         if agent_name and row_agent != agent_name:
@@ -133,15 +176,16 @@ def _sum_tokens_for_step(agent_name: str, step_name: str, start_time: datetime |
                 continue
             if end_time and ts_dt > end_time:
                 continue
-        try:
-            total_input += int(float(input_tokens))
-        except Exception:
-            pass
-        try:
-            total_output += int(float(output_tokens))
-        except Exception:
-            pass
-    return total_input, total_output
+        row_input = _safe_int(input_tokens)
+        row_output = _safe_int(output_tokens)
+        total_input += row_input
+        total_output += row_output
+
+        row_pricing = _resolve_pricing_for_model(row_llm, pricing)
+        if row_pricing:
+            total_cost += _calculate_step_cost(row_input, row_output, row_pricing)
+            has_cost = True
+    return total_input, total_output, (total_cost if has_cost else None)
 
 
 def _calculate_step_cost(input_tokens: int, output_tokens: int, pricing: dict) -> float:
@@ -161,17 +205,21 @@ def _record_step_metrics(step: dict, duration_seconds: float, start_time: dateti
         except (RuntimeError, AttributeError):
             agent_name = ""
         start_offset = _pop_step_token_offset(step["name"])
-        input_tokens, output_tokens = _sum_tokens_for_step(
+        input_tokens, output_tokens, step_cost = _sum_tokens_for_step(
             agent_name=agent_name,
             step_name=step["name"],
             start_time=start_time,
             end_time=end_time,
             log_file=TOKEN_USAGE_LOG_FILE,
             start_offset=start_offset,
+            pricing=llm_pricing,
         )
         metrics["input_tokens"] = input_tokens
         metrics["output_tokens"] = output_tokens
-        metrics["cost"] = _calculate_step_cost(input_tokens, output_tokens, llm_pricing)
+        if step_cost is not None:
+            metrics["cost"] = step_cost
+        elif llm_pricing and "input_per_million" in llm_pricing and "output_per_million" in llm_pricing:
+            metrics["cost"] = _calculate_step_cost(input_tokens, output_tokens, llm_pricing)
 
     st.session_state["step_metrics"][step["name"]] = metrics
 

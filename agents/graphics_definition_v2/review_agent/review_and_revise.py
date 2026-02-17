@@ -22,7 +22,7 @@ from services.sheets_service import (
 )
 from services.smart_progress_bar import SmartProgressBar
 from services.video_clip_tools import build_video_part
-from services.llm_service import log_token_usage
+from services.llm_service import extract_token_usage, log_token_usage
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     get_drive_instance,
@@ -72,8 +72,8 @@ from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all
 
 load_dotenv()
 
-MAX_REVIEW_ATTEMPTS = 1
-MAX_REGEN_ATTEMPTS = 1
+MAX_REVIEW_ATTEMPTS = 2
+MAX_REGEN_ATTEMPTS = 2
 
 
 # Alingment prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -2126,9 +2126,9 @@ def invoke_gemini_multimodal(parts, llm, temperature=0.1, conversation_history=N
                 config=config,
             )
             try:
-                meta = getattr(response, "usage_metadata", None)
-                input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
-                output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+                token_usage = extract_token_usage(response)
+                input_tokens = token_usage["input_tokens"]
+                output_tokens = token_usage["output_tokens"]
                 log_token_usage(
                     llm=llm,
                     input_tokens=input_tokens,
@@ -5071,7 +5071,7 @@ def process_review_revise_row(
 def run_review_and_revise_graphics_definition_v2_for_all_rows(
     sheet,
     llm: str = "gemini_3_flash_thinking",
-    max_workers: int = 5,
+    max_workers: int = 10,
 ) -> None:
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)

@@ -9,7 +9,7 @@ from io import BytesIO
 from PIL import Image
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from services.video_clip_tools import build_video_part
-from services.llm_service import log_token_usage
+from services.llm_service import extract_token_usage, log_token_usage
 from dotenv import load_dotenv
 import os
 import base64
@@ -527,9 +527,9 @@ def invoke_gemini_multimodal(parts: List[types.Part], llm: str = "gemini_3_flash
                 config=config,
             )
             try:
-                meta = getattr(response, "usage_metadata", None)
-                input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
-                output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+                token_usage = extract_token_usage(response)
+                input_tokens = token_usage["input_tokens"]
+                output_tokens = token_usage["output_tokens"]
                 log_token_usage(
                     llm=llm,
                     input_tokens=input_tokens,
@@ -1176,4 +1176,3 @@ def delete_layout_columns(sheet):
         print(f"🗑️ Deleted columns: {', '.join(deleted)} from '{worksheet_name}' worksheet")
     else:
         print(f"ℹ️ No layout columns found to delete in '{worksheet_name}' worksheet")
-

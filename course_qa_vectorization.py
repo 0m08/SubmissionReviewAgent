@@ -7,14 +7,17 @@ import streamlit as st
 import os
 import re
 import pandas as pd
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any
 from tqdm import tqdm
 from datetime import datetime
 from langchain_chroma import Chroma
 from langchain.schema import Document
+from langchain_cohere import CohereRerank
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from services.embedding_service import get_embedding_model
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet
 from services.drive_service import download_folder_from_drive, upload_folder_to_drive
+from services.llm_service import llm_with_retry
 from pydrive2.drive import GoogleDrive
 from pydrive2.auth import GoogleAuth
 import gspread
@@ -26,6 +29,7 @@ from services.drive_service import init_clients_from_credentials
 # ============================================================================
 
 ROOT_FOLDER_ID = "1UkZGl3HeCFq48zEl3HTkKdvty91gUse_"
+COURSE_SHEETS_FOLDER_ID = "1SYzI0NDng49lM_F9HBruW8EJCxlp6IQy"
 VECTORSTORE_FOLDER_NAME = "Vectorstore files"
 CHROMA_FOLDER_NAME = "chroma_slide_chunks_db"
 COLLECTION_NAME = "slide_chunks"
@@ -309,6 +313,282 @@ def vectorize_slide_chunks(
 
 
 # ============================================================================
+# Q&A Functions
+# ============================================================================
+
+def get_available_courses_from_folder(drive, gc, folder_id: str) -> List[Tuple[str, str]]:
+    """
+    Get list of available courses by reading Course Name from sheets in a Drive folder.
+    
+    Returns: List of tuples (course_name, sheet_id)
+    """
+    courses = []
+    
+    # Query for all Google Sheets in the folder
+    query = (
+        f"'{folder_id}' in parents and "
+        f"mimeType='application/vnd.google-apps.spreadsheet' and "
+        f"trashed=false"
+    )
+    
+    try:
+        file_list = drive.ListFile({'q': query}).GetList()
+        print(f"📋 Found {len(file_list)} sheets in folder")
+        
+        for file_item in file_list:
+            sheet_id = file_item['id']
+            sheet_name = file_item.get('title', 'Unknown')
+            
+            try:
+                # Open the sheet
+                sheet = gc.open_by_key(sheet_id)
+                
+                # Get course name
+                course_name = get_course_name_from_sheet(sheet, "Course info")
+                
+                courses.append((course_name, sheet_id))
+                print(f"  ✓ Found course: {course_name}")
+                
+            except Exception as e:
+                # Skip sheets that don't have Course info tab or Course Name
+                print(f"  ⚠️ Skipping sheet '{sheet_name}': {e}")
+                continue
+                
+    except Exception as e:
+        print(f"❌ Error listing sheets from folder: {e}")
+    
+    # Sort by course name
+    courses.sort(key=lambda x: x[0])
+    return courses
+
+
+def load_qa_retriever(drive, root_folder_id: str, use_reranking: bool = True, k: int = 15) -> ContextualCompressionRetriever:
+    """
+    Load vectorstore and create retriever for Q&A.
+    Returns: ContextualCompressionRetriever with optional Cohere reranking
+    """
+    embedding_function = get_embedding_model()
+    
+    # Find vectorstore folder
+    vectorstore_query = (
+        f"title='{VECTORSTORE_FOLDER_NAME}' and '{root_folder_id}' in parents "
+        f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    )
+    vectorstore_folders = drive.ListFile({'q': vectorstore_query}).GetList()
+    
+    if not vectorstore_folders:
+        raise FileNotFoundError("Vectorstore not found. Please vectorize some courses first.")
+    
+    # Find chroma folder
+    vectorstore_folder_id = vectorstore_folders[0]['id']
+    chroma_query = (
+        f"title='{CHROMA_FOLDER_NAME}' and '{vectorstore_folder_id}' in parents "
+        f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    )
+    chroma_folders = drive.ListFile({'q': chroma_query}).GetList()
+    
+    if not chroma_folders:
+        raise FileNotFoundError("Chroma vectorstore not found. Please vectorize some courses first.")
+    
+    # Download and load vectorstore
+    local_path = os.path.join(LOCAL_CHROMA_ROOT, CHROMA_FOLDER_NAME)
+    os.makedirs(LOCAL_CHROMA_ROOT, exist_ok=True)
+    
+    chroma_folder_id = chroma_folders[0]['id']
+    sqlite_path = os.path.join(local_path, "chroma.sqlite3")
+    
+    if not os.path.exists(sqlite_path):
+        print("📥 Downloading vectorstore from Drive...")
+        download_folder_from_drive(chroma_folder_id, local_path, drive)
+    
+    chroma_db = Chroma(
+        embedding_function=embedding_function,
+        collection_name=COLLECTION_NAME,
+        persist_directory=local_path
+    )
+    
+    # Create base retriever - reduce initial retrieval for faster reranking
+    # Retrieve k+5 instead of k*2 to reduce latency
+    base_retriever = chroma_db.as_retriever(
+        search_kwargs={"k": k + 5 if use_reranking else k}
+    )
+    
+    # Add reranking if enabled
+    if use_reranking:
+        compressor = CohereRerank(
+            model="rerank-v3.5",
+            top_n=k,
+        )
+        retriever = ContextualCompressionRetriever(
+            base_compressor=compressor,
+            base_retriever=base_retriever
+        )
+    else:
+        retriever = base_retriever
+    
+    return retriever
+
+
+def retrieve_relevant_slides(
+    retriever: ContextualCompressionRetriever,
+    question: str,
+    course_name: Optional[str] = None,
+    k: int = 10
+) -> List[Document]:
+    """
+    Retrieve relevant slides for a question, optionally filtered by course.
+    
+    Args:
+        retriever: The retriever to use
+        question: User's question
+        course_name: Optional course name to filter by (None = all courses)
+        k: Number of results to return
+    
+    Returns:
+        List of Document objects with metadata
+    """
+    # Retrieve documents
+    docs = retriever.invoke(question)
+    
+    # Filter by course if specified
+    if course_name:
+        filtered_docs = []
+        for doc in docs:
+            metadata = getattr(doc, 'metadata', {}) or {}
+            doc_course_name = metadata.get('course_name', '')
+            if doc_course_name and course_name.lower() in doc_course_name.lower():
+                filtered_docs.append(doc)
+        
+        # If filtering removed all docs, return original (fallback)
+        if not filtered_docs:
+            print(f"⚠️ No results for course '{course_name}', returning all courses")
+            return docs[:k]
+        
+        return filtered_docs[:k]
+    
+    return docs[:k]
+
+
+def format_citations(docs: List[Document]) -> List[Dict[str, str]]:
+    """
+    Format citations from retrieved documents.
+    
+    Returns:
+        List of citation dicts with topic, subtopic, slide_content
+    """
+    citations = []
+    seen = set()
+    
+    for doc in docs:
+        metadata = getattr(doc, 'metadata', {}) or {}
+        slide_content = getattr(doc, 'page_content', '')
+        
+        # Create unique key to avoid duplicates
+        citation_key = (
+            metadata.get('topic', ''),
+            metadata.get('subtopic', ''),
+            slide_content[:100]  # First 100 chars for uniqueness
+        )
+        
+        if citation_key in seen:
+            continue
+        seen.add(citation_key)
+        
+        citation = {
+            'topic': metadata.get('topic', 'Unknown Topic'),
+            'subtopic': metadata.get('subtopic', 'Unknown Subtopic'),
+            'slide_content': slide_content,
+        }
+        citations.append(citation)
+    
+    return citations
+
+
+def generate_answer_with_rag(
+    question: str,
+    docs: List[Document],
+    course_name: Optional[str] = None,
+    llm: str = "gemini_3_flash"
+) -> Tuple[str, List[Dict[str, str]]]:
+    """
+    Generate answer using RAG with strict grounding in retrieved content.
+    
+    Returns:
+        Tuple of (answer_text, citations)
+    """
+    if not docs:
+        return "I couldn't find any relevant information in the course content to answer this question.", []
+    
+    # Format retrieved context
+    context_parts = []
+    for i, doc in enumerate(docs, 1):
+        metadata = getattr(doc, 'metadata', {}) or {}
+        content = getattr(doc, 'page_content', '')
+        
+        context_parts.append(f"""
+[Source {i}]
+Course: {metadata.get('course_name', 'Unknown')}
+Topic: {metadata.get('topic', 'Unknown')}
+Subtopic: {metadata.get('subtopic', 'Unknown')}
+Slide: {metadata.get('slide_chunk_title', 'Untitled')}
+Content: {content}
+""")
+    
+    context = "\n".join(context_parts)
+    
+    # Build RAG prompt
+    course_filter_note = f"\nNote: The user is asking about the course '{course_name}'. Focus on information from that course." if course_name else ""
+    
+    rag_prompt = f"""You are a helpful assistant specializing in the field of HVAC that answers questions about SkillCat courses using ONLY the provided course content.
+
+Your task is to answer the user's question using STRICTLY the information provided in the context below. You must NOT use any external knowledge or make assumptions beyond what is explicitly stated in the course content.
+
+{course_filter_note}
+
+<context>
+{context}
+</context>
+
+<instructions>
+1. Answer the question using ONLY information from the provided context
+2. If the context doesn't contain enough information to answer the question, say so explicitly
+3. Do NOT make up information or use knowledge outside the provided context
+4. Cite specific sources when referencing information (e.g., "According to [Source 1]...")
+5. If multiple sources provide relevant information, synthesize them clearly
+6. Be concise but complete
+7. Use clear, instructional language appropriate for course learners
+8. Don't use words like "Based on the provided course content" while starting your answers
+</instructions>
+
+<question>
+{question}
+</question>
+"""
+    
+    # Generate answer
+    try:
+        response = llm_with_retry(rag_prompt, llm_name=llm, max_retries=3)
+        
+        # Extract text from response
+        if hasattr(response, 'content'):
+            answer = response.content
+        elif isinstance(response, dict):
+            answer = response.get('content', str(response))
+        else:
+            answer = str(response)
+        
+        # Format citations
+        citations = format_citations(docs)
+        
+        return answer.strip(), citations
+        
+    except Exception as e:
+        error_msg = f"Error generating answer: {e}"
+        print(f"❌ {error_msg}")
+        return error_msg, []
+
+
+# ============================================================================
 # Streamlit UI
 # ============================================================================
 
@@ -319,7 +599,7 @@ def main():
         layout="wide"
     )
     
-    st.title("📚 Course Q&A App - Slide Chunks Vectorization")
+    st.title("📚 Course Q&A App")
     
     # Check authentication
     if 'drive' not in st.session_state or 'gc' not in st.session_state:
@@ -462,8 +742,142 @@ def main():
                 st.code(traceback.format_exc())
     
     with tab2:
-        st.header("Q&A Interface")
-        st.info("🚧 Coming soon! This section will allow you to ask questions about vectorized courses.")
+
+        st.markdown("""
+        **Ask questions about courses:**
+        - Select a course (or "All Courses" for cross-course search)
+        - Ask your question in natural language
+        - Get answers with citations to exact slide sources
+        """)
+        
+        # Load available courses
+        if 'available_courses' not in st.session_state:
+            st.session_state.available_courses = []
+        
+        # Get courses
+        if not st.session_state.available_courses:
+            with st.spinner("Loading available courses..."):
+                try:
+                    courses = get_available_courses_from_folder(
+                        drive, gc, COURSE_SHEETS_FOLDER_ID
+                    )
+                    st.session_state.available_courses = courses
+                    if courses:
+                        st.success(f"✅ Found {len(courses)} course(s)")
+                    else:
+                        st.warning("⚠️ No courses found. Please vectorize some courses first.")
+                except Exception as e:
+                    st.error(f"❌ Error loading courses: {e}")
+                    st.session_state.available_courses = []
+        
+        # Preload retriever when tab opens (cache in session state)
+        if 'qa_retriever' not in st.session_state:
+            with st.spinner("Loading vectorstore (one-time setup)..."):
+                try:
+                    print("📥 Preloading vectorstore...")
+                    st.session_state.qa_retriever = load_qa_retriever(drive, ROOT_FOLDER_ID, use_reranking=True, k=10)
+                    print("✅ Vectorstore preloaded and cached")
+                except Exception as e:
+                    print(f"❌ Error preloading vectorstore: {e}")
+                    st.error(f"❌ Error loading vectorstore: {e}")
+                    st.session_state.qa_retriever = None
+        
+        # Course selection
+        if st.session_state.available_courses:
+            course_options = ["All Courses"] + [name for name, _ in st.session_state.available_courses]
+            selected_course = st.selectbox(
+                "Select Course",
+                options=course_options,
+                help="Choose a specific course or 'All Courses' to search across all"
+            )
+            
+            # Get selected course's sheet_id if not "All Courses"
+            selected_sheet_id = None
+            selected_course_name = None
+            if selected_course != "All Courses":
+                for name, sheet_id in st.session_state.available_courses:
+                    if name == selected_course:
+                        selected_sheet_id = sheet_id
+                        selected_course_name = name
+                        break
+            
+            st.divider()
+            
+            # Question input
+            question = st.text_area(
+                "Ask a question:",
+                placeholder="e.g., What are the key safety precautions when working with HVAC systems?",
+                height=100,
+                help="Enter your question about the course"
+            )
+            
+            # Ask button 
+            if st.button("🔍 Ask Question", type="primary"):
+                if not question.strip():
+                    st.warning("Please enter a question")
+                    return
+                
+                try:
+                    # Use preloaded retriever (should already be cached from tab load)
+                    if 'qa_retriever' not in st.session_state or st.session_state.qa_retriever is None:
+                        st.error("❌ Vectorstore not loaded. Please refresh the page.")
+                        return
+                    
+                    retriever = st.session_state.qa_retriever
+                    print(f"🔍 Question: {question}")
+                    print(f"📚 Course filter: {selected_course_name or 'All Courses'}")
+                    
+                    # Retrieve relevant slides
+                    with st.spinner("Searching for relevant slides..."):
+                        docs = retrieve_relevant_slides(
+                            retriever,
+                            question,
+                            course_name=selected_course_name,
+                            k=10
+                        )
+                        print(f"📄 Retrieved {len(docs)} relevant slides")
+                    
+                    if not docs:
+                        st.warning("No relevant slides found. Try rephrasing your question or selecting a different course.")
+                        return
+                    
+                    # Generate answer (use faster model without thinking)
+                    with st.spinner("Generating answer..."):
+                        answer, citations = generate_answer_with_rag(
+                            question,
+                            docs,
+                            course_name=selected_course_name,
+                            llm="gemini_3_flash"  # Faster than thinking model
+                        )
+                    
+                    # Display answer
+                    st.subheader("💡 Answer")
+                    st.markdown(answer)
+                    
+                    # Display citations
+                    if citations:
+                        st.subheader("📚 Sources")
+                        st.markdown(f"*Found {len(citations)} relevant slide(s):*")
+                        
+                        for i, citation in enumerate(citations, 1):
+                            with st.expander(f"Source {i}: {citation['topic']} - {citation['subtopic']}"):
+                                st.markdown(f"""
+                                **Topic:** {citation['topic']}  
+                                **Subtopic:** {citation['subtopic']}  
+                                
+                                **Slide Content:**
+                                {citation['slide_content']}
+                                """)
+                    
+                    print(f"✅ Answer generated with {len(citations)} citations")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                    print(f"❌ Q&A Error: {e}")
+        else:
+            st.info("⚠️ No courses found. Please vectorize some courses first using the Vectorization tab.")
 
 
 #Make the app visible on Streamlit UI

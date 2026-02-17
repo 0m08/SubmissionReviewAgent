@@ -161,7 +161,7 @@ Always provide your output strictly in the following format:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, visual_storyboard="", llm="gemini_3_flash_thinking"):
+def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, visual_storyboard="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for a single voiceover segment.
 
@@ -203,7 +203,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     return queries_output
 
 
-def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, visual_storyboard="", llm="gemini_3_flash_thinking"):
+def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, visual_storyboard="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for the entire slide (not per segment).
 
@@ -263,7 +263,7 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_search_query_row(index, row, course_name, llm="gemini_3_flash_thinking"):
+def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite"):
     """
     Process a single row and generate search queries based on Visual Assignment Strategy.
     
@@ -398,7 +398,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_3_flash_thinki
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_generate_search_query_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=5):
+def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", max_workers=50):
     """
     Generate search queries for all segments in all rows in the Slide Chunks sheet.
 

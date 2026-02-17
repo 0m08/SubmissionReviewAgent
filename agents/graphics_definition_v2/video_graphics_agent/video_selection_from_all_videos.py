@@ -1,6 +1,6 @@
 from langsmith import traceable
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet, merge_and_save_columns
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
@@ -516,6 +516,7 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting videos for segment")
     print(f"{'─'*45}")
+    print(f"🤖 Using LLM model: {llm}")
     print(f"📝 VO text: \"{vo_text}\"")
     print(f"🎥 Available videos (pool): {len(video_urls_pool)}")
     print(f"🎬 Available videos (other channels): {len(video_items_other_channels)}")
@@ -695,6 +696,7 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting videos for entire slide")
     print(f"{'─'*45}")
+    print(f"🤖 Using LLM model: {llm}")
     print(f"📝 Slide Title: \"{slide_title}\"")
     print(f"🎥 Available videos (pool): {len(video_urls_pool)}")
     print(f"🎬 Available videos (other channels): {len(video_items_other_channels)}")
@@ -1187,15 +1189,20 @@ def validate_video_pool_filtered_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=3):
+def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True):
     """
     Select relevant videos from all available videos for all rows in the Slide Chunks sheet.
     
     :param sheet: The gspread sheet object.
     :param llm: Language model to use.
     :param max_workers: Number of parallel workers (default 3, lower due to video frame extraction).
+    :param progress_callback: Optional callback invoked as each initial row completes.
+    :param show_progress: If False, disable internal Streamlit progress bar (thread-safe for parallel outer steps).
     :return: None if initialization fails
     """
+    print(f"\n{'='*80}")
+    print(f"🤖 VIDEO SELECTION: Using LLM model: {llm}")
+    print(f"{'='*80}\n")
     worksheet_name = "Slide Chunks"
     
     # Get drive instance
@@ -1229,7 +1236,8 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
                 continue
             
             # Skip if video_pool_filtered is already filled
-            if video_pool_filtered and video_pool_filtered != "nan":
+            # Rows marked with "ERROR:" should be retried on reruns.
+            if video_pool_filtered and video_pool_filtered != "nan" and not str(video_pool_filtered).startswith("ERROR:"):
                 continue
             
             # Submit task for processing
@@ -1241,13 +1249,17 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             print("All rows already processed or no valid video sources found.")
             return
         
-        # Initialize progress tracker
+        # Progress tracking
         total_tasks = len(futures_map)
-        progress = SmartProgressBar(
-            total_tasks=total_tasks,
-            description="Selecting videos from all available videos",
-            save_interval=3  # Save more frequently due to longer processing time
-        )
+        save_interval = 3 
+        progress = None
+        completed_count = 0
+        if show_progress:
+            progress = SmartProgressBar(
+                total_tasks=total_tasks,
+                description="Selecting videos from all available videos",
+                save_interval=save_interval,
+            )
         
         # Collect results as they complete
         for future in as_completed(futures_map):
@@ -1259,22 +1271,36 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
                 df.at[row_index, "video_pool_filtered"] = video_pool_filtered_text
                 
                 # Update progress
-                progress.update()
+                if progress is not None:
+                    progress.update()
+                else:
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(1)
                 
                 # Save every 3 rows (more frequent due to longer processing)
-                if progress.should_save():
-                    print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                    save_to_sheet(worksheet, df)
-                    format_worksheet(worksheet)
+                # Use merge_and_save_columns to avoid overwriting other parallel workers' columns
+                if progress is not None:
+                    if progress.should_save():
+                        print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
+                        merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_filtered"])
+                else:
+                    if save_interval > 0 and completed_count % save_interval == 0:
+                        print(f"Saving partial progress to sheet after {completed_count} tasks completed.")
+                        merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_filtered"])
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "video_pool_filtered"] = f"ERROR: {str(e)}"
-                progress.update()
+                if progress is not None:
+                    progress.update()
+                else:
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(1)
 
-    # Save final results before validation
-    save_to_sheet(worksheet, df)
-    format_worksheet(worksheet)
+    # Save final results before validation (merge-safe)
+    merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_filtered"])
 
     # Validation and retry logic
     max_retries = 3
@@ -1303,9 +1329,8 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
         for index, row, error_msg in invalid_rows:
             df.at[index, "video_pool_filtered"] = ""
         
-        # Save cleared state
-        save_to_sheet(worksheet, df)
-        format_worksheet(worksheet)
+        # Save cleared state (merge-safe)
+        merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_filtered"])
         
         # Retry processing invalid rows
         futures_map = {}
@@ -1324,9 +1349,8 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "video_pool_filtered"] = f"ERROR: {str(e)}"
         
-        # Save after retry
-        save_to_sheet(worksheet, df)
-        format_worksheet(worksheet)
+        # Save after retry (merge-safe)
+        merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_filtered"])
     
     if retry_count > 0:
         # Check final state
@@ -1344,11 +1368,13 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
         else:
             print(f"✅ All rows validated after {retry_count} retry attempt(s).")
     
-    # Final save to sheet
+    # Final save to sheet (merge-safe)
     print('All video selections completed. Saving final DataFrame to sheet.')
-    save_to_sheet(worksheet, df)
-    format_worksheet(worksheet)
+    merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_filtered"])
     print("✅ Video selection from all videos complete and saved to sheet.")
+
+    if not show_progress and progress_callback and total_tasks > 0:
+        progress_callback(1)
 
 
 def delete_video_pool_filtered(sheet):

@@ -457,7 +457,7 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=5):
+def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
     """
     Generate storyboard for all rows in the Slide Chunks sheet.
 

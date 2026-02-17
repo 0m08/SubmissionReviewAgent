@@ -149,7 +149,7 @@ You must always output segments in the following XML format. Each segment must b
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def segment_slide_from_slide_chunk(slide_chunk, llm="gemini_3_flash_thinking"):
+def segment_slide_from_slide_chunk(slide_chunk, llm="gemini_2_5_flash_lite"):
     """
     Segment slide content into individual voiceover (VO) segments using sentence-based segmentation.
 
@@ -195,7 +195,7 @@ def segment_slide_from_slide_chunk(slide_chunk, llm="gemini_3_flash_thinking"):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_segment_row(index, slide_chunk, llm="gemini_3_flash_thinking"):
+def process_segment_row(index, slide_chunk, llm="gemini_2_5_flash_lite"):
     """
     Process a single row and return the segmented output.
 
@@ -230,13 +230,13 @@ def process_segment_row(index, slide_chunk, llm="gemini_3_flash_thinking"):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=5):
+def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash_lite", max_workers=50):
     """
     Segment slide content into VO segments for all rows in the Slide Chunks sheet.
 
     :param sheet: The gspread sheet object.
     :param llm: The language model to use.
-    :param max_workers: Number of parallel workers (default 5).
+    :param max_workers: Number of parallel workers.
     :return: None
     """
     # Load the worksheet and DataFrame

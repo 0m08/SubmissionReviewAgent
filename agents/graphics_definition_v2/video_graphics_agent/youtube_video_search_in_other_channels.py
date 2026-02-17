@@ -1,6 +1,6 @@
 from langsmith import traceable
 import streamlit as st
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
+from services.sheets_service import get_sheet_data_and_df, save_to_sheet, merge_and_save_columns, format_worksheet, clear_worksheet
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
@@ -491,7 +491,7 @@ def validate_video_pool_other_channels_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_duration_seconds=max_video_duration_seconds, max_workers=5
+def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_duration_seconds=max_video_duration_seconds, max_workers=50
 ):
     """
     Execute YouTube video search (other channels) for all rows in the Slide Chunks sheet.
@@ -562,7 +562,7 @@ def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_
                 # Save every 5 rows
                 if progress.should_save():
                     print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                    save_to_sheet(worksheet, df)
+                    merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_other_channels"])
                     format_worksheet(worksheet)
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
@@ -571,7 +571,7 @@ def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_
                 progress.update()
 
     # Save final results before validation
-    save_to_sheet(worksheet, df)
+    merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_other_channels"])
     format_worksheet(worksheet)
 
     # Validation and retry logic
@@ -602,7 +602,7 @@ def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_
             df.at[index, "video_pool_other_channels"] = ""
         
         # Save cleared state
-        save_to_sheet(worksheet, df)
+        merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_other_channels"])
         format_worksheet(worksheet)
         
         # Retry processing invalid rows
@@ -623,7 +623,7 @@ def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_
                     df.at[index, "video_pool_other_channels"] = f"ERROR: {str(e)}"
         
         # Save after retry
-        save_to_sheet(worksheet, df)
+        merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_other_channels"])
         format_worksheet(worksheet)
     
     if retry_count > 0:
@@ -644,7 +644,7 @@ def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_
     
     # Final save to sheet
     print('All YouTube video searches (other channels) completed. Saving final DataFrame to sheet.')
-    save_to_sheet(worksheet, df)
+    merge_and_save_columns(sheet, worksheet_name, df, ["video_pool_other_channels"])
     format_worksheet(worksheet)
     print("✅ YouTube video search (other channels) complete and saved to sheet.")
 
