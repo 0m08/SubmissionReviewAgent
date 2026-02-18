@@ -13,17 +13,24 @@ def main():
     parser.add_argument('--agent_name', required=True, help='Name of the agent to run')
     args = parser.parse_args()
 
-    gdrive_sa_json = os.environ.get("GDRIVE_SA_JSON")
+    # Use GDRIVE_SA_B64 directly if available, otherwise encode GDRIVE_SA_JSON
+    gdrive_sa_b64 = os.environ.get("GDRIVE_SA_B64")
+    if not gdrive_sa_b64:
+        gdrive_sa_json = os.environ.get("GDRIVE_SA_JSON")
+        if gdrive_sa_json:
+            gdrive_sa_b64 = base64.b64encode(gdrive_sa_json.encode()).decode()
+        else:
+            gdrive_sa_b64 = ""
     
-    # Base64 encode the JSON to safely pass through shell (avoids issues with special chars in private key)
-    if gdrive_sa_json:
-        gdrive_sa_b64 = base64.b64encode(gdrive_sa_json.encode()).decode()
-    else:
-        gdrive_sa_b64 = ""
-
+    # Main ones
     studio_name = "course-generation-agents"
     teamspace = "Vision-model"
     user = "dilip"
+
+    # # Niket one for testing background job
+    # studio_name = "simple-coffee-ezuw"
+    # teamspace = "deploy-model-project"
+    # user = "niket4204"
 
     print(f"[INFO] Initializing Studio '{studio_name}' in teamspace '{teamspace}'...")
     studio = Studio(name=studio_name, teamspace=teamspace, user=user, create_ok=True)
