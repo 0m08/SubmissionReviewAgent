@@ -5071,7 +5071,7 @@ def process_review_revise_row(
 def run_review_and_revise_graphics_definition_v2_for_all_rows(
     sheet,
     llm: str = "gemini_3_flash_thinking",
-    max_workers: int = 10,
+    max_workers: int = 50,
 ) -> None:
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)

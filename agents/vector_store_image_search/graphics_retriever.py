@@ -1,6 +1,7 @@
 import cohere
 import os
 import requests
+import threading
 from io import BytesIO
 from PIL import Image
 import imagehash
@@ -13,62 +14,72 @@ import base64
 import hashlib
 import tempfile
 
+# Serialize load and cache per root_folder_id to avoid concurrent download/open and SQLite corruption
+GRAPHICS_CHROMA_LOAD_LOCK = threading.Lock()
+GRAPHICS_CHROMA_CACHE = {}
+
 
 def load_central_chroma_db(embedding_function, drive, root_folder_id):
-    """Load the shared Chroma DB collections from Google Drive."""
+    """Load the shared Chroma DB collections from Google Drive. Cached per root_folder_id to avoid concurrent open corruption."""
+    cache_key = root_folder_id
+    with GRAPHICS_CHROMA_LOAD_LOCK:
+        if cache_key in GRAPHICS_CHROMA_CACHE:
+            return GRAPHICS_CHROMA_CACHE[cache_key]
 
-    # Create version-specific local path to avoid cache conflicts
-    local_chroma_root = "/tmp/temp_chroma_folder"
-    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
-    os.makedirs(local_chroma_root, exist_ok=True)
+        # Create version-specific local path to avoid cache conflicts
+        local_chroma_root = "/tmp/temp_chroma_folder"
+        local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
+        os.makedirs(local_chroma_root, exist_ok=True)
 
-    # Locate Vectorstore files folder
-    vectorstore_list = drive.ListFile({
-        'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    }).GetList()
-    if not vectorstore_list:
-        raise FileNotFoundError("'Vectorstore files' folder not found in Drive.")
-    vectorstore_folder_id = vectorstore_list[0]['id']
+        # Locate Vectorstore files folder
+        vectorstore_list = drive.ListFile({
+            'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        }).GetList()
+        if not vectorstore_list:
+            raise FileNotFoundError("'Vectorstore files' folder not found in Drive.")
+        vectorstore_folder_id = vectorstore_list[0]['id']
 
-    # Search for chroma db folder
-    print("Searching for 'chroma_graphics_db' in Drive...")
-    file_list = drive.ListFile({
-        'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    }).GetList()
+        # Search for chroma db folder
+        print("Searching for 'chroma_graphics_db' in Drive...")
+        file_list = drive.ListFile({
+            'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        }).GetList()
 
-    if not file_list:
-        raise FileNotFoundError("'chroma_graphics_db' not found in Drive.")
+        if not file_list:
+            raise FileNotFoundError("'chroma_graphics_db' not found in Drive.")
 
-    chroma_folder_id = file_list[0]['id']
-    print(f"Found Chroma folder ID: {chroma_folder_id}")
+        chroma_folder_id = file_list[0]['id']
+        print(f"Found Chroma folder ID: {chroma_folder_id}")
 
-    if not os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
-        print("⬇Downloading Chroma DB...")
-        download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
-        print(f"Downloaded to: {local_chroma_path}")
-    else:
-        print("Using existing local copy of Chroma DB.")
+        if not os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
+            print("⬇Downloading Chroma DB...")
+            download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
+            print(f"Downloaded to: {local_chroma_path}")
+        else:
+            print("Using existing local copy of Chroma DB.")
 
-    # Load text_embeddings collection
-    text_chroma = Chroma(
-        embedding_function=embedding_function,
-        collection_name="text_embeddings",
-        persist_directory=local_chroma_path
-    )
-    print("Loaded 'text_embeddings' collection.")
+        # Load text_embeddings collection
+        text_chroma = Chroma(
+            embedding_function=embedding_function,
+            collection_name="text_embeddings",
+            persist_directory=local_chroma_path
+        )
+        print("Loaded 'text_embeddings' collection.")
 
-    # Load image_embeddings collection
-    image_chroma = Chroma(
-        embedding_function=None,  # CLIP vectors are precomputed
-        collection_name="image_embeddings",
-        persist_directory=local_chroma_path
-    )
-    print("Loaded 'image_embeddings' collection.")
+        # Load image_embeddings collection
+        image_chroma = Chroma(
+            embedding_function=None,  # CLIP vectors are precomputed
+            collection_name="image_embeddings",
+            persist_directory=local_chroma_path
+        )
+        print("Loaded 'image_embeddings' collection.")
 
-    return {
-        "text": text_chroma,
-        "image": image_chroma
-    }
+        dbs = {
+            "text": text_chroma,
+            "image": image_chroma
+        }
+        GRAPHICS_CHROMA_CACHE[cache_key] = dbs
+        return dbs
     
     
 co = cohere.ClientV2(api_key=os.getenv('COHERE_API_KEY'))

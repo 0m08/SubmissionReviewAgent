@@ -3,16 +3,14 @@ from queue import Queue, Empty
 import time
 from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
     run_image_selection_from_all_images_for_all_rows,
-    delete_image_pool,
 )
 from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
     run_video_selection_from_all_videos_for_all_rows,
-    delete_video_pool_filtered,
 )
 import streamlit as st
 from langsmith import traceable
 from services.smart_progress_bar import SmartProgressBar
-from services.sheets_service import get_sheet_data_and_df
+from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save_to_sheet
 
 
 @traceable(
@@ -156,15 +154,23 @@ def run_generate_image_and_video_pools(sheet, image_pool_llm="gemini_2_5_flash_l
 
 def delete_all_pool_results(sheet):
     """
-    Delete all pool generation results by calling both delete functions.
+    Delete all pool generation results by dropping the pool columns from Slide Chunks.
     
     :param sheet: The gspread sheet object.
     :return: None
     """
+    worksheet_name = "Slide Chunks"
+    columns_to_delete = ["image_pool", "video_pool_filtered"]
     print("🗑️ Deleting all pool generation results...")
     try:
-        delete_image_pool(sheet)
-        delete_video_pool_filtered(sheet)
-        print("✅ All pool results deleted")
+        ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+        to_drop = [c for c in columns_to_delete if c in df.columns]
+        if not to_drop:
+            print(f"ℹ️ None of {columns_to_delete} exist in '{worksheet_name}'")
+            return
+        df = df.drop(columns=to_drop)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+        print(f"✅ Deleted columns from '{worksheet_name}': {to_drop}")
     except Exception as e:
         print(f"⚠️ Error during deletion: {e}")

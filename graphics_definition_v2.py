@@ -62,6 +62,14 @@ from agents.graphics_definition_v2.image_graphics_agent.generate_candidates impo
     delete_all_candidate_results,
 )
 
+# Shown at top of page (before Section 1) so users set Visual Assignment Strategy before running.
+TOP_INSTRUCTIONS = (
+                    "**Before running:** Set **Visual Assignment Strategy** in the Slide Chunks sheet for each row (dropdown per row). For each row, you can select one of the following options:\n\n"
+                    "- **Flexible, let the agent decide**: Agent picks how many visuals get assigned for the slide.\n"
+                    "- **1 Visual per Sentence**: One visual gets assigned per sentence.\n"
+                    "- **1 Visual for the whole Slide**: One visual gets assigned for the entire slide.\n\n"
+)
+
 pipeline_sections = [
     {
         "section_name": "Section 1: Segment Slide into Voiceover Segments",
@@ -249,4 +257,4 @@ llm_pricing = {
     },
 }
 
-agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing)
+agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing, top_instructions=TOP_INSTRUCTIONS)

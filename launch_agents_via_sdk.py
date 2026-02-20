@@ -22,7 +22,10 @@ def main():
             gdrive_sa_b64 = base64.b64encode(gdrive_sa_json.encode()).decode()
         else:
             gdrive_sa_b64 = ""
-    
+
+    # VERTEX_AI_SA_B64 is required for Graphics Definition V2 video search (multimodal embeddings)
+    vertex_ai_sa_b64 = os.environ.get("VERTEX_AI_SA_B64", "")
+
     # # Main ones
     # studio_name = "course-generation-agents"
     # teamspace = "Vision-model"
@@ -41,11 +44,14 @@ def main():
     jobs_plugin = studio.installed_plugins["jobs"]
 
     agent = args.agent_name
+    
+    # Export env vars for the job: GDRIVE_SA_B64 (required); VERTEX_AI_SA_B64 (for graphics_definition_v2 video search)
+    export_env = f"export GDRIVE_SA_B64='{gdrive_sa_b64}' && export VERTEX_AI_SA_B64='{vertex_ai_sa_b64}' && "
     command = (
         f"echo 'numpy<2' > /tmp/constraints.txt && "
         f"pip install 'numpy<2' 'matplotlib>=3.9' 'scikit-learn>=1.5' google-cloud-aiplatform && "
         f"pip install -c /tmp/constraints.txt -r requirements.txt && "
-        f"export GDRIVE_SA_B64='{gdrive_sa_b64}' && "
+        f"{export_env}"
         f"python run_agent_cli.py "
         f"--sheet_link '{args.sheet_link}' "
         f"--drive_folder_id '{args.drive_folder_id}' "

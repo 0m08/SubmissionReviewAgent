@@ -2975,7 +2975,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=10):
+def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=50):
     """
     Process a single row: aggregate graphics for all segments and combine into final definition.
     
@@ -3253,7 +3253,7 @@ def validate_final_graphics_definition_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=10):
+def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
     """
     Run aggregation agent for all rows in the Slide Chunks sheet.
 
@@ -3459,7 +3459,7 @@ def delete_final_graphics_definition(sheet):
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     if "final_graphics_definition" in df.columns:
-        df = df.drop(columns=["final_graphics_definition"])
+        df = df.drop(columns=["final_graphics_definition", "evaluation_breakdown"])
         clear_worksheet(ws)
         save_to_sheet(ws, df)
         print(f"🗑️ Deleted 'final_graphics_definition' column from '{worksheet_name}' worksheet")

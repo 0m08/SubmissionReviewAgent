@@ -224,7 +224,7 @@ def _record_step_metrics(step: dict, duration_seconds: float, start_time: dateti
     st.session_state["step_metrics"][step["name"]] = metrics
 
 
-def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None):
+def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None, top_instructions: str | None = None):
     st.session_state["outline_finalized"] = outline_finalized
     st.title(f"{step_name} Agent")
 
@@ -446,6 +446,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
     if "sheet" in st.session_state:
         step_global_count = 1  # So we can label steps 1,2,3 across sections
 
+        # Optional instructions shown above all sections (e.g. "before you run" setup)
+        if top_instructions:
+            st.info(top_instructions)
+
         # Filter sections that have at least one visible step
         visible_sections = [
             section for section in pipeline_sections
@@ -523,6 +527,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
                         if not st.session_state[step_key]:
                             # This step is not done yet
+
+                            # If this step has pre-exec setup, show instructions so user knows what to do before running
+                            if "pre_exec_func" in step and "pre_exec_instructions" in step:
+                                st.info(step["pre_exec_instructions"])
 
                             # If we have a description, only show it while the user can act on the step
                             if "description" in step:

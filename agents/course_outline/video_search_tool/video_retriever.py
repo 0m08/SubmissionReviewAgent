@@ -24,6 +24,41 @@ from langchain_core.runnables import Runnable
 VIDEO_CENTRAL_FOLDER_ID = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
 
 _VIDEO_VECTOR_DB_CACHE: Dict[str, Tuple[Chroma, Any]] = {}
+
+
+def _get_service_account_email_from_env():
+    """Extract client_email from GDRIVE_SA_B64 or GDRIVE_SA_JSON for error messages."""
+    try:
+        b64 = os.environ.get("GDRIVE_SA_B64")
+        if b64:
+            key_bytes = base64.b64decode(b64)
+            sa_dict = json.loads(key_bytes.decode())
+            return sa_dict.get("client_email") or None
+        raw = os.environ.get("GDRIVE_SA_JSON")
+        if raw:
+            sa_dict = json.loads(raw)
+            return sa_dict.get("client_email") or None
+    except Exception:
+        pass
+    return None
+
+
+def resolve_video_chroma_db_path(local_chroma_path):
+    """
+    Return the path that contains chroma.sqlite3.
+    create_video_embeddings stores the DB inside a subfolder 'chroma_video_embeddings_db'.
+    """
+    if os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
+        return local_chroma_path
+    for name in os.listdir(local_chroma_path):
+        if name.startswith("."):
+            continue
+        candidate = os.path.join(local_chroma_path, name)
+        if os.path.isdir(candidate) and os.path.exists(os.path.join(candidate, "chroma.sqlite3")):
+            return candidate
+    return local_chroma_path
+
+
 _VIDEO_BM25_CACHE: Dict[str, BM25Retriever] = {}
 _VIDEO_COMPRESSION_CACHE: Dict[str, ContextualCompressionRetriever] = {}
 
@@ -72,7 +107,7 @@ def load_video_chroma_db(embedding_function, drive, central_folder_id):
     return video_chroma
 
 
-def load_video_vector_db_retriever(drive, central_folder_id: str = VIDEO_CENTRAL_FOLDER_ID):
+def load_video_vector_db_retriever(drive, central_folder_id = VIDEO_CENTRAL_FOLDER_ID):
     """
     Load the vector database retriever.
     :param course_name: The name of the course.
@@ -126,18 +161,21 @@ def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video
     chroma_folder_id = file_list[0]['id']
     print(f"Found Video Embeddings folder ID: {chroma_folder_id}")
 
-    # Download folder if not already present
+    # Download folder if not already present. DB may be at root or in subfolder chroma_video_embeddings_db.
     lock_file = os.path.join(local_chroma_path, ".download_lock")
-    
-    if not os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
-        
+    resolved = resolve_video_chroma_db_path(local_chroma_path)
+    chroma_sqlite_in_resolved = os.path.join(resolved, "chroma.sqlite3")
+
+    if not os.path.exists(chroma_sqlite_in_resolved):
+
         # Check if another process is already downloading
         if os.path.exists(lock_file):
             print("⏳ Another process is downloading the vectorstore. Waiting...")
             while os.path.exists(lock_file):
                 time.sleep(1)
-            # Check again after waiting
-            if not os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
+            resolved = resolve_video_chroma_db_path(local_chroma_path)
+            chroma_sqlite_in_resolved = os.path.join(resolved, "chroma.sqlite3")
+            if not os.path.exists(chroma_sqlite_in_resolved):
                 print("⬇ Downloading Video Embeddings Chroma DB from Drive...")
                 with open(lock_file, 'w') as f:
                     f.write(str(os.getpid()))
@@ -162,16 +200,22 @@ def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video
     else:
         print("Using existing local Video Embeddings Chroma DB.")
 
-    # Load video embeddings collection 
-    client = PersistentClient(path=local_chroma_path)
-    
+    db_path = resolve_video_chroma_db_path(local_chroma_path)
+    if db_path != local_chroma_path:
+        print(f"Using Chroma DB subfolder: {os.path.basename(db_path)}")
+
+    # Load video embeddings collection
+    client = PersistentClient(path=db_path)
+
     try:
         collections = client.list_collections()
         print(f"Available collections in vectorstore: {[c.name for c in collections]}")
-        
+
         if not collections:
             print("❌ No collections found in vectorstore. The vectorstore is empty.")
-            raise Exception("Vectorstore is empty - no video embeddings have been created yet.")
+            raise Exception(
+                "Video embeddings vectorstore is empty. Share the Drive folder with the service account (see GDRIVE_SA_B64)."
+            )
         
         collection = client.get_collection("video_embeddings")
         print("Loaded 'video_embeddings' collection from new vectorstore.")
