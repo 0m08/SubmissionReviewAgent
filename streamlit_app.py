@@ -412,17 +412,23 @@ curriculum_mapping_tool_page = st.Page(
     icon=":material/menu_book:",
 )
 
-video_embeddings_page = st.Page(
-    "video_embeddings.py",
-    title="Video Embeddings",
-    icon=":material/menu_book:",
+# video_embeddings_page = st.Page(
+#     "video_embeddings.py",
+#     title="Video Embeddings",
+#     icon=":material/menu_book:",
+# )
+
+video_search_hvac_channels_page = st.Page(
+    "video_search_hvac_channels.py",
+    title="Video Search inside 'HVAC School' & 'Love2HVAC with TY' Youtube Channel)",
+    icon=":material/search:",
 )
 
-course_qa_vectorization_page = st.Page(
-    "course_qa_vectorization.py",
-    title="Course Q&A",
-    icon=":material/storage:",
-)
+# course_qa_vectorization_page = st.Page(
+#     "course_qa_vectorization.py",
+#     title="Course Q&A",
+#     icon=":material/storage:",
+# )
 #######################
 # 3) Common app layout
 #######################
@@ -468,8 +474,9 @@ page_name_to_object = {
     "mcp_ui_page": mcp_ui_page_obj,
     "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
-    "video_embeddings_page": video_embeddings_page,
-    "course_qa_vectorization_page": course_qa_vectorization_page,
+    #"video_embeddings_page": video_embeddings_page,
+    "video_search_hvac_channels_page": video_search_hvac_channels_page,
+    #"course_qa_vectorization_page": course_qa_vectorization_page,
 }
 
 # Define which pages belong to which category
@@ -488,7 +495,8 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
-    "video_embeddings_page",
+    #"video_embeddings_page",
+    "video_search_hvac_channels_page",
     "graphics_definition_v2_slideshow_page",
     "slideshow_generator_page",
     "paraphraser_page",
@@ -496,7 +504,7 @@ tool_pages = [
     "mcp_ui_page",
     "image_editing_tool_page",
     "curriculum_mapping_tool_page",
-    "course_qa_vectorization_page",
+    #"course_qa_vectorization_page",
 ]
 
 if st.session_state.role:

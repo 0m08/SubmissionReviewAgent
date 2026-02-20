@@ -1178,6 +1178,7 @@ def build_timeline(
                 "duration": part_duration,
                 "end_time": current_time + part_duration,
                 "narration_duration": narration_duration,
+                "is_first_part_of_slide": part.get("is_first_part_of_slide", False),
             }
         )
         current_time += part_duration
@@ -1192,6 +1193,8 @@ def build_asset_lifecycles(
     current_canvas: Dict[str, Dict[str, Any]] = {}
 
     for part in timeline:
+        if part.get("is_first_part_of_slide"):
+            current_canvas.clear()
         part_start = part["start_time"]
         actions = part.get("actions", [])
 
@@ -1429,6 +1432,8 @@ def generate_slideshow_from_sheet(
         for row in records:
             layout_instructions = row.get("layout_instructions", "")
             parts = parse_layout_instructions(layout_instructions)
+            if parts:
+                parts[0]["is_first_part_of_slide"] = True
             narration_parts.extend(parts)
 
         if not narration_parts:

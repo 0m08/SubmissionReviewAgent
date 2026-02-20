@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langsmith import traceable
 import streamlit as st
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format_worksheet, clear_worksheet
@@ -20,8 +21,6 @@ from google.genai import types
 from typing import List, Dict, Optional, Tuple, Any
 
 load_dotenv()
-
-
 
 
 layout_agent_prompt = """You are a senior instructional visual designer specializing in HVAC e-learning content. Your task is to generate production-ready slide layout instructions from a finalized graphics definition.
@@ -47,10 +46,6 @@ Slide content that needs layout: {slide_content}
 {final_graphics_definition}
 </graphics_definition_for_this_slide_content>
 
-<previous_slide_layout>
-{previous_slide_layout}
-</previous_slide_layout>
-
 Instructions:
 
 1. Authority and Scope:
@@ -63,7 +58,6 @@ Instructions:
 2. Persistent Canvas:
    - Treat the slide as a single, persistent canvas that evolves over time as narration progresses.
    - The canvas state at the end of one narration part becomes the starting canvas state for the next narration part.
-   - If a previous_slide_layout is provided, treat it as the initial canvas state at the start of this slide.
    - Visuals are not reset between narration parts unless you explicitly remove them.
    - Maintain visual continuity by keeping, repositioning, or removing visuals only when necessary for clarity or space.
 
@@ -104,8 +98,8 @@ This section defines the exact output schema, allowed actions, fields, and value
 
 3. Canvas State Before
 - <canvas_state_before> defines the complete set of visuals present on the canvas at the start of the narration part.
-- It must list all visuals carried over from the previous narration part or from the previous slide.
-- If no visuals are present (in cases where <previous_slide_layout> input is empty), the block must still be included and left empty.
+- It must list all visuals carried over from the previous narration part within this slide.
+- The first narattion part for the slide will have no previous visuals and previous narration, so the block must still be included and left empty.
 - Each visual must be represented using a <visual> block containing:
   - asset
   - position
@@ -183,7 +177,7 @@ Allowed Action Types
 
 7. Canvas Continuity Rules
 - The <canvas_state_after> of a narration part becomes the <canvas_state_before> of the next narration part.
-- For the first narration part of a slide, <canvas_state_before> must reflect the previous_slide_layout input.
+- For the first narration part of a slide, <canvas_state_before> must be empty (no prior visuals on this slide).
 
 8. Position Constraints
 - At most one visual may use position: full.
@@ -210,7 +204,7 @@ In this section, you should:
 - Analyze the slide content and break it into narration parts as defined in the graphics definition.
 - Review the visual assets assigned to each narration part and note what each visual depicts.
 - Identify which visuals are primary for each narration part and which previously shown visuals, if any, may need to remain as secondary context.
-- Consider the incoming canvas state from the previous slide or previous narration part.
+- Consider the incoming canvas state from the previous narration part (within this slide).
 - Decide which visuals should be removed, kept, moved, or added at each narration boundary.
 - Plan how the canvas should evolve step by step to maintain clarity, continuity, and visual focus.
 - Enter any other thoughts and analysis you have that will help you arrive at the correct output.
@@ -632,12 +626,11 @@ def generate_layout_for_row(
     slide_title: str,
     slide_content: str,
     final_graphics_definition: str,
-    previous_slide_layout: Optional[str],
     drive,
     llm: str = "gemini_3_flash_thinking"
 ) -> Tuple[str, str]:
     """
-    Generate layout instructions for a single row.
+    Generate layout instructions for a single row. Each row is independent (no previous-slide context).
     
     :param course_name: Course name
     :param topic_name: Topic name
@@ -645,7 +638,6 @@ def generate_layout_for_row(
     :param slide_title: Slide title
     :param slide_content: Full slide content
     :param final_graphics_definition: The final_graphics_definition column content
-    :param previous_slide_layout: The layout_instructions from the previous slide (last narration_part)
     :param drive: Google Drive instance
     :param llm: Language model to use
     :return: Tuple of (layout_output, evaluation_breakdown)
@@ -662,31 +654,6 @@ def generate_layout_for_row(
         return "", ""
     
     print(f"📊 Found {len(graphics)} graphics to process")
-    
-    # Extract last narration_part from previous slide and its visuals
-    previous_narration_part = None
-    previous_assets = []
-    
-    if previous_slide_layout:
-        print(f"📎 Previous slide layout provided (length: {len(previous_slide_layout)} chars)")
-        previous_narration_part = extract_last_narration_part_from_layout(previous_slide_layout)
-        if previous_narration_part:
-            print(f"✅ Extracted last narration_part from previous slide (length: {len(previous_narration_part)} chars)")
-            # Extract canvas_state_after from the last narration_part
-            canvas_state_match = re.search(
-                r'<canvas_state_after>(.*?)</canvas_state_after>',
-                previous_narration_part,
-                re.DOTALL | re.IGNORECASE
-            )
-            if canvas_state_match:
-                previous_assets = extract_assets_from_canvas_state(canvas_state_match.group(1))
-                print(f"📋 Found {len(previous_assets)} asset(s) from previous slide")
-            else:
-                print(f"⚠️ No canvas_state_after found in previous narration_part")
-        else:
-            print(f"⚠️ Could not extract narration_part from previous slide layout")
-    else:
-        print(f"ℹ️ No previous slide layout provided (first slide or no previous layout)")
     
     # Build multimodal parts
     parts: List[types.Part] = []
@@ -749,53 +716,7 @@ def generate_layout_for_row(
     
         current_slide_visuals.extend(visual_parts)
     
-    # Prepare previous slide visuals (to be inserted at previous_slide_layout section)
-    previous_slide_visual_parts = []
-    if previous_assets:
-        for idx, asset_info in enumerate(previous_assets, start=1):
-            asset_url = asset_info['asset']
-            position = asset_info.get('position', 'unknown')
-            
-            # Determine type
-            if 'youtube.com' in asset_url or 'youtu.be' in asset_url:
-                if 'start=' in asset_url and 'end=' in asset_url:
-                    graphic_type = 'video'
-                elif 'start=' in asset_url:
-                    graphic_type = 'video_frame'
-                else:
-                    graphic_type = 'video'
-            else:
-                graphic_type = 'image'
-            
-            label = f"Previous Slide Visual {idx} (Position: {position})"
-            
-            if graphic_type == 'image':
-                pil_image = load_image_from_url(asset_url, drive, label)
-                if pil_image:
-                    buffered = BytesIO()
-                    pil_image.convert("RGB").save(buffered, format="JPEG")
-                    image_bytes = buffered.getvalue()
-                    previous_slide_visual_parts.append(types.Part(text=f"{label}\nURL: {asset_url}"))
-                    previous_slide_visual_parts.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=image_bytes)))
-                    print(f"✅ Loaded previous slide image: {label}")
-            elif graphic_type == 'video':
-                base_url, start_seconds, end_seconds = parse_video_url_timestamps(asset_url)
-                if base_url:
-                    previous_slide_visual_parts.append(types.Part(text=f"{label} (Video Clip)\nURL: {asset_url}"))
-                    video_part = build_video_part(base_url, start_seconds, end_seconds)
-                    previous_slide_visual_parts.append(video_part)
-                    print(f"✅ Added previous slide video clip: {label}")
-            elif graphic_type == 'video_frame':
-                base_url, start_seconds, _ = parse_video_url_timestamps(asset_url)
-                if base_url and start_seconds is not None:
-                    previous_slide_visual_parts.append(types.Part(text=f"{label} (Still Frame from Video)\nURL: {asset_url}"))
-                    video_part = build_video_part(base_url, start_seconds, start_seconds + 1)
-                    previous_slide_visual_parts.append(video_part)
-                    print(f"✅ Added previous slide video frame: {label}")
-    
-    # Format prompt with previous_slide_layout
-    previous_layout_text = previous_narration_part if previous_narration_part else ""
-    
+    # Format prompt (no previous_slide_layout; each row is independent)
     prompt_text = layout_agent_prompt.format(
         course_name=course_name,
         topic_name=topic_name,
@@ -803,51 +724,19 @@ def generate_layout_for_row(
         slide_title=slide_title,
         slide_content=slide_content,
         final_graphics_definition=final_graphics_definition,
-        previous_slide_layout=previous_layout_text
     )
     
-    # Split prompt to insert visuals at the right places
-    # Find positions of key sections
+    # Insert current slide visuals right after graphics_definition
     graphics_def_end = prompt_text.find('</graphics_definition_for_this_slide_content>')
-    previous_slide_start = prompt_text.find('<previous_slide_layout>')
-    previous_slide_end = prompt_text.find('</previous_slide_layout>')
-    
-    # Build parts with visuals inserted contextually
-    if graphics_def_end != -1 and previous_slide_start != -1 and previous_slide_end != -1:
-        # Split into: before graphics_def, after graphics_def (before previous_slide), after previous_slide
+    if graphics_def_end != -1:
         prompt_before_graphics = prompt_text[:graphics_def_end + len('</graphics_definition_for_this_slide_content>')]
-        prompt_before_previous = prompt_text[graphics_def_end + len('</graphics_definition_for_this_slide_content>'):previous_slide_start + len('<previous_slide_layout>')]
-        # Extract the content between the tags (the XML narration_part)
-        previous_slide_content = prompt_text[previous_slide_start + len('<previous_slide_layout>'):previous_slide_end]
-        prompt_after_previous = prompt_text[previous_slide_end:]
-        
+        prompt_after_graphics = prompt_text[graphics_def_end + len('</graphics_definition_for_this_slide_content>'):]
         parts = []
-        # Add prompt up to end of graphics_definition
         parts.append(types.Part(text=prompt_before_graphics))
-        # Insert current slide visuals right after graphics_definition
         parts.extend(current_slide_visuals)
-        # Add prompt between graphics_definition and previous_slide_layout
-        parts.append(types.Part(text=prompt_before_previous))
-        # Insert previous slide visuals right at previous_slide_layout section
-        parts.extend(previous_slide_visual_parts)
-        # Add the XML content (narration_part) after the visuals
-        if previous_slide_content.strip():
-            parts.append(types.Part(text=previous_slide_content))
-        # Add rest of prompt after previous_slide_layout
-        parts.append(types.Part(text=prompt_after_previous))
-    elif previous_slide_start != -1 and previous_slide_end != -1:
-        # Only previous_slide_layout found, insert visuals there
-        prompt_before = prompt_text[:previous_slide_start + len('<previous_slide_layout>')]
-        prompt_after = prompt_text[previous_slide_end:]
-        
-        parts = []
-        parts.append(types.Part(text=prompt_before))
-        parts.extend(previous_slide_visual_parts)
-        parts.append(types.Part(text=prompt_after))
-        # Also add current slide visuals at the beginning
-        parts = current_slide_visuals + parts
+        parts.append(types.Part(text=prompt_after_graphics))
     else:
-        # No special sections found, add visuals then prompt
+        parts = []
         parts.extend(current_slide_visuals)
         parts.append(types.Part(text=prompt_text))
     
@@ -920,13 +809,14 @@ def generate_layout_for_row(
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_layout_agent_for_all_rows(sheet, llm: str = "gemini_3_flash_thinking"):
+def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
     """
     Run layout agent for all rows in the Slide Chunks sheet.
-    Sequential processing (no parallelization).
+    Rows are processed in parallel (each row is independent).
     
     :param sheet: The gspread sheet object.
     :param llm: Language model to use.
+    :param max_workers: Max parallel workers (default 50).
     :return: None
     """
     worksheet_name = "Slide Chunks"
@@ -976,84 +866,92 @@ def run_layout_agent_for_all_rows(sheet, llm: str = "gemini_3_flash_thinking"):
     
     print(f"📝 Processing {len(rows_to_process)} row(s) with missing layout_instructions\n")
     
-    # Initialize progress bar
+    # Initialize progress bar (save every 5 rows)
     total_tasks = len(rows_to_process)
-    progress = SmartProgressBar(total_tasks, "Layout Agent")
+    progress = SmartProgressBar(total_tasks, "Layout Agent", save_interval=5)
     
-    # Process rows sequentially (no parallelization)
-    for idx, (index, row) in enumerate(rows_to_process):
-        try:
-            # Get row data
-            topic_name = str(row.get("Topic", "")).strip()
-            subtopic_name = str(row.get("Subtopic", "")).strip()
-            slide_title = str(row.get("Slide Chunk Title", "")).strip()
-            slide_content = str(row.get("Slide Chunk", "")).strip()
-            final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
+    # Process rows in parallel
+    if max_workers > 1:
+        print(f"🚀 Processing {len(rows_to_process)} row(s) in parallel with {max_workers} worker(s)...\n")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+            for index, row in rows_to_process:
+                topic_name = str(row.get("Topic", "")).strip()
+                subtopic_name = str(row.get("Subtopic", "")).strip()
+                slide_title = str(row.get("Slide Chunk Title", "")).strip()
+                slide_content = str(row.get("Slide Chunk", "")).strip()
+                final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
+                future = executor.submit(
+                    generate_layout_for_row,
+                    course_name=course_name,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    slide_title=slide_title,
+                    slide_content=slide_content,
+                    final_graphics_definition=final_graphics_def,
+                    drive=drive,
+                    llm=llm,
+                )
+                futures[future] = index
             
-            # Get previous slide's layout_instructions (from previous row)
-            previous_slide_layout = None
-            if idx > 0:
-                # Get from previously processed row in this batch
-                prev_index, prev_row = rows_to_process[idx - 1]
-                previous_slide_layout = str(prev_row.get("layout_instructions", "")).strip()
-                if not previous_slide_layout or previous_slide_layout == "nan":
-                    previous_slide_layout = None
-                # If not found in rows_to_process, check if we updated it in df
-                if not previous_slide_layout:
-                    prev_layout = str(df.at[prev_index, "layout_instructions"]).strip()
-                    if prev_layout and prev_layout != "nan":
-                        previous_slide_layout = prev_layout
-            else:
-
-                row_positions = df.index.tolist()
+            for future in as_completed(futures):
+                index = futures[future]
                 try:
-                    current_pos = row_positions.index(index)
-                    if current_pos > 0:
-                        prev_index = row_positions[current_pos - 1]
-                        prev_layout = str(df.at[prev_index, "layout_instructions"]).strip()
-                        if prev_layout and prev_layout != "nan":
-                            previous_slide_layout = prev_layout
-                except (ValueError, IndexError):
-                    pass
-            
-            print(f"\n📋 Processing row {index + 2}: {slide_title}")
-            if previous_slide_layout:
-                print(f"📎 Using previous slide layout as context")
-            
-            # Generate layout
-            layout_output, evaluation_breakdown = generate_layout_for_row(
-                course_name=course_name,
-                topic_name=topic_name,
-                subtopic_name=subtopic_name,
-                slide_title=slide_title,
-                slide_content=slide_content,
-                final_graphics_definition=final_graphics_def,
-                previous_slide_layout=previous_slide_layout,
-                drive=drive,
-                llm=llm
-            )
-            
-            # Update dataframe
-            df.at[index, "layout_instructions"] = layout_output
-            df.at[index, "layout_evaluation"] = evaluation_breakdown
-            
-            # Update progress
-            progress.update()
-            
-            # Save after each row (sequential processing)
-            print(f"💾 Saving progress after row {index + 2}...")
-            save_to_sheet(ws, df)
-            format_worksheet(ws)
-            
-        except Exception as e:
-            print(f"❌ Error processing row {index}: {e}")
-            df.at[index, "layout_instructions"] = f"ERROR: {str(e)}"
-            df.at[index, "layout_evaluation"] = f"ERROR: {str(e)}"
-            progress.update()
-            
-            # Save even on error
-            save_to_sheet(ws, df)
-            format_worksheet(ws)
+                    layout_output, evaluation_breakdown = future.result()
+                    df.at[index, "layout_instructions"] = layout_output
+                    df.at[index, "layout_evaluation"] = evaluation_breakdown
+                    progress.update()
+                    if progress.should_save():
+                        print(f"💾 Saving progress after {progress.completed_count} row(s)...")
+                        save_to_sheet(ws, df)
+                        format_worksheet(ws)
+                except Exception as e:
+                    print(f"❌ Error processing row {index}: {e}")
+                    df.at[index, "layout_instructions"] = f"ERROR: {str(e)}"
+                    df.at[index, "layout_evaluation"] = f"ERROR: {str(e)}"
+                    progress.update()
+                    save_to_sheet(ws, df)
+                    format_worksheet(ws)
+    else:
+        # Sequential fallback
+        print(f"Processing {len(rows_to_process)} row(s) sequentially...\n")
+        for idx, (index, row) in enumerate(rows_to_process):
+            try:
+                topic_name = str(row.get("Topic", "")).strip()
+                subtopic_name = str(row.get("Subtopic", "")).strip()
+                slide_title = str(row.get("Slide Chunk Title", "")).strip()
+                slide_content = str(row.get("Slide Chunk", "")).strip()
+                final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
+                print(f"\n📋 Processing row {index + 2}: {slide_title}")
+                layout_output, evaluation_breakdown = generate_layout_for_row(
+                    course_name=course_name,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    slide_title=slide_title,
+                    slide_content=slide_content,
+                    final_graphics_definition=final_graphics_def,
+                    drive=drive,
+                    llm=llm
+                )
+                df.at[index, "layout_instructions"] = layout_output
+                df.at[index, "layout_evaluation"] = evaluation_breakdown
+                progress.update()
+                if progress.should_save():
+                    print(f"💾 Saving progress after row {index + 2}...")
+                    save_to_sheet(ws, df)
+                    format_worksheet(ws)
+            except Exception as e:
+                print(f"❌ Error processing row {index}: {e}")
+                df.at[index, "layout_instructions"] = f"ERROR: {str(e)}"
+                df.at[index, "layout_evaluation"] = f"ERROR: {str(e)}"
+                progress.update()
+                save_to_sheet(ws, df)
+                format_worksheet(ws)
+    
+    # Final save
+    print("💾 Saving final layout results...")
+    save_to_sheet(ws, df)
+    format_worksheet(ws)
     
     # Validation and retry logic
     max_retries = 3
@@ -1092,42 +990,37 @@ def run_layout_agent_for_all_rows(sheet, llm: str = "gemini_3_flash_thinking"):
         save_to_sheet(ws, df)
         format_worksheet(ws)
         
-        # Retry processing invalid rows sequentially
-        for idx, (index, row) in enumerate(invalid_rows):
-            try:
+        # Retry processing invalid rows in parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            retry_futures = {}
+            for index, row in invalid_rows:
                 topic_name = str(row.get("Topic", "")).strip()
                 subtopic_name = str(row.get("Subtopic", "")).strip()
                 slide_title = str(row.get("Slide Chunk Title", "")).strip()
                 slide_content = str(row.get("Slide Chunk", "")).strip()
                 final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
-                
-                # Get previous slide's layout_instructions
-                previous_slide_layout = None
-                if index > 0:
-                    prev_row_data = df.iloc[index - 1]
-                    prev_layout = str(prev_row_data.get("layout_instructions", "")).strip()
-                    if prev_layout and prev_layout != "nan":
-                        previous_slide_layout = prev_layout
-                
-                layout_output, evaluation_breakdown = generate_layout_for_row(
+                future = executor.submit(
+                    generate_layout_for_row,
                     course_name=course_name,
                     topic_name=topic_name,
                     subtopic_name=subtopic_name,
                     slide_title=slide_title,
                     slide_content=slide_content,
                     final_graphics_definition=final_graphics_def,
-                    previous_slide_layout=previous_slide_layout,
                     drive=drive,
-                    llm=llm
+                    llm=llm,
                 )
-                
-                df.at[index, "layout_instructions"] = layout_output
-                df.at[index, "layout_evaluation"] = evaluation_breakdown
-                
-            except Exception as e:
-                print(f"❌ Error on retry for row {index}: {e}")
-                df.at[index, "layout_instructions"] = f"ERROR: {str(e)}"
-                df.at[index, "layout_evaluation"] = f"ERROR: {str(e)}"
+                retry_futures[future] = index
+            for future in as_completed(retry_futures):
+                index = retry_futures[future]
+                try:
+                    layout_output, evaluation_breakdown = future.result()
+                    df.at[index, "layout_instructions"] = layout_output
+                    df.at[index, "layout_evaluation"] = evaluation_breakdown
+                except Exception as e:
+                    print(f"❌ Error on retry for row {index}: {e}")
+                    df.at[index, "layout_instructions"] = f"ERROR: {str(e)}"
+                    df.at[index, "layout_evaluation"] = f"ERROR: {str(e)}"
         
         # Save after retry
         save_to_sheet(ws, df)
