@@ -432,7 +432,7 @@ def get_outline_in_table_format(topic_outline_df, topic_col_name="Topic", lo_col
 def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 1", version2_name: str = "Version 2"):
     """
     Compare two versions of text and display them side by side in Streamlit
-    with color-coded highlights for changes.
+    with color-coded highlights for changes, including word-level diff highlighting.
 
     :param text1: The first text version.
     :param text2: The second text version.
@@ -443,56 +443,103 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
     lines1 = text1.splitlines()
     lines2 = text2.splitlines()
 
-    # Use difflib to get differences
-    diff = list(difflib.ndiff(lines1, lines2))
-
     # Table rows to store the differences
     table_rows = []
-    
-    # Helper function to preserve spaces and special characters
+
+    # Helper: escape HTML special characters
+    def escape_html(text):
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    # Helper: preserve leading spaces as &nbsp;
     def format_content(text):
-        # Replace spaces with non-breaking spaces for leading spaces (indentation)
-        # This regex looks for spaces at the beginning of a line
         indented_text = ""
         i = 0
         while i < len(text) and text[i] == ' ':
             indented_text += "&nbsp;"
             i += 1
-        
-        # For the rest of the line, handle special HTML characters
-        rest_of_text = text[i:]
-        rest_of_text = rest_of_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        
+        rest_of_text = escape_html(text[i:])
         return indented_text + rest_of_text
 
-    # Process the diff and build table rows
-    i = 0
-    while i < len(diff):
-        line = diff[i]
-        
-        if line.startswith("- "):  # Line removed from version 1
-            content = format_content(line[2:])
-            left_cell = f'<td class="removed">{content}</td>'
-            right_cell = '<td>&nbsp;</td>'
-            table_rows.append(f'<tr>{left_cell}{right_cell}</tr>')
-            i += 1
-        elif line.startswith("+ "):  # Line added in version 2
-            content = format_content(line[2:])
-            left_cell = '<td>&nbsp;</td>'
-            right_cell = f'<td class="added">{content}</td>'
-            table_rows.append(f'<tr>{left_cell}{right_cell}</tr>')
-            i += 1
-        elif line.startswith("  "):  # Unchanged line
-            content = format_content(line[2:])
-            left_cell = f'<td>{content}</td>'
-            right_cell = f'<td>{content}</td>'
-            table_rows.append(f'<tr>{left_cell}{right_cell}</tr>')
-            i += 1
-        elif line.startswith("? "):  # Hint line (skip)
-            i += 1
-        else:
-            i += 1  # Skip any other lines
-    
+    # Helper: word-level diff between two lines, returns (left_html, right_html)
+    # with inline <span> highlights on the changed words
+    def word_level_diff(old_line, new_line):
+        # Tokenize into words while preserving whitespace
+        def tokenize(text):
+            tokens = re.findall(r'\S+|\s+', text)
+            return tokens
+
+        old_tokens = tokenize(old_line)
+        new_tokens = tokenize(new_line)
+
+        sm = difflib.SequenceMatcher(None, old_tokens, new_tokens)
+
+        old_html_parts = []
+        new_html_parts = []
+
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            if op == 'equal':
+                old_html_parts.append(escape_html("".join(old_tokens[i1:i2])))
+                new_html_parts.append(escape_html("".join(new_tokens[j1:j2])))
+            elif op == 'replace':
+                old_html_parts.append(f'<span class="word-removed">{escape_html("".join(old_tokens[i1:i2]))}</span>')
+                new_html_parts.append(f'<span class="word-added">{escape_html("".join(new_tokens[j1:j2]))}</span>')
+            elif op == 'delete':
+                old_html_parts.append(f'<span class="word-removed">{escape_html("".join(old_tokens[i1:i2]))}</span>')
+            elif op == 'insert':
+                new_html_parts.append(f'<span class="word-added">{escape_html("".join(new_tokens[j1:j2]))}</span>')
+
+        return "".join(old_html_parts), "".join(new_html_parts)
+
+    # Use SequenceMatcher on lines to get opcodes (equal, replace, insert, delete)
+    sm = difflib.SequenceMatcher(None, lines1, lines2)
+
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == 'equal':
+            for line in lines1[i1:i2]:
+                content = format_content(line)
+                table_rows.append(f'<tr><td>{content}</td><td>{content}</td></tr>')
+
+        elif op == 'replace':
+            # Pair up old and new lines for word-level diff
+            old_lines = lines1[i1:i2]
+            new_lines = lines2[j1:j2]
+            max_len = max(len(old_lines), len(new_lines))
+
+            for idx in range(max_len):
+                if idx < len(old_lines) and idx < len(new_lines):
+                    # Both sides exist - show word-level diff
+                    old_html, new_html = word_level_diff(old_lines[idx], new_lines[idx])
+                    table_rows.append(
+                        f'<tr><td class="modified-line">{old_html}</td>'
+                        f'<td class="modified-line">{new_html}</td></tr>'
+                    )
+                elif idx < len(old_lines):
+                    # Only old side - pure removal
+                    content = format_content(old_lines[idx])
+                    table_rows.append(
+                        f'<tr><td class="removed">{content}</td><td>&nbsp;</td></tr>'
+                    )
+                else:
+                    # Only new side - pure addition
+                    content = format_content(new_lines[idx])
+                    table_rows.append(
+                        f'<tr><td>&nbsp;</td><td class="added">{content}</td></tr>'
+                    )
+
+        elif op == 'delete':
+            for line in lines1[i1:i2]:
+                content = format_content(line)
+                table_rows.append(
+                    f'<tr><td class="removed">{content}</td><td>&nbsp;</td></tr>'
+                )
+
+        elif op == 'insert':
+            for line in lines2[j1:j2]:
+                content = format_content(line)
+                table_rows.append(
+                    f'<tr><td>&nbsp;</td><td class="added">{content}</td></tr>'
+                )
+
     # Define CSS styles for the table-based diff view
     diff_styles = """
     <style>
@@ -514,8 +561,25 @@ def compare_text_versions(text1: str, text2: str, version1_name: str = "Version 
             background-color: #f2f2f2;
             font-weight: bold;
         }
+        /* Pure addition/removal: entire line colored */
         .removed { background-color: #f7b6b6; }
         .added { background-color: #b6f7b6; }
+        /* Modified lines: light background on the whole line */
+        .modified-line { background-color: #fff3cd; }
+        /* Word-level highlights: darker color on the actual changed words */
+        .word-removed {
+            background-color: #e06060;
+            color: #fff;
+            border-radius: 3px;
+            padding: 1px 2px;
+            text-decoration: line-through;
+        }
+        .word-added {
+            background-color: #2ea043;
+            color: #fff;
+            border-radius: 3px;
+            padding: 1px 2px;
+        }
     </style>
     """
 
