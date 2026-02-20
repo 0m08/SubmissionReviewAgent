@@ -6,7 +6,7 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, clear_worksheet
 from agents.course_outline.video_search_tool.video_retriever import load_new_video_embeddings_chroma_db
-from langchain.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_cohere import CohereRerank
 from modules.chain import Chain
 from langsmith import traceable

@@ -420,7 +420,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                             logs += line
                         process.stdout.close()
                         process.wait()
-                    st.markdown(
+                    
+                    if process.returncode == 0:
+                        st.markdown(
     """
     <div style='background-color: #1b4636; color: #fff; padding: 1.5em 1em; border-radius: 14px; font-size: 1.4em; font-weight: 700; margin-top: 1.5em; text-align: center;'>
         🎉 <b>All the steps completed successfully!</b>
@@ -428,6 +430,17 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
     """,
     unsafe_allow_html=True
 )
+                    else:
+                        st.markdown(
+    f"""
+    <div style='background-color: #8B0000; color: #fff; padding: 1.5em 1em; border-radius: 14px; font-size: 1.4em; font-weight: 700; margin-top: 1.5em; text-align: center;'>
+        ❌ <b>Job failed!</b> Check the Lightning Job logs for details.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+                        with st.expander("View error logs", expanded=True):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
 
     # --- 4) Display pipeline steps in nested sections ---
     if "sheet" in st.session_state:

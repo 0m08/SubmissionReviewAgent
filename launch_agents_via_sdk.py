@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import base64
 from lightning_sdk import Machine, Studio
 from dotenv import load_dotenv
@@ -22,15 +23,15 @@ def main():
         else:
             gdrive_sa_b64 = ""
     
-    # Main ones
-    studio_name = "course-generation-agents"
+    # # Main ones
+    # studio_name = "course-generation-agents"
+    # teamspace = "Vision-model"
+    # user = "dilip"
+
+    # Niket one for testing background job
+    studio_name = "latest-19-02"
     teamspace = "Vision-model"
     user = "dilip"
-
-    # # Niket one for testing background job
-    # studio_name = "simple-coffee-ezuw"
-    # teamspace = "deploy-model-project"
-    # user = "niket4204"
 
     print(f"[INFO] Initializing Studio '{studio_name}' in teamspace '{teamspace}'...")
     studio = Studio(name=studio_name, teamspace=teamspace, user=user, create_ok=True)
@@ -41,6 +42,9 @@ def main():
 
     agent = args.agent_name
     command = (
+        f"echo 'numpy<2' > /tmp/constraints.txt && "
+        f"pip install 'numpy<2' 'matplotlib>=3.9' 'scikit-learn>=1.5' google-cloud-aiplatform && "
+        f"pip install -c /tmp/constraints.txt -r requirements.txt && "
         f"export GDRIVE_SA_B64='{gdrive_sa_b64}' && "
         f"python run_agent_cli.py "
         f"--sheet_link '{args.sheet_link}' "
@@ -59,6 +63,12 @@ def main():
     print(f"[INFO] Job '{job.name}' submitted. Waiting for it to finish...")
     job.wait()
     print(f"[INFO] Job '{job.name}' completed with status: {job.status}")
+    
+    # Exit with non-zero code if job failed
+    status_str = str(job.status).lower()
+    if status_str not in ("succeeded", "completed", "success", "status.succeeded"):
+        print(f"[ERROR] Job failed with status: {job.status}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

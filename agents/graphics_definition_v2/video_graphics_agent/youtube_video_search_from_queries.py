@@ -5,7 +5,7 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 from agents.course_outline.video_search_tool.video_retriever import load_new_video_embeddings_chroma_db
-from langchain.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_cohere import CohereRerank
 from dotenv import load_dotenv
 import os
