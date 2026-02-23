@@ -12,6 +12,7 @@ def main():
     parser.add_argument('--sheet_link', required=True, help='Google Sheet URL')
     parser.add_argument('--drive_folder_id', required=True, help='Google Drive folder ID')
     parser.add_argument('--agent_name', required=True, help='Name of the agent to run')
+    parser.add_argument('--user_email', default='', help='User email for job notifications')
     args = parser.parse_args()
 
     # Use GDRIVE_SA_B64 directly if available, otherwise encode GDRIVE_SA_JSON
@@ -45,8 +46,19 @@ def main():
 
     agent = args.agent_name
     
-    # Export env vars for the job: GDRIVE_SA_B64 (required); VERTEX_AI_SA_B64 (for graphics_definition_v2 video search)
-    export_env = f"export GDRIVE_SA_B64='{gdrive_sa_b64}' && export VERTEX_AI_SA_B64='{vertex_ai_sa_b64}' && "
+    # Export env vars for the job: GDRIVE_SA_B64 (required); VERTEX_AI_SA_B64 (for graphics_definition_v2); USER_EMAIL + SMTP (for notifications)
+    def _shell_escape(s):
+        return (s or "").replace("'", "'\"'\"'")
+    user_email_escaped = _shell_escape(args.user_email)
+    smtp_user = _shell_escape(os.environ.get("SMTP_USER", ""))
+    smtp_pass = _shell_escape(os.environ.get("SMTP_APP_PASSWORD", ""))
+    export_env = (
+        f"export GDRIVE_SA_B64='{gdrive_sa_b64}' && "
+        f"export VERTEX_AI_SA_B64='{vertex_ai_sa_b64}' && "
+        f"export USER_EMAIL='{user_email_escaped}' && "
+        f"export SMTP_USER='{smtp_user}' && "
+        f"export SMTP_APP_PASSWORD='{smtp_pass}' && "
+    )
     command = (
         f"echo 'numpy<2' > /tmp/constraints.txt && "
         f"pip install 'numpy<2' 'matplotlib>=3.9' 'scikit-learn>=1.5' google-cloud-aiplatform && "

@@ -3,7 +3,6 @@ import gspread
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 import traceback
-import re
 import csv
 import time
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
@@ -391,6 +390,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         except Exception as e:
                             pass
                     
+                    user_email = st.session_state.get("user_email", "") or ""
                     cmd = [
                         sys.executable,
                         "launch_agents_via_sdk.py",
@@ -400,23 +400,16 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         folder_id,
                         "--agent_name",
                         agent_code,
+                        "--user_email",
+                        user_email,
                     ]
                     log_placeholder = st.empty()
-                    link_placeholder = st.empty()
                     with st.spinner("Running the Agent in Background"):
                         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                         logs = ""
                         for line in iter(process.stdout.readline, ''):
                             if not line:
                                 break
-                            # Remove the URL from the log line if present
-                            match = re.search(r'(https://lightning\.ai/\S+)', line)
-                            if match:
-                                job_url = match.group(1)
-                                # Remove the URL and the phrase 'View it at' from the line
-                                line = re.sub(r'https://lightning\.ai/\S+', '', line)
-                                line = line.replace('View it at', '').rstrip() + '\n'
-                                link_placeholder.success(f"🚀 [View Lightning Job]({job_url})", icon="🔗")
                             logs += line
                         process.stdout.close()
                         process.wait()
