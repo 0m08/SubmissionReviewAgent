@@ -321,14 +321,14 @@ slide_chunks_page = st.Page(
 
 graphics_definition_page = st.Page(
     "graphics_definition.py",
-    title="Graphics Definiton",
+    title="Graphics Definiton (Old)",
     icon=":material/image:",
     # Optional: default=(role == "Requester") or any logic
 )
 
 graphics_definition_v2_page = st.Page(
     "graphics_definition_v2.py",
-    title="Graphics Definition V2",
+    title="Graphics Definition",
     icon=":material/auto_awesome:",
 )
 

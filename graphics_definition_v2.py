@@ -25,10 +25,6 @@ from agents.graphics_definition_v2.image_graphics_agent.web_search import (
 #    run_finalize_graphics_definition_for_all_rows,
 #    delete_graphics_definition,
 #)
-#from agents.graphics_definition_v2.image_graphics_agent.populate_sheet_with_selected_images import (
-#    run_populate_sheet_with_selected_images_for_all_rows,
-#    delete_populated_images,
-#)
 from agents.graphics_definition_v2.video_graphics_agent.video_search_query_generation import (
     run_generate_video_search_query_for_all_rows,
     delete_video_search_queries,
