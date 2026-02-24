@@ -127,6 +127,13 @@ try:
         session_state["target_audience"] = row0.get("Target Audience & Industry", "")
         session_state["course_background"] = row0.get("Course Background", "")
         session_state["course_objective_guidelines"] = row0.get("Course Objective Guidelines", "")
+
+        # Determine if outline is finalized
+        outline_stage_raw = row0.get("Outline Stage")
+        if isinstance(outline_stage_raw, str):
+            session_state["outline_finalized"] = outline_stage_raw.strip().lower() == "final"
+        else:
+            session_state["outline_finalized"] = False
 except Exception as e:
     print(f"[WARNING] Could not extract course info: {e}")
 
@@ -167,10 +174,26 @@ def run_all_automated_steps_for_cli(sections, state):
         progress = False
         for sec in sections:
             for step in sec["steps"]:
+                # Skip step completely if outline is finalized and this step is marked to hide
+                if state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
+                    continue
+
                 step_key = f"{step['name']}_done"
                 if state.get(step_key):
                     continue
-                if not all(state.get(f"{d}_done") for d in step.get("depends_on", [])):
+
+                if not all(
+                    state.get(f"{d}_done", False)
+                    or (
+                        state.get("outline_finalized", False)
+                        and any(
+                            d == s["name"] and s.get("hide_if_final_outline", False)
+                            for sec_all in sections
+                            for s in sec_all["steps"]
+                        )
+                    )
+                    for d in step.get("depends_on", [])
+                ):
                     continue
                 if step.get("is_manual_step", False) or "instructions" in step:
                     if not state.get("skip_manual_step"):
@@ -207,10 +230,13 @@ if not user_email:
     print("[INFO] No USER_EMAIL set; skipping notification emails.")
 elif not is_email_configured():
     print("[INFO] SMTP_USER or SMTP_APP_PASSWORD not set in job environment; skipping notification emails.")
+# Base subject used for threading completion emails
+thread_subject_base = f"Course generation: {ui_agent_name} AI Agent – Running"
+
 if user_email and is_email_configured():
     count, count_label = _get_agent_work_count(sheet, args.agent_name)
     started_at = _format_time_utc_and_ist()
-    subject = f"Course generation: {ui_agent_name} AI Agent – Running"
+    subject = thread_subject_base
     work_scope = ""
     if count is not None:
         work_scope = f"Work scope: {count} {count_label} to process.\n\n"
