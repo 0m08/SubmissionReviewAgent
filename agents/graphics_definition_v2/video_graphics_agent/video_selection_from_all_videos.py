@@ -4,7 +4,7 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
-from services.video_clip_tools import build_video_part
+from services.helper_functions import build_video_part
 from modules.chain import Chain
 from dotenv import load_dotenv
 from google import genai

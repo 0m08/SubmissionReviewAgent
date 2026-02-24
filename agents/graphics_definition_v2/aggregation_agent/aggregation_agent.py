@@ -10,7 +10,7 @@ from io import BytesIO
 from PIL import Image
 from agents.vector_store_image_search.graphics_retriever_agent import pil_to_base64_data_uri
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
-from services.video_clip_tools import build_video_part
+from services.helper_functions import build_video_part
 from services.llm_service import extract_token_usage, log_token_usage
 from dotenv import load_dotenv
 import os

@@ -5,6 +5,7 @@ import streamlit as st
 import re
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple, Optional
 from langsmith import traceable
+from google.genai import types
 
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, delete_worksheet
 
@@ -952,3 +953,23 @@ def parse_start_end_from_url(url: str):
         except:
             pass
     return start, end
+
+
+def build_video_part(clip_url, start_seconds, end_seconds):
+    """
+    Build a Gemini video part from a clip URL and timestamps to feed the video input to the Gemini API.
+
+    :param clip_url: URL of the video clip.
+    :param start_seconds: Start time in seconds, or None.
+    :param end_seconds: End time in seconds, or None.
+    :return: A Gemini Part object containing the video data.
+    """
+    part_kwargs: Dict[str, Any] = {
+        "file_data": types.FileData(file_uri=clip_url),
+    }
+    if start_seconds is not None or end_seconds is not None:
+        part_kwargs["video_metadata"] = types.VideoMetadata(
+            start_offset=f"{start_seconds}s" if start_seconds is not None else None,
+            end_offset=f"{end_seconds}s" if end_seconds is not None else None,
+        )
+    return types.Part(**part_kwargs)

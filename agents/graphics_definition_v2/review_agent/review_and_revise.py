@@ -21,7 +21,7 @@ from services.sheets_service import (
     clear_worksheet,
 )
 from services.smart_progress_bar import SmartProgressBar
-from services.video_clip_tools import build_video_part
+from services.helper_functions import build_video_part
 from services.llm_service import extract_token_usage, log_token_usage
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
