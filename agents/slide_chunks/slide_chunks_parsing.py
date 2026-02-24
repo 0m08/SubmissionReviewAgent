@@ -24,6 +24,7 @@ class SlideChunk(BaseModel):
 
 slide_chunk_parsing_prompt = """You are an expert parser for E-learning slide content. Given a block of text representing a single slide, extract the following fields in a structured way:
 
+- subtopic: The value after 'Subtopic:' (if present, otherwise empty string)
 - slide_type: The value after 'Slide Type:'
 - slide_chunk_title: The value after 'Title:'
 - slide_chunk: For blocks with a 'Content:' field, extract everything after 'Content:'. For blocks with 'Slide Type: Video', extract everything after the 'Slide Type:' line (including Video_Id, Start, End and Transcript.)
@@ -124,10 +125,14 @@ def process_slide_chunks_row(topic, subtopic, slide_chunks_cell, index):
     :param index: The row index (for ordering).
     :return: List of dicts for each parsed slide chunk.
     """
-    blocks = [b.strip() for b in re.split(r"\n\s*\n", slide_chunks_cell) if b.strip()]
-    parsed_blocks = []
-    for block in blocks:
-        # Use LLM + Pydantic to parse and validate
+    # Split on --- separator (used by v2 generator) with fallback to blank lines
+    if re.search(r'^---\s*$', slide_chunks_cell, re.MULTILINE):
+        blocks = [b.strip() for b in re.split(r'\n---\s*\n', slide_chunks_cell) if b.strip()]
+    else:
+        blocks = [b.strip() for b in re.split(r"\n\s*\n", slide_chunks_cell) if b.strip()]
+
+    def parse_block(block_idx_tuple):
+        block_idx, block = block_idx_tuple
         agent = Chain(llm="gemini_2_flash")
         agent.add_message(
             role="user",
@@ -136,10 +141,17 @@ def process_slide_chunks_row(topic, subtopic, slide_chunks_cell, index):
         agent.structured_output = SlideChunk
         response = agent.run()
         parsed = response.model_dump()
-        # Set topic and subtopic from the row, not from the LLM
         parsed['topic'] = topic
-        parsed['subtopic'] = subtopic
-        parsed_blocks.append(parsed)
+        if not parsed.get('subtopic'):
+            parsed['subtopic'] = subtopic
+        return block_idx, parsed
+
+    # Parse all blocks in parallel, then sort by original order
+    parsed_blocks = [None] * len(blocks)
+    with ThreadPoolExecutor(max_workers=5) as block_executor:
+        for block_idx, parsed in block_executor.map(parse_block, enumerate(blocks)):
+            parsed_blocks[block_idx] = parsed
+
     return parsed_blocks
 
 def delete_slide_chunks_sheet(sheet, worksheet_name="Slide Chunks"):
