@@ -19,10 +19,12 @@ from services.embedding_service import get_embedding_model
 from agents.course_outline.video_search_tool.video_retriever import video_retriever, warmup_video_retriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
 from agents.curriculum_mapping_tool.curriculum_mapping_agent import select_best_resources_unified
-    
+from agents.curriculum_mapping_tool.consolidation_agent import consolidate_category
+
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, resize_column_by_name
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
+import re
 
 logger = logging.getLogger(__name__)
 
