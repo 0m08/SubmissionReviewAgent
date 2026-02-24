@@ -111,6 +111,12 @@ session_state = {
     "gc": gc,
 }
 
+# Copy completed-step flags from Agent logs (loaded into st.session_state) into session_state
+# so run_all_automated_steps_for_cli actually skips them and does not re-run or re-log.
+for key, value in st.session_state.items():
+    if key.endswith("_done") and value is True:
+        session_state[key] = value
+
 # Extract course info
 try:
     info_ws = sheet.worksheet("Course info")
