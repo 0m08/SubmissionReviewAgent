@@ -1,10 +1,6 @@
 [theme]
-base="dark"
+base="light"
 primaryColor="#f05523"
-backgroundColor="#0e1117"
-secondaryBackgroundColor="#262730"
-textColor="#fafafa"
-
-[logger]
-# Suppress the "missing ScriptRunContext" warnings from background threads
-level = "error"
+backgroundColor="#ffffff"
+secondaryBackgroundColor="#f0f2f6"
+textColor="#31333f"
