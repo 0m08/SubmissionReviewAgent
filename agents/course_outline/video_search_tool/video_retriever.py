@@ -20,6 +20,8 @@ from chromadb import PersistentClient
 from vertexai.vision_models import MultiModalEmbeddingModel
 from vertexai.generative_models import Part
 from langchain_core.runnables import Runnable
+from google.oauth2 import service_account
+
 
 VIDEO_CENTRAL_FOLDER_ID = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
 
@@ -237,7 +239,6 @@ def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video
                         sa_dict = json.loads(sa_json)
                         
                         # Initialize Vertex AI with service account
-                        from google.oauth2 import service_account
                         creds = service_account.Credentials.from_service_account_info(sa_dict)
                         
                         # Initialize Vertex AI with the paid project (dam-images-tagging)
