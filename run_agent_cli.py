@@ -158,7 +158,13 @@ def _get_agent_work_count(sheet, agent_name):
             for ws_name in ("Final Outline", "Course Outline with LOs"):
                 try:
                     _, df = get_sheet_data_and_df(sheet, ws_name)
-                    return len(df), "topics"
+                    if "Topic" in df.columns:
+                        unique_topics = df["Topic"].dropna().astype(str).str.strip()
+                        unique_topics = unique_topics[unique_topics != ""]
+                        count = unique_topics.nunique()
+                    else:
+                        count = len(df)
+                    return count, "topics"
                 except Exception:
                     continue
             return 0, "topics"
