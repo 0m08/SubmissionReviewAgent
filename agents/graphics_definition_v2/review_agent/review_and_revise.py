@@ -32,6 +32,7 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     parse_urls_from_video_pool_other_channels,
     parse_urls_from_image_pool,
     parse_urls_from_video_pool_filtered,
+    get_video_items_fallback_from_pools,
     parse_segments_from_voiceover,
     parse_video_url_timestamps,
     convert_watch_url_to_embed_url,
@@ -2690,7 +2691,7 @@ def build_video_candidates_text(videos, frame_videos):
     return video_candidates_text
 
 
-def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num):
+def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, video_pool_text="", video_pool_other_channels_text=""):
     """
     Build candidate images and videos for a specific segment.
     
@@ -2699,6 +2700,8 @@ def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, driv
     :param drive_results_text: Drive results column content (fallback for images)
     :param web_results_text: Web results column content (fallback for images)
     :param segment_num: Segment number to extract candidates for
+    :param video_pool_text: Optional; used as fallback when video_pool_filtered is empty
+    :param video_pool_other_channels_text: Optional; used as fallback when video_pool_filtered is empty
     :return: Tuple of (images, videos, frame_videos) where each is a list of candidate dictionaries
     """
     # Parse images from image_pool first, fallback to drive_results + web_results if empty
@@ -2721,6 +2724,11 @@ def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, driv
 
     # Parse videos from video_pool_filtered
     video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num)
+    # Fallback: if video_pool_filtered is empty, use video_pool + video_pool_other_channels combined
+    if not video_items_filtered and (video_pool_text or video_pool_other_channels_text):
+        video_items_filtered = get_video_items_fallback_from_pools(video_pool_text or "", video_pool_other_channels_text or "", segment_num)
+        if video_items_filtered:
+            print(f"  Segment {segment_num}: video_pool_filtered empty, using fallback video_pool + video_pool_other_channels ({len(video_items_filtered)} video(s))")
     
     # Separate embed videos (can use clips or frames) from full videos (frames only)
     embed_videos = [item for item in video_items_filtered if item.get("type") == "embed"]
@@ -2783,7 +2791,7 @@ def resolve_asset_urls_in_definition(graphics_definition_xml, candidate_map):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide"):
+def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text=""):
     """
     Revise segment visuals based on review feedback.
     
@@ -2814,6 +2822,8 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
         drive_results_text,
         web_results_text,
         segment_num,
+        video_pool_text=video_pool_text,
+        video_pool_other_channels_text=video_pool_other_channels_text,
     )
     candidate_map = {
         candidate["id"]: candidate["url"]
@@ -3629,6 +3639,8 @@ def regenerate_failed_segments(
     # Reload row to get updated video_pool_filtered
     row = df.loc[row_index]
     video_pool_filtered_text = _safe_str(row.get("video_pool_filtered", ""))
+    video_pool_text = _safe_str(row.get("video_pool", ""))
+    video_pool_other_channels_text = _safe_str(row.get("video_pool_other_channels", ""))
 
     print(f"  Aggregating graphics definitions for {len(failed_segments)} segment(s)...")
     updated_segments: Dict[int, str] = {}
@@ -3651,6 +3663,11 @@ def regenerate_failed_segments(
         
         # Parse videos from video_pool_filtered
         video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num)
+        # Fallback: if video_pool_filtered is empty, use video_pool + video_pool_other_channels combined
+        if not video_items_filtered and (video_pool_text or video_pool_other_channels_text):
+            video_items_filtered = get_video_items_fallback_from_pools(video_pool_text or "", video_pool_other_channels_text or "", segment_num)
+            if video_items_filtered:
+                print(f"    Segment {segment_num}: video_pool_filtered empty, using fallback video_pool + video_pool_other_channels ({len(video_items_filtered)} video(s))")
         
         if not image_items and not video_items_filtered:
             print(f"    Segment {segment_num}: WARNING - No candidates found, skipping aggregation")
@@ -4070,6 +4087,8 @@ def run_review_loop_for_slide(
                 drive=drive,
                 llm=llm,
                 visual_assignment_strategy=visual_assignment_strategy,
+                video_pool_text=_safe_str(row.get("video_pool", "")),
+                video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
             )
             if revised:
                 # CRITICAL: revise_segment_visuals returns only the content inside <replacement_visuals> or <replacement_visual> tags
@@ -4760,6 +4779,8 @@ def _run_redundancy_loop_for_url(
                 drive=drive,
                 llm=llm,
                 visual_assignment_strategy=visual_assignment_strategy,
+                video_pool_text=_safe_str(row.get("video_pool", "")),
+                video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
             )
             if revised:
                 df.at[slide_index, "final_graphics_definition"] = update_final_graphics_definition_with_replacements(

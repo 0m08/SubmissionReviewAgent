@@ -23,6 +23,8 @@ Topic name: {topic_name}
 Subtopic name: {subtopic_name}
 </course_information>
 
+Slide title: {slide_title}
+
 Voiceover sentence for which you need to generate search queries:
 "{vo_text}"
 
@@ -98,6 +100,8 @@ Topic name: {topic_name}
 Subtopic name: {subtopic_name}
 </course_information>
 
+Slide title: {slide_title}
+
 Full slide content:
 {slide_chunk}
 
@@ -161,7 +165,7 @@ Always provide your output strictly in the following format:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, visual_storyboard="", llm="gemini_2_5_flash_lite"):
+def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for a single voiceover segment.
 
@@ -170,6 +174,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     :param course_name: The course name.
     :param topic_name: The topic name.
     :param subtopic_name: The subtopic name.
+    :param slide_title: The slide title.
     :param visual_storyboard: The visual storyboard content.
     :param llm: The language model to use.
     :return: The search query output.
@@ -184,6 +189,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
             course_name=course_name,
             topic_name=topic_name,
             subtopic_name=subtopic_name,
+            slide_title=slide_title,
             vo_text=vo_text,
             slide_chunk=slide_chunk,
             visual_storyboard=visual_storyboard
@@ -203,7 +209,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     return queries_output
 
 
-def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, visual_storyboard="", llm="gemini_2_5_flash_lite"):
+def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for the entire slide (not per segment).
 
@@ -211,6 +217,7 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
     :param course_name: The course name.
     :param topic_name: The topic name.
     :param subtopic_name: The subtopic name.
+    :param slide_title: The slide title.
     :param visual_storyboard: The visual storyboard content.
     :param llm: The language model to use.
     :return: The search query output.
@@ -224,6 +231,7 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
     #     course_name=course_name,
     #     topic_name=topic_name,
     #     subtopic_name=subtopic_name,
+    #     slide_title=slide_title,
     #     slide_chunk=slide_chunk,
     #     visual_storyboard=visual_storyboard
     # ))
@@ -236,6 +244,7 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
             course_name=course_name,
             topic_name=topic_name,
             subtopic_name=subtopic_name,
+            slide_title=slide_title,
             slide_chunk=slide_chunk,
             visual_storyboard=visual_storyboard
         )
@@ -277,6 +286,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
         # Get row data
         vo_segments = str(row.get("voiceover_segment", "")).strip()
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
+        slide_title = str(row.get("Slide Chunk Title", "")).strip() or str(row.get("Topic", "")).strip() or "Slide"
         topic_name = str(row.get("Topic", "")).strip()
         subtopic_name = str(row.get("Subtopic", "")).strip()
         visual_storyboard = str(row.get("storyboard_planning", "")).strip()
@@ -297,6 +307,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
                 course_name=course_name,
                 topic_name=topic_name,
                 subtopic_name=subtopic_name,
+                slide_title=slide_title,
                 visual_storyboard=visual_storyboard,
                 llm=llm
             )
@@ -344,6 +355,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
                     course_name,
                     topic_name,
                     subtopic_name,
+                    slide_title,
                     visual_storyboard,
                     llm
                 ): (segment_idx, segment)

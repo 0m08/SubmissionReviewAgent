@@ -24,32 +24,41 @@ def ensure_visual_assignment_strategy_column(sheet, worksheet_name="Slide Chunks
     
     column_name = "Visual Assignment Strategy"
     default_value = "Flexible, let the agent decide"
+    transition_default = "1 Visual for the whole Slide"
     dropdown_options = [
         "1 Visual per Sentence",
         "1 Visual for the whole Slide",
         "Flexible, let the agent decide"
     ]
-    
+    slide_type_col = "Slide Type"
+
+    def _default_for_row(row):
+        """Default for a single row: 1 visual for whole slide if Slide Type is Transition."""
+        if slide_type_col not in df.columns:
+            return default_value
+        st_val = str(row.get(slide_type_col, "")).strip().lower()
+        if st_val in ("transition", "transition slide"):
+            return transition_default
+        return default_value
+
     # Check if column exists
     if column_name not in df.columns:
-        # Add column to DataFrame
-        df[column_name] = default_value
+        # Add column: per-row default (Transition -> 1 visual for whole slide)
+        df[column_name] = df.apply(_default_for_row, axis=1)
         save_to_sheet(worksheet=worksheet, df=df)
         print(f"✅ '{column_name}' column added.")
     else:
         print(f"ℹ️ '{column_name}' column already exists.")
-    
+
     # Get updated data to find column index
     worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
-    
-    # Fill empty cells with default value
+
     if column_name in df.columns:
-        # Find rows that are empty or NaN
         empty_mask = df[column_name].isna() | (df[column_name].astype(str).str.strip() == "")
         if empty_mask.any():
-            df.loc[empty_mask, column_name] = default_value
+            df.loc[empty_mask, column_name] = df.loc[empty_mask].apply(_default_for_row, axis=1)
             save_to_sheet(worksheet=worksheet, df=df)
-            print(f"✅ Filled empty cells in '{column_name}' with default value.")
+            print(f"✅ Filled empty cells in '{column_name}' with default value (Transition → 1 visual for whole slide).")
     
     # Set up data validation (dropdown) for the column
     headers = worksheet.row_values(1)
@@ -114,7 +123,7 @@ RULES:
 3. Full coverage:
    - Include every sentence from the slide
    - Segments must appear in original order
-
+ 
 EXAMPLES:
 
 Example 1:
@@ -127,6 +136,9 @@ Slide Content: "First, connect the blue hose to the low-pressure port. Then, ope
 Segment 1: "First, connect the blue hose to the low-pressure port."
 Segment 2: "Then, open the valve slowly."
 Segment 3: "Finally, read the pressure gauge."
+
+STICT INSTRUCTION: While doing the segmentation, only include content inside the Slide Content that is given as input. Do not add or remove any content from the Slide Content no matter how big or small the content is.
+
 
 OUTPUT FORMAT:
 You must always output segments in the following XML format. Each segment must be wrapped in <segment> tags:

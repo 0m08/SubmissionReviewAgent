@@ -1402,6 +1402,87 @@ def parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, se
     return urls
 
 
+def parse_video_items_from_pool_other_channels(video_pool_other_channels_text, segment_num):
+    """
+    Parse video items (with type, url, metadata) from video_pool_other_channels for a specific segment.
+    Returns the same structure as parse_urls_from_video_pool_filtered for full_video items.
+
+    Format: "Title: {title} | Duration: {duration} | Channel: {channel} | URL: {url}"
+
+    :param video_pool_other_channels_text: The video_pool_other_channels column content
+    :param segment_num: Segment number to extract videos for
+    :return: List of dicts with 'type' ('full_video'), 'url', and 'metadata' (title, duration, channel)
+    """
+    if not video_pool_other_channels_text or video_pool_other_channels_text.strip() == "" or video_pool_other_channels_text == "nan":
+        return []
+
+    segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
+    match = re.search(segment_pattern, video_pool_other_channels_text, re.DOTALL)
+    if not match:
+        return []
+
+    segment_content = match.group(1).strip()
+    items = []
+    for line in segment_content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if " | URL: " not in line:
+            if line.startswith('http'):
+                items.append({"type": "full_video", "url": line, "metadata": None})
+            continue
+        parts = line.split(" | URL: ", 1)
+        if len(parts) != 2:
+            continue
+        metadata_part = parts[0].strip()
+        url = parts[1].strip()
+        if not url or not url.startswith('http'):
+            continue
+        title = "Untitled"
+        duration = ""
+        channel = ""
+        if "Title: " in metadata_part:
+            title_match = re.search(r'Title:\s*(.+?)(?:\s*\||$)', metadata_part)
+            if title_match:
+                title = title_match.group(1).strip()
+        if "Duration: " in metadata_part:
+            duration_match = re.search(r'Duration:\s*(.+?)(?:\s*\||$)', metadata_part)
+            if duration_match:
+                duration = duration_match.group(1).strip()
+        if "Channel: " in metadata_part:
+            channel_match = re.search(r'Channel:\s*(.+?)(?:\s*\||$)', metadata_part)
+            if channel_match:
+                channel = channel_match.group(1).strip()
+        items.append({
+            "type": "full_video",
+            "url": url,
+            "metadata": {"title": title, "duration": duration, "channel": channel},
+        })
+    return items
+
+
+def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channels_text, segment_num):
+    """
+    Build video items list from video_pool + video_pool_other_channels when video_pool_filtered is empty.
+    Returns the same structure as parse_urls_from_video_pool_filtered (list of {type, url, metadata}).
+
+    :param video_pool_text: The video_pool column content (embed URLs per segment)
+    :param video_pool_other_channels_text: The video_pool_other_channels column content (metadata + URL lines)
+    :param segment_num: Segment number to extract for
+    :return: List of dicts with 'type' ('embed' or 'full_video'), 'url', and optional 'metadata'
+    """
+    items = []
+    # Embed items from video_pool (clips or still frames)
+    urls = parse_urls_from_video_pool(video_pool_text, segment_num)
+    for url in urls:
+        if url and url.strip():
+            items.append({"type": "embed", "url": url.strip(), "metadata": None})
+    # Full-video items from video_pool_other_channels (still frames only)
+    other_items = parse_video_items_from_pool_other_channels(video_pool_other_channels_text, segment_num)
+    items.extend(other_items)
+    return items
+
+
 def parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num):
     """
     Parse video items from video_pool_filtered column for a specific segment.
@@ -2857,7 +2938,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide"):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text=""):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -2877,6 +2958,8 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     :param llm: Language model to use
     :param feedback: Optional revision feedback for this segment
     :param visual_assignment_strategy: Visual assignment strategy ("Flexible, let the agent decide", "1 Visual per Sentence", or "1 Visual for the whole Slide")
+    :param video_pool_text: Optional; used as fallback when video_pool_filtered is empty
+    :param video_pool_other_channels_text: Optional; used as fallback when video_pool_filtered is empty
     :return: Tuple of (segment_idx, formatted_segment_text, formatted_eval_breakdown) or (segment_idx, None, formatted_eval_breakdown) if no definition generated
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
@@ -2899,6 +2982,11 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     
     # Parse video items from video_pool_filtered for this segment
     video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_idx)
+    # Fallback: if video_pool_filtered is empty, use video_pool + video_pool_other_channels combined
+    if not video_items_filtered and (video_pool_text or video_pool_other_channels_text):
+        video_items_filtered = get_video_items_fallback_from_pools(video_pool_text or "", video_pool_other_channels_text or "", segment_idx)
+        if video_items_filtered:
+            print(f" ⚠️  video_pool_filtered empty for segment {segment_idx}, using fallback: video_pool + video_pool_other_channels ({len(video_items_filtered)} video(s))")
     
     embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
     full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
@@ -2991,6 +3079,8 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         voiceover_text = str(row.get("voiceover_segment", "")).strip()
         image_pool_text = str(row.get("image_pool", "")).strip()
         video_pool_filtered_text = str(row.get("video_pool_filtered", "")).strip()
+        video_pool_text = str(row.get("video_pool", "")).strip()
+        video_pool_other_channels_text = str(row.get("video_pool_other_channels", "")).strip()
         drive_results_text = str(row.get("drive_results", "")).strip()
         web_results_text = str(row.get("web_results", "")).strip()
         storyboard_text = str(row.get("storyboard_planning", "")).strip()
@@ -3032,6 +3122,11 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             # Parse video items from video_pool_filtered
             # For "entire slide" case, all candidates are under SEGMENT_1
             video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num=1)  # Get all videos from SEGMENT_1
+            # Fallback: if video_pool_filtered is empty, use video_pool + video_pool_other_channels combined
+            if not video_items_filtered and (video_pool_text or video_pool_other_channels_text):
+                video_items_filtered = get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channels_text, 1)
+                if video_items_filtered:
+                    print(f" ⚠️  video_pool_filtered empty for entire slide, using fallback: video_pool + video_pool_other_channels ({len(video_items_filtered)} video(s))")
             
             embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
             full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
@@ -3127,7 +3222,9 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     drive,
                     llm,
                     None,  # feedback
-                    visual_assignment_strategy
+                    visual_assignment_strategy,
+                    video_pool_text,
+                    video_pool_other_channels_text,
                 ): (segment_idx, vo_text)
                 for segment_idx, vo_text in segments
             }

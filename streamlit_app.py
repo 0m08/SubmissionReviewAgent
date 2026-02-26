@@ -378,16 +378,16 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
-graphics_definition_v2_slideshow_page = st.Page(
-    "graphics_definition_v2_slideshow.py",
-    title="Aggregation Agent Slideshow",
-    icon="🎥",
-)
+# graphics_definition_v2_slideshow_page = st.Page(
+#     "graphics_definition_v2_video_generator.py",
+#     title="Graphics V2 Slideshow",
+#     icon=":material/slideshow:",
+# )
 
-slideshow_generator_page = st.Page(
+slideshow_streamlit_page = st.Page(
     "slideshow_streamlit.py",
-    title="Slideshow Generator",
-    icon=":material/slow_motion_video:",
+    title="Slideshow",
+    icon=":material/slideshow:",
 )
 
 paraphraser_page = st.Page(
@@ -420,6 +420,12 @@ curriculum_mapping_tool_page = st.Page(
     icon=":material/menu_book:",
 )
 
+aggregation_agent_page = st.Page(
+    "graphics_definition_v2_slideshow.py",
+    title="Aggregation Agent Slideshow",
+    icon=":material/slideshow:",
+)
+
 # video_embeddings_page = st.Page(
 #     "video_embeddings.py",
 #     title="Video Embeddings",
@@ -431,6 +437,8 @@ video_search_hvac_channels_page = st.Page(
     title="Video Search inside 'HVAC School' & 'Love2HVAC with TY' Youtube Channel)",
     icon=":material/search:",
 )
+
+
 
 #######################
 # 3) Common app layout
@@ -470,8 +478,8 @@ page_name_to_object = {
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
-    "graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
-    "slideshow_generator_page": slideshow_generator_page,
+    #"graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
+    "slideshow_streamlit_page": slideshow_streamlit_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
@@ -479,6 +487,7 @@ page_name_to_object = {
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
     #"video_embeddings_page": video_embeddings_page,
     "video_search_hvac_channels_page": video_search_hvac_channels_page,
+    "aggregation_agent_page": aggregation_agent_page,
 }
 
 # Define which pages belong to which category
@@ -499,13 +508,14 @@ tool_pages = [
     "video_search_tool_page",
     #"video_embeddings_page",
     "video_search_hvac_channels_page",
-    "graphics_definition_v2_slideshow_page",
-    "slideshow_generator_page",
+    #"graphics_definition_v2_slideshow_page",
+    "slideshow_streamlit_page",
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",
     "image_editing_tool_page",
     "curriculum_mapping_tool_page",
+    "aggregation_agent_page",
 ]
 
 if st.session_state.role:
