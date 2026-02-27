@@ -68,7 +68,7 @@ role_page_access = {
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page", "paraphraser_page", "image_translation_page",
         "mcp_ui_page", "image_editing_tool_page",
-        "curriculum_mapping_tool_page",
+        "curriculum_mapping_tool_page", "video_search_hvac_channels_page",
     ],
     "Managers": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
@@ -76,23 +76,24 @@ role_page_access = {
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page",
         "paraphraser_page", "image_translation_page", "image_editing_tool_page",
-        "curriculum_mapping_tool_page",
+        "curriculum_mapping_tool_page", "video_search_hvac_channels_page",
     ],
     "Instructional Designer": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
         "assessments_generation_page", "vectorstore_page", "get_images_page",
         "video_search_tool_page", "quality_compliance_scoring_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page"
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "video_search_hvac_channels_page",
     ],
     "Visual Designer": [
         "template_sheet_setup_page", "workflow_directory_page", "graphics_definition_page", "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page"
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "video_search_hvac_channels_page",
     ],
     "Basic User": [
         "vectorstore_page",
         "paraphraser_page","image_translation_page", "image_editing_tool_page",
         "curriculum_mapping_tool_page",
+        "video_search_hvac_channels_page",
     ],
     None: [
         # No pages accessible for users with None role (denied access)

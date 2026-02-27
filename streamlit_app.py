@@ -398,6 +398,12 @@ curriculum_mapping_tool_page = st.Page(
     title="Curriculum Mapping Tool",
     icon=":material/menu_book:",
 )
+
+video_search_hvac_channels_page = st.Page(
+    "video_search_hvac_channels.py",
+    title="Video Search inside 'HVAC School' & 'Love2HVAC with Ty' Youtube Channel)",
+    icon=":material/search:",
+)
 #######################
 # 3) Common app layout
 #######################
@@ -440,6 +446,7 @@ page_name_to_object = {
     "mcp_ui_page": mcp_ui_page_obj,
     "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
+    "video_search_hvac_channels_page": video_search_hvac_channels_page,
 }
 
 # Define which pages belong to which category
@@ -462,6 +469,7 @@ tool_pages = [
     "mcp_ui_page",
     "image_editing_tool_page",
     "curriculum_mapping_tool_page",
+    "video_search_hvac_channels_page",
 ]
 
 if st.session_state.role:
