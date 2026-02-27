@@ -219,7 +219,7 @@ It is acceptable for this section to be very detailed and verbose to help you ar
 <narration_part>
 
 <voiceover>
-Exact narration part text from the graphics definition
+Exact narration part text from the graphics definition. Don't include any prefix like "When VO:" or "When the voiceover says:" or anything like that. Just the text of the narration part.
 </voiceover>
 
 <canvas_state_before>
