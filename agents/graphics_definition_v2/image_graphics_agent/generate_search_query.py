@@ -23,13 +23,16 @@ Topic name: {topic_name}
 Subtopic name: {subtopic_name}
 </course_information>
 
+<slide_information>
+Slide Type: {slide_type}
 Slide title: {slide_title}
 
 Voiceover sentence for which you need to generate search queries:
 "{vo_text}"
 
 Full slide content:
-{slide_chunk}
+"{slide_chunk}"
+</slide_information>
 
 Visual storyboard for the full slide (for planning context and intent reference):
 <visual_storyboard>
@@ -59,6 +62,10 @@ Instructions:
    - Refer to it to understand the intended visual ideas for the specific voiceover sentence you are processing.
    - Focus only on the storyboard planning that corresponds to this sentence.
    - Do not generate queries that are not supported by the visual storyboard.
+
+6. Transition Slide Type:
+   - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
+   - The slide content of Transition slide may lack depth or details, so you should infer and plan the search queries for transition slides by taking into account the topic and subtopic name along with the storyboard.
 
 Always provide your output strictly in the following format:
 
@@ -100,10 +107,11 @@ Topic name: {topic_name}
 Subtopic name: {subtopic_name}
 </course_information>
 
+<slide_content>
+Slide type: {slide_type}
 Slide title: {slide_title}
-
-Full slide content:
-{slide_chunk}
+Full slide content: "{slide_chunk}"
+</slide_content>
 
 Visual storyboard for the full slide (for planning context and intent reference):
 <visual_storyboard>
@@ -132,6 +140,10 @@ Instructions:
    - The visual storyboard represents the planned visual idea for the given slide.
    - Refer to it to understand the intended visual ideas for the entire slide.
 
+6. Transition Slide Type:
+   - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
+   - The slide content of Transition slide may lack depth or details, so you should infer and plan the search queries for transition slides by taking into account the topic and subtopic name along with the storyboard.
+
 Always provide your output strictly in the following format:
 
 <output>
@@ -144,14 +156,13 @@ Always provide your output strictly in the following format:
 
 </evaluation_breakdown>
 
-(Based on your above evaluation, provide your final output of 5 search queries)
+(Based on your above evaluation, provide your final output of 4 search queries)
 
 <queries>
 - Query 1 text
 - Query 2 text
 - Query 3 text
 - Query 4 text
-- Query 5 text
 </queries>
 """
 
@@ -165,7 +176,7 @@ Always provide your output strictly in the following format:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", llm="gemini_2_5_flash_lite"):
+def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", slide_type="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for a single voiceover segment.
 
@@ -176,6 +187,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     :param subtopic_name: The subtopic name.
     :param slide_title: The slide title.
     :param visual_storyboard: The visual storyboard content.
+    :param slide_type: The slide type from the Slide Type column (e.g. Transition, Content, Summary).
     :param llm: The language model to use.
     :return: The search query output.
     """
@@ -192,7 +204,8 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
             slide_title=slide_title,
             vo_text=vo_text,
             slide_chunk=slide_chunk,
-            visual_storyboard=visual_storyboard
+            visual_storyboard=visual_storyboard,
+            slide_type=slide_type or ""
         )
     )
 
@@ -209,7 +222,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     return queries_output
 
 
-def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", llm="gemini_2_5_flash_lite"):
+def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", slide_type="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for the entire slide (not per segment).
 
@@ -219,6 +232,7 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
     :param subtopic_name: The subtopic name.
     :param slide_title: The slide title.
     :param visual_storyboard: The visual storyboard content.
+    :param slide_type: The slide type from the Slide Type column (e.g. Transition, Content, Summary).
     :param llm: The language model to use.
     :return: The search query output.
     """
@@ -233,7 +247,8 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
     #     subtopic_name=subtopic_name,
     #     slide_title=slide_title,
     #     slide_chunk=slide_chunk,
-    #     visual_storyboard=visual_storyboard
+    #     visual_storyboard=visual_storyboard,
+    #     slide_type=slide_type or ""
     # ))
     # print("\n" + "=" * 100 + "\n")
 
@@ -246,7 +261,8 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
             subtopic_name=subtopic_name,
             slide_title=slide_title,
             slide_chunk=slide_chunk,
-            visual_storyboard=visual_storyboard
+            visual_storyboard=visual_storyboard,
+            slide_type=slide_type or ""
         )
     )
 
@@ -290,6 +306,9 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
         topic_name = str(row.get("Topic", "")).strip()
         subtopic_name = str(row.get("Subtopic", "")).strip()
         visual_storyboard = str(row.get("storyboard_planning", "")).strip()
+        slide_type = str(row.get("Slide Type", "")).strip()
+        if slide_type == "nan":
+            slide_type = ""
         
         # Get visual assignment strategy (default to "Flexible, let the agent decide" if not found)
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
@@ -309,6 +328,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
                 subtopic_name=subtopic_name,
                 slide_title=slide_title,
                 visual_storyboard=visual_storyboard,
+                slide_type=slide_type,
                 llm=llm
             )
             
@@ -357,6 +377,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
                     subtopic_name,
                     slide_title,
                     visual_storyboard,
+                    slide_type,
                     llm
                 ): (segment_idx, segment)
                 for segment_idx, segment in enumerate(segments, start=1)

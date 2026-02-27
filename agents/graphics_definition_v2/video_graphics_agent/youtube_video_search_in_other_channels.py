@@ -434,6 +434,11 @@ def validate_video_pool_other_channels_row(row):
     """
     search_queries_text = str(row.get("search_queries", "")).strip()
     video_pool_text = str(row.get("video_pool_other_channels", "")).strip()
+    slide_type = str(row.get("Slide Type", "")).strip().lower()
+    
+    # Transition slides have no video candidates by design; empty video_pool_other_channels is valid
+    if slide_type in ("transition", "transition slide"):
+        return True, None
     
     # Skip validation if search_queries is empty
     if not search_queries_text or search_queries_text == "nan":
@@ -521,6 +526,11 @@ def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_
         for index, row in df.iterrows():
             search_queries = str(row.get("search_queries", "")).strip()
             video_pool_other = str(row.get("video_pool_other_channels", "")).strip()
+            slide_type = str(row.get("Slide Type", "")).strip().lower()
+            
+            # Transition slides: no video candidates; leave video_pool_other_channels empty
+            if slide_type in ("transition", "transition slide"):
+                continue
             
             # Skip if search_queries is empty
             if not search_queries or search_queries == "nan":

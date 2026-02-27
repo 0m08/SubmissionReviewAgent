@@ -57,6 +57,18 @@ SUBTITLE_FONT_SIZE = 36
 SUBTITLE_FONT_COLOR = (255, 255, 255)
 SUBTITLE_FADE_DURATION = 0.2
 
+# Slide title overlay (top-left: orange square + whitish rectangle with white text, like manual slides)
+SLIDE_TITLE_ORANGE = (255, 140, 0)  # Accent square on the left
+SLIDE_TITLE_BG_COLOR = (240, 240, 238)  # Light grey/off-white rectangle behind text
+SLIDE_TITLE_TEXT_COLOR = (255, 140, 0)  # Orange text (same as accent square)
+SLIDE_TITLE_FONT_SIZE = 32
+SLIDE_TITLE_SQUARE_SIZE = 44  # Width of orange block (height follows bar)
+SLIDE_TITLE_MARGIN_X = 0  # Flush to left edge
+SLIDE_TITLE_MARGIN_Y = 2  # Slight inset from top so overlay doesn't bleed past frame (avoids black edge)
+SLIDE_TITLE_PADDING = 12  # between square and text
+SLIDE_TITLE_PADDING_VERTICAL = 10  # extra space above/below text so bottom isn't truncated
+SLIDE_TITLE_PADDING_RIGHT = 16  # space after text so right edge isn't clipped
+
 MAX_WORKERS = 8
 
 SLIDE_TRANSITIONS = {"slide_left", "slide_right"}
@@ -71,31 +83,13 @@ DEFAULT_RENDER_SETTINGS = {
     "subtitle_font_size": 36,
     "subtitle_fade_duration": 0.2,
     "enable_subtitles": True,
-    "ffmpeg_preset": "veryfast",
-    "ffmpeg_crf": 23,
+    "ffmpeg_preset": "medium",
+    "ffmpeg_crf": 18,
     "audio_fps": 44100,
     "threads": min(8, os.cpu_count() or 4),
 }
 
-FAST_RENDER_SETTINGS = {
-    "canvas_width": 960,
-    "canvas_height": 540,
-    "fps": 12,
-    "transition_duration": 0.3,
-    "subtitle_height": 60,
-    "subtitle_font_size": 22,
-    "subtitle_fade_duration": 0.2,
-    "enable_subtitles": True,
-    "ffmpeg_preset": "superfast",
-    "ffmpeg_crf": 20,  # Improved from 26 to 20 for better quality (lower = better quality)
-    "audio_fps": 32000,
-    "threads": min(8, os.cpu_count() or 4),
-}
-
-RENDER_PRESETS = {
-    "Fast preview (360p / 10fps)": FAST_RENDER_SETTINGS,
-    "Full quality (1080p / 24fps)": DEFAULT_RENDER_SETTINGS,
-}
+RENDER_SETTINGS = DEFAULT_RENDER_SETTINGS
 
 CURRENT_RENDER_PRESET = "Full quality (1080p / 24fps)"
 ENCODER_PRESET = DEFAULT_RENDER_SETTINGS["ffmpeg_preset"]
@@ -170,10 +164,12 @@ def is_asset_cached(url: str) -> bool:
 
 
 def optimize_image_for_canvas(img: Image.Image) -> Image.Image:
-    """Downscale large images to the canvas size to reduce render cost."""
+    """Cap image at 2x canvas to prevent memory issues with huge sources,
+    but keep enough resolution for a crisp single-step LANCZOS downscale
+    in create_visual_clips."""
     if not isinstance(img, Image.Image):
         return img
-    max_w, max_h = CANVAS_WIDTH, CANVAS_HEIGHT
+    max_w, max_h = CANVAS_WIDTH * 2, CANVAS_HEIGHT * 2
     if img.width > max_w or img.height > max_h:
         img = img.copy()
         img.thumbnail((max_w, max_h), Image.LANCZOS)
@@ -188,12 +184,22 @@ def is_drive_url(url: str) -> bool:
 
 
 def extract_drive_file_id(url: str) -> Optional[str]:
-    patterns = [r"/file/d/([a-zA-Z0-9_-]+)", r"id=([a-zA-Z0-9_-]+)", r"/d/([a-zA-Z0-9_-]+)"]
+    patterns = [
+        r"/file/d/([a-zA-Z0-9_-]+)",
+        r"id=([a-zA-Z0-9_-]+)",
+        r"/d/([a-zA-Z0-9_-]+)",
+        r"drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)",
+    ]
     for pattern in patterns:
-        match = re.search(pattern, url)
+        match = re.search(pattern, url, re.IGNORECASE)
         if match:
             return match.group(1)
     return None
+
+
+def _drive_export_view_url(file_id: str) -> str:
+    """Public export/view URL; works for 'anyone with link' (viewer or editor) when opened without auth."""
+    return f"https://drive.google.com/uc?export=view&id={file_id}"
 
 
 def parse_youtube_url(url: str) -> Tuple[Optional[str], Optional[int], Optional[int]]:
@@ -476,47 +482,78 @@ def download_youtube_clip(url: str, output_path: str) -> Optional[str]:
             # Trim video if start/end specified
             if start is not None and end is not None:
                 duration = end - start
+                # Stream copy first (no re-encoding = no quality loss)
                 ffmpeg_cmd = [
                     "ffmpeg", "-y",
                     "-ss", str(start),
                     "-i", full_video_path,
                     "-t", str(duration),
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
+                    "-c", "copy",
                     "-avoid_negative_ts", "make_zero",
                     "-movflags", "+faststart",
                     output_path,
                 ]
                 result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=False, timeout=300)
-                if result.returncode != 0:
-                    print(f"   ⚠️  FFmpeg trim failed: {result.stderr[:200]}")
-                    # Try next format if trim failed
-                    continue
+                trim_ok = result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0
+                if trim_ok:
+                    clip_duration = get_video_duration(output_path)
+                    expected_duration = end - start
+                    if abs(clip_duration - expected_duration) > 2.0:
+                        trim_ok = False
+                if not trim_ok:
+                    # Fallback: re-encode at near-lossless quality if stream copy fails
+                    ffmpeg_cmd = [
+                        "ffmpeg", "-y",
+                        "-ss", str(start),
+                        "-i", full_video_path,
+                        "-t", str(duration),
+                        "-c:v", "libx264", "-crf", "12",
+                        "-c:a", "aac",
+                        "-avoid_negative_ts", "make_zero",
+                        "-movflags", "+faststart",
+                        output_path,
+                    ]
+                    result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=False, timeout=300)
+                    if result.returncode != 0:
+                        print(f"   ⚠️  FFmpeg trim failed: {result.stderr[:200]}")
+                        continue
                 # Verify the trimmed clip has correct duration
                 if not os.path.exists(output_path):
                     print(f"   ⚠️  Trimmed file not created: {output_path}")
                     continue
                 clip_duration = get_video_duration(output_path)
                 expected_duration = end - start
-                if abs(clip_duration - expected_duration) > 1.0:  # Allow 1 second tolerance
+                if abs(clip_duration - expected_duration) > 1.0:
                     print(f"   ⚠️  Trimmed clip duration mismatch: expected {expected_duration:.1f}s, got {clip_duration:.1f}s")
-                    # Try next format if duration is wrong
                     continue
                 clip_path = output_path
             elif start is not None:
+                # Stream copy first (no re-encoding = no quality loss)
                 ffmpeg_cmd = [
                     "ffmpeg", "-y",
                     "-ss", str(start),
                     "-i", full_video_path,
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
+                    "-c", "copy",
                     "-avoid_negative_ts", "make_zero",
                     "-movflags", "+faststart",
                     output_path,
                 ]
                 result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=False, timeout=300)
-                if result.returncode != 0:
-                    print(f"   ⚠️  FFmpeg trim failed: {result.stderr[:200]}")
+                if result.returncode != 0 or not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                    # Fallback: re-encode at near-lossless quality
+                    ffmpeg_cmd = [
+                        "ffmpeg", "-y",
+                        "-ss", str(start),
+                        "-i", full_video_path,
+                        "-c:v", "libx264", "-crf", "12",
+                        "-c:a", "aac",
+                        "-avoid_negative_ts", "make_zero",
+                        "-movflags", "+faststart",
+                        output_path,
+                    ]
+                    result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=False, timeout=300)
+                    if result.returncode != 0:
+                        print(f"   ⚠️  FFmpeg trim failed: {result.stderr[:200]}")
                 clip_path = output_path if os.path.exists(output_path) else None
             else:
                 shutil.copy(full_video_path, output_path)
@@ -559,29 +596,43 @@ def download_youtube_clip(url: str, output_path: str) -> Optional[str]:
 
 
 def download_drive_image(url: str, drive_instance: GoogleDrive) -> Optional[Image.Image]:
+    url = (url or "").strip()
     file_id = extract_drive_file_id(url)
     if not file_id:
         return None
+    # 1) Try export/view URL first (works when Drive returns actual image bytes)
+    try:
+        export_url = _drive_export_view_url(file_id)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:91.0) Gecko/20100101 Firefox/91.0"}
+        response = requests.get(export_url, headers=headers, timeout=30, allow_redirects=True)
+        response.raise_for_status()
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if content_type.startswith("image/"):
+            img = Image.open(BytesIO(response.content))
+            img = ImageOps.exif_transpose(img).convert("RGB")
+            return optimize_image_for_canvas(img)
+    except Exception:
+        pass
+    # 2) PyDrive (same as graphics_definition_v2_slideshow; works when session has access)
     temp_path = None
     try:
         file = drive_instance.CreateFile({"id": file_id})
-        # Use system temp directory instead of project directory
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
             temp_path = tmp_file.name
         file.GetContentFile(temp_path)
-        img = Image.open(temp_path)
+        with open(temp_path, "rb") as f:
+            data = f.read()
+        img = Image.open(BytesIO(data))
         img = ImageOps.exif_transpose(img).convert("RGB")
-        result = optimize_image_for_canvas(img)
-        return result
-    except Exception:
+        return optimize_image_for_canvas(img)
+    except Exception as e:
+        print(f"   ⚠️  PyDrive download failed (id={file_id[:20]}...): {e}")
         return None
     finally:
-        # Clean up temp file after loading into memory
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
             except Exception as cleanup_error:
-                # Log but don't fail if cleanup fails
                 print(f"Warning: Could not clean up temp file {temp_path}: {cleanup_error}")
 
 
@@ -668,7 +719,7 @@ def preload_assets_parallel(urls: List[str], drive_instance: GoogleDrive, temp_d
         return
 
     print(f"   ⬇️  Downloading {len(urls_to_download)} new assets (cached: {len(urls) - len(urls_to_download)})")
-    
+
     def download_single(args):
         url, index = args
         asset, asset_type = load_asset(url, drive_instance, index, temp_dir)
@@ -682,7 +733,9 @@ def preload_assets_parallel(urls: List[str], drive_instance: GoogleDrive, temp_d
             completed += 1
             if completed % 5 == 0 or completed == len(urls_to_download):
                 print(f"   📥 Progress: {completed}/{len(urls_to_download)} assets downloaded")
-            _ = future.result()
+            url, asset, _ = future.result()
+            if asset is None and is_drive_url(url):
+                print(f"   ⚠️  Drive image failed to load: {url[:80]}...")
     print(f"   ✅ All assets downloaded")
 
 
@@ -1089,6 +1142,71 @@ def create_subtitle_clip(text: str, duration: float, start_time: float) -> Optio
     return subtitle_clip
 
 
+def _get_slide_title_font():
+    # Prefer bold fonts for slide title
+    for font_path in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ]:
+        if os.path.exists(font_path):
+            try:
+                return ImageFont.truetype(font_path, SLIDE_TITLE_FONT_SIZE)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def create_slide_title_overlay_clip(
+    slide_title: str, t_start: float, duration: float
+) -> Optional[ImageClip]:
+    if not slide_title or not slide_title.strip():
+        return None
+    text = slide_title.strip()
+    sq = SLIDE_TITLE_SQUARE_SIZE
+    pad = SLIDE_TITLE_PADDING
+    font = _get_slide_title_font()
+    img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    max_text_w = 600
+    display_text = text
+    text_bbox_top = 0
+    while True:
+        try:
+            bbox = draw.textbbox((0, 0), display_text, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+            text_bbox_top = bbox[1]
+        except Exception:
+            text_w = len(display_text) * (SLIDE_TITLE_FONT_SIZE * 0.6)
+            text_h = SLIDE_TITLE_FONT_SIZE * 1.2
+        if text_w <= max_text_w or len(display_text) <= 3:
+            break
+        display_text = display_text[:-4] + "..." if len(display_text) > 3 else "..."
+    bar_w = sq + pad + text_w + SLIDE_TITLE_PADDING_RIGHT
+    text_h_int = int(text_h)
+    bar_h = max(sq, text_h_int + 2 * SLIDE_TITLE_PADDING_VERTICAL)
+    slide_img = Image.new("RGBA", (bar_w, bar_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(slide_img)
+    # Orange block on the left (same height as the full bar so it matches the white box)
+    draw.rectangle([(0, 0), (sq, bar_h - 1)], fill=SLIDE_TITLE_ORANGE + (255,))
+    # Whitish rectangle behind the text (same height as orange block)
+    draw.rectangle([(sq, 0), (bar_w - 1, bar_h - 1)], fill=SLIDE_TITLE_BG_COLOR + (255,))
+    # Orange text, vertically centered in the white box (account for font bbox offset)
+    text_y = (bar_h - text_h_int) // 2 - int(text_bbox_top)
+    draw.text((sq + pad, text_y), display_text, fill=SLIDE_TITLE_TEXT_COLOR + (255,), font=font)
+    arr = np.array(slide_img)
+    clip = ImageClip(arr, ismask=False)
+    clip = clip.set_duration(duration).set_start(t_start)
+    clip = clip.set_position((SLIDE_TITLE_MARGIN_X, SLIDE_TITLE_MARGIN_Y))
+    return clip
+
+
 # =============================================================================
 # Timeline and Lifecycle Functions
 # =============================================================================
@@ -1179,6 +1297,7 @@ def build_timeline(
                 "end_time": current_time + part_duration,
                 "narration_duration": narration_duration,
                 "is_first_part_of_slide": part.get("is_first_part_of_slide", False),
+                "slide_title": part.get("slide_title", ""),
             }
         )
         current_time += part_duration
@@ -1193,9 +1312,20 @@ def build_asset_lifecycles(
     current_canvas: Dict[str, Dict[str, Any]] = {}
 
     for part in timeline:
-        if part.get("is_first_part_of_slide"):
-            current_canvas.clear()
         part_start = part["start_time"]
+        if part.get("is_first_part_of_slide") and current_canvas:
+            # End lifecycles for previous slide's visuals before starting the new slide
+            for asset_url, info in current_canvas.items():
+                lifecycle = {
+                    "start": info["start_time"],
+                    "end": part_start,
+                    "position": info["position"],
+                    "transition_in": info["transition_in"],
+                    "transition_out": "fade_out",
+                    "move_from": info.get("move_from"),
+                }
+                asset_lifecycles.setdefault(asset_url, []).append(lifecycle)
+            current_canvas.clear()
         actions = part.get("actions", [])
 
         for action in actions:
@@ -1327,12 +1457,26 @@ def create_visual_clips(
                     clip = fit_video_to_duration(clip, duration)
             else:
                 img = asset.copy() if isinstance(asset, Image.Image) else asset
-                clip = create_image_clip(img, duration)
+                if isinstance(img, str):
+                    img = Image.open(img).convert("RGB")
+                if isinstance(img, Image.Image):
+                    target_position = lifecycle["position"]
+                    img_w, img_h = img.size
+                    new_w, new_h, end_x, end_y = compute_target_geometry(img_w, img_h, target_position)
+                    img = img.resize((new_w, new_h), Image.LANCZOS)
+                    clip = ImageClip(np.array(img)).set_duration(duration)
+                else:
+                    clip = create_image_clip(img, duration)
+                    clip_w, clip_h = clip.size
+                    target_position = lifecycle["position"]
+                    new_w, new_h, end_x, end_y = compute_target_geometry(clip_w, clip_h, target_position)
+                    clip = clip.resize((new_w, new_h))
 
-            clip_w, clip_h = clip.size
-            target_position = lifecycle["position"]
-            new_w, new_h, end_x, end_y = compute_target_geometry(clip_w, clip_h, target_position)
-            clip = clip.resize((new_w, new_h))
+            if asset_type == "video":
+                clip_w, clip_h = clip.size
+                target_position = lifecycle["position"]
+                new_w, new_h, end_x, end_y = compute_target_geometry(clip_w, clip_h, target_position)
+                clip = clip.resize((new_w, new_h))
 
             transition_in = lifecycle.get("transition_in")
             move_from = lifecycle.get("move_from")
@@ -1432,8 +1576,11 @@ def generate_slideshow_from_sheet(
         for row in records:
             layout_instructions = row.get("layout_instructions", "")
             parts = parse_layout_instructions(layout_instructions)
+            slide_title = row.get("Slide Chunk Title", "")
             if parts:
                 parts[0]["is_first_part_of_slide"] = True
+            for p in parts:
+                p["slide_title"] = slide_title
             narration_parts.extend(parts)
 
         if not narration_parts:
@@ -1510,17 +1657,31 @@ def generate_slideshow_from_sheet(
                     subtitle_clips.append(subtitle)
         print(f"✅ Created {len(subtitle_clips)} subtitle clips")
         if progress_bar:
+            progress_bar.update_progress(0.78, "Creating slide title overlays...")
+
+        # Slide title overlays (one per slide, top-left, full duration of slide)
+        first_part_indices = [i for i, p in enumerate(timeline) if p.get("is_first_part_of_slide")]
+        slide_title_clips = []
+        for k, i in enumerate(first_part_indices):
+            t_start = timeline[i]["start_time"]
+            t_end = total_duration if k == len(first_part_indices) - 1 else timeline[first_part_indices[k + 1]]["start_time"]
+            title = (timeline[i].get("slide_title") or "").strip()
+            clip = create_slide_title_overlay_clip(title, t_start, t_end - t_start)
+            if clip:
+                slide_title_clips.append(clip)
+        print(f"✅ Created {len(slide_title_clips)} slide title overlay clips")
+        if progress_bar:
             progress_bar.update_progress(0.80, "Compositing video layers...")
 
         # Phase 7: Composite video (80-85%)
         print(f"\n🎬 Compositing video layers...")
-        print(f"   Background + {len(visual_clips)} visual clips + {len(subtitle_clips)} subtitle clips")
+        print(f"   Background + {len(visual_clips)} visual clips + {len(subtitle_clips)} subtitle clips + {len(slide_title_clips)} slide title overlays")
         if progress_callback:
             progress_callback("Compositing final video...")
         background = ColorClip(size=(CANVAS_WIDTH, CANVAS_HEIGHT), color=BACKGROUND_COLOR)
         background = background.set_duration(total_duration)
 
-        all_layers = [background] + visual_clips + subtitle_clips
+        all_layers = [background] + visual_clips + subtitle_clips + slide_title_clips
         final_video = CompositeVideoClip(all_layers, size=(CANVAS_WIDTH, CANVAS_HEIGHT))
         if audio_clips:
             final_audio = CompositeAudioClip(audio_clips)
@@ -1558,6 +1719,11 @@ def generate_slideshow_from_sheet(
         print(f"🧹 Cleaning up resources...")
         final_video.close()
         for clip in visual_clips:
+            try:
+                clip.close()
+            except Exception:
+                pass
+        for clip in slide_title_clips:
             try:
                 clip.close()
             except Exception:
@@ -1644,13 +1810,6 @@ def main():
             help="Name for the generated video file"
         )
 
-        render_mode = st.selectbox(
-            "Render Mode",
-            options=list(RENDER_PRESETS.keys()),
-            index=0,
-            help="Fast preview renders quickly using lower resolution/FPS while still playing video and showing transitions/subtitles."
-        )
-
         reuse_cache = st.checkbox(
             "Reuse cached assets/audio (faster re-runs)",
             value=True,
@@ -1731,8 +1890,8 @@ def main():
                     worksheet_name=worksheet_name,
                     voice=voice,
                     output_filename=output_filename,
-                    render_settings=RENDER_PRESETS[render_mode],
-                    render_preset_name=render_mode,
+                    render_settings=RENDER_SETTINGS,
+                    render_preset_name="Full quality (1080p / 24fps)",
                     reset_caches=not reuse_cache,
                     progress_callback=progress_callback,
                     progress_bar=progress_tracker,

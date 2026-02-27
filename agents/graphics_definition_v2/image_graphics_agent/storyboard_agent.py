@@ -21,6 +21,7 @@ Subtopic name: {subtopic_name}
 </course_information>
 
 <slide_content>
+Slide Type: {slide_type}
 Slide Title: {slide_title}
 Slide Content: {slide_content}
 </slide_content>
@@ -56,7 +57,11 @@ Instructions and Guidelines:
    - Each visual idea must directly help the learner understand the narration at that moment.
    - Avoid suggesting redundant or too many visuals that do not add instructional value.
    - IMPORTANT: You should strictly assign only 1 visual to the respective narattion parts.
-   
+
+6. Transition Slide Type:
+   - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
+   - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
+
 Output:
 
 Provide your output strictly in the following format:
@@ -108,6 +113,7 @@ Subtopic name: {subtopic_name}
 </course_information>
 
 <slide_content>
+Slide Type: {slide_type}
 Slide Title: {slide_title}
 Slide Content: {slide_content}
 </slide_content>
@@ -128,6 +134,10 @@ Instructions and Guidelines:
       - Conditions, states, or outcomes being explained
    - Remember, we want to assign only 1 visual for the entire slide, so the visual idea should be the most important and relevant visual that will support the entire slide.
    - IMPORTANT: Use generic terms like "visual" or "visual content" when describing the visual idea. Do not use image-specific terms like "image", "photo", "picture", "2D image", etc. The visual can be either a static image or a video clip, so use neutral terminology.
+
+3. Transition Slide Type:
+   - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
+   - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
 
 Output:
 
@@ -167,6 +177,7 @@ Subtopic name: {subtopic_name}
 </course_information>
 
 <slide_content>
+Slide Type: {slide_type}
 Slide Title: {slide_title}
 Slide Content: {slide_content}
 </slide_content>
@@ -201,7 +212,11 @@ Instructions and Guidelines:
    - Favor clarity and relevance over visual variety.
    - Each visual idea must directly help the learner understand the narration of the sentence at that moment.
    - IMPORTANT: You should strictly assign only 1 visual to the respective sentence.
-   
+
+6. Transition Slide Type:
+   - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
+   - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
+
 Output:
 
 Provide your output strictly in the following format:
@@ -252,7 +267,7 @@ Use this section as a reasoning scratchpad to think through the slide and plan t
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_title, slide_content, visual_assignment_strategy="Flexible, let the agent decide", llm="gemini_3_flash_thinking"):
+def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_title, slide_content, visual_assignment_strategy="Flexible, let the agent decide", slide_type="", llm="gemini_3_flash_thinking"):
     """
     Generate a visual storyboard for a single slide.
 
@@ -262,6 +277,7 @@ def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_
     :param slide_title: The slide title.
     :param slide_content: The slide content.
     :param visual_assignment_strategy: The visual assignment strategy from the sheet.
+    :param slide_type: The slide type from the Slide Type column (e.g. Transition, Content, Summary).
     :param llm: The language model to use.
     :return: Tuple of (storyboard_output, strategy_type) where strategy_type indicates the format.
     """
@@ -288,7 +304,8 @@ def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_
     #     topic_name=topic_name,
     #     subtopic_name=subtopic_name,
     #     slide_title=slide_title,
-    #     slide_content=slide_content
+    #     slide_content=slide_content,
+    #     slide_type=slide_type or ""
     # )
     # print("\n🔍 Storyboard Agent Prompt Being Sent to LLM:\n")
     # print(formatted_prompt)
@@ -302,7 +319,8 @@ def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_
             topic_name=topic_name,
             subtopic_name=subtopic_name,
             slide_title=slide_title,
-            slide_content=slide_content
+            slide_content=slide_content,
+            slide_type=slide_type or ""
         )
     )
 
@@ -418,6 +436,9 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
         subtopic_name = str(row.get("Subtopic", "")).strip()
         slide_title = str(row.get("Slide Chunk Title", "")).strip()
         slide_content = str(row.get("Slide Chunk", "")).strip()
+        slide_type = str(row.get("Slide Type", "")).strip()
+        if slide_type == "nan":
+            slide_type = ""
         
         # Get visual assignment strategy (default to "Flexible, let the agent decide" if not found)
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
@@ -436,6 +457,7 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
             slide_title=slide_title,
             slide_content=slide_content,
             visual_assignment_strategy=visual_assignment_strategy,
+            slide_type=slide_type,
             llm=llm
         )
         

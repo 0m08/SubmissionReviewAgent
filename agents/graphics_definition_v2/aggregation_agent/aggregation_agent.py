@@ -2216,7 +2216,7 @@ def parse_segments_from_voiceover(voiceover_text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None, visual_assignment_strategy="Flexible, let the agent decide"):
+def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None, visual_assignment_strategy="Flexible, let the agent decide", slide_type=""):
     """
     Aggregate graphics definition for a single segment using images and videos.
     
@@ -2275,6 +2275,8 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     
     if not video_candidates_text.strip():
         video_candidates_text = "No video candidates provided."
+        if str(slide_type).strip().lower() in ("transition", "transition slide"):
+            video_candidates_text += " This is a Transition slide; only image candidates are available."
     
     # Use storyboard if provided, otherwise use empty string
     storyboard_text = storyboard if storyboard and storyboard.strip() and storyboard != "nan" else "No storyboard reference provided."
@@ -2355,7 +2357,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
-            # Print the formatted prompt
+            # #Print the formatted prompt
             # print(f"\n{'='*80}")
             # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
             # print(f"{'='*80}")
@@ -2374,7 +2376,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
-            # Print the formatted prompt
+            # #Print the formatted prompt
             # print(f"\n{'='*80}")
             # print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
             # print(f"{'='*80}")
@@ -2541,7 +2543,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         return None, ""
 
 
-def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking"):
+def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", slide_type=""):
     """
     Aggregate graphics definition for the entire slide using images and videos.
     
@@ -2595,6 +2597,8 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     
     if not video_candidates_text.strip():
         video_candidates_text = "No video candidates provided."
+        if str(slide_type).strip().lower() in ("transition", "transition slide"):
+            video_candidates_text += " This is a Transition slide; only image candidates are available for you to select from"   
     
     # Use storyboard if provided, otherwise use empty string
     storyboard_text = storyboard if storyboard and storyboard.strip() and storyboard != "nan" else "No storyboard reference provided."
@@ -2611,7 +2615,7 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
         video_candidates=video_candidates_text
     )
     
-    # Print the formatted prompt
+    # #Print the formatted prompt
     # print(f"\n{'='*80}")
     # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
     # print(f"{'='*80}")
@@ -2938,7 +2942,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text=""):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type=""):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -3019,6 +3023,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         llm=llm,
         feedback=feedback,
         visual_assignment_strategy=visual_assignment_strategy,
+        slide_type=slide_type,
     )
     
     if graphics_definition_xml:
@@ -3095,6 +3100,9 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         subtopic_name = str(row.get("Subtopic", "")).strip()
         slide_title = str(row.get("Slide Chunk Title", "")).strip()
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
+        slide_type = str(row.get("Slide Type", "")).strip()
+        if slide_type == "nan":
+            slide_type = ""
         
         # Handle "1 Visual for the whole Slide" case differently
         if visual_assignment_strategy == "1 Visual for the whole Slide":
@@ -3155,7 +3163,8 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                 subtopic_name=subtopic_name,
                 storyboard=storyboard_text,
                 drive=drive,
-                llm=llm
+                llm=llm,
+                slide_type=slide_type,
             )
             
             if graphics_definition_xml:
@@ -3225,6 +3234,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     visual_assignment_strategy,
                     video_pool_text,
                     video_pool_other_channels_text,
+                    slide_type,
                 ): (segment_idx, vo_text)
                 for segment_idx, vo_text in segments
             }

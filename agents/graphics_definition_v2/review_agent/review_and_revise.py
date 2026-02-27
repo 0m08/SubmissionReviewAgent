@@ -4967,6 +4967,19 @@ def process_review_revise_row(
         print(f"Slide Title: {_safe_str(row.get('Slide Chunk Title', ''))}")
         print("=" * 80)
 
+        # Transition slides: skip review-revise; set columns and return
+        slide_type = str(row.get("Slide Type", "")).strip().lower()
+        if slide_type in ("transition", "transition slide"):
+            df.at[row_index, "graphics_review_v2_notes"] = "-"
+            df.at[row_index, "review_complete"] = "TRUE"
+            df.at[row_index, "revision_tracking"] = "-"
+            if ws is not None:
+                with _sheet_lock:
+                    save_to_sheet(ws, df)
+                    format_worksheet(ws)
+            print(f"  Skipping row {row_index + 1}: Transition slide (review disabled)")
+            return
+
         # Initialize revision tracking for this row
         voiceover_text = _safe_str(row.get("voiceover_segment", ""))
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))

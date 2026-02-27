@@ -105,8 +105,10 @@ segment_slide_prompt = """You are an expert instructional designer. Your task is
 
 This is the slide content that needs to be segmented:
 
+<slide_content>
 Slide Content:
 {slide_chunk}
+</slide_content>
 
 RULES:
 

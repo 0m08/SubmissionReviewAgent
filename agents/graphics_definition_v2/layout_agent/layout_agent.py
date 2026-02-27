@@ -38,6 +38,7 @@ Subtopic name: {subtopic_name}
 </course_information>
 
 <slide_context>
+Slide Type: {slide_type}
 Slide title: {slide_title}
 Slide content that needs layout: {slide_content}
 </slide_context>
@@ -184,6 +185,7 @@ Allowed Action Types
 - At most one visual may use position: center.
 - left and right may coexist.
 - full should be used only when the visual is intended to dominate the entire slide.
+- For Slide Type "Transition": If Slide Type is "Transition", there is exactly one visual for the whole slide. You MUST use position - full for that visual. Do not use center, left, or right for Transition slides.
 
 9. Strictness Requirements
 - Do not introduce fields, actions, or values not explicitly defined above.
@@ -626,6 +628,7 @@ def generate_layout_for_row(
     slide_title: str,
     slide_content: str,
     final_graphics_definition: str,
+    slide_type: str,
     drive,
     llm: str = "gemini_3_flash_thinking"
 ) -> Tuple[str, str]:
@@ -638,6 +641,7 @@ def generate_layout_for_row(
     :param slide_title: Slide title
     :param slide_content: Full slide content
     :param final_graphics_definition: The final_graphics_definition column content
+    :param slide_type: Slide Type from sheet (e.g. "Content", "Transition"); Transition forces position full.
     :param drive: Google Drive instance
     :param llm: Language model to use
     :return: Tuple of (layout_output, evaluation_breakdown)
@@ -721,6 +725,7 @@ def generate_layout_for_row(
         course_name=course_name,
         topic_name=topic_name,
         subtopic_name=subtopic_name,
+        slide_type=slide_type or "",
         slide_title=slide_title,
         slide_content=slide_content,
         final_graphics_definition=final_graphics_definition,
@@ -881,6 +886,7 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                 slide_title = str(row.get("Slide Chunk Title", "")).strip()
                 slide_content = str(row.get("Slide Chunk", "")).strip()
                 final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
+                slide_type = str(row.get("Slide Type", "")).strip()
                 future = executor.submit(
                     generate_layout_for_row,
                     course_name=course_name,
@@ -889,6 +895,7 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                     slide_title=slide_title,
                     slide_content=slide_content,
                     final_graphics_definition=final_graphics_def,
+                    slide_type=slide_type,
                     drive=drive,
                     llm=llm,
                 )
@@ -922,6 +929,7 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                 slide_title = str(row.get("Slide Chunk Title", "")).strip()
                 slide_content = str(row.get("Slide Chunk", "")).strip()
                 final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
+                slide_type = str(row.get("Slide Type", "")).strip()
                 print(f"\n📋 Processing row {index + 2}: {slide_title}")
                 layout_output, evaluation_breakdown = generate_layout_for_row(
                     course_name=course_name,
@@ -930,6 +938,7 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                     slide_title=slide_title,
                     slide_content=slide_content,
                     final_graphics_definition=final_graphics_def,
+                    slide_type=slide_type,
                     drive=drive,
                     llm=llm
                 )
@@ -999,6 +1008,7 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                 slide_title = str(row.get("Slide Chunk Title", "")).strip()
                 slide_content = str(row.get("Slide Chunk", "")).strip()
                 final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
+                slide_type = str(row.get("Slide Type", "")).strip()
                 future = executor.submit(
                     generate_layout_for_row,
                     course_name=course_name,
@@ -1007,6 +1017,7 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                     slide_title=slide_title,
                     slide_content=slide_content,
                     final_graphics_definition=final_graphics_def,
+                    slide_type=slide_type,
                     drive=drive,
                     llm=llm,
                 )

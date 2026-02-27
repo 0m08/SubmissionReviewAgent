@@ -213,26 +213,26 @@ pipeline_sections = [
             },
         ]
     },
-    # {
-    #     "section_name": "Section 7: Layout Agent",
-    #     "steps": [
-    #         {
-    #             "name": "Run Layout Agent",
-    #             "func": run_layout_agent_for_all_rows,
-    #             "depends_on": ["Review and Revise Graphics Definition"],
-    #             "args": {
-    #                 "sheet": "sheet",
-    #                 "llm": "gemini_3_flash_thinking" 
-    #             },
-    #             "estimated_time": "15-30 minutes",
-    #             "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
-    #             "delete_func": delete_layout_columns,
-    #             "delete_args": {
-    #                 "sheet": "sheet"
-    #             }
-    #         },
-    #     ]
-    # },
+    {
+        "section_name": "Section 7: Layout Agent",
+        "steps": [
+            {
+                "name": "Run Layout Agent",
+                "func": run_layout_agent_for_all_rows,
+                "depends_on": ["Review and Revise Graphics Definition"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking" 
+                },
+                "estimated_time": "15-30 minutes",
+                "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
+                "delete_func": delete_layout_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+        ]
+    },
 ]
 
 llm_pricing = {

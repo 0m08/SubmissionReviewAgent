@@ -1122,16 +1122,21 @@ def validate_video_pool_filtered_row(row):
     """
     vo_segments_text = str(row.get("voiceover_segment", "")).strip()
     video_pool_filtered_text = str(row.get("video_pool_filtered", "")).strip()
-    
+    slide_type = str(row.get("Slide Type", "")).strip().lower()
+
+    # Transition slides have no video candidates by design; empty video_pool_filtered is valid
+    if slide_type in ("transition", "transition slide"):
+        return True, None
+
     # Get Visual Assignment Strategy
     visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
     if not visual_assignment_strategy or visual_assignment_strategy == "nan":
         visual_assignment_strategy = "Flexible, let the agent decide"
-    
+
     # Skip validation if voiceover_segment is empty
     if not vo_segments_text or vo_segments_text == "nan":
         return True, None
-    
+
     # Skip validation if video_pool_filtered is empty (will be caught by retry logic)
     if not video_pool_filtered_text or video_pool_filtered_text == "nan" or video_pool_filtered_text.strip() == "":
         return False, "video_pool_filtered is empty"
@@ -1230,6 +1235,11 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             video_pool = str(row.get("video_pool", "")).strip()
             video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
             video_pool_filtered = str(row.get("video_pool_filtered", "")).strip()
+            slide_type = str(row.get("Slide Type", "")).strip().lower()
+            
+            # Transition slides: no video filtering; leave video_pool_filtered empty
+            if slide_type in ("transition", "transition slide"):
+                continue
             
             # Skip if no video sources available
             if (not video_pool or video_pool == "nan") and (not video_pool_other_channels or video_pool_other_channels == "nan"):
