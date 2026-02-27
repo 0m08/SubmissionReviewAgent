@@ -888,12 +888,14 @@ def extract_all_asset_urls(narration_parts: List[Dict[str, Any]]) -> List[str]:
     return list(urls)
 
 
-def get_sheet_records(sheet_link: str, gc: gspread.Client, worksheet_name: str = "Slide Chunks") -> List[Dict[str, Any]]:
+def get_sheet_records(sheet_link: str, gc: gspread.Client, worksheet_name: str = "Slide Chunks") -> Tuple[List[Dict[str, Any]], str]:
+    """Return (records, spreadsheet_title)."""
     match = re.search(r"/d/([a-zA-Z0-9_-]+)", sheet_link)
     sheet_id = match.group(1) if match else sheet_link
     sheet = gc.open_by_key(sheet_id)
     worksheet = sheet.worksheet(worksheet_name)
-    return worksheet.get_all_records()
+    records = worksheet.get_all_records()
+    return records, sheet.title
 
 
 def get_cached_video_duration(url: str) -> float:
@@ -1569,8 +1571,14 @@ def generate_slideshow_from_sheet(
             progress_bar.update_progress(0.05, "Reading sheet data...")
         print(f"📊 Reading sheet data from: {sheet_link}")
         print(f"📋 Worksheet: {worksheet_name}")
-        records = get_sheet_records(sheet_link, gc, worksheet_name)
-        print(f"✅ Found {len(records)} rows in sheet")
+        records, sheet_title = get_sheet_records(sheet_link, gc, worksheet_name)
+        if progress_bar and hasattr(progress_bar, "set_sheet_name"):
+            progress_bar.set_sheet_name(sheet_title)
+        if progress_callback:
+            progress_callback(f"Sheet: {sheet_title!r} — {len(records)} rows")
+        if progress_bar:
+            progress_bar.update_progress(0.05, f"Sheet: {sheet_title!r} — {len(records)} rows")
+        print(f"✅ Found {len(records)} rows in sheet: {sheet_title!r}")
         narration_parts: List[Dict[str, Any]] = []
 
         for row in records:
@@ -1828,6 +1836,7 @@ def main():
         import datetime
         
         progress_container = st.container()
+        sheet_name_placeholder = st.empty()
         status_text = st.empty()
         progress_bar_placeholder = st.empty()
         
@@ -1836,11 +1845,17 @@ def main():
         progress_bar = progress_bar_placeholder.progress(0, text="Starting...")
         
         class ProgressTracker:
-            def __init__(self, start_time, progress_bar, status_text):
+            def __init__(self, start_time, progress_bar, status_text, sheet_name_placeholder=None):
                 self.start_time = start_time
                 self.progress_bar = progress_bar
                 self.status_text = status_text
                 self.progress_bar_placeholder = progress_bar_placeholder
+                self.sheet_name_placeholder = sheet_name_placeholder
+            
+            def set_sheet_name(self, name: str):
+                """Display the loaded sheet name."""
+                if self.sheet_name_placeholder:
+                    self.sheet_name_placeholder.caption(f"📋 **Sheet:** {name}")
             
             def update(self, fraction: float, message: str):
                 """Update progress bar with fraction (0.0 to 1.0) and message."""
@@ -1868,7 +1883,7 @@ def main():
                 """Alias for update() to match SmartProgressBar interface."""
                 self.update(fraction, message)
         
-        progress_tracker = ProgressTracker(start_time, progress_bar, status_text)
+        progress_tracker = ProgressTracker(start_time, progress_bar, status_text, sheet_name_placeholder)
         
         def progress_callback(message: str):
             """Update progress in Streamlit UI."""
