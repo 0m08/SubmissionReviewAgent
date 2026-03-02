@@ -194,10 +194,10 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 6: Review and Revise Graphics Definition V2",
+        "section_name": "Section 6: Review and Revise Graphics Definitions",
         "steps": [
             {
-                "name": "Review and Revise Graphics Definition",
+                "name": "Review and Revise Graphics Definitions",
                 "func": run_review_and_revise_graphics_definition_v2_for_all_rows,
                 "depends_on": ["Run Aggregation Agent"],
                 "args": {
@@ -219,7 +219,7 @@ pipeline_sections = [
             {
                 "name": "Run Layout Agent",
                 "func": run_layout_agent_for_all_rows,
-                "depends_on": ["Review and Revise Graphics Definition"],
+                "depends_on": ["Review and Revise Graphics Definitions"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking" 
