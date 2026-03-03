@@ -101,6 +101,31 @@ AUDIO_FPS = DEFAULT_RENDER_SETTINGS["audio_fps"]
 ASSET_CACHE: Dict[str, Dict[str, Any]] = {}
 AUDIO_CACHE: Dict[str, str] = {}
 
+# Fallback TTS voices if Edge TTS list_voices() fails (e.g. offline)
+EDGE_TTS_VOICE_FALLBACK = [
+    "en-US-GuyNeural",
+    "en-US-JennyNeural",
+    "en-US-AriaNeural",
+    "en-GB-SoniaNeural",
+    "en-AU-NatashaNeural",
+]
+
+
+def _get_edge_tts_voice_options() -> List[str]:
+    """Return sorted list of English Neural voice ShortNames. Uses session cache; on fetch failure returns fallback list."""
+    if "edge_tts_voices" not in st.session_state:
+        try:
+            voices = asyncio.run(edge_tts.list_voices())
+            en_neural = [
+                v["ShortName"]
+                for v in voices
+                if (v.get("Locale") or "").startswith("en") and "Neural" in (v.get("ShortName") or "")
+            ]
+            st.session_state["edge_tts_voices"] = sorted(en_neural)
+        except Exception:
+            st.session_state["edge_tts_voices"] = EDGE_TTS_VOICE_FALLBACK
+    return st.session_state["edge_tts_voices"]
+
 
 # =============================================================================
 # Utility Functions
@@ -1799,17 +1824,17 @@ def main():
             help="Name of the worksheet tab to read from"
         )
         
+        voice_options = _get_edge_tts_voice_options()
+        default_voice = "en-US-GuyNeural"
+        try:
+            voice_index = voice_options.index(default_voice)
+        except ValueError:
+            voice_index = 0
         voice = st.selectbox(
             "TTS Voice",
-            options=[
-                "en-US-GuyNeural",
-                "en-US-JennyNeural",
-                "en-US-AriaNeural",
-                "en-GB-SoniaNeural",
-                "en-AU-NatashaNeural",
-            ],
-            index=0,
-            help="Text-to-speech voice for narration"
+            options=voice_options,
+            index=voice_index,
+            help="Text-to-speech voice for narration (Edge TTS: free, human-like neural voices)"
         )
         
         output_filename = st.text_input(
