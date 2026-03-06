@@ -18,8 +18,29 @@ from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
 
 DEFAULT_SHEET_NAME = "Slide Chunks"
 FINAL_GRAPHICS_COLUMN = "final_graphics_definition"
+HUMAN_FEEDBACK_COLUMN = "human_feedback"
 TTS_MODEL = "gpt-4o-mini-tts"
 TTS_VOICE = "alloy"
+
+
+def get_or_create_human_feedback_column(worksheet):
+    """
+    Return 1-based column index for human_feedback. Creates the column header if missing.
+    """
+    try:
+        headers = worksheet.row_values(1)
+    except Exception:
+        return None
+    target = HUMAN_FEEDBACK_COLUMN.strip().lower()
+    for i, h in enumerate(headers):
+        if safe_str(h).strip().lower() == target:
+            return i + 1
+    col_index = len(headers) + 1
+    try:
+        worksheet.update_cell(1, col_index, HUMAN_FEEDBACK_COLUMN)
+    except Exception:
+        return None
+    return col_index
 
 
 def safe_str(value):
@@ -1123,10 +1144,12 @@ def render_looping_youtube_embed(url, key, height=320):
     return html
 
 
-def render_inspector(slides, column_map, drive):
+def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None):
     if not slides:
         st.info("No slide data to display.")
         return
+
+    can_save = sheet is not None and worksheet_name
 
     for slide_idx, slide in enumerate(slides, start=1):
         title_parts = [f"Slide {slide_idx}"]
@@ -1147,6 +1170,8 @@ def render_inspector(slides, column_map, drive):
                     st.markdown("**Raw Definition**")
                     st.text(slide["final_definition_raw"])
                 continue
+
+            row_index = slide.get("row_index", slide_idx - 1)
 
             for segment in segments:
                 st.markdown(f"### Segment {segment['segment_index']}")
@@ -1190,6 +1215,42 @@ def render_inspector(slides, column_map, drive):
                     if step.get("justification"):
                         st.markdown("**Justification**")
                         st.write(step["justification"])
+
+                    fb_key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
+                    st.text_area(
+                        "Human feedback (optional)",
+                        key=fb_key,
+                        placeholder="e.g. Wrong image; need diagram of X",
+                        height=80,
+                    )
+
+            if can_save:
+                add_btn_key = f"gdv2_add_fb_{row_index}"
+                if st.button("Add feedback to sheet", key=add_btn_key):
+                    parts = []
+                    for segment in segments:
+                        for step in segment.get("steps", []):
+                            key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
+                            fb_text = (st.session_state.get(key) or "").strip()
+                            if not fb_text:
+                                continue
+                            vo = (step.get("voiceover") or "").strip()
+                            parts.append(f"vo: {vo}\nfeedback: {fb_text}")
+                    if not parts:
+                        st.warning("No feedback entered for this slide.")
+                    else:
+                        try:
+                            worksheet = sheet.worksheet(worksheet_name)
+                            col = get_or_create_human_feedback_column(worksheet)
+                            if col is None:
+                                st.error("Could not find or create human_feedback column.")
+                            else:
+                                value = "\n\n".join(parts)
+                                sheet_row = int(row_index) + 2
+                                worksheet.update_cell(sheet_row, col, value)
+                                st.success("Feedback saved to sheet.")
+                        except Exception as e:
+                            st.error(f"Failed to save to sheet: {e}")
 
 
 def main():
@@ -1335,7 +1396,7 @@ def main():
 
     tabs = st.tabs(["Inspector Mode", "Slideshow Mode"])
     with tabs[0]:
-        render_inspector(slides, column_map, drive)
+        render_inspector(slides, column_map, drive, sheet=sheet, worksheet_name=worksheet_name)
 
     with tabs[1]:
         if not steps:

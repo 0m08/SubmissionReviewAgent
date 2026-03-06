@@ -91,7 +91,53 @@ DEFAULT_RENDER_SETTINGS = {
 
 RENDER_SETTINGS = DEFAULT_RENDER_SETTINGS
 
-CURRENT_RENDER_PRESET = "Full quality (1080p / 24fps)"
+# Render quality presets exposed in the UI
+RENDER_PRESETS = {
+    "⚡ Fast (720p)": {
+        "canvas_width": 1280,
+        "canvas_height": 720,
+        "fps": 24,
+        "transition_duration": 0.3,
+        "subtitle_height": 70,
+        "subtitle_font_size": 28,
+        "subtitle_fade_duration": 0.2,
+        "enable_subtitles": True,
+        "ffmpeg_preset": "veryfast",
+        "ffmpeg_crf": 28,
+        "audio_fps": 44100,
+        "threads": min(8, os.cpu_count() or 4),
+    },
+    "🎯 Standard (1080p)": {
+        "canvas_width": 1920,
+        "canvas_height": 1080,
+        "fps": 24,
+        "transition_duration": 0.3,
+        "subtitle_height": 90,
+        "subtitle_font_size": 36,
+        "subtitle_fade_duration": 0.2,
+        "enable_subtitles": True,
+        "ffmpeg_preset": "faster",
+        "ffmpeg_crf": 23,
+        "audio_fps": 44100,
+        "threads": min(8, os.cpu_count() or 4),
+    },
+    "🎬 High Quality (1080p)": {
+        "canvas_width": 1920,
+        "canvas_height": 1080,
+        "fps": 24,
+        "transition_duration": 0.3,
+        "subtitle_height": 90,
+        "subtitle_font_size": 36,
+        "subtitle_fade_duration": 0.2,
+        "enable_subtitles": True,
+        "ffmpeg_preset": "medium",
+        "ffmpeg_crf": 18,
+        "audio_fps": 44100,
+        "threads": min(8, os.cpu_count() or 4),
+    },
+}
+
+CURRENT_RENDER_PRESET = "🎯 Standard (1080p)"
 ENCODER_PRESET = DEFAULT_RENDER_SETTINGS["ffmpeg_preset"]
 ENCODER_CRF = DEFAULT_RENDER_SETTINGS["ffmpeg_crf"]
 ENCODER_THREADS = DEFAULT_RENDER_SETTINGS["threads"]
@@ -1426,6 +1472,56 @@ def build_asset_lifecycles(
     return asset_lifecycles
 
 
+_CLEAN_VIDEO_CACHE: Dict[str, str] = {}  # original_path → cleaned_path
+
+
+def _clean_video_file(video_path: str, temp_dir: str) -> str:
+    """
+    Re-encode a video clip through ffmpeg to produce a clean, standardized
+    intermediate file.  This eliminates frame-count mismatches and corrupted
+    trailing frames that cause MoviePy's ffmpeg reader to hang indefinitely
+    on subsequent reads.
+
+    Returns the path to the cleaned file (which may be the same as video_path
+    if re-encoding fails or is unnecessary).
+    """
+    import subprocess
+
+    if video_path in _CLEAN_VIDEO_CACHE:
+        return _CLEAN_VIDEO_CACHE[video_path]
+
+    basename = os.path.splitext(os.path.basename(video_path))[0]
+    clean_path = os.path.join(temp_dir, f"_clean_{basename}.mp4")
+
+    if os.path.exists(clean_path):
+        _CLEAN_VIDEO_CACHE[video_path] = clean_path
+        return clean_path
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-c:v", "libx264",
+        "-preset", "ultrafast",   # as fast as possible — this is a temp intermediate
+        "-crf", "18",             # high quality intermediate
+        "-an",                    # no audio needed for visual-only clip
+        "-pix_fmt", "yuv420p",
+        clean_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode == 0 and os.path.exists(clean_path):
+            _CLEAN_VIDEO_CACHE[video_path] = clean_path
+            return clean_path
+        else:
+            stderr = result.stderr.decode(errors="replace")[-300:]
+            print(f"   ⚠️  Video pre-clean failed for {os.path.basename(video_path)}: {stderr}")
+    except Exception as e:
+        print(f"   ⚠️  Video pre-clean error for {os.path.basename(video_path)}: {e}")
+
+    _CLEAN_VIDEO_CACHE[video_path] = video_path
+    return video_path
+
+
 def create_visual_clips(
     asset_lifecycles: Dict[str, List[Dict[str, Any]]], drive_instance: GoogleDrive, temp_dir: str
 ) -> List[Any]:
@@ -1451,7 +1547,12 @@ def create_visual_clips(
                 if cached and cached.get("type") == "video":
                     expected_duration = cached.get("expected_duration")
                     start_time = cached.get("start_time")
-                
+
+                # Pre-clean the video file to fix any frame-count mismatches or
+                # trailing corruption that causes ffmpeg to hang on re-reads.
+                if isinstance(asset, str) and os.path.exists(asset):
+                    asset = _clean_video_file(asset, temp_dir)
+
                 clip = create_video_clip(asset, expected_duration)
                 if not clip:
                     print(f"   ⚠️  Failed to create video clip from: {asset[:80] if isinstance(asset, str) else 'N/A'}...")
@@ -1527,6 +1628,161 @@ def create_visual_clips(
             clips.append(clip)
 
     return clips
+
+
+# =============================================================================
+# ASS Subtitle Generator (used to bypass Python-level text compositing)
+# =============================================================================
+
+def generate_overlays_ass(
+    timeline: list,
+    first_part_indices: list,
+    total_duration: float,
+    temp_dir: str,
+    canvas_w: int,
+    canvas_h: int,
+    subtitle_height: int,
+    subtitle_font_size: int,
+    subtitle_bg_opacity: float = 0.8,
+) -> Optional[str]:
+    """
+    Generate a single ASS subtitle file encoding both:
+      - Bottom subtitle bar (white text, semi-transparent dark background)
+      - Slide title overlays (top-left, orange text, light background box)
+
+    Burning this into the video with ffmpeg's native `ass` filter is ~50-100x
+    faster than compositing 200 Python ImageClips frame-by-frame.
+
+    Returns the path to the .ass file, or None if there are no entries.
+    """
+    def _to_ass_time(t: float) -> str:
+        h = int(t // 3600)
+        m = int((t % 3600) // 60)
+        s = t % 60
+        return f"{h:d}:{m:02d}:{s:05.2f}"
+
+    # ASS colors are &HAABBGGRR (alpha, blue, green, red).
+    # Alpha: 0x00 = fully opaque, 0xFF = fully transparent.
+    bg_alpha = format(int((1.0 - subtitle_bg_opacity) * 255), "02X")
+    subtitle_bg_ass = f"&H{bg_alpha}000000"     # dark semi-transparent bar
+    subtitle_margin_v = subtitle_height // 2    # vertical margin to center text in bar
+
+    # Orange (255, 140, 0) → BGR = (0, 140, 255) = 0x008CFF
+    title_color_ass = "&H00008CFF"
+    # Off-white background for title box: (240,240,238) → BGR same ≈ 0x00EEEEF0
+    title_bg_ass = "&H80EEEEF0"
+
+    header = "\n".join([
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {canvas_w}",
+        f"PlayResY: {canvas_h}",
+        "WrapStyle: 0",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
+        "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        # Subtitle: bottom-center (Alignment=2), opaque box (BorderStyle=4), white text
+        f"Style: Subtitle,Arial,{subtitle_font_size},&H00FFFFFF,&H000000FF,&H00000000,{subtitle_bg_ass},"
+        f"0,0,0,0,100,100,0,0,4,0,0,2,10,10,{subtitle_margin_v},1",
+        # Title: top-left (Alignment=7), opaque box (BorderStyle=4), orange bold text
+        f"Style: Title,Arial,28,{title_color_ass},&H000000FF,&H00000000,{title_bg_ass},"
+        f"1,0,0,0,100,100,0,0,4,0,0,7,5,10,5,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ])
+
+    def _escape(text: str) -> str:
+        return (
+            text.replace("\\", "\\\\")
+                .replace("{", "\\{")
+                .replace("}", "\\}")
+                .replace("\n", "\\N")
+        )
+
+    events: list[str] = []
+
+    # --- Subtitle events ---
+    for part in timeline:
+        text = (part.get("voiceover") or "").strip()
+        if not text:
+            continue
+        start = part.get("start_time", 0)
+        dur = part.get("narration_duration", 0)
+        if dur <= 0:
+            continue
+        events.append(
+            f"Dialogue: 0,{_to_ass_time(start)},{_to_ass_time(start + dur)},Subtitle,,0,0,0,,{_escape(text)}"
+        )
+
+    # --- Slide title events ---
+    for k, i in enumerate(first_part_indices):
+        t_start = timeline[i]["start_time"]
+        t_end = (
+            total_duration
+            if k == len(first_part_indices) - 1
+            else timeline[first_part_indices[k + 1]]["start_time"]
+        )
+        title = (timeline[i].get("slide_title") or "").strip()
+        if not title:
+            continue
+        events.append(
+            f"Dialogue: 1,{_to_ass_time(t_start)},{_to_ass_time(t_end)},Title,,0,0,0,,{_escape(title)}"
+        )
+
+    if not events:
+        return None
+
+    ass_path = os.path.join(temp_dir, "overlays.ass")
+    with open(ass_path, "w", encoding="utf-8") as fh:
+        fh.write(header + "\n" + "\n".join(events) + "\n")
+    return ass_path
+
+
+def burn_in_ass_subtitles(video_path: str, ass_path: str, encoder_preset: str, encoder_crf: int) -> bool:
+    """
+    Burn the ASS subtitle file into video_path in-place using ffmpeg.
+    Returns True on success, False on failure (caller keeps original file).
+    """
+    import subprocess
+    tmp_out = video_path + ".subtitled.mp4"
+    # ffmpeg on Windows needs forward-slash paths and colon-escaped drive letters
+    ass_escaped = ass_path.replace("\\", "/")
+    # Escape the colon in the drive letter: C:/... → C\:/...
+    if len(ass_escaped) > 1 and ass_escaped[1] == ":":
+        ass_escaped = ass_escaped[0] + "\\:" + ass_escaped[2:]
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", f"ass={ass_escaped}",
+        "-c:a", "copy",
+        "-preset", encoder_preset,
+        "-crf", str(encoder_crf),
+        "-pix_fmt", "yuv420p",
+        "-max_muxing_queue_size", "4096",
+        tmp_out,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=7200)
+        if result.returncode == 0 and os.path.exists(tmp_out):
+            os.replace(tmp_out, video_path)
+            return True
+        else:
+            stderr = result.stderr.decode(errors="replace")
+            print(f"   ⚠️  ASS burn-in failed (rc={result.returncode}): {stderr[-500:]}")
+            if os.path.exists(tmp_out):
+                os.remove(tmp_out)
+            return False
+    except Exception as e:
+        print(f"   ⚠️  ASS burn-in error: {e}")
+        if os.path.exists(tmp_out):
+            try:
+                os.remove(tmp_out)
+            except Exception:
+                pass
+        return False
 
 
 # =============================================================================
@@ -1674,47 +1930,39 @@ def generate_slideshow_from_sheet(
         if progress_bar:
             progress_bar.update_progress(0.75, f"Created {len(visual_clips)} visual clips")
         
-        # Phase 6: Create subtitles (75-80%)
-        print(f"\n📝 Creating subtitles...")
-        subtitle_clips = []
-        if ENABLE_SUBTITLES:
-            if progress_bar:
-                progress_bar.update_progress(0.77, "Creating subtitles...")
-            for part in timeline:
-                subtitle = create_subtitle_clip(
-                    part.get("voiceover", ""),
-                    part.get("narration_duration", 0),
-                    part.get("start_time", 0),
-                )
-                if subtitle:
-                    subtitle_clips.append(subtitle)
-        print(f"✅ Created {len(subtitle_clips)} subtitle clips")
+        # Phase 6: Build ASS overlay file for subtitles + slide titles (replaces 200 Python ImageClips)
+        print(f"\n📝 Building subtitle / title overlay (ASS file)...")
         if progress_bar:
-            progress_bar.update_progress(0.78, "Creating slide title overlays...")
-
-        # Slide title overlays (one per slide, top-left, full duration of slide)
+            progress_bar.update_progress(0.77, "Building subtitle overlay file...")
         first_part_indices = [i for i, p in enumerate(timeline) if p.get("is_first_part_of_slide")]
-        slide_title_clips = []
-        for k, i in enumerate(first_part_indices):
-            t_start = timeline[i]["start_time"]
-            t_end = total_duration if k == len(first_part_indices) - 1 else timeline[first_part_indices[k + 1]]["start_time"]
-            title = (timeline[i].get("slide_title") or "").strip()
-            clip = create_slide_title_overlay_clip(title, t_start, t_end - t_start)
-            if clip:
-                slide_title_clips.append(clip)
-        print(f"✅ Created {len(slide_title_clips)} slide title overlay clips")
+        ass_path = None
+        if ENABLE_SUBTITLES:
+            ass_path = generate_overlays_ass(
+                timeline=timeline,
+                first_part_indices=first_part_indices,
+                total_duration=total_duration,
+                temp_dir=temp_dir,
+                canvas_w=CANVAS_WIDTH,
+                canvas_h=CANVAS_HEIGHT,
+                subtitle_height=SUBTITLE_HEIGHT,
+                subtitle_font_size=SUBTITLE_FONT_SIZE,
+                subtitle_bg_opacity=SUBTITLE_BG_OPACITY,
+            )
+        n_subtitle_events = sum(1 for p in timeline if p.get("voiceover", "").strip() and p.get("narration_duration", 0) > 0)
+        n_title_events = sum(1 for i in first_part_indices if (timeline[i].get("slide_title") or "").strip())
+        print(f"✅ ASS file built: {n_subtitle_events} subtitle + {n_title_events} title events → will burn via ffmpeg")
         if progress_bar:
             progress_bar.update_progress(0.80, "Compositing video layers...")
 
-        # Phase 7: Composite video (80-85%)
+        # Phase 7: Composite video (80-85%) — background + visual clips only (no Python text overlays)
         print(f"\n🎬 Compositing video layers...")
-        print(f"   Background + {len(visual_clips)} visual clips + {len(subtitle_clips)} subtitle clips + {len(slide_title_clips)} slide title overlays")
+        print(f"   Background + {len(visual_clips)} visual clips (subtitles/titles burned in via ffmpeg post-process)")
         if progress_callback:
             progress_callback("Compositing final video...")
         background = ColorClip(size=(CANVAS_WIDTH, CANVAS_HEIGHT), color=BACKGROUND_COLOR)
         background = background.set_duration(total_duration)
 
-        all_layers = [background] + visual_clips + subtitle_clips + slide_title_clips
+        all_layers = [background] + visual_clips
         final_video = CompositeVideoClip(all_layers, size=(CANVAS_WIDTH, CANVAS_HEIGHT))
         if audio_clips:
             final_audio = CompositeAudioClip(audio_clips)
@@ -1727,10 +1975,15 @@ def generate_slideshow_from_sheet(
         if progress_callback:
             progress_callback(f"Rendering video to {output_path}...")
         if progress_bar:
-            progress_bar.update_progress(0.85, "Rendering video (this may take a while)...")
-        
-        # Phase 8: Render video (85-100%) - This is the longest step
-        # logger=None disables MoviePy's internal progress bars to avoid multiple tqdm instances
+            progress_bar.update_progress(
+                0.85,
+                f"Rendering video... (track progress in terminal — this is the longest step)"
+            )
+
+        # Phase 8: Render video (85-95%) — visual track only; text is added in next step
+        # Use logger="bar" so tqdm shows real-time frame progress in the terminal.
+        total_frames = int(total_duration * FPS)
+        print(f"   Total frames to render: {total_frames:,}")
         final_video.write_videofile(
             output_path,
             fps=FPS,
@@ -1740,23 +1993,15 @@ def generate_slideshow_from_sheet(
             temp_audiofile=os.path.join(temp_dir, "temp_audio.m4a"),
             remove_temp=True,
             verbose=False,
-            logger=None,  # Prevents multiple progress bars
+            logger="bar",  # shows tqdm progress in terminal
             threads=ENCODER_THREADS,
             audio_fps=AUDIO_FPS,
-            ffmpeg_params=["-crf", str(ENCODER_CRF), "-pix_fmt", "yuv420p"],
+            ffmpeg_params=["-crf", str(ENCODER_CRF), "-pix_fmt", "yuv420p", "-max_muxing_queue_size", "4096"],
         )
 
-        if progress_bar:
-            progress_bar.update_progress(0.98, "Finalizing video...")
-
-        print(f"🧹 Cleaning up resources...")
+        print(f"🧹 Cleaning up MoviePy resources...")
         final_video.close()
         for clip in visual_clips:
-            try:
-                clip.close()
-            except Exception:
-                pass
-        for clip in slide_title_clips:
             try:
                 clip.close()
             except Exception:
@@ -1766,6 +2011,22 @@ def generate_slideshow_from_sheet(
                 clip.close()
             except Exception:
                 pass
+
+        # Phase 9: Burn in subtitles + titles via ffmpeg (95-98%) — native C, very fast
+        if ass_path and os.path.exists(ass_path):
+            if progress_bar:
+                progress_bar.update_progress(0.95, "Burning in subtitles and title overlays (ffmpeg)...")
+            print(f"\n🔤 Burning in subtitle + title overlays via ffmpeg...")
+            success = burn_in_ass_subtitles(output_path, ass_path, ENCODER_PRESET, ENCODER_CRF)
+            if success:
+                print(f"✅ Subtitle / title overlays burned in successfully")
+            else:
+                print(f"   ⚠️  Subtitle burn-in failed — video is still valid but has no text overlays")
+        else:
+            print(f"   ℹ️  No subtitle overlay file generated (subtitles disabled or empty timeline)")
+
+        if progress_bar:
+            progress_bar.update_progress(0.98, "Finalizing video...")
 
         file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
         print(f"\n" + "="*60)
@@ -1836,7 +2097,19 @@ def main():
             index=voice_index,
             help="Text-to-speech voice for narration (Edge TTS: free, human-like neural voices)"
         )
-        
+
+        preset_options = list(RENDER_PRESETS.keys())
+        selected_preset_name = st.selectbox(
+            "Render Quality",
+            options=preset_options,
+            index=preset_options.index("🎯 Standard (1080p)"),
+            help=(
+                "⚡ Fast (720p): ~4–6× faster, smaller file — good for previews. "
+                "🎯 Standard (1080p): best balance of speed and quality (recommended). "
+                "🎬 High Quality (1080p): maximum quality, slowest (2–3 hrs for 40 rows)."
+            ),
+        )
+
         output_filename = st.text_input(
             "Output Filename",
             value="course_slideshow.mp4",
@@ -1930,8 +2203,8 @@ def main():
                     worksheet_name=worksheet_name,
                     voice=voice,
                     output_filename=output_filename,
-                    render_settings=RENDER_SETTINGS,
-                    render_preset_name="Full quality (1080p / 24fps)",
+                    render_settings=RENDER_PRESETS[selected_preset_name],
+                    render_preset_name=selected_preset_name,
                     reset_caches=not reuse_cache,
                     progress_callback=progress_callback,
                     progress_bar=progress_tracker,
