@@ -5,9 +5,11 @@ Simple Streamlit interface for the multi-agent paraphraser.
 Transform monotonous technical text into clear, conversational language.
 """
 
+import time
 import streamlit as st
 from agents.paraphraser import run_paraphraser
 from services.helper_functions import compare_text_versions
+from services.activity_tracking_service import track_tool_action
 import json
 
 # Page config
@@ -198,6 +200,7 @@ if paraphrase_button:
 
             progress_placeholder.info(base_msg)
 
+        _t = time.perf_counter()
         with st.spinner("🔄 Processing... This may take 10-30 seconds"):
             try:
                 # Run paraphraser with progress callback
@@ -220,10 +223,12 @@ if paraphrase_button:
                 st.session_state.paraphraser_result = result
                 st.session_state.paraphraser_input = input_text
 
+                track_tool_action("Paraphraser", "paraphrase_text", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
                 progress_placeholder.success("✅ Paraphrasing complete!")
                 st.rerun()
 
             except Exception as e:
+                track_tool_action("Paraphraser", "paraphrase_text", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
                 progress_placeholder.empty()
                 st.error(f"❌ Error during paraphrasing: {str(e)}")
                 with st.expander("🔍 Error Details"):

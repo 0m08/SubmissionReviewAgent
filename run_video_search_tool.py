@@ -1,12 +1,15 @@
 import os
 import json
 import base64
+import time
+import traceback
 import gspread
 import streamlit as st
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 from services.sheets_service import get_sheet_data_and_df
 from services.drive_service import login_with_service_account
+from services.activity_tracking_service import track_tool_action
 from agents.course_outline.video_search_tool.update_video_vectorstore import update_video_vectorstore
 from agents.course_outline.video_search_tool.video_retriever import video_retriever, video_search_retriever_agent
 from agents.course_outline.video_search_tool.create_video_vectorstore import create_video_vectorstore, chroma_db_exists
@@ -76,9 +79,16 @@ if task == "Create Vectorstore":
             st.success("Video Vectorstore already exists in Drive.")
         else:
             if st.button("Create Video Vectorstore"):
-                with st.spinner("⏳ Building and uploading video vectorstore..."):
-                    create_video_vectorstore(sheet, drive)
-                st.success("Video vectorstore built and uploaded successfully!")
+                _t = time.perf_counter()
+                try:
+                    with st.spinner("⏳ Building and uploading video vectorstore..."):
+                        create_video_vectorstore(sheet, drive)
+                    track_tool_action("Video Search", "create_vectorstore", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
+                    st.success("Video vectorstore built and uploaded successfully!")
+                except Exception as e:
+                    track_tool_action("Video Search", "create_vectorstore", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
+                    st.error(f"Error creating video vectorstore: {e}")
+                    st.text(traceback.format_exc())
 
 # --------------------- Task: Update Vectorstore --------------------- #
 elif task == "Update Vectorstore":
@@ -86,6 +96,7 @@ elif task == "Update Vectorstore":
         st.info("Load a Google Sheet above to continue.")
     else:
         if st.button("Check and Update Video Vectorstore"):
+            _t = time.perf_counter()
             update_required = False
 
         # Directly get the specific worksheet
@@ -110,9 +121,15 @@ elif task == "Update Vectorstore":
 
         # Update vectorstore if needed
         if update_required:
-            with st.spinner("Updating Video Vectorstore... This may take a few minutes."):
-                update_video_vectorstore(sheet, drive)
-            st.success("Video Vectorstore updated.")
+            try:
+                with st.spinner("Updating Video Vectorstore... This may take a few minutes."):
+                    update_video_vectorstore(sheet, drive)
+                track_tool_action("Video Search", "update_vectorstore", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
+                st.success("Video Vectorstore updated.")
+            except Exception as e:
+                track_tool_action("Video Search", "update_vectorstore", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
+                st.error(f"Error updating video vectorstore: {e}")
+                st.text(traceback.format_exc())
         else:
             st.info("No updates needed. Video Vectorstore is up to date.")
 
@@ -141,23 +158,29 @@ elif task == "Search Videos":
         if not query:
             st.warning("Please enter a search query.")
         else:
-            with st.spinner("Searching videos..."):
-                if use_agent:
-                    results = video_search_retriever_agent(
-                        query=query,
-                        drive=drive,
-                        llm=llm_model,
-                        k=num_results,
-                        filters=filters
-
-                    )
-                else:
-                    results = video_retriever(
-                        query=query,
-                        drive=drive,
-                        k=num_results,
-                        filters=filters
+            _t = time.perf_counter()
+            try:
+                with st.spinner("Searching videos..."):
+                    if use_agent:
+                        results = video_search_retriever_agent(
+                            query=query,
+                            drive=drive,
+                            llm=llm_model,
+                            k=num_results,
+                            filters=filters
                         )
+                    else:
+                        results = video_retriever(
+                            query=query,
+                            drive=drive,
+                            k=num_results,
+                            filters=filters
+                        )
+                track_tool_action("Video Search", "search_videos", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
+            except Exception as e:
+                track_tool_action("Video Search", "search_videos", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
+                st.error(f"Error searching videos: {e}")
+                st.text(traceback.format_exc())
 
             # Display Results
             if results:
