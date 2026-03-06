@@ -398,6 +398,7 @@ curriculum_mapping_tool_page = st.Page(
     title="Curriculum Mapping Tool",
     icon=":material/menu_book:",
 )
+
 #######################
 # 3) Common app layout
 #######################
