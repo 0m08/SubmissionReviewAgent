@@ -1,3 +1,5 @@
+import time
+import traceback
 import streamlit as st
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
 from agents.vector_store_image_search.create_vectorstore import build_vectorstore_and_upload, update_vectorstore, is_valid_folderid, chroma_db_exists, extract_drive_file_id
@@ -6,6 +8,7 @@ from agents.vector_store_image_search.langgraph_agent_with_tools import run_grap
 from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
 from services.drive_service import login_with_service_account, login_with_oauth2
 from services.sheets_service import get_worksheet_names, get_sheet_data_and_df
+from services.activity_tracking_service import track_tool_action
 from pydrive2.drive import GoogleDrive
 from dotenv import load_dotenv
 import gspread
@@ -110,10 +113,17 @@ if task == "Create Vectorstore":
             st.success("Vectorstore already exists in Drive.")
         else:
             if st.button("Create Vectorstore"):
-                with st.spinner("⏳ Building and uploading Vectorstore..."):
-                    build_vectorstore_and_upload(sheet, drive, root_folder_id=root_folder_id, version=version)
-                st.success("Vectorstore built and uploaded successfully!")
-                st.session_state["chroma_created"] = True
+                _t = time.perf_counter()
+                try:
+                    with st.spinner("⏳ Building and uploading Vectorstore..."):
+                        build_vectorstore_and_upload(sheet, drive, root_folder_id=root_folder_id, version=version)
+                    track_tool_action("Image Search", "create_vectorstore", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
+                    st.success("Vectorstore built and uploaded successfully!")
+                    st.session_state["chroma_created"] = True
+                except Exception as e:
+                    track_tool_action("Image Search", "create_vectorstore", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
+                    st.error(f"Error creating vectorstore: {e}")
+                    st.text(traceback.format_exc())
 
 # -------------------- Task: Update Vectorstore -------------------- #
 elif task == "Update Vectorstore":
@@ -121,29 +131,36 @@ elif task == "Update Vectorstore":
         st.info("Load a Google Sheet above to continue.")
     else:
         if st.button("Check and Update Vectorstore"):
-            worksheet_names = get_worksheet_names(sheet)
-            update_required = False
-            for name in worksheet_names:
-                if not is_valid_folderid(name):
-                    continue
-                _, df = get_sheet_data_and_df(sheet, name)
-                if 'Image Description' not in df.columns:
-                    continue
-                if 'vectorized' not in df.columns or 'embedding_ts' not in df.columns:
-                    update_required = True
-                    break
-                mask = (df['vectorized'] != 'TRUE') & df['Image Description'].str.strip().astype(bool)
-                if mask.any():
-                    update_required = True
-                    break
+            _t = time.perf_counter()
+            try:
+                worksheet_names = get_worksheet_names(sheet)
+                update_required = False
+                for name in worksheet_names:
+                    if not is_valid_folderid(name):
+                        continue
+                    _, df = get_sheet_data_and_df(sheet, name)
+                    if 'Image Description' not in df.columns:
+                        continue
+                    if 'vectorized' not in df.columns or 'embedding_ts' not in df.columns:
+                        update_required = True
+                        break
+                    mask = (df['vectorized'] != 'TRUE') & df['Image Description'].str.strip().astype(bool)
+                    if mask.any():
+                        update_required = True
+                        break
 
-            if update_required:
-                with st.spinner("Updating vectorstore... This may take a few minutes."):
-                    # Use update_vectorstore for both versions with correct root_folder_id and version
-                    update_vectorstore(sheet, drive, root_folder_id=root_folder_id, version=version)
-                st.success("Vectorstore updated.")
-            else:
-                st.info("No updates needed. Vectorstore is up to date.")
+                if update_required:
+                    with st.spinner("Updating vectorstore... This may take a few minutes."):
+                        # Use update_vectorstore for both versions with correct root_folder_id and version
+                        update_vectorstore(sheet, drive, root_folder_id=root_folder_id, version=version)
+                    track_tool_action("Image Search", "update_vectorstore", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
+                    st.success("Vectorstore updated.")
+                else:
+                    st.info("No updates needed. Vectorstore is up to date.")
+            except Exception as e:
+                track_tool_action("Image Search", "update_vectorstore", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
+                st.error(f"Error updating vectorstore: {e}")
+                st.text(traceback.format_exc())
 
 
 # -------------------- Task: Search Images -------------------- #
@@ -295,29 +312,34 @@ elif task == "Search Images":
         else:
             mode = (
                 'Agent Mode' if use_graph else 'Graphics Retriever')
-            
-            with st.spinner(f"Searching images using {mode}..."):
-                if use_graph:
-                    results = run_graphics_search_graph(
-                        query=query,
-                        query_image=query_image,
-                        drive=drive,
-                        k=k,
-                        llm="gemini_2_flash",
-                        max_turns=3,
-                        filters=filters,
-                        root_folder_id=root_folder_id
-                    )
-                else:
-                    results = graphics_retriever(
-                        query=query,
-                        query_image=query_image,
-                        drive=drive,
-                        k=k,
-                        filters=filters,
-                        root_folder_id=root_folder_id
-                    )
-                    # results =web_image_search_tool(query=query, k=k)
+            _t = time.perf_counter()
+            try:
+                with st.spinner(f"Searching images using {mode}..."):
+                    if use_graph:
+                        results = run_graphics_search_graph(
+                            query=query,
+                            query_image=query_image,
+                            drive=drive,
+                            k=k,
+                            llm="gemini_2_flash",
+                            max_turns=3,
+                            filters=filters,
+                            root_folder_id=root_folder_id
+                        )
+                    else:
+                        results = graphics_retriever(
+                            query=query,
+                            query_image=query_image,
+                            drive=drive,
+                            k=k,
+                            filters=filters,
+                            root_folder_id=root_folder_id
+                        )
+                track_tool_action("Image Search", "search_images", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
+            except Exception as e:
+                track_tool_action("Image Search", "search_images", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
+                st.error(f"Error searching images: {e}")
+                st.text(traceback.format_exc())
 
     # === Display Results ===
     if results:

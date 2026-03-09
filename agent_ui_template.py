@@ -4,9 +4,17 @@ from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 import traceback
 import re
+import time
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
 from services.drive_service import login_with_oauth2, share_sheet_with_service_account, get_service_account_email
+from services.activity_tracking_service import (
+    track_step_start,
+    track_step_complete,
+    track_step_error,
+    track_run_all_start,
+    track_run_in_background_start,
+)
 from datetime import datetime
 import os
 from langtrace_python_sdk import langtrace # Must precede any llm module imports
@@ -25,6 +33,17 @@ AGENT_CODE_MAP = {
     "Assessment": "assessment",
     "Graphics Search": "graphics_search",
 }
+
+
+def _get_tracking_context():
+    """Pull tracking context values from session state."""
+    return {
+        "gc":          st.session_state.get("gc"),
+        "user_email":  st.session_state.get("user_email", ""),
+        "agent_name":  st.session_state.get("agent_name", ""),
+        "course_name": st.session_state.get("course_name", ""),
+        "sheet_link":  st.session_state.get("sheet_link", ""),
+    }
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False):
@@ -167,9 +186,21 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
             if run_all_automated:
                 st.session_state["automation_in_progress"] = True
+                ctx = _get_tracking_context()
+                if ctx["gc"]:
+                    track_run_all_start(
+                        ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                        ctx["course_name"], ctx["sheet_link"],
+                    )
                 run_all_automated_steps(pipeline_sections)
 
             if run_in_background:
+                ctx = _get_tracking_context()
+                if ctx["gc"]:
+                    track_run_in_background_start(
+                        ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                        ctx["course_name"], ctx["sheet_link"],
+                    )
                 agent_code = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
                 sheet_link = st.session_state.get("sheet_link")
                 folder_id = st.session_state.get("root_folder_id")
@@ -352,6 +383,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                         st.text(traceback.format_exc())
 
                             if st.button(button_name, type=button_type, key=f"btn_{step['name']}"):
+                                ctx = _get_tracking_context()
+                                _start_time = time.perf_counter()
                                 try:
                                     # Add current step to session state
                                     st.session_state["current_step"] = step["name"]
@@ -366,6 +399,14 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                             # or if it's a literal / direct value, pass it through
                                             kwargs[arg_name] = session_key
 
+                                    # Track step start
+                                    if ctx["gc"]:
+                                        track_step_start(
+                                            ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                            step["name"], ctx["course_name"], ctx["sheet_link"],
+                                            run_mode="manual",
+                                        )
+
                                     if "instructions" in step:
                                         # If it is a manual input type function
                                         response = step["func"](**kwargs)
@@ -373,14 +414,21 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                             st.session_state[step_key] = True
                                             # Log the completed step
                                             log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+                                            if ctx["gc"]:
+                                                track_step_complete(
+                                                    ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                                    step["name"], ctx["course_name"], ctx["sheet_link"],
+                                                    duration_seconds=time.perf_counter() - _start_time,
+                                                    run_mode="manual",
+                                                )
                                             st.success(f"{step['name']} completed!")
-                                            
+
                                             # Only continue automation if it was explicitly triggered
                                             if st.session_state.get("automation_in_progress", False):
                                                 run_all_automated_steps(pipeline_sections)
                                                 st.rerun()
                                             st.rerun()
-                                        
+
                                         else:
                                             st.warning(f"{step['name']} not completed!")
                                     else:
@@ -389,9 +437,23 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                         st.session_state[step_key] = True
                                         # Log the completed step
                                         log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+                                        if ctx["gc"]:
+                                            track_step_complete(
+                                                ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                                step["name"], ctx["course_name"], ctx["sheet_link"],
+                                                duration_seconds=time.perf_counter() - _start_time,
+                                                run_mode="manual",
+                                            )
                                         st.success(f"{step['name']} completed!")
                                         st.rerun()
                                 except Exception as e:
+                                    if ctx["gc"]:
+                                        track_step_error(
+                                            ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                            step["name"], ctx["course_name"], ctx["sheet_link"],
+                                            error_message=str(e)[:500],
+                                            run_mode="manual",
+                                        )
                                     st.error(f"Error running {step['name']}: {e}")
                                     st.text(traceback.format_exc())
                         else:
@@ -572,6 +634,8 @@ def run_all_automated_steps(pipeline_sections):
                     return  # Exit early, waiting for manual confirmation
 
                 if dependencies_satisfied:
+                    ctx = _get_tracking_context()
+                    _start_time = time.perf_counter()
                     try:
                         with st.spinner(text = f"Running: Step {step_global_count}. {step['name']}...", show_time = True):
                             # Add current step to session state
@@ -587,15 +651,37 @@ def run_all_automated_steps(pipeline_sections):
                                     # or if it's a literal / direct value, pass it through
                                     kwargs[arg_name] = session_key
 
+                            # Track step start
+                            if ctx["gc"]:
+                                track_step_start(
+                                    ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                    step["name"], ctx["course_name"], ctx["sheet_link"],
+                                    run_mode="automated",
+                                )
+
                             # Run the function
                             step["func"](**kwargs)
                             st.session_state[step_key] = True
                             # Log the completed step
                             log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+                            if ctx["gc"]:
+                                track_step_complete(
+                                    ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                    step["name"], ctx["course_name"], ctx["sheet_link"],
+                                    duration_seconds=time.perf_counter() - _start_time,
+                                    run_mode="automated",
+                                )
                             progress_made = True
                             st.success(f"Auto-run: Step {step_global_count}. {step['name']} completed!")
-                            
+
                     except Exception as e:
+                        if ctx["gc"]:
+                            track_step_error(
+                                ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                step["name"], ctx["course_name"], ctx["sheet_link"],
+                                error_message=str(e)[:500],
+                                run_mode="automated",
+                            )
                         st.error(f"Error auto-running Step {step_global_count}. {step['name']}: {e}")
                         st.text(traceback.format_exc())
                         return

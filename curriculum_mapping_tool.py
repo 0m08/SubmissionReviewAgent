@@ -1,6 +1,8 @@
 import os
 import json
 import base64
+import time as _time
+import traceback
 from datetime import datetime
 import gspread
 import pandas as pd
@@ -9,6 +11,7 @@ from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 from services.sheets_service import get_sheet_data_and_df
 from services.drive_service import login_with_service_account
+from services.activity_tracking_service import track_tool_action
 from services.pdf_export_service import generate_curriculum_mapping_pdf
 from agents.curriculum_mapping_tool.create_skillcat_vectorstore import create_skillcat_vectorstore, update_skillcat_vectorstore
 from agents.curriculum_mapping_tool.create_nextech_vectorstore import create_nextech_vectorstore, update_nextech_vectorstore
@@ -173,61 +176,68 @@ if st.button(
     disabled=run_disabled,
     use_container_width=True
 ):
-    # Step 1: Run curriculum mapping
-    st.info("Step 1/2: Mapping concepts to resources...")
-    result_df = run_curriculum_mapping(
-        sheet=mapping_sheet,
-        drive=drive,
-        input_worksheet_name=REQUIRED_SHEET_NAME,
-    )
+    _t = _time.perf_counter()
+    try:
+        # Step 1: Run curriculum mapping
+        st.info("Step 1/2: Mapping concepts to resources...")
+        result_df = run_curriculum_mapping(
+            sheet=mapping_sheet,
+            drive=drive,
+            input_worksheet_name=REQUIRED_SHEET_NAME,
+        )
 
-    # Store intermediate results
-    st.session_state["mapping_results_df"] = result_df
-    st.session_state["mapping_sheet_title"] = mapping_sheet.title if mapping_sheet else "Curriculum Mapping"
-    st.session_state["mapping_sheet"] = mapping_sheet
+        # Store intermediate results
+        st.session_state["mapping_results_df"] = result_df
+        st.session_state["mapping_sheet_title"] = mapping_sheet.title if mapping_sheet else "Curriculum Mapping"
+        st.session_state["mapping_sheet"] = mapping_sheet
 
-    # Step 2: Run consolidation
-    st.info("Step 2/2: Consolidating resources by category...")
-    consolidated_df = run_curriculum_consolidation(
-        sheet=mapping_sheet,
-        drive=drive,
-        input_worksheet_name=REQUIRED_SHEET_NAME,
-    )
+        # Step 2: Run consolidation
+        st.info("Step 2/2: Consolidating resources by category...")
+        consolidated_df = run_curriculum_consolidation(
+            sheet=mapping_sheet,
+            drive=drive,
+            input_worksheet_name=REQUIRED_SHEET_NAME,
+        )
 
-    # Store final results
-    st.session_state["mapping_results_df"] = consolidated_df
+        # Store final results
+        st.session_state["mapping_results_df"] = consolidated_df
 
-    # Calculate stats for success message
-    total_concepts = len(consolidated_df)
-    unique_resources = set()
-    changes = 0
+        # Calculate stats for success message
+        total_concepts = len(consolidated_df)
+        unique_resources = set()
+        changes = 0
 
-    for _, row in consolidated_df.iterrows():
-        original = str(row.get("Best Resource", "")).strip()
-        consolidated = str(row.get("Consolidated Resource", "")).strip()
+        for _, row in consolidated_df.iterrows():
+            original = str(row.get("Best Resource", "")).strip()
+            consolidated = str(row.get("Consolidated Resource", "")).strip()
 
-        # Count unique resources
-        if consolidated:
-            try:
-                res = json.loads(consolidated)
-                name = res.get("name", "")
-                if name:
-                    unique_resources.add(name)
-            except:
-                pass
+            # Count unique resources
+            if consolidated:
+                try:
+                    res = json.loads(consolidated)
+                    name = res.get("name", "")
+                    if name:
+                        unique_resources.add(name)
+                except:
+                    pass
 
-        # Count consolidation changes
-        if original and consolidated and original != consolidated:
-            try:
-                orig_json = json.loads(original)
-                cons_json = json.loads(consolidated)
-                if orig_json.get("name") != cons_json.get("name"):
-                    changes += 1
-            except:
-                pass
+            # Count consolidation changes
+            if original and consolidated and original != consolidated:
+                try:
+                    orig_json = json.loads(original)
+                    cons_json = json.loads(consolidated)
+                    if orig_json.get("name") != cons_json.get("name"):
+                        changes += 1
+                except:
+                    pass
 
-    st.success(f"Mapping complete! {total_concepts} concepts mapped to {len(unique_resources)} unique resources. Consolidation optimized {changes} assignments.")
-    st.rerun()
+        track_tool_action("Curriculum Mapping", "map_curriculum", run_mode="tool", duration_seconds=_time.perf_counter() - _t, course_name="", sheet_link=sheet_url)
+        st.success(f"Mapping complete! {total_concepts} concepts mapped to {len(unique_resources)} unique resources. Consolidation optimized {changes} assignments.")
+        st.rerun()
+    except Exception as e:
+        track_tool_action("Curriculum Mapping", "map_curriculum", run_mode="tool", error_message=str(e)[:500], course_name="", sheet_link=sheet_url)
+        st.error(f"Error mapping curriculum: {e}")
+        st.text(traceback.format_exc())
 
 # Results Section - show after mapping is complete
 if st.session_state.get("mapping_results_df") is not None:
@@ -313,6 +323,7 @@ if st.session_state.get("mapping_results_df") is not None:
                         curriculum_id = result.get("curriculum_id")
                         curriculum_url = f"https://content.skillcatapp.com/curriculum/{curriculum_id}"
 
+                        track_tool_action("Curriculum Mapping", "save_to_course_catalog", run_mode="tool", course_name="", sheet_link=sheet_url)
                         st.success(f"Saved '{export_data['curriculum_name']}' with {result['courses_count']} SkillCat courses!")
                         st.markdown("**Your curriculum is now live at:**")
                         st.code(curriculum_url, language=None)

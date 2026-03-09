@@ -1,3 +1,4 @@
+import time
 import streamlit as st
 import os
 from io import BytesIO
@@ -7,6 +8,7 @@ from agents.image_editing.image_editing import (
     image_editing_with_review_loop,
     EDITING_OPTIONS
 )
+from services.activity_tracking_service import track_tool_action
 
 def main():
     """
@@ -253,6 +255,7 @@ def main():
                     st.info(f"**Selected edits:** {', '.join([EDITING_OPTIONS[k] for k in editing_instructions.keys()])}")
                     
                     # Run editing pipeline
+                    _t = time.perf_counter()
                     try:
                             final_edited_image, history, conversation_history = image_editing_with_review_loop(
                                 reference_image=image,
@@ -262,26 +265,29 @@ def main():
                                 aspect_ratio=aspect_ratio,
                                 image_size=image_size
                             )
-                            
+
                             # Store results in session state
                             st.session_state.edited_image_result = final_edited_image
                             st.session_state.editing_history = history
                             st.session_state.conversation_history = conversation_history
                             st.session_state.aspect_ratio = aspect_ratio
                             st.session_state.image_size = image_size
-                            
+
                             # Count rounds
                             total_rounds = len([h for h in history if h["type"] == "generation"])
                             approved = any(h.get("approved", False) for h in history if h["type"] == "review")
-                            
+
+                            track_tool_action("Image Editing", "edit_image", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
+
                             if quick_mode:
                                 st.success("✅ Image editing complete! (Quick Mode)")
                             elif approved:
                                 st.success(f"✅ Image editing complete! Approved in {total_rounds} round(s).")
                             else:
                                 st.warning(f"⚠️ Image editing complete after {total_rounds} rounds. Review did not fully approve, but this is the best result.")
-                            
+
                     except Exception as e:
+                        track_tool_action("Image Editing", "edit_image", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
                         st.error(f"❌ Image editing failed: {str(e)}")
     
     with col2:
@@ -337,18 +343,19 @@ def main():
             if st.button("🔄 Regenerate with Feedback", type="secondary", use_container_width=True):
                 if manual_feedback and manual_feedback.strip():
                     # Use conversation history to continue the chat
+                    _t = time.perf_counter()
                     with st.spinner("Applying your feedback and regenerating..."):
                         try:
                             # Import the necessary function
                             from agents.image_editing.image_editing import generate_edited_image
-                            
+
                             # Get conversation history from session state
                             conversation_history = st.session_state.get("conversation_history", None)
-                            
+
                             if conversation_history is None:
                                 st.warning("⚠️ No conversation history found. Starting fresh...")
                                 conversation_history = []
-                            
+
                             # Generate with manual feedback as correction using existing chat
                             refined_image, gen_metadata, model_content, user_content = generate_edited_image(
                                 reference_image=st.session_state.reference_image,
@@ -358,20 +365,20 @@ def main():
                                 aspect_ratio=st.session_state.get("aspect_ratio"),
                                 image_size=st.session_state.get("image_size", "1K")
                             )
-                            
+
                             # Update conversation history
                             conversation_history.append(user_content)
                             conversation_history.append(model_content)
                             st.session_state.conversation_history = conversation_history
-                            
+
                             # Debug log the updated conversation history
                             from agents.image_editing.image_editing import debug_print_history
                             current_round = len([h for h in st.session_state.editing_history if h["type"] in ["generation", "manual_refinement"]]) if st.session_state.editing_history else 1
                             debug_print_history(conversation_history, f"Manual Feedback {current_round}")
-                            
+
                             # Update the result
                             st.session_state.edited_image_result = refined_image
-                            
+
                             # Add to history
                             if st.session_state.editing_history:
                                 current_round = len([h for h in st.session_state.editing_history if h["type"] == "generation"]) + 1
@@ -382,11 +389,13 @@ def main():
                                     "refined_image": refined_image,
                                     "metadata": gen_metadata
                                 })
-                            
+
+                            track_tool_action("Image Editing", "regenerate_with_feedback", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
                             st.success("✅ Image regenerated with your feedback!")
                             st.rerun()
-                            
+
                         except Exception as e:
+                            track_tool_action("Image Editing", "regenerate_with_feedback", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
                             st.error(f"❌ Regeneration failed: {str(e)}")
                 else:
                     st.warning("⚠️ Please provide feedback before regenerating.")
