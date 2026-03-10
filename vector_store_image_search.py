@@ -52,9 +52,9 @@ role = st.session_state.get("impersonated_role", st.session_state.get("role"))
 
 # Version toggle
 if role == "Admin":
-    version = st.radio("Version", ["v1", "v2"], index=0)
+    version = st.radio("Version", ["v1", "v2"], index=1)
 else:
-    version = "v1"
+    version = "v2"
 if version == "v2":
     root_folder_id = "1IMGr4d8lwux5R_cAWfhVjBV0fTFdWvNi"
 else:
