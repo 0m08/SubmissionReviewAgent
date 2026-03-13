@@ -326,6 +326,50 @@ def _build_segment(segment_index, steps):
     return {"segment_index": segment_index, "steps": normalized_steps}
 
 
+INSPECTOR_IMAGE_CACHE_KEY = "gdv2_inspector_image_cache"
+INSPECTOR_VIDEO_HTML_CACHE_KEY = "gdv2_inspector_video_html_cache"
+
+# Streamlit >=1.33: fragment isolates reruns so feedback text_areas don't remount video iframes
+try:
+    _st_fragment = getattr(st, "fragment", None)
+    if _st_fragment is None:
+        from streamlit.runtime.fragment import fragment as _st_fragment  # type: ignore
+except Exception:
+    _st_fragment = None
+
+
+def _clear_inspector_image_cache():
+    """Clear cached inspector images when sheet/worksheet/data changes."""
+    st.session_state.pop(INSPECTOR_IMAGE_CACHE_KEY, None)
+
+
+def _get_inspector_image_bytes(asset, drive):
+    """
+    Return image bytes for an asset URL, downloading at most once per URL per session.
+    Reuses cache on Streamlit reruns (e.g. feedback text_area) so typing doesn't
+    re-hit Drive/HTTP for every image again.
+    """
+    if not asset or not str(asset).strip():
+        return None
+    cache_key = str(asset).strip()
+    cache = st.session_state.setdefault(INSPECTOR_IMAGE_CACHE_KEY, {})
+    if cache_key in cache:
+        return cache[cache_key]
+
+    image_bytes = None
+    if is_drive_url(asset) and drive is not None:
+        image_bytes = download_image_bytes(asset, drive)
+    if not image_bytes:
+        display_url = normalize_drive_image_url(asset) if is_drive_url(asset) else asset
+        if display_url:
+            # Non-Drive or Drive fallback: fetch once and cache so reruns don't re-request
+            image_bytes = download_image_bytes(display_url, drive)
+
+    if image_bytes:
+        cache[cache_key] = image_bytes
+    return image_bytes
+
+
 def download_image_bytes(url, drive):
     if not url:
         return None
@@ -1144,6 +1188,58 @@ def render_looping_youtube_embed(url, key, height=320):
     return html
 
 
+def _get_inspector_video_html(asset, embed_key):
+    """
+    Build YouTube embed HTML once per asset URL; reuse on reruns to avoid
+    re-running render_looping_youtube_embed. Iframe may still remount without
+    st.fragment, but string build + parse is avoided.
+    """
+    if not asset or not str(asset).strip():
+        return ""
+    cache_key = str(asset).strip()
+    cache = st.session_state.setdefault(INSPECTOR_VIDEO_HTML_CACHE_KEY, {})
+    if cache_key in cache:
+        return cache[cache_key]
+    html = render_looping_youtube_embed(asset, embed_key, height=360)
+    if html:
+        cache[cache_key] = html
+    return html
+
+
+def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, drive):
+    """Image/video only — no widgets. Safe to run inside st.fragment."""
+    if asset_type == "image":
+        if not display_url:
+            display_url = normalize_drive_image_url(asset) if is_drive_url(asset) else asset
+        image_bytes = _get_inspector_image_bytes(asset, drive)
+        if image_bytes:
+            st.image(image_bytes, use_container_width=True)
+        elif display_url:
+            st.image(display_url, use_container_width=True)
+        else:
+            st.warning("Image URL missing.")
+        if display_url:
+            st.markdown(f"[Open image]({display_url})")
+    elif asset_type == "video":
+        if asset:
+            html = _get_inspector_video_html(asset, embed_key)
+            if html:
+                st.components.v1.html(html, height=360)
+            st.markdown(f"[Open video]({asset})")
+        else:
+            st.warning("Video URL missing.")
+
+
+def _render_inspector_step_feedback(fb_key):
+    """Feedback widget only — isolated fragment so typing doesn't rerun visuals."""
+    st.text_area(
+        "Human feedback (optional)",
+        key=fb_key,
+        placeholder="e.g. Wrong image; need diagram of X",
+        height=80,
+    )
+
+
 def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None):
     if not slides:
         st.info("No slide data to display.")
@@ -1184,30 +1280,21 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None)
 
                     asset = step.get("asset", "")
                     asset_type = detect_asset_type(asset)
-                    if asset_type == "image":
-                        display_url = normalize_drive_image_url(asset) if is_drive_url(asset) else asset
-                        image_bytes = None
-                        if is_drive_url(asset) and drive is not None:
-                            image_bytes = download_image_bytes(asset, drive)
-                        if image_bytes:
-                            st.image(image_bytes, use_container_width=True)
-                        elif display_url:
-                            st.image(display_url, use_container_width=True)
-                        else:
-                            st.warning("Image URL missing.")
-                        if display_url:
-                            st.markdown(f"[Open image]({display_url})")
-                    elif asset_type == "video":
-                        if asset:
-                            html = render_looping_youtube_embed(
-                                asset,
-                                f"{slide_idx}-{segment['segment_index']}-{step['step_index']}",
-                            )
-                            if html:
-                                st.components.v1.html(html, height=360)
-                            st.markdown(f"[Open video]({asset})")
-                        else:
-                            st.warning("Video URL missing.")
+                    display_url = (
+                        normalize_drive_image_url(asset) if is_drive_url(asset) else asset
+                    ) if asset_type == "image" else ""
+                    embed_key = f"{slide_idx}-{segment['segment_index']}-{step['step_index']}"
+
+                    # Visuals in their own fragment when available: feedback edits won't remount iframes/images
+                    def _visual_block():
+                        _render_inspector_step_visual(
+                            asset, asset_type, display_url, embed_key, drive
+                        )
+
+                    if _st_fragment is not None:
+                        _st_fragment(_visual_block)()
+                    else:
+                        _visual_block()
 
                     if step.get("instruction"):
                         st.markdown("**Instruction**")
@@ -1217,40 +1304,53 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None)
                         st.write(step["justification"])
 
                     fb_key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
-                    st.text_area(
-                        "Human feedback (optional)",
-                        key=fb_key,
-                        placeholder="e.g. Wrong image; need diagram of X",
-                        height=80,
-                    )
+                    if _st_fragment is not None:
+                        _st_fragment(lambda k=fb_key: _render_inspector_step_feedback(k))()
+                    else:
+                        _render_inspector_step_feedback(fb_key)
 
-            if can_save:
-                add_btn_key = f"gdv2_add_fb_{row_index}"
-                if st.button("Add feedback to sheet", key=add_btn_key):
+    if can_save:
+        st.divider()
+        if st.button("Save all Feedback to sheet", type="primary"):
+            worksheet = None
+            col = None
+            try:
+                worksheet = sheet.worksheet(worksheet_name)
+                col = get_or_create_human_feedback_column(worksheet)
+            except Exception as e:
+                st.error(f"Failed to access worksheet: {e}")
+
+            if worksheet and col is None:
+                st.error("Could not find or create human_feedback column.")
+            elif worksheet and col:
+                saved_count = 0
+                for slide in slides:
+                    segments = slide.get("segments", [])
+                    if not segments:
+                        continue
+                    row_index = slide.get("row_index", 0)
                     parts = []
                     for segment in segments:
                         for step in segment.get("steps", []):
-                            key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
-                            fb_text = (st.session_state.get(key) or "").strip()
+                            fb_key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
+                            fb_text = (st.session_state.get(fb_key) or "").strip()
                             if not fb_text:
                                 continue
                             vo = (step.get("voiceover") or "").strip()
-                            parts.append(f"vo: {vo}\nfeedback: {fb_text}")
-                    if not parts:
-                        st.warning("No feedback entered for this slide.")
-                    else:
+                            parts.append(f"When VO: {vo}\nHuman Feedback: {fb_text}")
+                    if parts:
+                        value = "\n\n".join(parts)
+                        sheet_row = int(row_index) + 2
                         try:
-                            worksheet = sheet.worksheet(worksheet_name)
-                            col = get_or_create_human_feedback_column(worksheet)
-                            if col is None:
-                                st.error("Could not find or create human_feedback column.")
-                            else:
-                                value = "\n\n".join(parts)
-                                sheet_row = int(row_index) + 2
-                                worksheet.update_cell(sheet_row, col, value)
-                                st.success("Feedback saved to sheet.")
+                            worksheet.update_cell(sheet_row, col, value)
+                            saved_count += 1
                         except Exception as e:
-                            st.error(f"Failed to save to sheet: {e}")
+                            st.error(f"Failed to save feedback for row {sheet_row}: {e}")
+
+                if saved_count > 0:
+                    st.success(f"Feedback saved for {saved_count} slide(s).")
+                else:
+                    st.warning("No feedback entered for any slide.")
 
 
 def main():
@@ -1288,6 +1388,8 @@ def main():
             st.session_state["gdv2_df"] = None
             st.session_state["gdv2_df_sheet"] = None
             st.session_state["gdv2_df_sheet_link"] = sheet_link
+            _clear_inspector_image_cache()
+            st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
         except Exception as e:
             st.error(f"Failed to open sheet: {e}")
             return
@@ -1313,6 +1415,8 @@ def main():
         or st.session_state.get("gdv2_df_sheet_link") != sheet_link
     ):
         try:
+            _clear_inspector_image_cache()
+            st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
             _, df = get_sheet_data_and_df(sheet, worksheet_name)
             st.session_state["gdv2_df"] = df
             st.session_state["gdv2_df_sheet"] = worksheet_name

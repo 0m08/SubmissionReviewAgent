@@ -57,6 +57,14 @@ from agents.graphics_definition_v2.image_graphics_agent.generate_candidates impo
     run_generate_image_and_video_candidates,
     delete_all_candidate_results,
 )
+from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+    run_human_feedback_review_revise_for_all_rows,
+    delete_human_feedback_based_review_and_revise,
+)
+from agents.graphics_definition_v2.review_agent.visual_columns_for_human_feedback import (
+    run_populate_human_feedback_visual_columns,
+    delete_human_feedback_visual_columns,
+)
 
 # Shown at top of page (before Section 1) so users set Visual Assignment Strategy before running.
 TOP_INSTRUCTIONS = (
@@ -65,6 +73,8 @@ TOP_INSTRUCTIONS = (
                     "- **1 Visual per Sentence**: One visual gets assigned per sentence.\n"
                     "- **1 Visual for the whole Slide**: One visual gets assigned for the entire slide.\n\n"
 )
+
+
 
 pipeline_sections = [
     {
@@ -81,7 +91,8 @@ pipeline_sections = [
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_flash_lite"
+                    "llm": "gemini_2_5_flash_lite",
+                    "max_workers": 200,
                 },
                 "estimated_time": "2-5 minutes",
                 "description": "This function segments each slide chunk into individual voiceover (VO) segments using sentence-based segmentation and saves them to the voiceover_segment column.",
@@ -101,7 +112,8 @@ pipeline_sections = [
                 "depends_on": ["Segment Slide into Voiceover Segments"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking"
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 200,
                 },
                 "estimated_time": "5-10 minutes",
                 "description": "This function generates a storyboard for each slide and saves them to the storyboard column",
@@ -121,7 +133,8 @@ pipeline_sections = [
                 "depends_on": ["Generate Storyboard for each Slide"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_flash_lite"
+                    "llm": "gemini_2_5_flash_lite",
+                    "max_workers": 200,
                 },
                 "estimated_time": "5-10 minutes",
                 "description": "This function generates search queries for image and video retrieval and saves them to the search_queries column",
@@ -140,7 +153,8 @@ pipeline_sections = [
                 "func": run_generate_image_and_video_candidates,
                 "depends_on": ["Generate Search Queries for Image and Video Retrieval"],
                 "args": {
-                    "sheet": "sheet"
+                    "sheet": "sheet",
+                    "max_workers": 50,
                 },
                 "estimated_time": "10-20 minutes",
                 "description": "This step runs 4 parallel searches: Drive Search, Web Search, Video Search (HVAC channels), and Video Search (Other channels). Each writes to its respective column (drive_results, web_results, video_pool, video_pool_other_channels).",
@@ -161,7 +175,8 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "image_pool_llm": "gemini_2_5_flash_lite",
-                    "video_pool_llm": "gemini_3_flash_thinking"
+                    "video_pool_llm": "gemini_3_flash_thinking",
+                    "max_workers": 100,
                 },
                 "is_llm_step": True, 
                 "estimated_time": "20-40 minutes",
@@ -182,7 +197,8 @@ pipeline_sections = [
                 "depends_on": ["Generate Image and Video Pools"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking" 
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 100,
                 },
                 "estimated_time": "30-60 minutes",
                 "description": "This step selects the best visuals from the Image and Video pool for the voiceover segments to create the final graphics definitions for the slide content",
@@ -202,11 +218,42 @@ pipeline_sections = [
                 "depends_on": ["Run Aggregation Agent"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking" 
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 100,
                 },
                 "estimated_time": "30-90 minutes",
                 "description": "This step reviews assigned visuals against alignment, specificity, and redundancy criteria, revises using existing pools, and regenerates only when necessary.",
                 "delete_func": delete_review_and_revise_graphics_definition_v2,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+            {
+                "name": "Review and Revise Graphics Definitions based on Human Feedback",
+                "func": run_human_feedback_review_revise_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 100,
+                },
+                "estimated_time": "20-40 minutes",
+                "description": "This step revises the graphics definitions based on the human feedback provided in the human_feedback column.",
+                "delete_func": delete_human_feedback_based_review_and_revise,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+            {
+                "name": "Populate Human Feedback Original/Final Visual Columns",
+                "func": run_populate_human_feedback_visual_columns,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                },
+                "estimated_time": "1-5 minutes",
+                "description": "Adds dynamic columns after human_feedback_revision_tracking: Original Visual 1, Revised Visual 1, (blank gap), Original Visual 2, … per VO with feedback; IMAGE() for image URLs, HYPERLINK for YouTube; cell notes with When VO and Human Feedback.",
+                "delete_func": delete_human_feedback_visual_columns,
                 "delete_args": {
                     "sheet": "sheet"
                 }
@@ -219,10 +266,11 @@ pipeline_sections = [
             {
                 "name": "Run Layout Agent",
                 "func": run_layout_agent_for_all_rows,
-                "depends_on": ["Review and Revise Graphics Definitions"],
+                "depends_on": [],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking" 
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 100,
                 },
                 "estimated_time": "15-30 minutes",
                 "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",

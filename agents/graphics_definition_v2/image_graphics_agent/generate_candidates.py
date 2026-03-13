@@ -21,7 +21,7 @@ from services.smart_progress_bar import SmartProgressBar
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_generate_image_and_video_candidates(sheet):
+def run_generate_image_and_video_candidates(sheet, max_workers=50):
     """
     Run all 4 candidate generation steps in parallel:
     1. Drive Search
@@ -32,18 +32,19 @@ def run_generate_image_and_video_candidates(sheet):
     Each step writes to its own column independently, so they can run in parallel.
     
     :param sheet: The gspread sheet object.
+    :param max_workers: Passed to each sub-step for row-level parallelism (drive/web/video searches).
     :return: None
     """
     print("\n" + "="*80)
     print("🚀 Starting parallel candidate generation (Drive, Web, Video searches)")
     print("="*80 + "\n")
     
-    # Define the 4 functions to run in parallel
+    # Define the 4 functions to run in parallel (each sub-step uses max_workers for its own row pool)
     search_functions = [
-        ("Drive Search", run_drive_search_for_all_rows, {"sheet": sheet}),
-        ("Web Search", run_web_search_for_all_rows, {"sheet": sheet}),
-        ("Video Search (HVAC Channels)", run_youtube_video_search_for_all_rows, {"sheet": sheet}),
-        ("Video Search (Other Channels)", run_youtube_video_search_other_channels_for_all_rows, {"sheet": sheet}),
+        ("Drive Search", run_drive_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
+        ("Web Search", run_web_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
+        ("Video Search (HVAC Channels)", run_youtube_video_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
+        ("Video Search (Other Channels)", run_youtube_video_search_other_channels_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
     ]
 
     # One top-level progress bar for the merged step (advances as each sub-step completes).

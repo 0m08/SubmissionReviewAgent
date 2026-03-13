@@ -22,7 +22,12 @@ from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_generate_image_and_video_pools(sheet, image_pool_llm="gemini_2_5_flash_lite", video_pool_llm="gemini_3_flash_thinking"):
+def run_generate_image_and_video_pools(
+    sheet,
+    image_pool_llm="gemini_2_5_flash_lite",
+    video_pool_llm="gemini_3_flash_thinking",
+    max_workers=50,
+):
     """
     Run both Image Pool and Video Pool generation steps in parallel:
     1. Image Pool - selects relevant images from drive_results and web_results
@@ -34,6 +39,7 @@ def run_generate_image_and_video_pools(sheet, image_pool_llm="gemini_2_5_flash_l
     :param sheet: The gspread sheet object.
     :param image_pool_llm: The LLM model to use for Image Pool generation.
     :param video_pool_llm: The LLM model to use for Video Pool generation.
+    :param max_workers: Passed to image/video pool runners for row-level parallelism.
     :return: None
     """
     print("\n" + "="*80)
@@ -102,6 +108,7 @@ def run_generate_image_and_video_pools(sheet, image_pool_llm="gemini_2_5_flash_l
                 run_image_selection_from_all_images_for_all_rows,
                 sheet=sheet,
                 llm=image_pool_llm,
+                max_workers=max_workers,
                 progress_callback=_emit_progress,
                 show_progress=False,
             ): "Image Pool",
@@ -109,6 +116,7 @@ def run_generate_image_and_video_pools(sheet, image_pool_llm="gemini_2_5_flash_l
                 run_video_selection_from_all_videos_for_all_rows,
                 sheet=sheet,
                 llm=video_pool_llm,
+                max_workers=max_workers,
                 progress_callback=_emit_progress,
                 show_progress=False,
             ): "Video Pool",

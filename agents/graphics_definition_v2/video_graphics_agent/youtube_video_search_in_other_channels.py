@@ -24,16 +24,10 @@ EXCLUDED_CHANNEL_IDS = [
     "UCIoD-SEdUWMA74tWXRMyCZQ"
 ]
 
-# Collect all available API keys (filter out None values from missing env vars)
+# Collect all available API keys from GCLOUD_YT_SEARCH_API_KEY_1 .. _N (filter out unset)
+_YT_API_KEY_COUNT = 56
 all_yt_api_keys = [
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_1"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_2"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_3"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_4"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_5"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_6"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_7"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_8")
+    os.environ.get(f"GCLOUD_YT_SEARCH_API_KEY_{i}") for i in range(1, _YT_API_KEY_COUNT + 1)
 ]
 gcloud_yt_search_api_keys = [key for key in all_yt_api_keys if key is not None]
 
@@ -48,6 +42,7 @@ def parse_duration_to_seconds(duration_str):
     :param duration_str: ISO 8601 duration string
     :return: Duration in seconds or None if parsing fails
     """
+    
     try:
         duration = isodate.parse_duration(duration_str)
         return int(duration.total_seconds())
@@ -73,7 +68,6 @@ def search_youtube_videos_with_filters(query, max_results=4, excluded_channel_id
     
     youtube = build('youtube', 'v3', developerKey=developer_key)
     
-
     search_results = []
     
     try:

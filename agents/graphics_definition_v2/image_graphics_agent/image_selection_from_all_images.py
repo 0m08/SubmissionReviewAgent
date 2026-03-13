@@ -644,12 +644,11 @@ def select_images_from_all_for_segment(vo_text, slide_title, slide_chunk, image_
             feedback=feedback.strip(),
             num_images=len(image_urls)
         )
-        # # Print the formatted feedback prompt
-        # print(f"\n{'='*80}")
-        # print(f"📝 FORMATTED IMAGE SELECTION PROMPT WITH FEEDBACK (Segment):")
-        # print(f"{'='*80}")
-        # print(prompt_text)
-        # print(f"{'='*80}\n")
+        print(f"\n{'='*80}")
+        print(f"📝 FORMATTED IMAGE SELECTION PROMPT WITH FEEDBACK (Segment):")
+        print(f"{'='*80}")
+        print(prompt_text)
+        print(f"{'='*80}\n")
     else:
         # Use standard prompt for initial selection
         prompt_text = image_selection_from_all_images_prompt.format(
@@ -661,12 +660,11 @@ def select_images_from_all_for_segment(vo_text, slide_title, slide_chunk, image_
             slide_chunk=slide_chunk,
             num_images=len(image_urls)
         )
-        # # Print the formatted standard prompt
-        # print(f"\n{'='*80}")
-        # print(f"📝 FORMATTED IMAGE SELECTION PROMPT (Segment):")
-        # print(f"{'='*80}")
-        # print(prompt_text)
-        # print(f"{'='*80}\n")
+        print(f"\n{'='*80}")
+        print(f"📝 FORMATTED IMAGE SELECTION PROMPT (Segment):")
+        print(f"{'='*80}")
+        print(prompt_text)
+        print(f"{'='*80}\n")
     
     # Load and add each image as Gemini Part objects
     loaded_images = []
@@ -775,12 +773,11 @@ def select_images_from_all_for_entire_slide(slide_title, slide_chunk, image_urls
             feedback=feedback.strip(),
             num_images=len(image_urls)
         )
-        # # Print the formatted feedback prompt
-        # print(f"\n{'='*80}")
-        # print(f"📝 FORMATTED IMAGE SELECTION PROMPT WITH FEEDBACK (Entire Slide):")
-        # print(f"{'='*80}")
-        # print(prompt_text)
-        # print(f"{'='*80}\n")
+        print(f"\n{'='*80}")
+        print(f"📝 FORMATTED IMAGE SELECTION PROMPT WITH FEEDBACK (Entire Slide):")
+        print(f"{'='*80}")
+        print(prompt_text)
+        print(f"{'='*80}\n")
     else:
         # Use standard prompt for initial selection
         prompt_text = image_selection_from_all_images_prompt_for_entire_slide.format(
@@ -791,12 +788,11 @@ def select_images_from_all_for_entire_slide(slide_title, slide_chunk, image_urls
             slide_chunk=slide_chunk,
             num_images=len(image_urls)
         )
-        # # Print the formatted standard prompt
-        # print(f"\n{'='*80}")
-        # print(f"📝 FORMATTED IMAGE SELECTION PROMPT (Entire Slide):")
-        # print(f"{'='*80}")
-        # print(prompt_text)
-        # print(f"{'='*80}\n")
+        print(f"\n{'='*80}")
+        print(f"📝 FORMATTED IMAGE SELECTION PROMPT (Entire Slide):")
+        print(f"{'='*80}")
+        print(prompt_text)
+        print(f"{'='*80}\n")
     
     # Load and add each image as Gemini Part objects
     loaded_images = []

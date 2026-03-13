@@ -1284,96 +1284,154 @@ def create_slide_title_overlay_clip(
 # Timeline and Lifecycle Functions
 # =============================================================================
 
+def _group_narration_parts_by_slide(
+    narration_parts: List[Dict[str, Any]],
+) -> List[List[Dict[str, Any]]]:
+    """Group consecutive narration parts that belong to the same slide."""
+    groups: List[List[Dict[str, Any]]] = []
+    current: List[Dict[str, Any]] = []
+    for part in narration_parts:
+        if part.get("is_first_part_of_slide", False) and current:
+            groups.append(current)
+            current = []
+        current.append(part)
+    if current:
+        groups.append(current)
+    return groups
+
+
 def build_timeline(
     narration_parts: List[Dict[str, Any]],
     voice: str,
     temp_dir: str,
     progress_callback=None,
 ) -> Tuple[List[Dict[str, Any]], List[AudioFileClip], float]:
-    timeline = []
-    audio_clips = []
+    """
+    Build the playback timeline.
+
+    One combined TTS per slide (all parts share one audio run) so speech never
+    gaps mid-sentence—including across video clips. Part durations follow
+    narration only (proportional split of the run audio). Video is trimmed to
+    each part's slot; we do not extend to full video length.
+    """
+    timeline: List[Dict[str, Any]] = []
+    audio_clips: List[AudioFileClip] = []
     current_time = 0.0
 
-    # PHASE 1: Generate all audio files in parallel (MAJOR OPTIMIZATION)
+    slide_groups = _group_narration_parts_by_slide(narration_parts)
+
+    # Build a flat list of audio runs across all slides.
+    # Each run is (run_id, list_of_parts).
+    all_runs: List[Tuple[int, List[Dict[str, Any]]]] = []
+    run_counter = 0
+    # One run per slide so video parts don't get a separate TTS (no mid-sentence gap).
+    for group in slide_groups:
+        all_runs.append((run_counter, group))
+        run_counter += 1
+
+    # ------------------------------------------------------------------
+    # PHASE 1: Generate ONE TTS per audio run (combined voiceover text)
+    # ------------------------------------------------------------------
     print(f"   📢 Checking audio cache...")
     if progress_callback:
         progress_callback("Generating audio files in parallel...")
-    text_path_pairs = []
-    audio_paths_by_voiceover = {}
-    cache_keys_by_output = {}
-    
-    for idx, part in enumerate(narration_parts):
-        voiceover = part.get("voiceover", "")
-        if voiceover:
-            cache_key = f"{voice}||{voiceover}"
-            cached_path = AUDIO_CACHE.get(cache_key)
-            if cached_path and os.path.exists(cached_path):
-                audio_paths_by_voiceover[voiceover] = cached_path
-            else:
-                audio_path = os.path.join(temp_dir, f"audio_{idx}.mp3")
-                text_path_pairs.append((voiceover, audio_path))
-                cache_keys_by_output[audio_path] = cache_key
-                audio_paths_by_voiceover[voiceover] = audio_path
-    
-    # Generate all missing audio files in parallel
+
+    text_path_pairs: List[Tuple[str, str]] = []
+    # run_id -> (combined_text, audio_path)
+    run_audio_map: Dict[int, Tuple[str, str]] = {}
+    cache_keys_by_output: Dict[str, str] = {}
+
+    for run_id, run_parts in all_runs:
+        combined_text = " ".join(
+            p.get("voiceover", "").strip()
+            for p in run_parts
+            if p.get("voiceover", "").strip()
+        )
+        if not combined_text:
+            run_audio_map[run_id] = ("", "")
+            continue
+
+        cache_key = f"{voice}||{combined_text}"
+        cached_path = AUDIO_CACHE.get(cache_key)
+        if cached_path and os.path.exists(cached_path):
+            run_audio_map[run_id] = (combined_text, cached_path)
+        else:
+            audio_path = os.path.join(temp_dir, f"run_audio_{run_id}.mp3")
+            text_path_pairs.append((combined_text, audio_path))
+            cache_keys_by_output[audio_path] = cache_key
+            run_audio_map[run_id] = (combined_text, audio_path)
+
     if text_path_pairs:
         print(f"   🎙️  Generating {len(text_path_pairs)} audio files in parallel...")
         generate_narration_audio_parallel(text_path_pairs, voice)
         print(f"   ✅ Audio generation complete")
-        # Update cache
         for _, audio_path in text_path_pairs:
             cache_key = cache_keys_by_output.get(audio_path)
             if cache_key:
                 AUDIO_CACHE[cache_key] = audio_path
     else:
         print(f"   ✅ All audio files already cached")
-    
-    # PHASE 2: Get all audio durations in parallel
+
+    # ------------------------------------------------------------------
+    # PHASE 2: Get run-level audio durations in parallel
+    # ------------------------------------------------------------------
     print(f"   ⏱️  Getting audio durations...")
     if progress_callback:
         progress_callback("Getting audio durations...")
-    unique_audio_paths = list(set(audio_paths_by_voiceover.values()))
-    audio_durations = get_audio_durations_parallel(unique_audio_paths)
+
+    unique_paths = list({
+        path for _, (_, path) in run_audio_map.items() if path
+    })
+    audio_durations = get_audio_durations_parallel(unique_paths) if unique_paths else {}
     print(f"   ✅ Retrieved durations for {len(audio_durations)} audio files")
-    
-    # PHASE 3: Build timeline with pre-computed durations
+
+    # ------------------------------------------------------------------
+    # PHASE 3: Build timeline — split run audio across parts proportionally
+    # ------------------------------------------------------------------
     if progress_callback:
         progress_callback("Building timeline...")
-    for idx, part in enumerate(narration_parts):
-        voiceover = part.get("voiceover", "")
-        actions = part.get("actions", [])
 
-        narration_duration = 0.0
-        if voiceover:
-            audio_path = audio_paths_by_voiceover[voiceover]
-            narration_duration = audio_durations.get(audio_path, 0.0)
+    for run_id, run_parts in all_runs:
+        combined_text, audio_path = run_audio_map[run_id]
+        run_duration = audio_durations.get(audio_path, 0.0) if audio_path else 0.0
+
+        # Character counts for proportional splitting within the run
+        char_counts = []
+        for part in run_parts:
+            vo = part.get("voiceover", "").strip()
+            char_counts.append(len(vo) if vo else 0)
+        total_chars = sum(char_counts) or 1
+
+        # One AudioFileClip per run, placed at the run's start time
+        if run_duration > 0 and audio_path:
             audio_clips.append(AudioFileClip(audio_path).set_start(current_time))
 
-        max_video_duration = 0.0
-        for action in actions:
-            if action.get("action") != "add":
-                continue
-            asset_url = action.get("asset", "")
-            if asset_url and is_youtube_url(asset_url):
-                max_video_duration = max(max_video_duration, get_cached_video_duration(asset_url))
+        for part_idx, part in enumerate(run_parts):
+            voiceover = part.get("voiceover", "").strip()
+            actions = part.get("actions", [])
 
-        part_duration = max(narration_duration, max_video_duration)
-        if part_duration <= 0:
-            part_duration = DEFAULT_PART_DURATION
+            proportion = char_counts[part_idx] / total_chars
+            narration_duration = run_duration * proportion
 
-        timeline.append(
-            {
-                "voiceover": voiceover,
-                "actions": actions,
-                "start_time": current_time,
-                "duration": part_duration,
-                "end_time": current_time + part_duration,
-                "narration_duration": narration_duration,
-                "is_first_part_of_slide": part.get("is_first_part_of_slide", False),
-                "slide_title": part.get("slide_title", ""),
-            }
-        )
-        current_time += part_duration
+            # Narration-only timing: never hold for full video length. If the
+            # clip is longer than the voiceover slice, we trim in create_visual_clips.
+            part_duration = narration_duration
+            if part_duration <= 0:
+                part_duration = DEFAULT_PART_DURATION
+
+            timeline.append(
+                {
+                    "voiceover": voiceover,
+                    "actions": actions,
+                    "start_time": current_time,
+                    "duration": part_duration,
+                    "end_time": current_time + part_duration,
+                    "narration_duration": narration_duration,
+                    "is_first_part_of_slide": part.get("is_first_part_of_slide", False),
+                    "slide_title": part.get("slide_title", ""),
+                }
+            )
+            current_time += part_duration
 
     return timeline, audio_clips, current_time
 
@@ -1561,25 +1619,31 @@ def create_visual_clips(
                 # For YouTube clips with start/end times, use the expected duration (clip length)
                 # Otherwise, use the lifecycle duration (how long to display it)
                 if expected_duration is not None:
-                    # This is a YouTube clip with specific start/end times
-                    # Check if section extraction failed (downloaded full video instead of clip)
+                    # This is a YouTube clip with specific start/end times.
+                    # Section extraction often returns a segment file whose timeline starts at 0
+                    # but duration may differ from (end-start) due to keyframes. ASSET_CACHE still
+                    # has start_time from the URL — subclip(start_time, ...) is only valid when the
+                    # loaded file is the FULL video. If clip.duration < start_time, the file is
+                    # already the segment; trim from 0, not from start_time.
                     if abs(clip.duration - expected_duration) > 1.0 and start_time is not None:
-                        # Section extraction failed - we have the full video, need to trim from start_time
                         print(f"   ⚠️  Video clip duration ({clip.duration:.1f}s) doesn't match expected ({expected_duration:.1f}s)")
-                        print(f"   🔧 Trimming from {start_time:.1f}s to {start_time + expected_duration:.1f}s...")
-                        clip = clip.subclip(start_time, start_time + expected_duration)
+                        # Full-video trim only when timeline actually contains [start_time, start_time+duration)
+                        if start_time < clip.duration - 0.05 and (start_time + expected_duration) <= clip.duration + 0.5:
+                            print(f"   🔧 Trimming from {start_time:.1f}s to {start_time + expected_duration:.1f}s (full source)...")
+                            end_t = min(start_time + expected_duration, clip.duration)
+                            clip = clip.subclip(start_time, end_t)
+                        else:
+                            # Already a segment file (timeline starts at 0) — trim from beginning
+                            print(f"   🔧 Segment file — trimming from start to {expected_duration:.1f}s...")
+                            clip = fit_video_to_duration(clip, expected_duration)
                     elif abs(clip.duration - expected_duration) > 1.0:
                         # Duration mismatch but no start time - just trim from beginning
                         print(f"   ⚠️  Video clip duration ({clip.duration:.1f}s) doesn't match expected ({expected_duration:.1f}s), trimming from beginning...")
                         clip = fit_video_to_duration(clip, expected_duration)
                     
-                    # Then fit to lifecycle duration (extend if needed, but don't trim beyond expected)
-                    if duration > expected_duration:
-                        # Lifecycle is longer than clip, extend by repeating last frame
-                        clip = fit_video_to_duration(clip, duration)
-                    else:
-                        # Lifecycle is shorter, trim to lifecycle duration
-                        clip = fit_video_to_duration(clip, duration)
+                    # Fit to lifecycle slot only (narration-driven). Trim if clip is
+                    # longer; extend last frame if narration slice is longer than clip.
+                    clip = fit_video_to_duration(clip, duration)
                 else:
                     # Regular video, fit to lifecycle duration
                     clip = fit_video_to_duration(clip, duration)
@@ -1745,18 +1809,22 @@ def burn_in_ass_subtitles(video_path: str, ass_path: str, encoder_preset: str, e
     """
     Burn the ASS subtitle file into video_path in-place using ffmpeg.
     Returns True on success, False on failure (caller keeps original file).
+
+    Important: ffmpeg's ass filter parses ':' as option separators. A Windows path
+    like C:/Users/... becomes ass=C with value /Users/... → "original_size" parse
+    errors and no subtitles. Avoid by using ass=<basename> only and cwd=ass_dir.
     """
     import subprocess
-    tmp_out = video_path + ".subtitled.mp4"
-    # ffmpeg on Windows needs forward-slash paths and colon-escaped drive letters
-    ass_escaped = ass_path.replace("\\", "/")
-    # Escape the colon in the drive letter: C:/... → C\:/...
-    if len(ass_escaped) > 1 and ass_escaped[1] == ":":
-        ass_escaped = ass_escaped[0] + "\\:" + ass_escaped[2:]
+    video_abs = os.path.abspath(video_path)
+    ass_abs = os.path.abspath(ass_path)
+    ass_dir = os.path.dirname(ass_abs)
+    ass_basename = os.path.basename(ass_abs)
+    tmp_out = video_abs + ".subtitled.mp4"
+    # Relative ASS path + cwd=ass_dir: no drive colons or backslashes in -vf
     cmd = [
         "ffmpeg", "-y",
-        "-i", video_path,
-        "-vf", f"ass={ass_escaped}",
+        "-i", video_abs,
+        "-vf", f"ass={ass_basename}",
         "-c:a", "copy",
         "-preset", encoder_preset,
         "-crf", str(encoder_crf),
@@ -1765,7 +1833,9 @@ def burn_in_ass_subtitles(video_path: str, ass_path: str, encoder_preset: str, e
         tmp_out,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=7200)
+        result = subprocess.run(
+            cmd, cwd=ass_dir, capture_output=True, timeout=7200
+        )
         if result.returncode == 0 and os.path.exists(tmp_out):
             os.replace(tmp_out, video_path)
             return True

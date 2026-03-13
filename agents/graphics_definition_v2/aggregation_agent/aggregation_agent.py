@@ -73,13 +73,13 @@ Instructions:
    - Select visuals only from the provided image and video candidates.
    - The provided storyboard reference describes the intended visual plan for the slide. 
    - Use the storyboard to understand the visual intent and progression for the voiceover sentence for which you are assembling the graphics definition.
-   - Aim to follow the storyboard’s visual idea and sequencing as closely as possible when suitable image or video candidates are available. 
-   - If the available image and video candidates do not fully support a storyboard-suggested visual idea, adapt by selecting the most instructionally clear and relevant visuals based on the voiceover sentence and the available candidates.
+   - Aim to follow the storyboard’s visual idea and sequencing when suitable image or video candidates are available, but do not be too rigid about it.
+   - If the available image and video candidates do not fully support any of the storyboard-suggested visual idea(s), adapt by selecting the most instructionally clear and relevant visuals based on the voiceover sentence and the available candidates.
 
 2. Visual Coverage of the Entire Sentence  
    - First, understand the full meaning and instructional intent of the entire voiceover sentence.
-   - Identify the key visual ideas that must be shown on screen for the sentence to be clearly understood
-   - Select visuals so that the chosen visual or visuals, taken together, fully support the complete meaning of the voiceover sentence.
+   - Identify the key visual idea(s) that must be shown on screen for the sentence to be clearly understood
+   - Select visual(s) so that the chosen visual(s) fully support the complete meaning of the voiceover sentence.
 
 3. Allowed Visual Selection Forms
    - You may select one or more still images from the provided image candidates.
@@ -241,7 +241,7 @@ Instructions:
    - Select visuals only from the provided image and video candidates.
    - The provided storyboard reference describes the intended visual plan for the slide. 
    - Use the storyboard to understand the visual intent for the voiceover sentence for which you are assembling the graphics definition.
-   - Aim to follow the storyboard's visual idea as closely as possible when suitable image or video candidates are available. 
+   - Aim to follow the storyboard's visual idea when suitable image or video candidates are available, but do not be too rigid about it.
    - If the available image and video candidates do not fully support a storyboard-suggested visual idea, adapt by selecting the most instructionally clear and relevant visual based on the voiceover sentence and the available candidates.
 
 2. Visual Coverage of the Entire Sentence  
@@ -391,7 +391,7 @@ Instructions:
    - Select visuals only from the provided image and video candidates.
    - The provided storyboard reference describes the intended visual idea for the entire slide. 
    - Use the storyboard to understand the visual intent for the slide for which you are assembling the graphics definition.
-   - Aim to follow the storyboard's visual idea as closely as possible when suitable image or video candidates are available. 
+   - Aim to follow the storyboard's visual idea when suitable image or video candidates are available, but do not be too rigid about it.
    - If the available image and video candidates do not fully support a storyboard-suggested visual idea, adapt by selecting the most instructionally clear and relevant visual based on the slide content and the available candidates.
 
 2. Visual Coverage of the Entire Slide  
@@ -2300,11 +2300,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text,
                 feedback=feedback.strip()
             )
-            # print(f"\n{'='*80}")
-            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual per Sentence):")
-            # print(f"{'='*80}")
-            # print(prompt_text)
-            # print(f"{'='*80}\n")
+            print(f"\n{'='*80}")
+            print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual per Sentence):")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
         elif visual_assignment_strategy == "1 Visual for the whole Slide":
             prompt_text = aggregation_agent_regeneration_prompt_for_one_visual_per_slide.format(
                 course_name=course_name,
@@ -2317,11 +2317,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text,
                 feedback=feedback.strip()
             )
-            # print(f"\n{'='*80}")
-            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual for Entire Slide):")
-            # print(f"{'='*80}")
-            # print(prompt_text)
-            # print(f"{'='*80}\n")
+            print(f"\n{'='*80}")
+            print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual for Entire Slide):")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
         else:
             # Default: Flexible strategy
             prompt_text = aggregation_agent_regeneration_prompt.format(
@@ -2336,11 +2336,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text,
                 feedback=feedback.strip()
             )
-            # print(f"\n{'='*80}")
-            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (Flexible):")
-            # print(f"{'='*80}")
-            # print(prompt_text)
-            # print(f"{'='*80}\n")
+            print(f"\n{'='*80}")
+            print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (Flexible):")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
     else:
         # Select prompt based on visual_assignment_strategy
         visual_assignment_strategy = str(visual_assignment_strategy).strip()
@@ -2357,12 +2357,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
-            # #Print the formatted prompt
-            # print(f"\n{'='*80}")
-            # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
-            # print(f"{'='*80}")
-            # print(prompt_text)
-            # print(f"{'='*80}\n")
+            print(f"\n{'='*80}")
+            print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
         else:
             # Use flexible prompt (default)
             prompt_text = aggregation_agent_prompt.format(
@@ -2376,12 +2375,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
-            # #Print the formatted prompt
-            # print(f"\n{'='*80}")
-            # print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
-            # print(f"{'='*80}")
-            # print(prompt_text)
-            # print(f"{'='*80}\n")
+            print(f"\n{'='*80}")
+            print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
+            print(f"{'='*80}")
+            print(prompt_text)
+            print(f"{'='*80}\n")
     
     # Build multimodal parts: failed visuals (if any) + candidate images + candidate videos + text
     parts: List[types.Part] = []
@@ -2615,12 +2613,11 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
         video_candidates=video_candidates_text
     )
     
-    # #Print the formatted prompt
-    # print(f"\n{'='*80}")
-    # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
-    # print(f"{'='*80}")
-    # print(prompt_text)
-    # print(f"{'='*80}\n")
+    print(f"\n{'='*80}")
+    print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
+    print(f"{'='*80}")
+    print(prompt_text)
+    print(f"{'='*80}\n")
     
     # Build multimodal parts: candidate images + candidate videos + text
     parts: List[types.Part] = []

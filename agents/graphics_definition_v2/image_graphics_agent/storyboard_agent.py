@@ -9,6 +9,7 @@ import re
 
 load_dotenv()
 
+
 # Prompt to use when we want the visual assingment to be flexible
 storyboard_agent_prompt = """You are a senior instructional visual designer specializing in HVAC e-learning content. Your task is to create a visual storyboard for a slide. The storyboard should plan what visual ideas need to be shown as the slide narration progresses. This storyboard will later be used by graphics designers to select and assemble appropriate visuals for the slide.
  
@@ -49,7 +50,7 @@ Instructions and Guidelines:
    - Clarity over variety. Avoid redundant or excessive steps.
    - Fewer, well-chosen steps are better than many fragmented ones.
 
-6. Transition Slide Type:
+5. Transition Slide Type:
    - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
    - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
 
@@ -188,12 +189,12 @@ Instructions and Guidelines:
       - Conditions, states, or outcomes being explained
    - IMPORTANT: Use generic terms like "visual" or "visual content" when describing visual ideas. Do not use image-specific terms like "image", "photo", "picture", "2D image", etc. The visual can be either a static image or a video clip, so use neutral terminology.
 
-5. Prioritize Instructional Clarity
+4. Prioritize Instructional Clarity
    - Favor clarity and relevance over visual variety.
    - Each visual idea must directly help the learner understand the narration of the sentence at that moment.
    - IMPORTANT: You should strictly assign only 1 visual idea to the respective sentence.
 
-6. Transition Slide Type:
+5. Transition Slide Type:
    - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
    - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
 

@@ -319,12 +319,12 @@ slide_chunks_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
-graphics_definition_page = st.Page(
-    "graphics_definition.py",
-    title="Graphics Definiton (Old)",
-    icon=":material/image:",
-    # Optional: default=(role == "Requester") or any logic
-)
+# graphics_definition_page = st.Page(
+#     "graphics_definition.py",
+#     title="Graphics Definiton (Old)",
+#     icon=":material/image:",
+#     # Optional: default=(role == "Requester") or any logic
+# )
 
 graphics_definition_v2_page = st.Page(
     "graphics_definition_v2.py",
@@ -468,7 +468,7 @@ page_name_to_object = {
     "course_outline_page": course_outline_page,
     "research_notes_page": research_notes_page,
     "slide_chunks_page": slide_chunks_page,
-    "graphics_definition_page": graphics_definition_page,
+    #"graphics_definition_page": graphics_definition_page,
     "graphics_definition_v2_page": graphics_definition_v2_page,
     "assessments_generation_page": assessments_generation_page,
     "workflow_directory_page": workflow_directory_page,
@@ -497,7 +497,7 @@ agent_pages = [
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
-    "graphics_definition_page",
+    #"graphics_definition_page",
     "graphics_definition_v2_page",
     "assessments_generation_page",
     "get_images_page"]
