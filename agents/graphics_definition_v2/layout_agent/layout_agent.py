@@ -805,6 +805,26 @@ def generate_layout_for_row(
         return "", ""
 
 
+# Regex to find YouTube-like URLs (youtube.com or youtu.be) for fixing HTML-entity &amp; inside them.
+_YOUTUBE_URL_PATTERN = re.compile(
+    r"https?://(?:www\.)?youtube\.com/[^\s<>\"']+|https?://youtu\.be/[^\s<>\"']+"
+)
+
+
+def _fix_amp_in_youtube_urls(text):
+    """
+    Replace &amp; with & in YouTube URLs.
+    """
+    
+    if not text or "&amp;" not in text:
+        return text
+
+    def replace_amp_in_url(match):
+        return match.group(0).replace("&amp;", "&")
+
+    return _YOUTUBE_URL_PATTERN.sub(replace_amp_in_url, text)
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -1052,7 +1072,23 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
             print(f"⚠️ After {retry_count} retry attempt(s), {len(final_invalid)} rows still have missing layout_instructions.")
         else:
             print(f"✅ All rows completed after {retry_count} retry attempt(s).")
-    
+
+    # Post-pass: fix &amp; → & inside YouTube URLs in layout_instructions
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    fixed_count = 0
+    for index, row in df.iterrows():
+        layout_instructions = str(row.get("layout_instructions", "")).strip()
+        if not layout_instructions or layout_instructions == "nan" or layout_instructions.startswith("ERROR:"):
+            continue
+        fixed = _fix_amp_in_youtube_urls(layout_instructions)
+        if fixed != layout_instructions:
+            df.at[index, "layout_instructions"] = fixed
+            fixed_count += 1
+    if fixed_count > 0:
+        print(f"🔧 Fixed &amp; in YouTube URLs in layout_instructions for {fixed_count} row(s).")
+        save_to_sheet(ws, df)
+        format_worksheet(ws)
+
     print("\n✅ Layout Agent complete.")
 
 

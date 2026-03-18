@@ -92,8 +92,8 @@ Explain which of the images are relevant to the voiceover sentence and why, taki
 
 <selected_images>
 (List of all selected images in this exact format)
-1. [Exact Image Title] | [Exact URL]
-2. [Exact Image Title] | [Exact URL]
+1. [The Exact Image Title] | [Exact URL]
+2. [The Exact Image Title] | [Exact URL]
 ...
 </selected_images>
 
@@ -170,8 +170,8 @@ Explain which of the images are relevant to any part of the slide content and wh
 
 <selected_images>
 (List of all selected images in this exact format)
-1. [Exact Image Title] | [Exact URL]
-2. [Exact Image Title] | [Exact URL]
+1. [The Exact Image Title] | [Exact URL]
+2. [The Exact Image Title] | [Exact URL]
 ...
 </selected_images>
 
@@ -266,8 +266,8 @@ Explain which of the images are relevant to any part of the voiceover sentence o
 
 <selected_images>
 (List of all selected images in this exact format)
-1. [Exact Image Title] | [Exact URL]
-2. [Exact Image Title] | [Exact URL]
+1. [The Exact Image Title] | [Exact URL]
+2. [The Exact Image Title] | [Exact URL]
 ...
 </selected_images>
 
@@ -356,8 +356,8 @@ Explain which of the images are relevant to any part of the slide content OR add
 
 <selected_images>
 (List of all selected images in this exact format)
-1. [Exact Image Title] | [Exact URL]
-2. [Exact Image Title] | [Exact URL]
+1. [The Exact Image Title] | [Exact URL]
+2. [The Exact Image Title] | [Exact URL]
 ...
 </selected_images>
 

@@ -78,8 +78,9 @@ Instructions:
 
 2. Visual Coverage of the Entire Sentence  
    - First, understand the full meaning and instructional intent of the entire voiceover sentence.
-   - Identify the key visual idea(s) that must be shown on screen for the sentence to be clearly understood
+   - Identify the key visual idea(s) that must be shown on screen for the sentence to be clearly understood.
    - Select visual(s) so that the chosen visual(s) fully support the complete meaning of the voiceover sentence.
+   - Default to simplicity: it is acceptable, and often preferable, for a single visual to support a whole sentence when that visual clearly covers the entire idea. Only split the sentence into multiple distinct visual ideas when the narration clearly calls for a different visual (for example, the subject changes, a new diagram or scene is needed, or the learner must see something fundamentally different). Do not assign separate visuals for every small clause or phrase if you find a single visual that you select clearly supports the entire sentence.
 
 3. Allowed Visual Selection Forms
    - You may select one or more still images from the provided image candidates.
@@ -166,7 +167,7 @@ Document your reasoning, tradeoffs, and decision process as you work toward the 
 <visual_step>
 
 <voiceover_part>
-(Exact phrase or clause from the voiceover sentence that this visual aligns with)
+(Exact sentence or the exact phrase or clause from the voiceover sentence that this visual aligns with) 
 </voiceover_part>
 
 <visual_instruction>
@@ -186,7 +187,7 @@ Briefly explain how the selected visual clearly supports this specific part of t
 
 </visual_step>
 
-<!-- Repeat <visual_step> as needed, in the sentence narration order -->
+<!-- Repeat <visual_step> if you find multiple distinct visual ideas in the voiceover sentence that require separate visuals -->
 
 </visual_steps>
 
@@ -2060,6 +2061,246 @@ def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=
         return graphics_definition_xml
 
 
+def normalize_youtube_timestamp_urls(graphics_definition_text):
+    """
+    Normalize YouTube URLs with t= parameter to start= parameter format.
+
+    :param graphics_definition_text: Text string containing graphics definition
+    :return: Modified text with normalized URLs, or original text if no changes needed
+    """
+    
+    if not graphics_definition_text or not graphics_definition_text.strip():
+        return graphics_definition_text
+
+    try:
+        # Pattern to find YouTube URLs with t= parameter (e.g., t=125s)
+        pattern = r'(https?://(?:www\.)?youtube\.com/watch\?v=[^&\s\?]+)([&?])(t=(\d+)s)'
+
+        def replace_timestamp(match):
+            base_url = match.group(1)  # URL up to and including v=...
+            separator = match.group(2)  # & or ?
+            timestamp_seconds = match.group(4)  # Just the number part
+            # Always use & as separator since base_url already has ?v=...
+            return f"{base_url}&start={timestamp_seconds}s"
+
+        normalized_text = re.sub(pattern, replace_timestamp, graphics_definition_text)
+
+        if normalized_text != graphics_definition_text:
+            count = len(re.findall(pattern, graphics_definition_text))
+            print(f"  Normalized {count} YouTube URL(s): converted t= parameter to start= parameter")
+            return normalized_text
+
+        return graphics_definition_text
+
+    except Exception as e:
+        print(f"⚠️ Error normalizing YouTube timestamp URLs: {e}")
+        import traceback
+        traceback.print_exc()
+        return graphics_definition_text
+
+
+def process_video_frames_in_text_format(graphics_definition_text, drive, drive_folder_id = video_frames_drive_folder_id):
+    """
+    Find all YouTube URLs with only start timestamps (video frames) in the text graphics definition, extract frames, upload to Drive, and replace URLs in text.
+
+    :param graphics_definition_text: Text string containing graphics definition
+    :param drive: Google Drive instance
+    :param drive_folder_id: Drive folder ID to store extracted frames
+    :return: Modified text with Drive URLs instead of YouTube frame URLs, or original text if processing fails
+    """
+    
+    if not graphics_definition_text or not graphics_definition_text.strip():
+        return graphics_definition_text
+
+    if not drive:
+        print("⚠️ Drive instance not available, skipping video frame extraction (text format)")
+        return graphics_definition_text
+
+    try:
+        # Find all "Graphics to use:" lines
+        graphics_pattern = r'Graphics to use:\s*(https?://[^\s\n]+)'
+        matches = re.findall(graphics_pattern, graphics_definition_text, re.IGNORECASE)
+        print(f"Found {len(matches)} 'Graphics to use:' URLs in graphics definition (text)")
+
+        # Dictionary to cache processed frames: {youtube_url: drive_url}
+        processed_frames = {}
+
+        # Process each asset URL
+        for asset_url in matches:
+            asset_url = asset_url.strip()
+
+            # Check if it's a YouTube URL with only start parameter (no end)
+            if 'youtube.com/embed' in asset_url or 'youtube.com/watch' in asset_url:
+                # Parse URL to check if it has only start, no end
+                parsed_url = urllib.parse.urlparse(asset_url)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+
+                has_start = 'start' in query_params or 'start' in asset_url
+                has_end = 'end' in query_params or 'end' in asset_url
+
+                # If it has start but no end, it's a frame to extract
+                if has_start and not has_end:
+                    print(f"    Found YouTube still frame URL (text): {asset_url}")
+                    # Check if we've already processed this URL
+                    if asset_url in processed_frames:
+                        continue
+
+                    # Extract video ID and timestamp
+                    video_id = extract_video_id_from_url(asset_url)
+                    # Pattern to match start= parameter (handles both ?start= and &start=)
+                    start_match = re.search(r'[?&]start=(\d+)', asset_url)
+                    timestamp = int(start_match.group(1)) if start_match else None
+
+                    if not video_id or timestamp is None:
+                        print(f"⚠️ Could not parse video ID or timestamp from URL: {asset_url}")
+                        continue
+
+                    # Generate filename
+                    filename = f"{video_id}_frame_{timestamp}s.jpg"
+
+                    # Create temp file for extracted frame
+                    temp_frame_path = os.path.join(tempfile.gettempdir(), filename)
+
+                    try:
+                        print(f"🎬 Extracting frame from video {video_id} at {timestamp}s (text)...")
+                        # Extract frame
+                        success = extract_frame_from_youtube_video(video_id, timestamp, temp_frame_path)
+
+                        if success and os.path.exists(temp_frame_path):
+                            # Upload to Drive
+                            drive_url = upload_image_to_drive(
+                                temp_frame_path,
+                                filename,
+                                drive_folder_id,
+                                drive,
+                            )
+
+                            if drive_url:
+                                processed_frames[asset_url] = drive_url
+                                print(f"✅ Successfully processed frame (text): {asset_url} -> {drive_url}")
+                            else:
+                                print(f"⚠️ Failed to upload frame for {asset_url}, keeping original URL")
+                        else:
+                            print(f"⚠️ Failed to extract frame for {asset_url}, keeping original URL")
+                    finally:
+                        # Clean up temp frame file
+                        if os.path.exists(temp_frame_path):
+                            try:
+                                os.remove(temp_frame_path)
+                            except Exception:
+                                pass
+
+        # Replace all processed URLs in text
+        if processed_frames:
+            modified_text = graphics_definition_text
+            for youtube_url, drive_url in processed_frames.items():
+                # Replace all occurrences of this YouTube URL in the text
+                modified_text = modified_text.replace(youtube_url, drive_url)
+
+            print(f"✅ Replaced {len(processed_frames)} video frame URLs with Drive URLs (text)")
+            return modified_text
+
+        return graphics_definition_text
+
+    except Exception as e:
+        print(f"⚠️ Error processing video frames in text format (aggregation): {e}")
+        import traceback
+        traceback.print_exc()
+        return graphics_definition_text
+
+
+def check_file_in_folder(drive, file_id, folder_id):
+    """
+    Check if a Drive file belongs to a specific folder.
+
+    :param drive: Google Drive instance
+    :param file_id: Drive file ID to check
+    :param folder_id: Target folder ID
+    :return: True if file is in the folder, False otherwise
+    """
+
+    if not drive or not file_id or not folder_id:
+        return False
+
+    try:
+        file_obj = drive.CreateFile({'id': file_id})
+        file_obj.FetchMetadata()
+        parents = file_obj.get('parents', [])
+        parent_ids = [p.get('id') if isinstance(p, dict) else p for p in parents]
+        return folder_id in parent_ids
+    except Exception as e:
+        print(f"⚠️ Error checking if file {file_id} is in folder {folder_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def add_snapshot_label_to_drive_links(graphics_definition_text, drive, target_folder_id = video_frames_drive_folder_id):
+    """
+    Add "(snapshot)" label to Drive links that belong to the target folder.
+
+    :param graphics_definition_text: Text string containing graphics definition
+    :param drive: Google Drive instance
+    :param target_folder_id: Target folder ID to check (default: video_frames_drive_folder_id)
+    :return: Modified text with "(snapshot)" labels added, or original text if no changes
+    """
+    
+    if not graphics_definition_text or not graphics_definition_text.strip():
+        return graphics_definition_text
+
+    if not drive:
+        print("⚠️ Drive instance not available, skipping snapshot label check (aggregation)")
+        return graphics_definition_text
+
+    try:
+        drive_url_pattern = re.compile(
+            r'https?://drive\.google\.com/file/d/([a-zA-Z0-9_-]+)\S*',
+            re.IGNORECASE,
+        )
+
+        lines = graphics_definition_text.split('\n')
+        result_lines: list = []
+        matches_found = 0
+        labels_added = 0
+
+        for i, line in enumerate(lines):
+            result_lines.append(line)
+
+            if not re.match(r'\s*Graphics to use:', line, re.IGNORECASE):
+                continue
+
+            m = drive_url_pattern.search(line)
+            if not m:
+                continue
+
+            matches_found += 1
+            file_id = m.group(1)
+
+            # Already labeled on the next line — skip
+            next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            if next_line == "(snapshot)":
+                continue
+
+            if check_file_in_folder(drive, file_id, target_folder_id):
+                labels_added += 1
+                result_lines.append("(snapshot)")
+
+        if matches_found > 0:
+            if labels_added > 0:
+                print(f"Added (snapshot) label to {labels_added} Drive link(s) from target folder (aggregation)")
+            else:
+                print(f"Found {matches_found} Drive link(s) but none needed (snapshot) labels (aggregation)")
+
+        modified_text = '\n'.join(result_lines)
+        return modified_text if modified_text != graphics_definition_text else graphics_definition_text
+
+    except Exception as e:
+        print(f"⚠️ Error adding snapshot labels to Drive links (aggregation): {e}")
+        import traceback
+        traceback.print_exc()
+        return graphics_definition_text
+
+
 def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0.7, max_retries= 3):
     """
     Invoke the Gemini API with multimodal parts (images, videos, text).
@@ -3165,8 +3406,8 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             )
             
             if graphics_definition_xml:
-                # Post-processing: Extract video frames and replace with Drive URLs
-                print(f"🔄 Processing video frames in graphics definition...")
+                # Post-processing: Extract video frames and replace with Drive URLs (XML-level)
+                print(f"🔄 Processing video frames in graphics definition ...")
                 video_frames_drive_folder_id = os.environ.get("VIDEO_FRAMES_DRIVE_FOLDER_ID", "")
                 graphics_definition_xml = process_video_frames_in_xml(
                     graphics_definition_xml,
@@ -3181,6 +3422,19 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     segment_num=1,  # Use segment 1 for entire slide to maintain consistency
                     is_entire_slide=True
                 )
+                
+                # Text-level post-processing to mirror review/revise behavior
+                if formatted_segment:
+                    try:
+                        # 1) Normalize YouTube URLs (t= → start=)
+                        normalized = normalize_youtube_timestamp_urls(formatted_segment)
+                        # 2) Convert any remaining YouTube frame URLs (start only) to Drive images
+                        processed = process_video_frames_in_text_format(normalized, drive)
+                        # 3) Add "(snapshot)" labels for Drive links from the video frames folder
+                        labeled = add_snapshot_label_to_drive_links(processed, drive)
+                        formatted_segment = labeled
+                    except Exception as e:
+                        print(f"⚠️ Error during text-level post-processing for aggregation (entire slide): {e}")
                 
                 # Format evaluation breakdown for the sheet
                 formatted_eval_breakdown = evaluation_breakdown if evaluation_breakdown else ""
@@ -3258,6 +3512,14 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                 for seg_idx in sorted(segment_results.keys())
             ]
             final_graphics_definition_text = '\n\n'.join(all_segment_results)
+            
+            try:
+                normalized = normalize_youtube_timestamp_urls(final_graphics_definition_text)
+                processed = process_video_frames_in_text_format(normalized, drive)
+                labeled = add_snapshot_label_to_drive_links(processed, drive)
+                final_graphics_definition_text = labeled
+            except Exception as e:
+                print(f"⚠️ Error during text-level post-processing for aggregation (per-segment): {e}")
         
         # Combine evaluation breakdowns in order
         evaluation_breakdown_text = ""

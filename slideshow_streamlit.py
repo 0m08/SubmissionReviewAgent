@@ -149,6 +149,7 @@ AUDIO_CACHE: Dict[str, str] = {}
 
 # Fallback TTS voices if Edge TTS list_voices() fails (e.g. offline)
 EDGE_TTS_VOICE_FALLBACK = [
+    "en-CA-LiamNeural",
     "en-US-GuyNeural",
     "en-US-JennyNeural",
     "en-US-AriaNeural",
@@ -1864,7 +1865,7 @@ def generate_slideshow_from_sheet(
     drive_instance: GoogleDrive,
     gc: gspread.Client,
     worksheet_name: str = "Slide Chunks",
-    voice: str = "en-US-GuyNeural",
+    voice: str = "en-CA-LiamNeural",
     output_filename: str = "course_slideshow.mp4",
     output_dir: str = None,
     render_settings: Optional[Dict[str, Any]] = None,
@@ -2156,7 +2157,7 @@ def main():
         )
         
         voice_options = _get_edge_tts_voice_options()
-        default_voice = "en-US-GuyNeural"
+        default_voice = "en-CA-LiamNeural"
         try:
             voice_index = voice_options.index(default_voice)
         except ValueError:

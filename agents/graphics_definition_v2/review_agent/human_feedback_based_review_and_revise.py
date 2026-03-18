@@ -1416,7 +1416,7 @@ Remember: Strictly use the same output format as before while reviewing the NEW 
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def process_human_feedback_row(row_index, df, course_name, target_audience, drive, llm, ws):
+def process_human_feedback_row(row_index, df, course_name, target_audience, drive, llm, ws, use_only_drive_and_hvac=False):
     """
     Process a single row's full human-feedback workflow: revise, review, optional regen loop, then write status and tracking to df.
 
@@ -1427,6 +1427,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
     :param drive: Google Drive instance
     :param llm: LLM model name
     :param ws: Worksheet object or None
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: None
     """
     
@@ -1626,6 +1627,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
                 failed_segments=failed_segments,
                 feedback_by_segment=regen_feedback,
                 ws=ws,
+                use_only_drive_and_hvac=use_only_drive_and_hvac,
             )
             _finalize_row(row_index, df, drive, ws)
 
@@ -1967,13 +1969,14 @@ def _format_human_feedback_revision_tracking(tracking):
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, use_only_drive_and_hvac=False):
     """
     Entry point: process all rows that have human feedback in the Slide Chunks sheet (revise, review, optional regeneration per row).
 
     :param sheet: gspread sheet object
     :param llm: LLM model name
     :param max_workers: Number of parallel workers
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: None
     """
     worksheet_name = "Slide Chunks"
@@ -2040,6 +2043,7 @@ def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thi
                     drive,
                     llm,
                     ws,
+                    use_only_drive_and_hvac,
                 ): row_index
                 for row_index in rows_to_process
             }
@@ -2065,6 +2069,7 @@ def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thi
                     drive,
                     llm,
                     ws,
+                    use_only_drive_and_hvac,
                 )
                 _safe_progress_update()
             except Exception as e:

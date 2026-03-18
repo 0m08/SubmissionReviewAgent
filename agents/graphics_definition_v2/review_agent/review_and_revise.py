@@ -77,7 +77,7 @@ from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all
 
 load_dotenv()
 
-MAX_REVIEW_ATTEMPTS = 2
+MAX_REVIEW_ATTEMPTS = 1
 MAX_REGEN_ATTEMPTS = 2
 
 
@@ -3319,7 +3319,7 @@ def update_final_graphics_definition(original_text, updated_segments):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def regenerate_failed_segments(row_index, row, df, course_name, target_audience, drive, llm, failed_segments, feedback_by_segment, ws=None):
+def regenerate_failed_segments(row_index, row, df, course_name, target_audience, drive, llm, failed_segments, feedback_by_segment, ws=None, use_only_drive_and_hvac=False):
     """
     Regenerate visuals for failed segments: new search queries, search execution, and revision.
 
@@ -3333,6 +3333,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
     :param failed_segments: List of segment numbers that failed review
     :param feedback_by_segment: Map of segment_num -> feedback string
     :param ws: Worksheet object or None
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: Tuple of (replaced_visual_ids_by_segment, old_asset_urls_by_visual_id)
     """
     
@@ -3426,24 +3427,27 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
             print(f"  ERROR: Drive search failed for segment {segment_num} (continuing with other searches): {e}")
             traceback.print_exc()
 
-        try:
-            print(f"    Segment {segment_num}: Searching web...")
-            seg_num, web_results = process_web_search_segment(segment_num, queries)
-            if web_results:
-                lines = [line.strip() for line in web_results.splitlines() if line.strip()]
-                df.at[row_index, "web_results"] = replace_segment_block(
-                    _safe_str(df.at[row_index, "web_results"]),
-                    segment_num,
-                    lines[1:] if lines and lines[0].startswith("---SEGMENT_") else lines,
-                )
-                print(f"      Web search: {len(lines)} result(s)")
-                if ws is not None:
-                    with _sheet_lock:
-                        save_to_sheet(ws, df)
-                    print(f"      Segment {segment_num}: Saved web_results to sheet")
-        except Exception as e:
-            print(f"  ERROR: Web search failed for segment {segment_num} (continuing with video searches): {e}")
-            traceback.print_exc()
+        if use_only_drive_and_hvac:
+            print(f"    Segment {segment_num}: Skipping web search (drive + HVAC only mode)")
+        else:
+            try:
+                print(f"    Segment {segment_num}: Searching web...")
+                seg_num, web_results = process_web_search_segment(segment_num, queries)
+                if web_results:
+                    lines = [line.strip() for line in web_results.splitlines() if line.strip()]
+                    df.at[row_index, "web_results"] = replace_segment_block(
+                        _safe_str(df.at[row_index, "web_results"]),
+                        segment_num,
+                        lines[1:] if lines and lines[0].startswith("---SEGMENT_") else lines,
+                    )
+                    print(f"      Web search: {len(lines)} result(s)")
+                    if ws is not None:
+                        with _sheet_lock:
+                            save_to_sheet(ws, df)
+                        print(f"      Segment {segment_num}: Saved web_results to sheet")
+            except Exception as e:
+                print(f"  ERROR: Web search failed for segment {segment_num} (continuing with video searches): {e}")
+                traceback.print_exc()
 
         if not skip_video_candidates:
             try:
@@ -3465,29 +3469,32 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                 print(f"  ERROR: Video pool search failed for segment {segment_num} (continuing with other channels): {e}")
                 traceback.print_exc()
 
-            segment_sentence = ""
-            for seg_idx, seg_text in voiceover_segments:
-                if seg_idx == segment_num:
-                    segment_sentence = seg_text
-                    break
-            try:
-                print(f"    Segment {segment_num}: Searching other channels...")
-                seg_num, video_other = process_segment_other_channels(segment_num, queries, segment_sentence)
-                if video_other:
-                    lines = [line.strip() for line in video_other.splitlines() if line.strip()]
-                    df.at[row_index, "video_pool_other_channels"] = replace_segment_block(
-                        _safe_str(df.at[row_index, "video_pool_other_channels"]),
-                        segment_num,
-                        lines[1:] if lines and lines[0].startswith("---SEGMENT_") else lines,
-                    )
-                    print(f"      Other channels: {len(lines)} result(s)")
-                    if ws is not None:
-                        with _sheet_lock:
-                            save_to_sheet(ws, df)
-                        print(f"      Segment {segment_num}: Saved video_pool_other_channels to sheet")
-            except Exception as e:
-                print(f"  ERROR: Other-channels search failed for segment {segment_num}: {e}")
-                traceback.print_exc()
+            if use_only_drive_and_hvac:
+                print(f"    Segment {segment_num}: Skipping other-channels video search (drive + HVAC only mode)")
+            else:
+                segment_sentence = ""
+                for seg_idx, seg_text in voiceover_segments:
+                    if seg_idx == segment_num:
+                        segment_sentence = seg_text
+                        break
+                try:
+                    print(f"    Segment {segment_num}: Searching other channels...")
+                    seg_num, video_other = process_segment_other_channels(segment_num, queries, segment_sentence)
+                    if video_other:
+                        lines = [line.strip() for line in video_other.splitlines() if line.strip()]
+                        df.at[row_index, "video_pool_other_channels"] = replace_segment_block(
+                            _safe_str(df.at[row_index, "video_pool_other_channels"]),
+                            segment_num,
+                            lines[1:] if lines and lines[0].startswith("---SEGMENT_") else lines,
+                        )
+                        print(f"      Other channels: {len(lines)} result(s)")
+                        if ws is not None:
+                            with _sheet_lock:
+                                save_to_sheet(ws, df)
+                            print(f"      Segment {segment_num}: Saved video_pool_other_channels to sheet")
+                except Exception as e:
+                    print(f"  ERROR: Other-channels search failed for segment {segment_num}: {e}")
+                    traceback.print_exc()
         else:
             print(f"Segment {segment_num}: Skipping video pool and other-channels search (transition slide)")
 
@@ -3851,7 +3858,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_review_loop_for_slide(criterion_name, prompt_template, row_index, row, df, course_name, target_audience, drive, llm, ws=None, revision_tracking=None):
+def run_review_loop_for_slide(criterion_name, prompt_template, row_index, row, df, course_name, target_audience, drive, llm, ws=None, revision_tracking=None, use_only_drive_and_hvac=False):
     """
     Run review-revise loop for one slide (alignment or specificity): review, revise failed segments, repeat until PASS or max attempts.
 
@@ -3866,6 +3873,7 @@ def run_review_loop_for_slide(criterion_name, prompt_template, row_index, row, d
     :param llm: LLM model name
     :param ws: Worksheet object or None
     :param revision_tracking: Optional initial revision tracking structure
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: Tuple of (outcome "PASS"/"FAIL", revision_tracking)
     """
     
@@ -4384,6 +4392,7 @@ def run_review_loop_for_slide(criterion_name, prompt_template, row_index, row, d
             failed_segments=failed_segments,
             feedback_by_segment=feedback_by_segment,
             ws=ws,
+            use_only_drive_and_hvac=use_only_drive_and_hvac,
         )
         
         # Save to sheet immediately after regeneration (with processed video frames)
@@ -4591,7 +4600,7 @@ def filter_segments_by_url(group_segments, target_url):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_redundancy_loop_for_topic(topic_key, row_indices, df, course_name, target_audience, drive, llm):
+def run_redundancy_loop_for_topic(topic_key, row_indices, df, course_name, target_audience, drive, llm, use_only_drive_and_hvac=False):
     """
     Run redundancy review for a topic: find repeated URLs and run review-revise per URL.
 
@@ -4602,6 +4611,7 @@ def run_redundancy_loop_for_topic(topic_key, row_indices, df, course_name, targe
     :param target_audience: Target audience
     :param drive: Google Drive instance
     :param llm: LLM model name
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: "PASS" or "FAIL" overall status for the topic
     """
     
@@ -4656,6 +4666,7 @@ def run_redundancy_loop_for_topic(topic_key, row_indices, df, course_name, targe
             target_audience=target_audience,
             drive=drive,
             llm=llm,
+            use_only_drive_and_hvac=use_only_drive_and_hvac,
         )
         
         if url_status == "FAIL":
@@ -4664,7 +4675,7 @@ def run_redundancy_loop_for_topic(topic_key, row_indices, df, course_name, targe
     return overall_status
 
 
-def _run_redundancy_loop_for_url(topic_name, subtopic_name, repeated_url, all_segments, target_keys, row_indices, df, course_name, target_audience, drive, llm):
+def _run_redundancy_loop_for_url(topic_name, subtopic_name, repeated_url, all_segments, target_keys, row_indices, df, course_name, target_audience, drive, llm, use_only_drive_and_hvac=False):
     """
     Run redundancy review-revise loop for a specific repeated URL.
 
@@ -4679,6 +4690,7 @@ def _run_redundancy_loop_for_url(topic_name, subtopic_name, repeated_url, all_se
     :param target_audience: Target audience
     :param drive: Google Drive instance
     :param llm: LLM model name
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: "PASS" if all occurrences are acceptable, "FAIL" if any need replacement
     """
     conversation_history: Optional[List[types.Content]] = None
@@ -4875,7 +4887,8 @@ def _run_redundancy_loop_for_url(topic_name, subtopic_name, repeated_url, all_se
                 llm=llm,
                 failed_segments=list(feedback_by_segment.keys()),
                 feedback_by_segment=feedback_by_segment,
-                ws=None, 
+                ws=None,
+                use_only_drive_and_hvac=use_only_drive_and_hvac,
             )
         
         # Review the regenerated visuals to check if they pass
@@ -4977,7 +4990,7 @@ _sheet_lock = threading.Lock()
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def process_review_revise_row(row_index, df, course_name, target_audience, drive, llm, ws, review_cols):
+def process_review_revise_row(row_index, df, course_name, target_audience, drive, llm, ws, review_cols, use_only_drive_and_hvac=False):
     """
     Process a single row's review-revise workflow (alignment and specificity reviews for one slide).
 
@@ -4989,6 +5002,7 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
     :param llm: Language model to use
     :param ws: Worksheet object
     :param review_cols: List of review columns
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: None
     """
     
@@ -5037,6 +5051,7 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
             llm=llm,
             ws=ws,
             revision_tracking=revision_tracking,
+            use_only_drive_and_hvac=use_only_drive_and_hvac,
         )
 
         row = df.loc[row_index]
@@ -5057,6 +5072,7 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
             llm=llm,
             ws=ws,
             revision_tracking=revision_tracking,
+            use_only_drive_and_hvac=use_only_drive_and_hvac,
         )
         
         # Format and save revision tracking
@@ -5134,13 +5150,14 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, use_only_drive_and_hvac=False):
     """
     Entry point: run alignment and specificity review-revise for all rows with voiceover and graphics definition.
 
     :param sheet: gspread sheet object
     :param llm: LLM model name
     :param max_workers: Number of parallel workers (1 for sequential)
+    :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: None
     """
     
@@ -5204,6 +5221,7 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
                     llm,
                     ws,
                     review_cols,
+                    use_only_drive_and_hvac,
                 ): row_index
                 for row_index in rows_to_process
             }
@@ -5233,6 +5251,7 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
                     llm,
                     ws,
                     review_cols,
+                    use_only_drive_and_hvac,
                 )
                 progress.update()
             except Exception as e:

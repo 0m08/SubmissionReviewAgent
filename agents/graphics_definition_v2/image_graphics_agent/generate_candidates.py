@@ -21,31 +21,33 @@ from services.smart_progress_bar import SmartProgressBar
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_generate_image_and_video_candidates(sheet, max_workers=50):
+def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_drive_and_hvac=False):
     """
-    Run all 4 candidate generation steps in parallel:
-    1. Drive Search
-    2. Web Search  
-    3. Video Search (HVAC channels)
-    4. Video Search (Other channels)
-    
-    Each step writes to its own column independently, so they can run in parallel.
-    
+    Run candidate generation steps in parallel.
+    When use_only_drive_and_hvac is False (default), runs all 4:
+      1. Drive Search  2. Web Search  3. Video Search (HVAC)  4. Video Search (Other channels)
+    When use_only_drive_and_hvac is True, runs only:
+      1. Drive Search  2. Video Search (HVAC channels)
+
     :param sheet: The gspread sheet object.
-    :param max_workers: Passed to each sub-step for row-level parallelism (drive/web/video searches).
+    :param max_workers: Passed to each sub-step for row-level parallelism.
+    :param use_only_drive_and_hvac: If True, skip Web Search and Video Search (Other Channels).
     :return: None
     """
+    mode_label = "Drive + HVAC only" if use_only_drive_and_hvac else "Drive, Web, Video searches"
     print("\n" + "="*80)
-    print("🚀 Starting parallel candidate generation (Drive, Web, Video searches)")
+    print(f"🚀 Starting parallel candidate generation ({mode_label})")
     print("="*80 + "\n")
     
-    # Define the 4 functions to run in parallel (each sub-step uses max_workers for its own row pool)
     search_functions = [
         ("Drive Search", run_drive_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
-        ("Web Search", run_web_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
         ("Video Search (HVAC Channels)", run_youtube_video_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
-        ("Video Search (Other Channels)", run_youtube_video_search_other_channels_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
     ]
+    if not use_only_drive_and_hvac:
+        search_functions.append(("Web Search", run_web_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}))
+        search_functions.append(("Video Search (Other Channels)", run_youtube_video_search_other_channels_for_all_rows, {"sheet": sheet, "max_workers": max_workers}))
+    else:
+        print("ℹ️  Toggle ON: Skipping Web Search and Video Search (Other Channels)")
 
     # One top-level progress bar for the merged step (advances as each sub-step completes).
     progress = SmartProgressBar(

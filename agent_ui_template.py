@@ -223,7 +223,7 @@ def _record_step_metrics(step: dict, duration_seconds: float, start_time: dateti
     st.session_state["step_metrics"][step["name"]] = metrics
 
 
-def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None, top_instructions: str | None = None):
+def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None, top_instructions: str | None = None, top_toggles: list[dict] | None = None):
     st.session_state["outline_finalized"] = outline_finalized
     st.title(f"{step_name} Agent")
 
@@ -391,6 +391,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                             pass
                     
                     user_email = st.session_state.get("user_email", "") or ""
+                    # Collect current toggle values to forward to background job
+                    toggle_values = {}
+                    if top_toggles:
+                        for toggle in top_toggles:
+                            tkey = toggle["key"]
+                            toggle_values[tkey] = st.session_state.get(tkey, toggle.get("default", False))
                     cmd = [
                         sys.executable,
                         "launch_agents_via_sdk.py",
@@ -403,6 +409,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         "--user_email",
                         user_email,
                     ]
+                    if toggle_values:
+                        cmd.extend(["--toggles", json.dumps(toggle_values)])
                     log_placeholder = st.empty()
                     with st.spinner("Running the Agent in Background"):
                         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -442,6 +450,14 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
         # Optional instructions shown above all sections (e.g. "before you run" setup)
         if top_instructions:
             st.info(top_instructions)
+
+        # Optional toggles shown above all sections
+        if top_toggles:
+            for toggle in top_toggles:
+                toggle_key = toggle["key"]
+                if toggle_key not in st.session_state:
+                    st.session_state[toggle_key] = toggle.get("default", False)
+                st.toggle(toggle["label"], key=toggle_key)
 
         # Filter sections that have at least one visible step
         visible_sections = [

@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from openai import OpenAI
+from PIL import UnidentifiedImageError
 
 from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
 
@@ -1213,7 +1214,14 @@ def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, dri
             display_url = normalize_drive_image_url(asset) if is_drive_url(asset) else asset
         image_bytes = _get_inspector_image_bytes(asset, drive)
         if image_bytes:
-            st.image(image_bytes, use_container_width=True)
+            try:
+                st.image(image_bytes, use_container_width=True)
+            except UnidentifiedImageError:
+                # Image bytes were invalid; fall back to URL display below if available.
+                image_bytes = None
+            except Exception:
+                # Any other image rendering issue: ignore bytes and try URL fallback.
+                image_bytes = None
         elif display_url:
             st.image(display_url, use_container_width=True)
         else:

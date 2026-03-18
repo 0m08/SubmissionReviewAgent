@@ -65,6 +65,9 @@ from agents.graphics_definition_v2.review_agent.visual_columns_for_human_feedbac
     run_populate_human_feedback_visual_columns,
     delete_human_feedback_visual_columns,
 )
+from agents.graphics_definition_v2.download_assets.download_assets_for_sheet import (
+    run_download_assets_for_sheet,
+)
 
 # Shown at top of page (before Section 1) so users set Visual Assignment Strategy before running.
 TOP_INSTRUCTIONS = (
@@ -92,7 +95,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_2_5_flash_lite",
-                    "max_workers": 200,
+                    "max_workers": 50,
                 },
                 "estimated_time": "2-5 minutes",
                 "description": "This function segments each slide chunk into individual voiceover (VO) segments using sentence-based segmentation and saves them to the voiceover_segment column.",
@@ -113,7 +116,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
-                    "max_workers": 200,
+                    "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
                 "description": "This function generates a storyboard for each slide and saves them to the storyboard column",
@@ -134,7 +137,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_2_5_flash_lite",
-                    "max_workers": 200,
+                    "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
                 "description": "This function generates search queries for image and video retrieval and saves them to the search_queries column",
@@ -155,6 +158,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "max_workers": 50,
+                    "use_only_drive_and_hvac": "use_only_drive_and_hvac",
                 },
                 "estimated_time": "10-20 minutes",
                 "description": "This step runs 4 parallel searches: Drive Search, Web Search, Video Search (HVAC channels), and Video Search (Other channels). Each writes to its respective column (drive_results, web_results, video_pool, video_pool_other_channels).",
@@ -176,7 +180,7 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "image_pool_llm": "gemini_2_5_flash_lite",
                     "video_pool_llm": "gemini_3_flash_thinking",
-                    "max_workers": 100,
+                    "max_workers": 50,
                 },
                 "is_llm_step": True, 
                 "estimated_time": "20-40 minutes",
@@ -198,7 +202,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
-                    "max_workers": 100,
+                    "max_workers": 50,
                 },
                 "estimated_time": "30-60 minutes",
                 "description": "This step selects the best visuals from the Image and Video pool for the voiceover segments to create the final graphics definitions for the slide content",
@@ -219,7 +223,8 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
-                    "max_workers": 100,
+                    "max_workers": 50,
+                    "use_only_drive_and_hvac": "use_only_drive_and_hvac",
                 },
                 "estimated_time": "30-90 minutes",
                 "description": "This step reviews assigned visuals against alignment, specificity, and redundancy criteria, revises using existing pools, and regenerates only when necessary.",
@@ -235,7 +240,8 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
-                    "max_workers": 100,
+                    "max_workers": 50,
+                    "use_only_drive_and_hvac": "use_only_drive_and_hvac",
                 },
                 "estimated_time": "20-40 minutes",
                 "description": "This step revises the graphics definitions based on the human feedback provided in the human_feedback column.",
@@ -270,7 +276,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
-                    "max_workers": 100,
+                    "max_workers": 50,
                 },
                 "estimated_time": "15-30 minutes",
                 "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
@@ -281,6 +287,21 @@ pipeline_sections = [
             },
         ]
     },
+    # {
+    #     "section_name": "Section 8: Download Assets to Drive",
+    #     "steps": [
+    #         {
+    #             "name": "Download Assets to Drive",
+    #             "func": run_download_assets_for_sheet,
+    #             "depends_on": [],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #             },
+    #             "estimated_time": "2-10 minutes",
+    #             "description": "Downloads all assets from final_graphics_definition (Drive images, web images, YouTube clips with start/end) into a new folder under 'Downloadable Asset Folder' on Drive. Folder name: 'CourseName, DD/MM/YYYY, HH:MM IST'. Files are named 'Slide X, S{n}V{m}.ext' (e.g. Slide 1, S1V1.jpg, Slide 2, S2V1.mp4).",
+    #         },
+    #     ]
+    # },
 ]
 
 llm_pricing = {
@@ -301,4 +322,12 @@ llm_pricing = {
     },
 }
 
-agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing, top_instructions=TOP_INSTRUCTIONS)
+TOP_TOGGLES = [
+    {
+        "key": "use_only_drive_and_hvac",
+        "label": "Use only drive images and HVAC School channel videos",
+        "default": False,
+    },
+]
+
+agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing, top_instructions=TOP_INSTRUCTIONS, top_toggles=TOP_TOGGLES)
