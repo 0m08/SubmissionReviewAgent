@@ -432,11 +432,11 @@ aggregation_agent_page = st.Page(
 #     icon=":material/menu_book:",
 # )
 
-video_search_hvac_channels_page = st.Page(
-    "video_search_hvac_channels.py",
-    title="Video Search inside 'HVAC School' & 'Love2HVAC with TY' Youtube Channel)",
-    icon=":material/search:",
-)
+# video_search_hvac_channels_page = st.Page(
+#     "video_search_hvac_channels.py",
+#     title="Video Search inside 'HVAC School' & 'Love2HVAC with TY' Youtube Channel)",
+#     icon=":material/search:",
+# )
 
 
 
@@ -486,7 +486,6 @@ page_name_to_object = {
     "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
     #"video_embeddings_page": video_embeddings_page,
-    "video_search_hvac_channels_page": video_search_hvac_channels_page,
     "aggregation_agent_page": aggregation_agent_page,
 }
 
@@ -507,7 +506,6 @@ tool_pages = [
     "quality_compliance_scoring_page",
     "video_search_tool_page",
     #"video_embeddings_page",
-    "video_search_hvac_channels_page",
     #"graphics_definition_v2_slideshow_page",
     "slideshow_streamlit_page",
     "paraphraser_page",

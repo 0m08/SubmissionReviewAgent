@@ -16,13 +16,11 @@ import base64
 import json
 import tempfile
 import time
-import traceback
 import streamlit as st
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 
 from services.drive_service import login_with_service_account
-from services.activity_tracking_service import track_tool_action
 from agents.course_outline.video_search_tool.video_retriever import load_new_video_embeddings_chroma_db
 
 load_dotenv()
@@ -315,107 +313,128 @@ def build_embed_url(video_id, start_time, end_time):
 # Streamlit UI
 # ============================================================
 
-if "drive" in st.session_state:
-    drive = st.session_state["drive"]
-else:
-    drive = get_drive_instance()
-    if drive:
-        st.session_state["drive"] = drive
 
-if not drive:
-    st.error("❌ Drive not available. Please log in or set GDRIVE_SA_B64.")
-    st.stop()
-
-st.markdown("## Video Search inside \"HVAC School\" and \"Love2HVAC with Ty\" YouTube channels")
-st.markdown(
-    "Search for relevant videos using **text**, **image**, or **video** as input query. "
-)
-st.markdown("---")
-
-query_type = st.radio(
-    "Query type",
-    options=["text", "image", "video"],
-    horizontal=True,
-    format_func=lambda x: {"text": "Text", "image": "Image", "video": "Video"}[x],
-)
-
-# Clear previous results when user switches query type
-if st.session_state.get("hvac_search_query_type") != query_type:
-    st.session_state.pop("hvac_search_results", None)
-    st.session_state["hvac_search_query_type"] = query_type
-
-query_value = None
-if query_type == "text":
-    query_value = st.text_input(
-        "Search query",
-        placeholder="e.g. refrigerant flow through evaporator",
+def render_hvac_visual_search(drive):
+    """
+    Render the HVAC School / Love2HVAC visual search UI (text, image, or video query).
+    Can be used standalone (video_search_hvac_channels.py) or inside run_video_search_tool tabs.
+    """
+    st.markdown(
+        "Search for relevant videos using **text**, **image**, or **video** as input query. "
     )
-elif query_type == "image":
-    uploaded = st.file_uploader("Upload an image to search by visual content", type=["png", "jpg", "jpeg"])
-    if uploaded:
-        query_value = uploaded.read()
-        st.image(query_value, caption="Query image", use_container_width=True)
-else:
-    uploaded = st.file_uploader("Upload a video clip to search by visual content", type=["mp4", "webm"])
-    if uploaded:
-        query_value = uploaded.read()
-        st.video(query_value)
+    st.markdown("---")
 
-num_results = st.number_input(
-    "Number of videos to retrieve",
-    min_value=1,
-    max_value=100,
-    value=5,
-    step=1,
-)
+    query_type = st.radio(
+        "Query type",
+        options=["text", "image", "video"],
+        horizontal=True,
+        format_func=lambda x: {"text": "Text", "image": "Image", "video": "Video"}[x],
+        key="hvac_tab_query_type",
+    )
 
-if st.button("Search", type="primary"):
-    if query_value is None or (query_type == "text" and not str(query_value).strip()):
-        st.warning("Please provide a search query or upload an image/video.")
-    else:
-        with st.spinner("Searching for relevant videos..."):
-            try:
-                results = search_hvac_video_embeddings(
-                    drive=drive,
-                    query_type=query_type,
-                    query=query_value,
-                    k=num_results,
-                )
-            except Exception as e:
-                st.error(f"Search failed: {str(e)}")
-                results = []
-        st.session_state["hvac_search_results"] = results
+    # Clear previous results when user switches query type
+    if st.session_state.get("hvac_search_query_type") != query_type:
+        st.session_state.pop("hvac_search_results", None)
+        st.session_state["hvac_search_query_type"] = query_type
 
-results = st.session_state.get("hvac_search_results", [])
-reload_idx = st.session_state.pop("hvac_reload_iframe_idx", None)
-
-if results:
-    st.subheader(f"Top {len(results)} results")
-    for idx, item in enumerate(results, start=1):
-        video_id = item.get("video_id")
-        if not video_id:
-            continue
-        title = item.get("title", f"Video {idx}")
-        start_time = item.get("start_time", 0)
-        end_time = item.get("end_time")
-        embed_url = build_embed_url(video_id, start_time, end_time)
-        if reload_idx == idx:
-            embed_url = embed_url + "&_=" + str(time.time()) + "&autoplay=1"
-        embed_url_escaped = embed_url.replace("&", "&amp;").replace('"', "&quot;")
-
-        st.markdown(
-            f'<iframe src="{embed_url_escaped}" width="640" height="360" frameborder="0" '
-            f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" '
-            f'allowfullscreen></iframe>',
-            unsafe_allow_html=True,
+    query_value = None
+    if query_type == "text":
+        query_value = st.text_input(
+            "Search query",
+            placeholder="e.g. refrigerant flow through evaporator",
+            key="hvac_tab_text_query",
         )
-        if st.button("Play again", key=f"hvac_play_again_{idx}"):
-            st.session_state["hvac_reload_iframe_idx"] = idx
-            st.rerun()
-        st.markdown(f"**{title}**")
-        start_sec = int(start_time) if start_time is not None else 0
-        watch_url = f"https://www.youtube.com/watch?v={video_id}&t={start_sec}"
-        st.caption(f"Segment: {start_time}s – {end_time or 'end'} | [Open on YouTube]({watch_url})")
-        st.markdown("---")
-elif "hvac_search_results" in st.session_state:
-    st.warning("No videos found.")
+    elif query_type == "image":
+        uploaded = st.file_uploader(
+            "Upload an image to search by visual content",
+            type=["png", "jpg", "jpeg"],
+            key="hvac_tab_image_upload",
+        )
+        if uploaded:
+            query_value = uploaded.read()
+            st.image(query_value, caption="Query image", use_container_width=True)
+    else:
+        uploaded = st.file_uploader(
+            "Upload a video clip to search by visual content",
+            type=["mp4", "webm"],
+            key="hvac_tab_video_upload",
+        )
+        if uploaded:
+            query_value = uploaded.read()
+            st.video(query_value)
+
+    num_results = st.number_input(
+        "Number of videos to retrieve",
+        min_value=1,
+        max_value=100,
+        value=5,
+        step=1,
+        key="hvac_tab_num_results",
+    )
+
+    if st.button("Search", type="primary", key="hvac_tab_search_btn"):
+        if query_value is None or (query_type == "text" and not str(query_value).strip()):
+            st.warning("Please provide a search query or upload an image/video.")
+        else:
+            with st.spinner("Searching for relevant videos..."):
+                try:
+                    results = search_hvac_video_embeddings(
+                        drive=drive,
+                        query_type=query_type,
+                        query=query_value,
+                        k=num_results,
+                    )
+                except Exception as e:
+                    st.error(f"Search failed: {str(e)}")
+                    results = []
+            st.session_state["hvac_search_results"] = results
+
+    results = st.session_state.get("hvac_search_results", [])
+    reload_idx = st.session_state.pop("hvac_reload_iframe_idx", None)
+
+    if results:
+        st.subheader(f"Top {len(results)} results")
+        for idx, item in enumerate(results, start=1):
+            video_id = item.get("video_id")
+            if not video_id:
+                continue
+            title = item.get("title", f"Video {idx}")
+            start_time = item.get("start_time", 0)
+            end_time = item.get("end_time")
+            embed_url = build_embed_url(video_id, start_time, end_time)
+            if reload_idx == idx:
+                embed_url = embed_url + "&_=" + str(time.time()) + "&autoplay=1"
+            embed_url_escaped = embed_url.replace("&", "&amp;").replace('"', "&quot;")
+
+            st.markdown(
+                f'<iframe src="{embed_url_escaped}" width="640" height="360" frameborder="0" '
+                f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" '
+                f'allowfullscreen></iframe>',
+                unsafe_allow_html=True,
+            )
+            if st.button("Play again", key=f"hvac_play_again_{idx}"):
+                st.session_state["hvac_reload_iframe_idx"] = idx
+                st.rerun()
+            st.markdown(f"**{title}**")
+            start_sec = int(start_time) if start_time is not None else 0
+            watch_url = f"https://www.youtube.com/watch?v={video_id}&t={start_sec}"
+            st.caption(f"Segment: {start_time}s – {end_time or 'end'} | [Open on YouTube]({watch_url})")
+            st.markdown("---")
+    elif "hvac_search_results" in st.session_state:
+        st.warning("No videos found.")
+
+
+if __name__ == "__main__":
+    if "drive" in st.session_state:
+        drive = st.session_state["drive"]
+    else:
+        drive = get_drive_instance()
+        if drive:
+            st.session_state["drive"] = drive
+
+    if not drive:
+        st.error("❌ Drive not available. Please log in or set GDRIVE_SA_B64.")
+        st.stop()
+
+    st.markdown("## Video Search inside \"HVAC School\" and \"Love2HVAC with Ty\" YouTube channels")
+    render_hvac_visual_search(drive)
