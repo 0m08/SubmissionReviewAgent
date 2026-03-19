@@ -50,6 +50,20 @@ def _clear_step_context() -> None:
     os.environ["CURRENT_STEP_NAME"] = ""
 
 
+def _get_tracking_context() -> dict:
+    """
+    Session values for activity_tracking_service (step_start/complete/error, run_all, background).
+    If ``gc`` is missing (e.g. before OAuth), tracking calls are no-ops via ``if ctx["gc"]``.
+    """
+    return {
+        "gc": st.session_state.get("gc"),
+        "user_email": st.session_state.get("user_email") or "",
+        "agent_name": st.session_state.get("agent_name") or "",
+        "course_name": st.session_state.get("course_name") or "",
+        "sheet_link": st.session_state.get("sheet_link") or "",
+    }
+
+
 def _is_llm_step(step: dict) -> bool:
     return "llm" in step.get("args", {}) or step.get("is_llm_step", False)
 

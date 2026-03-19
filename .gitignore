@@ -1,6 +1,7 @@
 /.env
 /.venv
 __pycache__/
+3rdenv/
 *.pyc
 token_usage_log.csv
 logging.csv

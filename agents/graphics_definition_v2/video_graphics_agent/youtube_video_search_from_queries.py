@@ -17,7 +17,7 @@ load_dotenv()
 
 # Configuration constants
 search_k = 5  # Number of results to retrieve per search query
-use_reranking = True  # Whether to use Cohere reranking
+use_reranking = False 
 #video_embeddings_folder_id = '1SSvxx1EJ3zgMPfvD8Zy5DaEgmI2prys7'  # Google Drive folder ID for video embeddings
 video_embeddings_folder_id = '15H9thXq02JX3ldADSj1oD78mbV-fXfvu'  # Google Drive folder ID for video embeddings
 video_embeddings_folder_name = 'Vectorstore for HVAC school video embeddings (Category - 3D Animations and Simulations, Hands-On Field Work, Equipment Demos & Teardowns)'  # Name of the vectorstore folder inside the parent folder
