@@ -15,6 +15,7 @@ import tempfile, json, base64
 import subprocess
 import sys
 from services.helper_functions import get_short_name
+import re
 
 # Mapping from display names used in the Streamlit UI to the
 # agent names expected by the SDK/CLI scripts.
@@ -343,6 +344,16 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
         with button_col2:
             run_in_background = st.button("Run the Agent in Background", type="primary")
 
+        agent_code_for_state = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
+        background_link_key = f"background_job_link::{agent_code_for_state}"
+        background_name_key = f"background_job_name::{agent_code_for_state}"
+        if st.session_state.get(background_link_key):
+            st.markdown(
+                f"**Background job:** [{st.session_state[background_link_key]}]({st.session_state[background_link_key]})"
+            )
+        elif st.session_state.get(background_name_key):
+            st.markdown(f"**Background job:** `{st.session_state[background_name_key]}`")
+
         # Admin exclusive features
         if 'role' in st.session_state: #and st.session_state['role'] == 'Admin':
             # Skip Manual Steps
@@ -411,36 +422,58 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     ]
                     if toggle_values:
                         cmd.extend(["--toggles", json.dumps(toggle_values)])
-                    log_placeholder = st.empty()
-                    with st.spinner("Running the Agent in Background"):
+                    with st.spinner("Submitting background job..."):
                         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                         logs = ""
-                        for line in iter(process.stdout.readline, ''):
-                            if not line:
+                        job_link = None
+                        job_name = None
+                        link_re = re.compile(r"^\[JOB_LINK\]\s+(?P<link>\S+)\s*$")
+                        name_re = re.compile(r"^\[JOB_NAME\]\s+(?P<name>.+?)\s*$")
+                        start = time.time()
+                        while True:
+                            if process.stdout is None:
                                 break
+                            line = process.stdout.readline()
+                            if not line:
+                                if process.poll() is not None:
+                                    break
+                                if time.time() - start > 10:
+                                    break
+                                time.sleep(0.1)
+                                continue
                             logs += line
-                        process.stdout.close()
-                        process.wait()
-                    
-                    if process.returncode == 0:
-                        st.markdown(
-    """
-    <div style='background-color: #1b4636; color: #fff; padding: 1.5em 1em; border-radius: 14px; font-size: 1.4em; font-weight: 700; margin-top: 1.5em; text-align: center;'>
-        🎉 <b>All the steps completed successfully!</b>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+                            m = link_re.match(line.strip())
+                            if m:
+                                job_link = m.group("link")
+                                break
+                            m2 = name_re.match(line.strip())
+                            if m2:
+                                job_name = m2.group("name")
+                        try:
+                            if process.stdout is not None:
+                                process.stdout.close()
+                        except Exception:
+                            pass
+                        try:
+                            process.wait(timeout=2)
+                        except Exception:
+                            pass
+
+                    if job_link:
+                        st.session_state[background_link_key] = job_link
+                        st.session_state.pop(background_name_key, None)
+                        st.success("Background job submitted.")
+                        st.markdown(f"**Background job:** [{job_link}]({job_link})")
+                    elif job_name:
+                        st.session_state[background_name_key] = job_name
+                        st.session_state.pop(background_link_key, None)
+                        st.success("Background job submitted.")
+                        st.markdown(f"**Background job:** `{job_name}`")
+                        with st.expander("Launcher output (no job link found)", expanded=False):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
                     else:
-                        st.markdown(
-    f"""
-    <div style='background-color: #8B0000; color: #fff; padding: 1.5em 1em; border-radius: 14px; font-size: 1.4em; font-weight: 700; margin-top: 1.5em; text-align: center;'>
-        ❌ <b>Job failed!</b> Check the Lightning Job logs for details.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-                        with st.expander("View error logs", expanded=True):
+                        st.error("Background job submission did not return a job link.")
+                        with st.expander("Launcher output", expanded=True):
                             st.code(logs[-5000:] if len(logs) > 5000 else logs)
 
     # --- 4) Display pipeline steps in nested sections ---

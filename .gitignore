@@ -4,3 +4,10 @@ __pycache__/
 *.pyc
 token_usage_log.csv
 logging.csv
+
+# Virtual environments
+.venv/
+venv_requirementtest/
+venv/
+env/
+_tmp_whl/

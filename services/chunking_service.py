@@ -1,4 +1,4 @@
-from chonkie import SDPMChunker
+from chonkie import SemanticChunker
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import re
@@ -16,16 +16,16 @@ def semantic_chunker(text, chunk_size = 2000):
     Returns:
         chunks: A list of chunks of the given text
     """
-    # Basic initialization with default parameters
-    sdpm_chunker = SDPMChunker(
-        embedding_model="minishlab/potion-base-8M",  # Default model
-        threshold=0.5,                               # Similarity threshold (0-1)
-        chunk_size=chunk_size,                       # Maximum tokens per chunk
-        min_sentences=1,                             # Initial sentences per chunk
-        skip_window=1                                # Number of chunks to skip when looking for similarities
+    # SemanticChunker replaced SDPMChunker in chonkie 1.x (same idea: embedding-based splits).
+    semantic = SemanticChunker(
+        embedding_model="minishlab/potion-base-8M",
+        threshold=0.5,
+        chunk_size=chunk_size,
+        min_sentences_per_chunk=1,
+        skip_window=1,
     )
 
-    chunks = sdpm_chunker.chunk(text)
+    chunks = semantic.chunk(text)
 
     return [{"text": chunk.text} for chunk in chunks]
 
