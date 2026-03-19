@@ -1,8 +1,10 @@
+import time
 import streamlit as st
 import os
 from io import BytesIO
 from PIL import Image
 from agents.image_translation.image_translation import image_translation_with_review_loop
+from services.activity_tracking_service import track_tool_action
 
 def main():
     """
@@ -72,6 +74,7 @@ def main():
                 st.session_state.translation_history = None
                 
                 # Run translation pipeline with loader
+                _t = time.perf_counter()
                 with st.spinner("Translating image... This may take a moment."):
                     try:
                         final_translated_image, history = image_translation_with_review_loop(
@@ -79,14 +82,16 @@ def main():
                             translation_direction=translation_direction,
                             user_comment=user_comment if user_comment else None
                         )
-                        
+
                         # Store results in session state
                         st.session_state.translated_image_result = final_translated_image
                         st.session_state.translation_history = history
-                        
+
+                        track_tool_action("Image Translation", "translate_image", run_mode="tool", course_name="", sheet_link="", duration_seconds=time.perf_counter() - _t)
                         st.success("✅ Translation complete!")
-                        
+
                     except Exception as e:
+                        track_tool_action("Image Translation", "translate_image", run_mode="tool", course_name="", sheet_link="", error_message=str(e)[:500])
                         st.error(f"❌ Translation failed: {str(e)}")
     
     with col2:

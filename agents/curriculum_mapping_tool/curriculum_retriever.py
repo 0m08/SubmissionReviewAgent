@@ -7,7 +7,7 @@ import streamlit as st
 from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-from langchain.schema import Document
+from langchain_classic.schema import BaseRetriever, Document
 from langchain_chroma import Chroma
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
@@ -16,6 +16,10 @@ from langchain_cohere import CohereRerank
 from pydrive2.files import ApiRequestError
 from gspread.utils import rowcol_to_a1
 from services.embedding_service import get_embedding_model
+from agents.curriculum_mapping_tool.supabase_vectorstore_service import (
+    vector_search as supabase_vector_search,
+    fulltext_search as supabase_fulltext_search,
+)
 from agents.course_outline.video_search_tool.video_retriever import video_retriever, warmup_video_retriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
 from agents.curriculum_mapping_tool.curriculum_mapping_agent import select_best_resources_unified
@@ -123,6 +127,7 @@ NEXTECH_CFG = {
 
 SKILLCAT_CFG = {
     "name": "skillcat",
+    "backend": "supabase",
     "central_folder_id": "14Xeg7riEhPOL_zaVQ2eo7bVRa9lTr-W1",
     "chroma_folder_name": "chroma_skillcat_db",
     "collection_name": "skillcat_courses",
@@ -133,6 +138,29 @@ SKILLCAT_CFG = {
 _VECTOR_RETRIEVER_CACHE: Dict[str, Tuple[Chroma, Any]] = {}
 _BM25_CACHE: Dict[str, BM25Retriever] = {}
 _COMPRESSION_CACHE: Dict[str, ContextualCompressionRetriever] = {}
+
+
+class SupabaseVectorRetriever(BaseRetriever):
+    """LangChain BaseRetriever wrapping Supabase pgvector search."""
+
+    k: int = 20
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def _get_relevant_documents(self, query: str, **kwargs) -> List[Document]:
+        embedding_model = get_embedding_model()
+        query_embedding = embedding_model.embed_query(query)
+        return supabase_vector_search(query_embedding, k=self.k)
+
+
+class SupabaseFTSRetriever(BaseRetriever):
+    """LangChain BaseRetriever wrapping Supabase full-text search."""
+
+    k: int = 20
+
+    def _get_relevant_documents(self, query: str, **kwargs) -> List[Document]:
+        return supabase_fulltext_search(query, k=self.k)
 
 
 def _is_drive_quota_error(err: Exception) -> bool:
@@ -196,6 +224,11 @@ def load_vector_db_retriever(cfg: Dict[str, str], drive, k: int = 20) -> Tuple[C
     if cache_key in _VECTOR_RETRIEVER_CACHE:
         return _VECTOR_RETRIEVER_CACHE[cache_key]
 
+    if cfg.get("backend") == "supabase":
+        retriever = SupabaseVectorRetriever(k=k)
+        _VECTOR_RETRIEVER_CACHE[cache_key] = (None, retriever)
+        return None, retriever
+
     embedding_model = get_embedding_model()
     chroma_db = load_chroma_db(cfg, embedding_model, drive)
     retriever = chroma_db.as_retriever(search_kwargs={"k": k})
@@ -211,6 +244,11 @@ def load_bm25_retriever_with_pydrive(cfg: Dict[str, str], drive, k: int = 20) ->
     cache_key = cfg["name"]
     if cache_key in _BM25_CACHE:
         return _BM25_CACHE[cache_key]
+
+    if cfg.get("backend") == "supabase":
+        retriever = SupabaseFTSRetriever(k=k)
+        _BM25_CACHE[cache_key] = retriever
+        return retriever
 
     central_folder_id = cfg["central_folder_id"]
     pickle_name = cfg["bm25_pickle_name"]

@@ -149,15 +149,19 @@ def load_video_vector_db_retriever(drive, central_folder_id = VIDEO_CENTRAL_FOLD
 def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video_embeddings_folder_name='Vectorstore for HVAC school video embeddings'):
     """
     Load the new multimodal video embeddings Chroma DB from Google Drive.
-    Uses a per-process cache keyed by the resolved Drive folder ID, and a process-local
-    directory so multiple processes (e.g. Streamlit workers) never open the same DB path.
+    Uses a per-process cache keyed by the resolved Drive folder ID, and a process-local directory so multiple processes (e.g. Streamlit workers) never open the same DB path.
     
     :param drive: Authenticated PyDrive2 instance.
     :param video_embeddings_folder_id: Drive folder ID containing the vectorstore folder.
     :param video_embeddings_folder_name: Name of the vectorstore folder inside the parent folder (default: 'Vectorstore for HVAC school video embeddings').
     :return: Chroma vectorstore instance.
     """
-    # Resolve Drive folder first so we can cache by actual folder ID (same folder => one cache entry regardless of folder_name string).
+
+    # Local path for new video embeddings Chroma DB
+    local_chroma_path = "/tmp/HVAC Video Embeddings"
+    os.makedirs(local_chroma_path, exist_ok=True)
+
+    # Search for the vectorstore folder in Drive
     print(f"Searching for '{video_embeddings_folder_name}' in Drive...")
     file_list = drive.ListFile({
         'q': f"title='{video_embeddings_folder_name}' and '{video_embeddings_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -774,4 +778,3 @@ Candidate videos:
 
     print("Max turns reached. No videos selected.")
     return []
-

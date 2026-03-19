@@ -16,11 +16,13 @@ import base64
 import json
 import tempfile
 import time
+import traceback
 import streamlit as st
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 
 from services.drive_service import login_with_service_account
+from services.activity_tracking_service import track_tool_action
 from agents.course_outline.video_search_tool.video_retriever import load_new_video_embeddings_chroma_db
 
 load_dotenv()
