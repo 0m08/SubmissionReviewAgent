@@ -426,11 +426,11 @@ aggregation_agent_page = st.Page(
     icon=":material/slideshow:",
 )
 
-pptx_exporter_page = st.Page(
-    "pptx_exporter.py",
-    title="PPTX Exporter",
-    icon=":material/present_to_all:",
-)
+# pptx_exporter_page = st.Page(
+#     "pptx_exporter.py",
+#     title="PPTX Exporter",
+#     icon=":material/present_to_all:",
+# )
 
 # video_embeddings_page = st.Page(
 #     "video_embeddings.py",
@@ -493,7 +493,7 @@ page_name_to_object = {
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
     #"video_embeddings_page": video_embeddings_page,
     "aggregation_agent_page": aggregation_agent_page,
-    "pptx_exporter_page": pptx_exporter_page,
+    #"pptx_exporter_page": pptx_exporter_page,
 }
 
 # Define which pages belong to which category
@@ -521,7 +521,7 @@ tool_pages = [
     "image_editing_tool_page",
     "curriculum_mapping_tool_page",
     "aggregation_agent_page",
-    "pptx_exporter_page",
+    #"pptx_exporter_page",
 ]
 
 if st.session_state.role:
