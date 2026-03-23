@@ -35,6 +35,7 @@ parser.add_argument(
     help="Agent/pipeline to run",
 )
 parser.add_argument("--user_email", default="", help="User email for job notifications (or set USER_EMAIL env)")
+parser.add_argument("--toggles", default="", help="JSON string of UI toggle values")
 args = parser.parse_args()
 
 AGENT_DISPLAY_NAMES = {
@@ -109,6 +110,7 @@ session_state = {
     "skip_manual_step": True,
     "root_folder_id": args.drive_folder_id,
     "gc": gc,
+    "use_only_drive_and_hvac": False,
 }
 
 # Copy completed-step flags from Agent logs (loaded into st.session_state) into session_state
@@ -116,6 +118,15 @@ session_state = {
 for key, value in st.session_state.items():
     if key.endswith("_done") and value is True:
         session_state[key] = value
+
+# Merge UI toggle values forwarded from the Streamlit app (e.g. use_only_drive_and_hvac)
+if args.toggles:
+    try:
+        toggle_values = json.loads(args.toggles)
+        session_state.update(toggle_values)
+        print(f"[INFO] Loaded UI toggles: {toggle_values}")
+    except json.JSONDecodeError as e:
+        print(f"[WARNING] Could not parse --toggles JSON: {e}")
 
 # Extract course info
 try:
@@ -127,6 +138,7 @@ try:
         session_state["target_audience"] = row0.get("Target Audience & Industry", "")
         session_state["course_background"] = row0.get("Course Background", "")
         session_state["course_objective_guidelines"] = row0.get("Course Objective Guidelines", "")
+        session_state["checklist_sheet_link"] = str(row0.get("Checklist Link") or "").strip()
 
         # Determine if outline is finalized
         outline_stage_raw = row0.get("Outline Stage")

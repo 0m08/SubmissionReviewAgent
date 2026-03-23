@@ -13,6 +13,7 @@ def main():
     parser.add_argument('--drive_folder_id', required=True, help='Google Drive folder ID')
     parser.add_argument('--agent_name', required=True, help='Name of the agent to run')
     parser.add_argument('--user_email', default='', help='User email for job notifications')
+    parser.add_argument('--toggles', default='', help='JSON string of UI toggle values to forward')
     args = parser.parse_args()
 
     # Use GDRIVE_SA_B64 directly if available, otherwise encode GDRIVE_SA_JSON
@@ -28,12 +29,7 @@ def main():
     vertex_ai_sa_b64 = os.environ.get("VERTEX_AI_SA_B64", "")
 
     # # Main ones
-    # studio_name = "course-generation-agents"
-    # teamspace = "Vision-model"
-    # user = "dilip"
-
-    # Niket one for testing background job
-    studio_name = "latest-19-02"
+    studio_name = "course-generation-agents"
     teamspace = "Vision-model"
     user = "dilip"
 
@@ -59,6 +55,10 @@ def main():
         f"export SMTP_USER='{smtp_user}' && "
         f"export SMTP_APP_PASSWORD='{smtp_pass}' && "
     )
+    toggles_arg = ""
+    if args.toggles:
+        escaped_toggles = args.toggles.replace("'", "'\"'\"'")
+        toggles_arg = f" --toggles '{escaped_toggles}'"
     command = (
         f"echo 'numpy<2' > /tmp/constraints.txt && "
         f"pip install 'numpy<2' 'matplotlib>=3.9' 'scikit-learn>=1.5' google-cloud-aiplatform && "
@@ -68,6 +68,7 @@ def main():
         f"--sheet_link '{args.sheet_link}' "
         f"--drive_folder_id '{args.drive_folder_id}' "
         f"--agent_name '{agent}'"
+        f"{toggles_arg}"
     )
 
     print(f"\n[INFO] Submitting job for agent: {agent}")
@@ -78,15 +79,13 @@ def main():
         interruptible = True
     )
 
-    print(f"[INFO] Job '{job.name}' submitted. Waiting for it to finish...")
-    job.wait()
-    print(f"[INFO] Job '{job.name}' completed with status: {job.status}")
-    
-    # Exit with non-zero code if job failed
-    status_str = str(job.status).lower()
-    if status_str not in ("succeeded", "completed", "success", "status.succeeded"):
-        print(f"[ERROR] Job failed with status: {job.status}")
-        sys.exit(1)
+
+    print(f"[INFO] Job '{job.name}' submitted.")
+    job_link = getattr(job, "link", "") or ""
+    if job_link:
+        print(f"[JOB_LINK] {job_link}")
+    else:
+        print(f"[JOB_NAME] {job.name}")
 
 if __name__ == "__main__":
     main()

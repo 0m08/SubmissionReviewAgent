@@ -233,10 +233,15 @@ pipeline_sections = [
                     "sheet": "sheet"
                 }
             },
+        ]
+    },
+    {
+        "section_name": "Section 7: Human Feedback Revisions",
+        "steps": [
             {
                 "name": "Review and Revise Graphics Definitions based on Human Feedback",
                 "func": run_human_feedback_review_revise_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Review and Revise Graphics Definitions"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
@@ -250,29 +255,30 @@ pipeline_sections = [
                     "sheet": "sheet"
                 }
             },
-            {
-                "name": "Populate Human Feedback Original/Final Visual Columns",
-                "func": run_populate_human_feedback_visual_columns,
-                "depends_on": [],
-                "args": {
-                    "sheet": "sheet",
-                },
-                "estimated_time": "1-5 minutes",
-                "description": "Adds dynamic columns after human_feedback_revision_tracking: Original Visual 1, Revised Visual 1, (blank gap), Original Visual 2, … per VO with feedback; IMAGE() for image URLs, HYPERLINK for YouTube; cell notes with When VO and Human Feedback.",
-                "delete_func": delete_human_feedback_visual_columns,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
+            # },
+            # {
+            #     "name": "Populate Human Feedback Original/Final Visual Columns",
+            #     "func": run_populate_human_feedback_visual_columns,
+            #     "depends_on": [],
+            #     "args": {
+            #         "sheet": "sheet",
+            #     },
+            #     "estimated_time": "1-5 minutes",
+            #     "description": "Adds dynamic columns after human_feedback_revision_tracking: Original Visual 1, Revised Visual 1, (blank gap), Original Visual 2, … per VO with feedback; IMAGE() for image URLs, HYPERLINK for YouTube; cell notes with When VO and Human Feedback.",
+            #     "delete_func": delete_human_feedback_visual_columns,
+            #     "delete_args": {
+            #         "sheet": "sheet"
+            #     }
+            # },
         ]
     },
     {
-        "section_name": "Section 7: Layout Agent",
+        "section_name": "Section 8: Layout Agent",
         "steps": [
             {
                 "name": "Run Layout Agent",
                 "func": run_layout_agent_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Review and Revise Graphics Definitions based on Human Feedback"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",

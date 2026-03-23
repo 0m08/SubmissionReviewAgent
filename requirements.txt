@@ -1,4 +1,4 @@
-# aiohappyeyeballs==2.4.4
+﻿# aiohappyeyeballs==2.4.4
 # aiohttp==3.11.11
 # aiosignal==1.3.2
 # altair==5.5.0
@@ -222,6 +222,8 @@
 # mcp[cli]>=1.0.0
 # pytest-asyncio>=0.21.0
 
+# python-pptx>=1.0
+# mutagen>=1.47
 
 
 
@@ -230,8 +232,7 @@
 
 
 
-
-
+#This is seperate enviroment's requirement
 # Keep NumPy <2 for environments with global constraints (e.g. Lightning base images).
 numpy<2
 
@@ -254,6 +255,16 @@ langtrace-python-sdk>=3.8
 google-genai>=1.61
 cohere>=5.20
 
+edge-tts==7.2.3
+nest-asyncio==1.6.0
+yt-dlp==2025.12.8
+moviepy==1.0.3
+python-pptx>=1.0
+mutagen>=1.47
+
+# Only instal this window-curses package on local, but dont install on lightning ai, since it will fail and give you error in the background job
+#windows-curses==2.4.1
+
 # ===== Google APIs & Drive =====
 google-api-python-client>=2.48
 google-auth>=2.48
@@ -269,7 +280,7 @@ oauth2client>=4.1
 # ===== Data & ML =====
 rank-bm25>=0.2.2
 pandas>=2.2
-pillow>=11.1
+pillow==9.5.0
 ImageHash>=4.3
 # Install sentence-transformers directly instead of chonkie[st] to avoid forcing numpy>=2.
 chonkie==1.3.1

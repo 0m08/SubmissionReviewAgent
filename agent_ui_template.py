@@ -760,8 +760,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                             # Add delete button for completed steps
                             if st.button("Delete Step", type="secondary", key=f"delete_{step['name']}"):
                                 try:
-                                    # Get all dependent steps
-                                    affected_steps = get_dependent_steps(pipeline_sections, step["name"])
+                                    
+                                    affected_steps = get_dependent_steps(
+                                        pipeline_sections, step["name"], only_done=False
+                                    )
                                     
                                     affected_list = ", ".join(affected_steps)
                                     st.warning(f"Deleting this step will also delete these dependent steps: {affected_list}")
@@ -789,11 +791,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
     # st.write(st.session_state)
 
 
-def get_dependent_steps(pipeline_sections, step_name):
+def get_dependent_steps(pipeline_sections, step_name, only_done=True):
     """
     Find all steps that depend on the given step (directly or indirectly).
     Returns a list of step names including the starting step.
-    Only includes steps that are marked as done in the session state.
+    By default, only includes steps that are marked as done in the session state.
+    Set only_done=False to include all downstream dependent steps.
     Steps are returned in reverse dependency order (most dependent first).
     """
     all_steps = {}
@@ -808,8 +811,12 @@ def get_dependent_steps(pipeline_sections, step_name):
     # Function to recursively find dependent steps
     def find_dependents(step_to_check):
         for current_step, dependencies in all_steps.items():
-            # Only include steps that are marked as done
-            if step_to_check in dependencies and current_step not in dependent_steps and st.session_state.get(f"{current_step}_done", False):
+            is_done = st.session_state.get(f"{current_step}_done", False)
+            if (
+                step_to_check in dependencies
+                and current_step not in dependent_steps
+                and (is_done or not only_done)
+            ):
                 find_dependents(current_step)
                 dependent_steps.append(current_step)
     
