@@ -83,7 +83,11 @@ def login():
                 redirect_uri=redirect_uri,
                 code=code,
             )
-            gauth, drive, gc = init_clients_from_credentials(creds)
+            gauth, drive, gc = init_clients_from_credentials(
+                creds,
+                client_id=oauth_client_id,
+                client_secret=oauth_client_secret
+            )
 
             about = drive.GetAbout()
             user_email = about.get('user', {}).get('emailAddress', '')
@@ -315,11 +319,17 @@ slide_chunks_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
-graphics_definition_page = st.Page(
-    "graphics_definition.py",
-    title="Graphics Definiton",
-    icon=":material/image:",
-    # Optional: default=(role == "Requester") or any logic
+# graphics_definition_page = st.Page(
+#     "graphics_definition.py",
+#     title="Graphics Definiton (Old)",
+#     icon=":material/image:",
+#     # Optional: default=(role == "Requester") or any logic
+# )
+
+graphics_definition_v2_page = st.Page(
+    "graphics_definition_v2.py",
+    title="Graphics Definition",
+    icon=":material/auto_awesome:",
 )
 
 assessments_generation_page = st.Page(
@@ -368,6 +378,17 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
+# graphics_definition_v2_slideshow_page = st.Page(
+#     "graphics_definition_v2_video_generator.py",
+#     title="Graphics V2 Slideshow",
+#     icon=":material/slideshow:",
+# )
+
+slideshow_streamlit_page = st.Page(
+    "slideshow_streamlit.py",
+    title="Slideshow",
+    icon=":material/slideshow:",
+)
 
 paraphraser_page = st.Page(
     "paraphraser.py",
@@ -399,6 +420,32 @@ curriculum_mapping_tool_page = st.Page(
     icon=":material/menu_book:",
 )
 
+aggregation_agent_page = st.Page(
+    "graphics_definition_v2_slideshow.py",
+    title="Aggregation Agent Slideshow",
+    icon=":material/slideshow:",
+)
+
+# pptx_exporter_page = st.Page(
+#     "pptx_exporter.py",
+#     title="PPTX Exporter",
+#     icon=":material/present_to_all:",
+# )
+
+# video_embeddings_page = st.Page(
+#     "video_embeddings.py",
+#     title="Video Embeddings",
+#     icon=":material/menu_book:",
+# )
+
+# video_search_hvac_channels_page = st.Page(
+#     "video_search_hvac_channels.py",
+#     title="Video Search inside 'HVAC School' & 'Love2HVAC with TY' Youtube Channel)",
+#     icon=":material/search:",
+# )
+
+
+
 #######################
 # 3) Common app layout
 #######################
@@ -427,7 +474,8 @@ page_name_to_object = {
     "course_outline_page": course_outline_page,
     "research_notes_page": research_notes_page,
     "slide_chunks_page": slide_chunks_page,
-    "graphics_definition_page": graphics_definition_page,
+    #"graphics_definition_page": graphics_definition_page,
+    "graphics_definition_v2_page": graphics_definition_v2_page,
     "assessments_generation_page": assessments_generation_page,
     "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
@@ -436,11 +484,16 @@ page_name_to_object = {
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
+    #"graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
+    "slideshow_streamlit_page": slideshow_streamlit_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
     "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
+    #"video_embeddings_page": video_embeddings_page,
+    "aggregation_agent_page": aggregation_agent_page,
+    #"pptx_exporter_page": pptx_exporter_page,
 }
 
 # Define which pages belong to which category
@@ -450,7 +503,8 @@ agent_pages = [
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
-    "graphics_definition_page",
+    #"graphics_definition_page",
+    "graphics_definition_v2_page",
     "assessments_generation_page",
     "get_images_page"]
 tool_pages = [
@@ -458,11 +512,16 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
+    #"video_embeddings_page",
+    #"graphics_definition_v2_slideshow_page",
+    "slideshow_streamlit_page",
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",
     "image_editing_tool_page",
     "curriculum_mapping_tool_page",
+    "aggregation_agent_page",
+    #"pptx_exporter_page",
 ]
 
 if st.session_state.role:

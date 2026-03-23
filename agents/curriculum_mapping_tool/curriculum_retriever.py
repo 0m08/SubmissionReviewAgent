@@ -9,7 +9,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from langchain_classic.schema import BaseRetriever, Document
 from langchain_chroma import Chroma
-from langchain_classic.retrievers import BM25Retriever, EnsembleRetriever, ContextualCompressionRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_cohere import CohereRerank
 from pydrive2.files import ApiRequestError
 from gspread.utils import rowcol_to_a1
@@ -22,7 +24,7 @@ from agents.course_outline.video_search_tool.video_retriever import video_retrie
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
 from agents.curriculum_mapping_tool.curriculum_mapping_agent import select_best_resources_unified
 from agents.curriculum_mapping_tool.consolidation_agent import consolidate_category
-    
+
 from services.sheets_service import get_sheet_data_and_df, save_to_sheet, hide_columns_by_name, resize_column_by_name
 from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable

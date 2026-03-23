@@ -1,4 +1,4 @@
-from langchain_classic.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 from tqdm import tqdm
 from services.embedding_service import get_embedding_model
 from agents.vector_store_image_search.create_vectorstore import upload_folder_to_drive

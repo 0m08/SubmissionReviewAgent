@@ -96,3 +96,1439 @@ metadata {
 "2026-02-27 22:26:27","INFO","app.print","Using existing local Video Embeddings Chroma DB."
 "2026-02-27 22:26:27","INFO","app.print","Available collections in vectorstore: ['video_embeddings']"
 "2026-02-27 22:26:27","INFO","app.print","Loaded 'video_embeddings' collection from new vectorstore."
+"2026-03-19 16:31:09","INFO","app.print","Searching for 'chroma_video_db' in Drive..."
+"2026-03-19 16:31:09","INFO","oauth2client.transport","Attempting refresh to obtain initial access_token"
+"2026-03-19 16:31:09","INFO","oauth2client.client","Refreshing access_token"
+"2026-03-19 16:31:11","INFO","app.print","Found Chroma folder ID: 1qlLkmukMTRSTBJnsJBf5aguMT0fnEScD"
+"2026-03-19 16:31:11","INFO","app.print","Using existing local Chroma DB."
+"2026-03-19 16:31:12","INFO","app.print","Loaded 'video_embeddings' collection."
+"2026-03-19 16:31:12","INFO","app.print","Loaded vector database retriever."
+"2026-03-19 16:31:12","INFO","app.print","BM25 retriever already exists locally. Skipping download."
+"2026-03-19 16:31:26","INFO","app.print","Searching for 'Vectorstore for HVAC school video embeddings (Category - 3D Animations and Simulations, Hands-On Field Work, Equipment Demos & Teardowns)' in Drive..."
+"2026-03-19 16:31:26","INFO","oauth2client.transport","Attempting refresh to obtain initial access_token"
+"2026-03-19 16:31:26","INFO","oauth2client.client","Refreshing access_token"
+"2026-03-19 16:31:27","INFO","app.print","Found Video Embeddings folder ID: 1Zx7FQPpMNXU2zOaMNhPaufevcfxCuL7n"
+"2026-03-19 16:31:27","INFO","app.print","⬇ Downloading Video Embeddings Chroma DB from Drive..."
+"2026-03-19 16:32:05","INFO","app.print","Downloaded Video Embeddings Chroma DB from Drive to C:\Users\pnike\AppData\Local\Temp\HVAC Video Embeddings\50268\8066736f-43cd-43c6-86f9-f34bd75c9f02"
+"2026-03-19 16:32:05","INFO","app.print","Using Chroma DB subfolder: chroma_video_embeddings_db"
+"2026-03-19 16:32:06","INFO","app.print","Available collections in vectorstore: ['video_embeddings']"
+"2026-03-19 16:32:06","INFO","app.print","Loaded 'video_embeddings' collection from new vectorstore."
+"2026-03-19 16:32:06","INFO","app.print","🔍 Searching video embeddings for query: 'fan...'"
+"2026-03-19 16:32:06","INFO","app.print","✅ Vertex AI initialized with project: dam-images-tagging"
+"2026-03-19 16:32:10","INFO","app.print","✅ Using Vertex AI multimodal embeddings for query"
+"2026-03-19 16:32:10","INFO","app.print","✅ Query embedding dimension: 1408"
+"2026-03-19 16:33:34","INFO","app.print","Searching for 'chroma_video_db' in Drive..."
+"2026-03-19 16:33:34","INFO","oauth2client.transport","Attempting refresh to obtain initial access_token"
+"2026-03-19 16:33:34","INFO","oauth2client.client","Refreshing access_token"
+"2026-03-19 16:33:35","INFO","app.print","Found Chroma folder ID: 1qlLkmukMTRSTBJnsJBf5aguMT0fnEScD"
+"2026-03-19 16:33:35","INFO","app.print","Using existing local Chroma DB."
+"2026-03-19 16:33:35","INFO","app.print","Loaded 'video_embeddings' collection."
+"2026-03-19 16:33:35","INFO","app.print","Loaded vector database retriever."
+"2026-03-19 16:33:35","INFO","app.print","BM25 retriever already exists locally. Skipping download."
+"2026-03-19 16:33:43","INFO","app.print","Searching for 'Vectorstore for HVAC school video embeddings (Category - 3D Animations and Simulations, Hands-On Field Work, Equipment Demos & Teardowns)' in Drive..."
+"2026-03-19 16:33:43","INFO","oauth2client.transport","Attempting refresh to obtain initial access_token"
+"2026-03-19 16:33:43","INFO","oauth2client.client","Refreshing access_token"
+"2026-03-19 16:33:44","INFO","app.print","Found Video Embeddings folder ID: 1Zx7FQPpMNXU2zOaMNhPaufevcfxCuL7n"
+"2026-03-19 16:33:44","INFO","app.print","⬇ Downloading Video Embeddings Chroma DB from Drive..."
+"2026-03-19 16:34:24","INFO","app.print","Downloaded Video Embeddings Chroma DB from Drive to C:\Users\pnike\AppData\Local\Temp\HVAC Video Embeddings\50268\cfb7ba69-2cb9-4a85-a036-8b6da20309ba"
+"2026-03-19 16:34:24","INFO","app.print","Using Chroma DB subfolder: chroma_video_embeddings_db"
+"2026-03-19 16:34:24","INFO","app.print","Available collections in vectorstore: ['video_embeddings']"
+"2026-03-19 16:34:24","INFO","app.print","Loaded 'video_embeddings' collection from new vectorstore."
+"2026-03-19 16:34:24","INFO","app.print","🔍 Searching video embeddings for query: 'fan...'"
+"2026-03-19 16:34:24","INFO","app.print","✅ Vertex AI initialized with project: dam-images-tagging"
+"2026-03-19 16:34:28","INFO","app.print","✅ Using Vertex AI multimodal embeddings for query"
+"2026-03-19 16:34:28","INFO","app.print","✅ Query embedding dimension: 1408"
+"2026-03-19 18:27:20","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:27:47","INFO","app.print","Agent logs sheet already exists"
+"2026-03-19 18:27:50","INFO","app.print","Agent logs sheet already exists"
+"2026-03-19 18:27:57","INFO","app.print","Agent logs sheet already exists"
+"2026-03-19 18:28:04","INFO","app.print","Cleared References column in 'Final Outline' sheet."
+"2026-03-19 18:28:11","INFO","app.print","All References sheet deleted"
+"2026-03-19 18:28:14","INFO","app.print","Agent logs sheet already exists"
+"2026-03-19 18:28:20","INFO","app.print","Agent logs sheet already exists"
+"2026-03-19 18:28:20","INFO","app.print","Loading the sheets..."
+"2026-03-19 18:28:28","INFO","app.print","'Topic Outline' not found in the sheet. Skipping."
+"2026-03-19 18:28:28","INFO","app.print","'Topic Deep Research' not found in the sheet. Skipping."
+"2026-03-19 18:28:30","INFO","app.print","All References sheet created"
+"2026-03-19 18:28:30","INFO","app.print","Creating new references DataFrame..."
+"2026-03-19 18:28:30","INFO","app.print","Text length: 135515"
+"2026-03-19 18:28:30","INFO","app.print","Text length: 16473"
+"2026-03-19 18:28:30","INFO","app.print","Text length: 102069"
+"2026-03-19 18:28:30","INFO","app.print","Text length: 180339"
+"2026-03-19 18:28:30","INFO","app.print","Text length: 131994"
+"2026-03-19 18:28:30","INFO","app.print","Text length: 87268"
+"2026-03-19 18:28:30","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:30","INFO","app.print","Text length: 131744"
+"2026-03-19 18:28:30","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:30","INFO","app.print","Text length: 8186"
+"2026-03-19 18:28:30","INFO","app.print","Plain text detected"
+"2026-03-19 18:28:30","INFO","sentence_transformers.SentenceTransformer","Use pytorch device_name: cpu"
+"2026-03-19 18:28:30","INFO","sentence_transformers.SentenceTransformer","Load pretrained SentenceTransformer: minishlab/potion-base-8M"
+"2026-03-19 18:28:31","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:28:31","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:28:31","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:28:32","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:28:32","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/README.md ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:28:32","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/README.md ""HTTP/1.1 200 OK"""
+"2026-03-19 18:28:32","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:28:32","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:28:32","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/tokenizer.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:28:32","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/tokenizer.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:28:33","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/model.safetensors ""HTTP/1.1 302 Found"""
+"2026-03-19 18:28:33","INFO","httpx","HTTP Request: GET https://huggingface.co/api/models/minishlab/potion-base-8M ""HTTP/1.1 200 OK"""
+"2026-03-19 18:28:33","INFO","app.print","Text length: 55926"
+"2026-03-19 18:28:33","INFO","app.print","https://thefurnaceoutlet.com/blogs/hvac-tips/how-to-properly-clean-maintain-your-furnace-blower-wheel-without-breaking-it already present in references df"
+"2026-03-19 18:28:33","INFO","app.print","https://www.fieldproxy.ai/blog/10-essential-hvac-safety-tips-for-technicians already present in references df"
+"2026-03-19 18:28:35","INFO","app.print","All topics processed. Saving final DataFrame to sheet."
+"2026-03-19 18:28:39","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-19 18:28:39","INFO","app.print","Loading references to chunks..."
+"2026-03-19 18:28:39","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:39","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:39","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:39","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:39","INFO","app.print","Attempt 1 failed with Could not import ""pytube"" Python package. Please install it with `pip install pytube`.. Retrying after 1 seconds..."
+"2026-03-19 18:28:40","INFO","app.print","Error extracting markdown from https://thefurnaceoutlet.com/blogs/hvac-tips/how-to-properly-clean-maintain-your-furnace-blower-wheel-without-breaking-it. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:40","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:40","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:40","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-760' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:40","INFO","app.print","Error extracting markdown from https://thefurnaceoutlet.com/blogs/hvac-tips/how-to-properly-clean-maintain-your-furnace-blower-wheel-without-breaking-it with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:40","INFO","app.print","--- Fetching content from URL using Jina AI: https://thefurnaceoutlet.com/blogs/hvac-tips/how-to-properly-clean-maintain-your-furnace-blower-wheel-without-breaking-it ---"
+"2026-03-19 18:28:40","INFO","app.print","Attempt 2 failed with Could not import ""pytube"" Python package. Please install it with `pip install pytube`.. Retrying after 2 seconds..."
+"2026-03-19 18:28:40","INFO","app.print","Error extracting markdown from https://unitedhvacmotors.com/blogs/hvac-technical/how-to-clean-hvac-blower-motor. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:40","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:40","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:40","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-764' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:40","INFO","app.print","Error extracting markdown from https://unitedhvacmotors.com/blogs/hvac-technical/how-to-clean-hvac-blower-motor with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:40","INFO","app.print","--- Fetching content from URL using Jina AI: https://unitedhvacmotors.com/blogs/hvac-technical/how-to-clean-hvac-blower-motor ---"
+"2026-03-19 18:28:41","INFO","app.print","Error extracting markdown from https://www.sunheating.com/how-to-clean-blower-wheel-in-furnace/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:41","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:41","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:41","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-768' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:41","INFO","app.print","Error extracting markdown from https://www.sunheating.com/how-to-clean-blower-wheel-in-furnace/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:41","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.sunheating.com/how-to-clean-blower-wheel-in-furnace/ ---"
+"2026-03-19 18:28:41","INFO","app.print","Error extracting markdown from https://www.parkerandsons.com/blog/the-impact-of-a-dirty-blower-wheel-on-your-hvac-systems-efficiency. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:41","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:41","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:41","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-772' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:41","INFO","app.print","Error extracting markdown from https://www.parkerandsons.com/blog/the-impact-of-a-dirty-blower-wheel-on-your-hvac-systems-efficiency with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:41","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.parkerandsons.com/blog/the-impact-of-a-dirty-blower-wheel-on-your-hvac-systems-efficiency ---"
+"2026-03-19 18:28:42","INFO","app.print","Attempt 3 failed with Could not import ""pytube"" Python package. Please install it with `pip install pytube`.. No more retries left."
+"2026-03-19 18:28:42","INFO","app.print","Error getting additional metadata for video id: vNngCmpYGFs"
+"2026-03-19 18:28:44","INFO","app.print","Attempt 1 failed with Error fetching transcript: type object 'YouTubeTranscriptApi' has no attribute 'list_transcripts'. Retrying after 1 seconds..."
+"2026-03-19 18:28:45","INFO","app.print","Attempt 2 failed with Error fetching transcript: type object 'YouTubeTranscriptApi' has no attribute 'list_transcripts'. Retrying after 2 seconds..."
+"2026-03-19 18:28:47","INFO","app.print","Attempt 3 failed with Error fetching transcript: type object 'YouTubeTranscriptApi' has no attribute 'list_transcripts'. No more retries left."
+"2026-03-19 18:28:47","INFO","app.print","Primary transcript fetch failed: Max retries exceeded after 3 attempts.. Attempting RapidAPI fallback..."
+"2026-03-19 18:28:47","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:47","INFO","app.print","Text length: 18453"
+"2026-03-19 18:28:47","INFO","app.print","Attempt 1 failed with Could not import ""pytube"" Python package. Please install it with `pip install pytube`.. Retrying after 1 seconds..."
+"2026-03-19 18:28:48","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:48","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:48","INFO","app.print","Text length: 18547"
+"2026-03-19 18:28:48","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:48","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:48","INFO","app.print","Text length: 18325"
+"2026-03-19 18:28:48","INFO","app.print","Attempt 2 failed with Could not import ""pytube"" Python package. Please install it with `pip install pytube`.. Retrying after 2 seconds..."
+"2026-03-19 18:28:49","INFO","app.print","Error extracting markdown from https://www.truebluehomeservice.com/dirty-furnace-blower-motor-signs-prevention-cleaning. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:49","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:49","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:49","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-785' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:49","INFO","app.print","Error extracting markdown from https://www.truebluehomeservice.com/dirty-furnace-blower-motor-signs-prevention-cleaning with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:49","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.truebluehomeservice.com/dirty-furnace-blower-motor-signs-prevention-cleaning ---"
+"2026-03-19 18:28:50","INFO","app.print","Error extracting markdown from https://www.tritechenergy.com/blog/commercial-hvac/hvac-safety-standards-hazards-and-accident-prevention/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:50","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:50","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:50","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-789' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:50","INFO","app.print","Error extracting markdown from https://www.tritechenergy.com/blog/commercial-hvac/hvac-safety-standards-hazards-and-accident-prevention/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:50","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.tritechenergy.com/blog/commercial-hvac/hvac-safety-standards-hazards-and-accident-prevention/ ---"
+"2026-03-19 18:28:50","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:50","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:50","INFO","app.print","Text length: 106555"
+"2026-03-19 18:28:50","INFO","app.print","Attempt 3 failed with Could not import ""pytube"" Python package. Please install it with `pip install pytube`.. No more retries left."
+"2026-03-19 18:28:50","INFO","app.print","Error getting additional metadata for video id: YwFkhTqgazM"
+"2026-03-19 18:28:51","INFO","app.print","Video id YwFkhTqgazM found in cached CSV."
+"2026-03-19 18:28:51","INFO","app.print","Loaded Cached Transcript from the CSV"
+"2026-03-19 18:28:51","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:51","INFO","app.print","Text length: 14246"
+"2026-03-19 18:28:51","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:51","INFO","app.print","Saving partial progress to sheet after 5 tasks completed."
+"2026-03-19 18:28:52","INFO","app.print","Error extracting markdown from https://oxmaint.com/industries/hvac/hvac-technician-safety-training-compliance. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:52","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:52","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:52","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-799' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:52","INFO","app.print","Error extracting markdown from https://oxmaint.com/industries/hvac/hvac-technician-safety-training-compliance with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:52","INFO","app.print","--- Fetching content from URL using Jina AI: https://oxmaint.com/industries/hvac/hvac-technician-safety-training-compliance ---"
+"2026-03-19 18:28:53","INFO","app.print","Error extracting markdown from https://heatexchangerexperts.com/the-role-of-safety-training-in-hvac-technician-education/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:53","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:53","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:53","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-803' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:53","INFO","app.print","Error extracting markdown from https://heatexchangerexperts.com/the-role-of-safety-training-in-hvac-technician-education/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:53","INFO","app.print","--- Fetching content from URL using Jina AI: https://heatexchangerexperts.com/the-role-of-safety-training-in-hvac-technician-education/ ---"
+"2026-03-19 18:28:54","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:54","INFO","app.print","Text length: 5942"
+"2026-03-19 18:28:54","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:55","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:55","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:55","INFO","app.print","Text length: 31500"
+"2026-03-19 18:28:56","INFO","app.print","Error extracting markdown from https://www.marhy.com/essential-safety-protocols-for-high-risk-hvac-installations/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:56","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:56","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:56","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-813' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:56","INFO","app.print","Error extracting markdown from https://www.marhy.com/essential-safety-protocols-for-high-risk-hvac-installations/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:56","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.marhy.com/essential-safety-protocols-for-high-risk-hvac-installations/ ---"
+"2026-03-19 18:28:56","INFO","app.print","Error extracting markdown from https://www.uei.edu/guides/hvac-technician/5-important-safety-tips-for-hvac-technicians/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:56","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:56","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:56","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-817' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:56","INFO","app.print","Error extracting markdown from https://www.uei.edu/guides/hvac-technician/5-important-safety-tips-for-hvac-technicians/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:56","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.uei.edu/guides/hvac-technician/5-important-safety-tips-for-hvac-technicians/ ---"
+"2026-03-19 18:28:58","INFO","app.print","Markdown detected"
+"2026-03-19 18:28:58","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:28:58","INFO","app.print","Text length: 31711"
+"2026-03-19 18:28:59","INFO","app.print","Error extracting markdown from https://www.fieldproxy.ai/blog/10-essential-hvac-safety-tips-for-technicians. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:28:59","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:28:59","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:28:59","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-824' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:28:59","INFO","app.print","Error extracting markdown from https://www.fieldproxy.ai/blog/10-essential-hvac-safety-tips-for-technicians with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:28:59","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.fieldproxy.ai/blog/10-essential-hvac-safety-tips-for-technicians ---"
+"2026-03-19 18:29:01","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:01","INFO","app.print","Text length: 9600"
+"2026-03-19 18:29:01","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:02","INFO","app.print","Error extracting markdown from https://superiorairlakeoconee.com/4-hvac-safety-controls-you-should-know/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:02","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:02","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:02","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-831' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:02","INFO","app.print","Error extracting markdown from https://superiorairlakeoconee.com/4-hvac-safety-controls-you-should-know/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:02","INFO","app.print","--- Fetching content from URL using Jina AI: https://superiorairlakeoconee.com/4-hvac-safety-controls-you-should-know/ ---"
+"2026-03-19 18:29:03","INFO","app.print","Plain text detected"
+"2026-03-19 18:29:03","INFO","sentence_transformers.SentenceTransformer","Use pytorch device_name: cpu"
+"2026-03-19 18:29:03","INFO","sentence_transformers.SentenceTransformer","Load pretrained SentenceTransformer: minishlab/potion-base-8M"
+"2026-03-19 18:29:03","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:03","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:03","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:29:04","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:29:04","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/README.md ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:04","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/README.md ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:04","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:04","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:04","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/tokenizer.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:04","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/tokenizer.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:05","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/model.safetensors ""HTTP/1.1 302 Found"""
+"2026-03-19 18:29:05","INFO","httpx","HTTP Request: GET https://huggingface.co/api/models/minishlab/potion-base-8M ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:05","INFO","app.print","Text length: 534"
+"2026-03-19 18:29:05","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:05","INFO","app.print","Saving partial progress to sheet after 10 tasks completed."
+"2026-03-19 18:29:05","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:05","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:06","INFO","app.print","Error extracting markdown from https://www.elitechus.com/fr/blogs/news/10-safety-tips-for-hvac-technicians. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:06","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:06","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:06","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-838' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:06","INFO","app.print","Error extracting markdown from https://www.elitechus.com/fr/blogs/news/10-safety-tips-for-hvac-technicians with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:06","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.elitechus.com/fr/blogs/news/10-safety-tips-for-hvac-technicians ---"
+"2026-03-19 18:29:07","INFO","app.print","Text length: 3635"
+"2026-03-19 18:29:08","INFO","app.print","Error processing index 18: HTTPSConnectionPool(host='r.jina.ai', port=443): Read timed out. (read timeout=15)"
+"2026-03-19 18:29:08","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:09","INFO","app.print","Error extracting markdown from https://chartercollege.edu/news-hub/hvac-safety-tips/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:09","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:09","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:09","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-848' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:09","INFO","app.print","Error extracting markdown from https://chartercollege.edu/news-hub/hvac-safety-tips/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:09","INFO","app.print","--- Fetching content from URL using Jina AI: https://chartercollege.edu/news-hub/hvac-safety-tips/ ---"
+"2026-03-19 18:29:09","INFO","app.print","Error extracting markdown from https://www.hoffmech.com/post/hvac-technician-safety-training. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:09","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:09","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:09","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-852' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:09","INFO","app.print","Error extracting markdown from https://www.hoffmech.com/post/hvac-technician-safety-training with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:09","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.hoffmech.com/post/hvac-technician-safety-training ---"
+"2026-03-19 18:29:12","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:12","INFO","app.print","Text length: 11735"
+"2026-03-19 18:29:12","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:13","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:13","INFO","app.print","Text length: 28243"
+"2026-03-19 18:29:13","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:14","INFO","app.print","Error extracting markdown from https://www.rsi.edu/blog/hvacr/hvac-safety-101-staying-safe-in-training-and-on-the-job/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:14","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:14","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:14","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-862' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:14","INFO","app.print","Error extracting markdown from https://www.rsi.edu/blog/hvacr/hvac-safety-101-staying-safe-in-training-and-on-the-job/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:14","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.rsi.edu/blog/hvacr/hvac-safety-101-staying-safe-in-training-and-on-the-job/ ---"
+"2026-03-19 18:29:14","INFO","app.print","Error extracting markdown from https://www.servicetitan.com/blog/guide-to-hvac-safety. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:14","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:14","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:14","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-866' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:14","INFO","app.print","Error extracting markdown from https://www.servicetitan.com/blog/guide-to-hvac-safety with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:14","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.servicetitan.com/blog/guide-to-hvac-safety ---"
+"2026-03-19 18:29:15","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:15","INFO","app.print","Text length: 35333"
+"2026-03-19 18:29:15","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:15","INFO","app.print","Saving partial progress to sheet after 15 tasks completed."
+"2026-03-19 18:29:16","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-19 18:29:16","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-19 18:29:17","INFO","app.print","Error extracting markdown from https://blog.ecmdi.com/the-essential-safety-gear-for-hvac-technicians-a-comprehensive-guide/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:17","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:17","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:17","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-873' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:17","INFO","app.print","Error extracting markdown from https://blog.ecmdi.com/the-essential-safety-gear-for-hvac-technicians-a-comprehensive-guide/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:17","INFO","app.print","--- Fetching content from URL using Jina AI: https://blog.ecmdi.com/the-essential-safety-gear-for-hvac-technicians-a-comprehensive-guide/ ---"
+"2026-03-19 18:29:19","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:19","INFO","app.print","<output>
+
+<summary>
+This video provides a step-by-step guide on how to clean and reassemble a blower wheel in an HVAC system. It emphasizes the importance of regular maintenance for optimal airflow, system efficiency, and equipment lifespan. The video covers identifying components, cleaning procedures, motor maintenance, and reassembly techniques.
+</summary>
+
+<outline>
+- Introduction to Blower Wheel Maintenance
+    - Importance of clean blower wheel
+    - Overview of the cleaning process
+- Component Identification and Preparation
+    - Identifying key blower assembly components
+    - Preparing components for cleaning
+- Cleaning Procedure
+    - Cleaning the blower wheel, housing, and cutoff
+    - Motor maintenance
+- Reassembly
+    - Reassembling the blower unit
+    - Securing components
+- Conclusion
+    - Recap of the cleaning process
+    - Benefits of regular maintenance
+</outline>
+
+<chapters>
+[00:00] Introduction to Blower Wheel Maintenance
+[00:28] Identifying and Preparing Blower Components
+[01:03] Cleaning the Blower Wheel and Housing
+[01:32] Cleaning the Motor
+[01:56] Reassembling the Blower Unit
+[02:46] Benefits of Regular Blower Wheel Cleaning & Maintenance Recap
+</chapters>
+
+</output>"
+"2026-03-19 18:29:19","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:19","INFO","app.print","```
+<output>
+
+<summary>
+This video provides a step-by-step guide on how to remove, clean, and reinstall a dirty blower wheel and housing in HVAC systems. It emphasizes the importance of regular blower wheel maintenance for system performance, longevity, and efficiency. The video covers safety precautions, disassembly, cleaning methods, and reassembly procedures for both air handlers and gas furnaces.
+</summary>
+
+<outline>
+- Introduction to Blower Wheel Maintenance
+  - Importance of Cleaning
+  - Overview of the Process
+- Disassembly and Preparation
+  - Safety Precautions
+  - Removing the Blower Assembly
+  - Preparing the Blower Wheel for Removal
+- Cleaning the Blower Wheel and Housing
+  - Rinsing and Applying Cleaner
+  - Drying the Components
+- Reassembly and Testing
+  - Reassembling the Blower
+  - Final Checks and Testing
+- Conclusion and Additional Resources
+  - Recap of the Process
+  - Promotion of Additional HVAC School Resources
+</outline>
+
+<chapters>
+[00:00] Introduction to Blower Wheel Cleaning
+[00:51] Disconnecting and Removing the Blower Assembly
+[01:51] Removing the Blower Wheel
+[02:40] Separating the Motor and Preparing for Cleaning
+[03:17] Cleaning the Blower Wheel and Housing
+[04:10] Reassembling the Blower Wheel
+[04:35] Final Checks and Testing
+[04:45] Conclusion and Call to Action
+[05:09] Explore More with HVAC School
+</chapters>
+
+</output>
+```"
+"2026-03-19 18:29:19","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:19","INFO","app.print","Text length: 5154"
+"2026-03-19 18:29:19","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:21","INFO","app.print","Error extracting markdown from https://donnellymech.com/blog/commercial-hvac/the-importance-of-ppe-for-hvac-contractors/. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:21","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:21","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:21","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-900' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:21","INFO","app.print","Error extracting markdown from https://donnellymech.com/blog/commercial-hvac/the-importance-of-ppe-for-hvac-contractors/ with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:21","INFO","app.print","--- Fetching content from URL using Jina AI: https://donnellymech.com/blog/commercial-hvac/the-importance-of-ppe-for-hvac-contractors/ ---"
+"2026-03-19 18:29:25","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:25","INFO","app.print","Text length: 24541"
+"2026-03-19 18:29:25","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:26","INFO","app.print","Error extracting markdown from https://www.armedamerican.supply/blogs/news/ppe-for-hvac-technicians. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:26","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:26","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:26","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-907' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:26","INFO","app.print","Error extracting markdown from https://www.armedamerican.supply/blogs/news/ppe-for-hvac-technicians with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:26","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.armedamerican.supply/blogs/news/ppe-for-hvac-technicians ---"
+"2026-03-19 18:29:29","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:29","INFO","app.print","Text length: 10386"
+"2026-03-19 18:29:29","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:30","INFO","app.print","Error processing index 26: HTTPSConnectionPool(host='r.jina.ai', port=443): Read timed out. (read timeout=15)"
+"2026-03-19 18:29:30","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:30","INFO","app.print","Error extracting markdown from https://www.kele.com/content/blog/staying-safe-on-the-job-the-importance-of-ppe-in-hvac-bas-industries. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:30","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:30","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:30","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-917' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:30","INFO","app.print","Error extracting markdown from https://www.kele.com/content/blog/staying-safe-on-the-job-the-importance-of-ppe-in-hvac-bas-industries with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:30","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.kele.com/content/blog/staying-safe-on-the-job-the-importance-of-ppe-in-hvac-bas-industries ---"
+"2026-03-19 18:29:31","INFO","app.print","Error extracting markdown from https://www.fieldproxy.ai/blog/hvac-safety-tips-for-technicians. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:31","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:31","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:31","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-921' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:31","INFO","app.print","Error extracting markdown from https://www.fieldproxy.ai/blog/hvac-safety-tips-for-technicians with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:31","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.fieldproxy.ai/blog/hvac-safety-tips-for-technicians ---"
+"2026-03-19 18:29:31","INFO","app.print","Jina AI API request failed for https://www.kele.com/content/blog/staying-safe-on-the-job-the-importance-of-ppe-in-hvac-bas-industries. Status Code: 429"
+"2026-03-19 18:29:31","INFO","app.print","All previous methods failed for https://www.kele.com/content/blog/staying-safe-on-the-job-the-importance-of-ppe-in-hvac-bas-industries. Trying Firecrawl as last fallback."
+"2026-03-19 18:29:32","INFO","app.print","Jina AI API request failed for https://www.fieldproxy.ai/blog/hvac-safety-tips-for-technicians. Status Code: 429"
+"2026-03-19 18:29:32","INFO","app.print","All previous methods failed for https://www.fieldproxy.ai/blog/hvac-safety-tips-for-technicians. Trying Firecrawl as last fallback."
+"2026-03-19 18:29:33","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:33","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:33","INFO","app.print","Text length: 17761"
+"2026-03-19 18:29:33","INFO","app.print","Saving partial progress to sheet after 20 tasks completed."
+"2026-03-19 18:29:34","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:34","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:35","INFO","app.print","Error extracting markdown from https://www.aptora.com/blog/hvac-safety-tips. Trying with AsyncChromimuLoader. Error: [WinError 2] The system cannot find the file specified"
+"2026-03-19 18:29:35","WARNING","langchain_community.utils.user_agent","USER_AGENT environment variable not set, consider setting it to identify your requests."
+"2026-03-19 18:29:35","INFO","langchain_community.document_loaders.chromium","Starting scraping..."
+"2026-03-19 18:29:35","ERROR","asyncio","Task exception was never retrieved
+future: <Task finished name='Task-928' coro=<Connection.run() done, defined at C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py:305> exception=NotImplementedError()>","Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 246, in get_docs_from_url
+    clean_markdown_text = clean_mark_article_stdout(url)  # This function gets the cleanest markdown
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\services\web_page_loaders.py"", line 157, in clean_mark_article_stdout
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\subprocess.py"", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_connection.py"", line 312, in run
+    await self._transport.connect()
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 133, in connect
+    raise exc
+  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\playwright\_impl\_transport.py"", line 120, in connect
+    self._proc = await asyncio.create_subprocess_exec(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\subprocess.py"", line 223, in create_subprocess_exec
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 1708, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\pnike\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py"", line 503, in _make_subprocess_transport
+    raise NotImplementedError
+NotImplementedError"
+"2026-03-19 18:29:35","INFO","app.print","Error extracting markdown from https://www.aptora.com/blog/hvac-safety-tips with AsyncChromimuLoader. Trying with Jina AI. Error: "
+"2026-03-19 18:29:35","INFO","app.print","--- Fetching content from URL using Jina AI: https://www.aptora.com/blog/hvac-safety-tips ---"
+"2026-03-19 18:29:35","INFO","app.print","Text length: 14344"
+"2026-03-19 18:29:36","INFO","app.print","Jina AI API request failed for https://www.aptora.com/blog/hvac-safety-tips. Status Code: 429"
+"2026-03-19 18:29:36","INFO","app.print","All previous methods failed for https://www.aptora.com/blog/hvac-safety-tips. Trying Firecrawl as last fallback."
+"2026-03-19 18:29:36","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:36","INFO","app.print","Text length: 6907"
+"2026-03-19 18:29:36","INFO","app.print","---GET PAGE CONTENT FROM URL---"
+"2026-03-19 18:29:38","INFO","app.print","Plain text detected"
+"2026-03-19 18:29:38","INFO","sentence_transformers.SentenceTransformer","Use pytorch device_name: cpu"
+"2026-03-19 18:29:38","INFO","sentence_transformers.SentenceTransformer","Load pretrained SentenceTransformer: minishlab/potion-base-8M"
+"2026-03-19 18:29:39","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:39","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:39","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:29:39","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:29:39","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/README.md ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:39","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/README.md ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:40","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:40","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:40","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/tokenizer.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:40","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/tokenizer.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:40","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/model.safetensors ""HTTP/1.1 302 Found"""
+"2026-03-19 18:29:40","INFO","httpx","HTTP Request: GET https://huggingface.co/api/models/minishlab/potion-base-8M ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:41","INFO","app.print","Text length: 151779"
+"2026-03-19 18:29:42","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-19 18:29:42","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-19 18:29:47","INFO","app.print","Markdown detected"
+"2026-03-19 18:29:47","INFO","app.print","Text length: 27803"
+"2026-03-19 18:29:47","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:47","INFO","app.print","```output
+<chapter_summaries>
+[00:00] Introduction to Blower Wheel Maintenance
+Summary: Explains the importance of a clean blower wheel for maintaining airflow and system efficiency. It highlights how dust and debris accumulation restricts airflow and reduces performance, emphasizing the need for regular cleaning. The chapter sets the stage for a step-by-step guide on cleaning and reassembling the blower wheel.
+
+[00:28] Identifying and Preparing Blower Components
+Summary: Identifies key components of the blower assembly such as the blower cutoff, blower wheel, housing assembly, and motor. It stresses the importance of careful handling and proper layout in the cleaning area to ensure efficiency and prevent damage.
+
+[01:03] Cleaning the Blower Wheel and Housing
+Summary: Describes the process of cleaning the blower wheel and housing using a hose and water to remove dust and dirt. It emphasizes ensuring no debris remains between the blades and clearing any buildup in the blower housing and cutoff. The chapter concludes with allowing all components to dry before reassembly.
+
+[01:32] Cleaning the Motor
+Summary: Focuses on cleaning the motor using a dry cleaning cloth to remove dust and grime. It warns against exposing the motor to moisture to prevent electrical issues or component failure, highlighting the importance of a clean motor for reliable operation.
+
+[01:56] Reassembling the Blower Unit
+Summary: Details the reassembly process, starting with positioning the blower wheel inside the housing, installing the blower cutoff, and securing the motor with screws. It includes tightening the blower wheel onto the motor shaft and reinstalling the blower inside the air handler unit, finishing with reattaching the side cover.
+
+[02:46] Benefits of Regular Blower Wheel Cleaning & Maintenance Recap
+Summary: Summarizes the benefits of regular blower wheel cleaning, including maintaining system efficiency, improving airflow, and extending the life of HVAC equipment. It recaps the entire cleaning and reassembly process, emphasizing routine maintenance to prevent costly repairs and ensure consistent HVAC performance.
+</chapter_summaries>
+
+<evaluation>
+1. Content Coverage:
+   The chapters cover the content of the video adequately, providing a step-by-step guide to cleaning and maintaining a blower wheel. All significant topics are included, from identifying components to reassembly and benefits.
+
+2. Timestamp Accuracy:
+   The first chapter starts at [00:00]. The timestamps appear to be logically placed at the beginning of new steps or topics within the video.
+
+3. Logical Chapter Structure:
+   The chapter divisions make logical sense, breaking down the maintenance process into manageable steps. Each chapter covers a coherent segment of the video, creating a structured learning journey. The progression from introduction to component identification, cleaning, reassembly, and recap is well-organized.
+</evaluation>
+
+<validation_result>
+[APPROVED]
+</validation_result>
+
+<feedback>
+The chapters meet all criteria. The timestamps are accurate, the content is comprehensively covered, and the chapter structure is logical and easy to follow, providing a clear guide to blower wheel maintenance.
+</feedback>
+```"
+"2026-03-19 18:29:47","INFO","app.print","Text length: 22200"
+"2026-03-19 18:29:47","INFO","app.print","Saving partial progress to sheet after 25 tasks completed."
+"2026-03-19 18:29:48","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:48","INFO","app.print","```output
+<chapter_summaries>
+[00:00] Introduction to Blower Wheel Cleaning
+Summary: The video introduces the importance of cleaning blower wheels for improving longevity, system performance, and efficiency. It emphasizes the need to clean dirty blower wheels and outlines the step-by-step process that will be covered: removal, cleaning, and reinstallation.
+
+[00:51] Disconnecting and Removing the Blower Assembly
+Summary: This section explains how to remove the blower assembly from both air handlers and gas furnaces, emphasizing the need for safety by ensuring the power is off. It describes the process of disconnecting wires, removing screws, and carefully sliding the blower housing out.
+
+[01:51] Removing the Blower Wheel
+Summary: This chapter details the process of removing the blower wheel, including removing the set screw, lubricating the shaft, and using emery cloth to clean the shaft. It also suggests using a crescent wrench to loosen the wheel and then carefully pulling it out.
+
+[02:40] Separating the Motor and Preparing for Cleaning
+Summary: This chapter explains how to separate the motor from the blower wheel and housing by removing the bolts. It advises against removing the motor from its mount and suggests cleaning the motor and surrounding area with a microfiber towel or compressed air.
+
+[03:17] Cleaning the Blower Wheel and Housing
+Summary: This section describes the process of cleaning the blower wheel and housing, including rinsing with water, applying a non-caustic cleaner like Viper HD, allowing it to dwell, and then rinsing again. It suggests drying the parts in the sun or with a towel before reassembly.
+
+[04:10] Reassembling the Blower Wheel
+Summary: This chapter covers reassembling the blower wheel, including greasing the shaft, centering the wheel, and spinning it by hand to ensure proper placement. It also mentions fastening the blower back into the air handler and reconnecting the electrical wiring.
+
+[04:35] Final Checks and Testing
+Summary: This section focuses on the final steps after reassembly, which include testing the blower motor for abnormal noises, checking the current, and testing the rest of the equipment to ensure everything is working properly.
+
+[04:45] Conclusion and Call to Action
+Summary: The video concludes by summarizing the process of removing and cleaning a blower wheel. It includes a call to action, encouraging viewers to like the video, subscribe to the channel, and click the notification bell.
+
+[05:09] Explore More with HVAC School
+Summary: This chapter promotes HVAC School's website, podcast, and Facebook group, encouraging viewers to explore additional content and engage with the community.
+</chapter_summaries>
+
+<evaluation>
+1. Content Coverage:
+   The chapter titles accurately reflect the content covered in each segment. The content within each chapter aligns well with its title, providing a clear and logical progression through the blower wheel cleaning process.
+
+2. Timestamp Accuracy:
+   The first chapter starts at [00:00]. The timestamps appear to be placed at logical break points in the content, generally marking the beginning of a new step or topic.
+
+3. Logical Chapter Structure:
+   The chapter divisions are logically structured, creating a coherent and self-contained segment. The chapters create a structured learning journey that follows the video's content flow, from introduction and disassembly to cleaning, reassembly, and final checks.
+</evaluation>
+
+<validation_result>
+[APPROVED]
+</validation_result>
+
+<feedback>
+The chapters meet all criteria, providing a clear, accurate, and logically structured representation of the video's content. The timestamps are well-placed, and the chapter titles accurately reflect the content covered in each section.
+</feedback>
+```"
+"2026-03-19 18:29:48","INFO","app.print","Plain text detected"
+"2026-03-19 18:29:48","INFO","sentence_transformers.SentenceTransformer","Use pytorch device_name: cpu"
+"2026-03-19 18:29:48","INFO","sentence_transformers.SentenceTransformer","Load pretrained SentenceTransformer: minishlab/potion-base-8M"
+"2026-03-19 18:29:49","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:49","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:49","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:29:49","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/config_sentence_transformers.json ""HTTP/1.1 404 Not Found"""
+"2026-03-19 18:29:49","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/README.md ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:49","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/README.md ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:50","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/modules.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:50","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/modules.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:50","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/tokenizer.json ""HTTP/1.1 307 Temporary Redirect"""
+"2026-03-19 18:29:50","INFO","app.print","Text length: 40951"
+"2026-03-19 18:29:50","INFO","httpx","HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/minishlab/potion-base-8M/641201ef75e5f9f3ef6cdbf69436f8ce19f8e6ab/tokenizer.json ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:50","INFO","httpx","HTTP Request: HEAD https://huggingface.co/minishlab/potion-base-8M/resolve/main/model.safetensors ""HTTP/1.1 302 Found"""
+"2026-03-19 18:29:50","INFO","httpx","HTTP Request: GET https://huggingface.co/api/models/minishlab/potion-base-8M ""HTTP/1.1 200 OK"""
+"2026-03-19 18:29:50","INFO","app.print","Text length: 24372"
+"2026-03-19 18:29:50","INFO","app.print","All topics processed. Saving final DataFrame to sheet."
+"2026-03-19 18:29:56","INFO","app.print","Agent logs sheet already exists"

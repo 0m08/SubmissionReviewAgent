@@ -10,15 +10,102 @@ import time
 import csv
 from datetime import datetime
 import os
+import threading
 from google import genai
 import json
 import streamlit as st
 import requests
-from google import genai
 from google.genai import types
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.decorator_helpers import try_n_times
 from langsmith import traceable
+
+_TOKEN_LOG_LOCK = threading.Lock()
+
+
+def _to_int(value) -> int:
+    try:
+        if value is None:
+            return 0
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _meta_get(meta, *keys):
+    if meta is None:
+        return None
+    for key in keys:
+        if isinstance(meta, dict):
+            if key in meta and meta[key] is not None:
+                return meta[key]
+        else:
+            value = getattr(meta, key, None)
+            if value is not None:
+                return value
+    return None
+
+
+def extract_token_usage(response_or_result) -> dict:
+    """
+    Extract billable token counts from either direct SDK responses or LangChain messages.
+
+    output_tokens intentionally includes Gemini thought/reasoning tokens so UI pricing
+    matches billable output for thinking-enabled models.
+    """
+    meta = getattr(response_or_result, "usage_metadata", None)
+    if meta is None and isinstance(response_or_result, dict):
+        meta = response_or_result.get("usage_metadata")
+
+    input_tokens = _to_int(
+        _meta_get(meta, "prompt_token_count", "input_tokens", "prompt_tokens", "input_token_count")
+    )
+    candidate_output_tokens = _to_int(
+        _meta_get(meta, "candidates_token_count", "output_tokens", "completion_tokens", "output_token_count")
+    )
+    thought_tokens = _to_int(
+        _meta_get(meta, "thoughts_token_count", "reasoning_tokens", "thought_token_count")
+    )
+
+    if thought_tokens == 0:
+        output_details = _meta_get(meta, "output_token_details", "outputTokenDetails")
+        thought_tokens = _to_int(
+            _meta_get(output_details, "reasoning", "thoughts", "thinking", "reasoning_tokens")
+        )
+
+    total_tokens = _to_int(
+        _meta_get(meta, "total_token_count", "total_tokens", "totalTokenCount")
+    )
+
+    # Avoid double counting when SDK-normalized output_tokens already includes reasoning/thought tokens.
+    output_tokens = candidate_output_tokens
+    if thought_tokens > 0:
+        if total_tokens > 0:
+            expected_without_thoughts = input_tokens + candidate_output_tokens
+            expected_with_thoughts = expected_without_thoughts + thought_tokens
+
+            if total_tokens == expected_with_thoughts:
+                output_tokens = candidate_output_tokens + thought_tokens
+            elif total_tokens == expected_without_thoughts:
+                output_tokens = candidate_output_tokens
+            else:
+                inferred_output = max(total_tokens - input_tokens, 0)
+                output_tokens = max(candidate_output_tokens, inferred_output)
+        else:
+            output_tokens = candidate_output_tokens + thought_tokens
+    elif total_tokens > 0 and candidate_output_tokens == 0:
+        output_tokens = max(total_tokens - input_tokens, 0)
+
+    if total_tokens == 0:
+        total_tokens = input_tokens + output_tokens
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "candidate_output_tokens": candidate_output_tokens,
+        "thought_tokens": thought_tokens,
+        "total_tokens": total_tokens,
+    }
 
 def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.csv", agent_name=None, step_name=None):
     """Appends token usage data to a CSV file."""
@@ -32,14 +119,19 @@ def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.
         # Handle case where Streamlit session_state is not available
         agent_name = agent_name or ""
         step_name = step_name or ""
+    if not agent_name:
+        agent_name = os.environ.get("CURRENT_AGENT_NAME", agent_name or "")
+    if not step_name:
+        step_name = os.environ.get("CURRENT_STEP_NAME", step_name or "")
 
     # Check if the log file already exists to decide if we need a header row.
-    file_exists = os.path.isfile(log_file)
-    with open(log_file, mode="a", newline="") as csvfile:
-        writer = csv.writer(csvfile)
-        if not file_exists:
-            writer.writerow(["agent_name", "step_name", "timestamp", "llm", "input_tokens", "output_tokens"])
-        writer.writerow([agent_name, step_name, datetime.now().isoformat(), llm, input_tokens, output_tokens])
+    with _TOKEN_LOG_LOCK:
+        file_exists = os.path.isfile(log_file)
+        with open(log_file, mode="a", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            if not file_exists:
+                writer.writerow(["agent_name", "step_name", "timestamp", "llm", "input_tokens", "output_tokens"])
+            writer.writerow([agent_name, step_name, datetime.now().isoformat(), llm, input_tokens, output_tokens])
 
 
 @traceable
@@ -72,9 +164,9 @@ def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
     )
 
     # Log token usage ── pick counts safely, fall back to 0
-    meta = getattr(response, "usage_metadata", None)
-    input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
-    output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+    token_usage = extract_token_usage(response)
+    input_tokens = token_usage["input_tokens"]
+    output_tokens = token_usage["output_tokens"]
 
     try:
         log_token_usage(
@@ -139,7 +231,7 @@ def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
 
 
 # Function to generate structured output using direct provider APIs
-def generate_structured_output(prompt, structured_output, model="gemini-2.0-flash", temperature=0.7, max_tokens=8192):
+def generate_structured_output(prompt, structured_output, model="gemini-2.0-flash", temperature=0.7, max_tokens=8192, thinking_level=None):
     """
     Generate structured output using Gemini API directly.
 
@@ -149,6 +241,7 @@ def generate_structured_output(prompt, structured_output, model="gemini-2.0-flas
         model: The model to use
         temperature: Temperature for generation
         max_tokens: Maximum tokens for generation
+        thinking_level: Thinking level for Gemini 3 models ("minimal", "low", "medium", "high")
 
     Returns:
         The structured output as a Pydantic model instance or list of instances
@@ -167,21 +260,27 @@ def generate_structured_output(prompt, structured_output, model="gemini-2.0-flas
         print(type(prompt))
         print(prompt)
 
+        config = {
+            'response_mime_type': 'application/json',
+            'response_schema': structured_output,
+            'temperature': temperature,
+            'max_output_tokens': max_tokens,
+        }
+        
+        # Add thinking_level for Gemini 3 models
+        if thinking_level and "gemini-3" in model:
+            config['thinking_level'] = thinking_level
+        
         response = client.models.generate_content(
             model=model,
             contents=str(prompt),
-            config={
-                'response_mime_type': 'application/json',
-                'response_schema': structured_output,
-                'temperature': temperature,
-                'max_output_tokens': max_tokens,
-            },
+            config=config,
         )
 
         # Log token usage ── pick counts safely, fall back to 0
-        meta = getattr(response, "usage_metadata", None)
-        input_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
-        output_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+        token_usage = extract_token_usage(response)
+        input_tokens = token_usage["input_tokens"]
+        output_tokens = token_usage["output_tokens"]
 
         try:
             log_token_usage(
@@ -240,7 +339,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
         current_step_name = ""
 
     # List of models that support direct API structured output
-    direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash", "gemini_2_5_flash"]
+    direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash", "gemini_2_5_flash", "gemini_2_5_flash_lite", "gemini_3_pro", "gemini_3_flash", "gemini_3_flash_thinking"]
     
     # Use direct API for Gemini models with structured output
     if structured_output and (llm_name in direct_api_models or (llm_name is None and structured_output)):
@@ -250,18 +349,30 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                 # Map LLM name to actual model name for the API
                 model_mapping = {
                     "gemini_2_5_flash": "gemini-2.5-flash",
+                    "gemini_2_5_flash_lite": "gemini-2.5-flash-lite",
                     "gemini_2_flash": "gemini-2.0-flash",
                     "gemini_2_flash_thinking": "gemini-2.0-flash-thinking",
                     "gemini_flash": "gemini-1.5-flash-latest",
+                    "gemini_3_pro": "gemini-3-pro-preview",
+                    "gemini_3_flash": "gemini-3-flash-preview",
+                    "gemini_3_flash_thinking": "gemini-3-flash-preview",
                     None: "gemini-2.0-flash"  # Default if no name provided
                 }
                 
+                # Map thinking levels for Gemini 3 models
+                thinking_level_mapping = {
+                    "gemini_3_flash_thinking": "high",
+                    "gemini_3_flash": None,  # Default thinking level
+                }
+                
                 model = model_mapping.get(llm_name, "gemini-2.0-flash")
+                thinking_level = thinking_level_mapping.get(llm_name)
                 
                 return generate_structured_output(
                     prompt=arg,
                     structured_output=structured_output,
-                    model=model
+                    model=model,
+                    thinking_level=thinking_level
                 )
             except KeyboardInterrupt:
                 print('Keyboard interrupt')
@@ -295,16 +406,19 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             gemini_flash = ChatGoogleGenerativeAI(model = "gemini-1.5-flash-latest", temperature = 0.7, max_tokens = 8192),
             llama_3_1_70b = ChatGroq(model_name = 'llama-3.1-70b-versatile', temperature = 0.7, max_tokens = 4096),
             groq = ChatGroq(model_name = 'llama3-70b-8192', temperature = 0.7, max_tokens = 4096),
-            gemini_2_flash = ChatGoogleGenerativeAI(model = "gemini-2.0-flash", temperature = 0.7, max_tokens = 64000),
-            o1 = ChatOpenAI(model = 'o1'),
-            o3_mini = ChatOpenAI(model = 'o3-mini'),
-            gemini_2_flash_thinking = ChatGoogleGenerativeAI(model = "gemini-2.0-flash-thinking-exp", temperature = 0.7, max_tokens = 8192),
+            gemini_2_flash = ChatGoogleGenerativeAI(model = "gemini-2.0-flash", temperature = 0.7, max_tokens = 640000),
+            o1 = ChatOpenAI(model = 'o1', temperature=1),
+            o3_mini = ChatOpenAI(model = 'o3-mini', temperature=1),
+            gemini_2_flash_thinking = ChatGoogleGenerativeAI(model = "gemini-2.0-flash-thinking-exp", temperature = 0.7, max_tokens = 640000),
             pplx_deep_research = ChatPerplexity(model = "sonar-deep-research", temperature = 0, pplx_api_key = os.environ.get("PPLX_API_KEY")),
             gemini_2_5_flash = ChatGoogleGenerativeAI(model = "gemini-2.5-flash", temperature = 0.7, max_tokens = 640000),
+            gemini_2_5_flash_lite = ChatGoogleGenerativeAI(model = "gemini-2.5-flash-lite", temperature = 0.7, max_tokens = 640000),
             gemini_2_5_pro = ChatGoogleGenerativeAI(model = "gemini-2.5-pro", temperature = 0.7, max_tokens = 640000),
-            gemini_3_flash = ChatGoogleGenerativeAI(model = "gemini-3-flash-preview", max_tokens = 640000, thinking_level="high"),
-            gpt5_thinking = ChatOpenAI(model_name = "gpt-5", max_tokens = 127000, reasoning_effort="high"),
-            gpt5_mini_thinking = ChatOpenAI(model_name = "gpt-5-mini", max_tokens = 127000, reasoning_effort="high"), # or "minimal", "low", "medium", "high"
+            gemini_3_pro = ChatGoogleGenerativeAI(model = "gemini-3-pro-preview", temperature = 1.0, max_tokens = 640000),
+            gemini_3_flash = ChatGoogleGenerativeAI(model = "gemini-3-flash-preview", temperature = 0.7, max_tokens = 640000),
+            gemini_3_flash_thinking = ChatGoogleGenerativeAI(model = "gemini-3-flash-preview", temperature = 0.7, max_tokens = 640000, model_kwargs={"thinking_level": "high"}),
+            gpt5_thinking = ChatOpenAI(model_name = "gpt-5", max_tokens = 127000, reasoning_effort="high", temperature=1),
+            gpt5_mini_thinking = ChatOpenAI(model_name = "gpt-5-mini", max_tokens = 127000, temperature=1), # or "minimal", "low", "medium", "high"
             # gpt5 = ChatOpenAI(model_name = "gpt-5", temperature = 0.7, max_tokens = 8192),
             # gemini_2_flash_open_router = ChatOpenAI(model = 'google/gemini-2.0-flash-exp:free', temperature = 0.7, max_completion_tokens = 8192, base_url = 'https://openrouter.ai/api/v1', api_key = os.environ.get('OPENROUTER_API_KEY'))
             )
@@ -313,6 +427,38 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
     if structured_output:
         llm = llm.with_structured_output(structured_output)
 
+    configurable_llm_keys = {
+        "gpt4o_mini",
+        "gpt4o",
+        "gpt4_1",
+        "haiku",
+        "sonnet",
+        "haiku_3_5",
+        "sonnet_4_thinking",
+        "gemini_flash",
+        "llama_3_1_70b",
+        "groq",
+        "gemini_2_flash",
+        "o1",
+        "o3_mini",
+        "gemini_2_flash_thinking",
+        "pplx_deep_research",
+        "gemini_2_5_flash",
+        "gemini_2_5_flash_lite",
+        "gemini_2_5_pro",
+        "gemini_3_pro",
+        "gemini_3_flash",
+        "gemini_3_flash_thinking",
+        "gpt5_thinking",
+        "gpt5_mini_thinking",
+    }
+
+    llm_key = llm_name or "gemini_2_flash_default"
+    if llm_name and llm_name in configurable_llm_keys:
+        configured_llm = llm.with_config(configurable={"llm": llm_name})
+    else:
+        configured_llm = llm
+
     retries = 0                  # Initialize the retry counter
     while retries < max_retries:
         try:
@@ -320,18 +466,19 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                 result = llm.with_config(
                     configurable={"llm": 'gemini_2_flash'}
                     ).invoke(arg)
-                llm_name = 'gemini_2_flash'
+                used_llm_key = "gemini_2_flash"
             else:
-                result = llm.invoke(arg)
+                result = configured_llm.invoke(arg)
+                used_llm_key = llm_key
 
             # Log structured token usage — robust + cleaner
-            meta = getattr(result, "usage_metadata", {}) or {}
-            input_tokens = (meta.get("input_tokens")  if isinstance(meta, dict) else getattr(meta, "input_tokens", 0)) or 0
-            output_tokens = (meta.get("output_tokens") if isinstance(meta, dict) else getattr(meta, "output_tokens", 0)) or 0
+            token_usage = extract_token_usage(result)
+            input_tokens = token_usage["input_tokens"]
+            output_tokens = token_usage["output_tokens"]
 
             try:
                 log_token_usage(
-                    llm=llm_name,
+                    llm=used_llm_key,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     log_file="token_usage_log.csv",

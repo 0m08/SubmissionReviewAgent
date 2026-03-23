@@ -143,10 +143,15 @@ def update_review_checklist(sheet, worksheet_name, course_name, target_audience,
 
     # Prepare slides by combining all topics into one string
     slides = []
+
     for topic_name in unique_topics:
         topic_slides_data = slide_chunks_df[slide_chunks_df['Topic'] == topic_name]
         topic_slides = "\n".join(
-            topic_slides_data['Title'] + ": " + topic_slides_data['Content']
+            (
+                topic_slides_data["Slide Chunk Title"].astype(str)
+                + ": "
+                + topic_slides_data["Slide Chunk"].astype(str)
+            ).tolist()
         )
         slides.append(f"Topic: {topic_name}\n{topic_slides}")
 

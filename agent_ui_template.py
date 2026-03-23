@@ -3,6 +3,7 @@ import gspread
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
 import traceback
+import csv
 import re
 import time
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
@@ -22,6 +23,7 @@ import tempfile, json, base64
 import subprocess
 import sys
 from services.helper_functions import get_short_name
+import re
 
 # Mapping from display names used in the Streamlit UI to the
 # agent names expected by the SDK/CLI scripts.
@@ -30,23 +32,221 @@ AGENT_CODE_MAP = {
     "Research Notes": "research_notes",
     "Slide Chunks": "slide_chunks",
     "Graphics Definition": "graphics_definition",
+    "Graphics Definition V2": "graphics_definition_v2",
     "Assessment": "assessment",
     "Graphics Search": "graphics_search",
 }
 
+TOKEN_USAGE_LOG_FILE = "token_usage_log.csv"
 
-def _get_tracking_context():
-    """Pull tracking context values from session state."""
+
+def _set_step_context(agent_name: str, step_name: str) -> None:
+    os.environ["CURRENT_AGENT_NAME"] = agent_name or ""
+    os.environ["CURRENT_STEP_NAME"] = step_name or ""
+
+
+def _clear_step_context() -> None:
+    os.environ["CURRENT_AGENT_NAME"] = ""
+    os.environ["CURRENT_STEP_NAME"] = ""
+
+
+def _get_tracking_context() -> dict:
+    """
+    Session values for activity_tracking_service (step_start/complete/error, run_all, background).
+    If ``gc`` is missing (e.g. before OAuth), tracking calls are no-ops via ``if ctx["gc"]``.
+    """
     return {
-        "gc":          st.session_state.get("gc"),
-        "user_email":  st.session_state.get("user_email", ""),
-        "agent_name":  st.session_state.get("agent_name", ""),
-        "course_name": st.session_state.get("course_name", ""),
-        "sheet_link":  st.session_state.get("sheet_link", ""),
+        "gc": st.session_state.get("gc"),
+        "user_email": st.session_state.get("user_email") or "",
+        "agent_name": st.session_state.get("agent_name") or "",
+        "course_name": st.session_state.get("course_name") or "",
+        "sheet_link": st.session_state.get("sheet_link") or "",
     }
 
 
-def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False):
+def _is_llm_step(step: dict) -> bool:
+    return "llm" in step.get("args", {}) or step.get("is_llm_step", False)
+
+
+def _get_token_log_offset(log_file: str) -> int:
+    try:
+        return os.path.getsize(log_file)
+    except OSError:
+        return 0
+
+
+def _record_step_token_offset(step_name: str) -> None:
+    if "step_token_offsets" not in st.session_state:
+        st.session_state["step_token_offsets"] = {}
+    st.session_state["step_token_offsets"][step_name] = _get_token_log_offset(TOKEN_USAGE_LOG_FILE)
+
+
+def _pop_step_token_offset(step_name: str) -> int | None:
+    offsets = st.session_state.get("step_token_offsets", {})
+    return offsets.pop(step_name, None)
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "N/A"
+    if seconds < 1:
+        return f"{seconds:.2f}s"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    total_seconds = int(round(seconds))
+    minutes, secs = divmod(total_seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, mins = divmod(minutes, 60)
+    return f"{hours}h {mins}m {secs}s"
+
+
+def _format_cost(cost: float, currency: str = "$") -> str:
+    return f"{currency}{cost:,.4f}"
+
+
+def _iter_token_log_rows(log_file: str, start_offset: int | None = None):
+    if not os.path.exists(log_file):
+        return
+    try:
+        with open(log_file, mode="r", newline="") as csvfile:
+            if start_offset:
+                file_size = os.path.getsize(log_file)
+                if start_offset > file_size:
+                    start_offset = 0
+                csvfile.seek(start_offset)
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    yield row
+                return
+
+            reader = csv.reader(csvfile)
+            first_row = next(reader, None)
+            if not first_row:
+                return
+            header = [col.strip().lower() for col in first_row[:6]]
+            if header != ["agent_name", "step_name", "timestamp", "llm", "input_tokens", "output_tokens"]:
+                yield first_row
+            for row in reader:
+                yield row
+    except Exception:
+        return
+
+
+def _safe_int(value: str) -> int:
+    try:
+        return int(float(value))
+    except Exception:
+        return 0
+
+
+def _resolve_pricing_for_model(llm_name: str, pricing: dict | None) -> dict | None:
+    if not pricing:
+        return None
+
+    # Optional per-model pricing support.
+    model_pricing = pricing.get("models", {})
+    if isinstance(model_pricing, dict):
+        if llm_name in model_pricing:
+            return model_pricing[llm_name]
+        normalized_name = (llm_name or "").strip().lower().replace("-", "_")
+        for key, value in model_pricing.items():
+            if key.strip().lower().replace("-", "_") == normalized_name:
+                return value
+
+    # Backward-compatible flat pricing.
+    if "input_per_million" in pricing and "output_per_million" in pricing:
+        return pricing
+
+    default_pricing = pricing.get("default")
+    if isinstance(default_pricing, dict):
+        return default_pricing
+
+    return None
+
+
+def _sum_tokens_for_step(
+    agent_name: str,
+    step_name: str,
+    start_time: datetime | None,
+    end_time: datetime | None,
+    log_file: str,
+    start_offset: int | None = None,
+    pricing: dict | None = None,
+) -> tuple[int, int, float | None]:
+    total_input = 0
+    total_output = 0
+    total_cost = 0.0
+    has_cost = False
+    if not step_name:
+        return total_input, total_output, None
+    for row in _iter_token_log_rows(log_file, start_offset):
+        if not row or len(row) < 6:
+            continue
+        row_agent, row_step, timestamp, row_llm, input_tokens, output_tokens = row[:6]
+        if row_step != step_name:
+            continue
+        if agent_name and row_agent != agent_name:
+            continue
+        if timestamp:
+            try:
+                ts = timestamp.rstrip("Z")
+                ts_dt = datetime.fromisoformat(ts)
+            except Exception:
+                continue
+            if start_time and ts_dt < start_time:
+                continue
+            if end_time and ts_dt > end_time:
+                continue
+        row_input = _safe_int(input_tokens)
+        row_output = _safe_int(output_tokens)
+        total_input += row_input
+        total_output += row_output
+
+        row_pricing = _resolve_pricing_for_model(row_llm, pricing)
+        if row_pricing:
+            total_cost += _calculate_step_cost(row_input, row_output, row_pricing)
+            has_cost = True
+    return total_input, total_output, (total_cost if has_cost else None)
+
+
+def _calculate_step_cost(input_tokens: int, output_tokens: int, pricing: dict) -> float:
+    input_rate = float(pricing.get("input_per_million", 0.0))
+    output_rate = float(pricing.get("output_per_million", 0.0))
+    return (input_tokens * input_rate / 1_000_000) + (output_tokens * output_rate / 1_000_000)
+
+
+def _record_step_metrics(step: dict, duration_seconds: float, start_time: datetime, end_time: datetime, llm_pricing: dict | None):
+    if "step_metrics" not in st.session_state:
+        st.session_state["step_metrics"] = {}
+    metrics = {"duration_seconds": duration_seconds}
+
+    if llm_pricing and _is_llm_step(step):
+        try:
+            agent_name = st.session_state.get("agent_name", "")
+        except (RuntimeError, AttributeError):
+            agent_name = ""
+        start_offset = _pop_step_token_offset(step["name"])
+        input_tokens, output_tokens, step_cost = _sum_tokens_for_step(
+            agent_name=agent_name,
+            step_name=step["name"],
+            start_time=start_time,
+            end_time=end_time,
+            log_file=TOKEN_USAGE_LOG_FILE,
+            start_offset=start_offset,
+            pricing=llm_pricing,
+        )
+        metrics["input_tokens"] = input_tokens
+        metrics["output_tokens"] = output_tokens
+        if step_cost is not None:
+            metrics["cost"] = step_cost
+        elif llm_pricing and "input_per_million" in llm_pricing and "output_per_million" in llm_pricing:
+            metrics["cost"] = _calculate_step_cost(input_tokens, output_tokens, llm_pricing)
+
+    st.session_state["step_metrics"][step["name"]] = metrics
+
+
+def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None, top_instructions: str | None = None, top_toggles: list[dict] | None = None):
     st.session_state["outline_finalized"] = outline_finalized
     st.title(f"{step_name} Agent")
 
@@ -70,6 +270,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
     if "current_step" not in st.session_state:
         st.session_state["current_step"] = None
+    if "step_metrics" not in st.session_state:
+        st.session_state["step_metrics"] = {}
 
 
     # --- 1) Define pipeline as sections, each with its own steps ---
@@ -164,6 +366,16 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
         with button_col2:
             run_in_background = st.button("Run the Agent in Background", type="primary")
 
+        agent_code_for_state = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
+        background_link_key = f"background_job_link::{agent_code_for_state}"
+        background_name_key = f"background_job_name::{agent_code_for_state}"
+        if st.session_state.get(background_link_key):
+            st.markdown(
+                f"**Background job:** [{st.session_state[background_link_key]}]({st.session_state[background_link_key]})"
+            )
+        elif st.session_state.get(background_name_key):
+            st.markdown(f"**Background job:** `{st.session_state[background_name_key]}`")
+
         # Admin exclusive features
         if 'role' in st.session_state: #and st.session_state['role'] == 'Admin':
             # Skip Manual Steps
@@ -186,13 +398,14 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
             if run_all_automated:
                 st.session_state["automation_in_progress"] = True
+
                 ctx = _get_tracking_context()
                 if ctx["gc"]:
                     track_run_all_start(
                         ctx["gc"], ctx["user_email"], ctx["agent_name"],
                         ctx["course_name"], ctx["sheet_link"],
                     )
-                run_all_automated_steps(pipeline_sections)
+                run_all_automated_steps(pipeline_sections, llm_pricing)
 
             if run_in_background:
                 ctx = _get_tracking_context()
@@ -223,6 +436,13 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         except Exception as e:
                             pass
                     
+                    user_email = st.session_state.get("user_email", "") or ""
+                    # Collect current toggle values to forward to background job
+                    toggle_values = {}
+                    if top_toggles:
+                        for toggle in top_toggles:
+                            tkey = toggle["key"]
+                            toggle_values[tkey] = st.session_state.get(tkey, toggle.get("default", False))
                     cmd = [
                         sys.executable,
                         "launch_agents_via_sdk.py",
@@ -232,38 +452,80 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         folder_id,
                         "--agent_name",
                         agent_code,
+                        "--user_email",
+                        user_email,
                     ]
-                    log_placeholder = st.empty()
-                    link_placeholder = st.empty()
-                    with st.spinner("Running the Agent in Background"):
+                    if toggle_values:
+                        cmd.extend(["--toggles", json.dumps(toggle_values)])
+                    with st.spinner("Submitting background job..."):
                         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                         logs = ""
-                        for line in iter(process.stdout.readline, ''):
-                            if not line:
+                        job_link = None
+                        job_name = None
+                        link_re = re.compile(r"^\[JOB_LINK\]\s+(?P<link>\S+)\s*$")
+                        name_re = re.compile(r"^\[JOB_NAME\]\s+(?P<name>.+?)\s*$")
+                        start = time.time()
+                        while True:
+                            if process.stdout is None:
                                 break
-                            # Remove the URL from the log line if present
-                            match = re.search(r'(https://lightning\.ai/\S+)', line)
-                            if match:
-                                job_url = match.group(1)
-                                # Remove the URL and the phrase 'View it at' from the line
-                                line = re.sub(r'https://lightning\.ai/\S+', '', line)
-                                line = line.replace('View it at', '').rstrip() + '\n'
-                                link_placeholder.success(f"🚀 [View Lightning Job]({job_url})", icon="🔗")
+                            line = process.stdout.readline()
+                            if not line:
+                                if process.poll() is not None:
+                                    break
+                                if time.time() - start > 10:
+                                    break
+                                time.sleep(0.1)
+                                continue
                             logs += line
-                        process.stdout.close()
-                        process.wait()
-                    st.markdown(
-    """
-    <div style='background-color: #1b4636; color: #fff; padding: 1.5em 1em; border-radius: 14px; font-size: 1.4em; font-weight: 700; margin-top: 1.5em; text-align: center;'>
-        🎉 <b>All the steps completed successfully!</b>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+                            m = link_re.match(line.strip())
+                            if m:
+                                job_link = m.group("link")
+                                break
+                            m2 = name_re.match(line.strip())
+                            if m2:
+                                job_name = m2.group("name")
+                        try:
+                            if process.stdout is not None:
+                                process.stdout.close()
+                        except Exception:
+                            pass
+                        try:
+                            process.wait(timeout=2)
+                        except Exception:
+                            pass
+
+                    if job_link:
+                        st.session_state[background_link_key] = job_link
+                        st.session_state.pop(background_name_key, None)
+                        st.success("Background job submitted.")
+                        st.markdown(f"**Background job:** [{job_link}]({job_link})")
+                    elif job_name:
+                        st.session_state[background_name_key] = job_name
+                        st.session_state.pop(background_link_key, None)
+                        st.success("Background job submitted.")
+                        st.markdown(f"**Background job:** `{job_name}`")
+                        with st.expander("Launcher output (no job link found)", expanded=False):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
+                    else:
+                        st.error("Background job submission did not return a job link.")
+                        with st.expander("Launcher output", expanded=True):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
 
     # --- 4) Display pipeline steps in nested sections ---
     if "sheet" in st.session_state:
         step_global_count = 1  # So we can label steps 1,2,3 across sections
+
+        # Optional instructions shown above all sections (e.g. "before you run" setup)
+        if top_instructions:
+            st.info(top_instructions)
+
+        # Optional toggles shown above all sections
+        if top_toggles:
+            for toggle in top_toggles:
+                toggle_key = toggle["key"]
+                if toggle_key not in st.session_state:
+                    st.session_state[toggle_key] = toggle.get("default", False)
+                st.toggle(toggle["label"], key=toggle_key)
 
         # Filter sections that have at least one visible step
         visible_sections = [
@@ -343,6 +605,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         if not st.session_state[step_key]:
                             # This step is not done yet
 
+                            # If this step has pre-exec setup, show instructions so user knows what to do before running
+                            if "pre_exec_func" in step and "pre_exec_instructions" in step:
+                                st.info(step["pre_exec_instructions"])
+
                             # If we have a description, only show it while the user can act on the step
                             if "description" in step:
                                 st.info(step["description"])
@@ -388,6 +654,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                 try:
                                     # Add current step to session state
                                     st.session_state["current_step"] = step["name"]
+                                    _set_step_context(st.session_state.get("agent_name", ""), step["name"])
+                                    if llm_pricing is not None and _is_llm_step(step):
+                                        _record_step_token_offset(step["name"])
 
                                     # Gather actual arguments from session_state
                                     kwargs = {}
@@ -409,11 +678,19 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
                                     if "instructions" in step:
                                         # If it is a manual input type function
+                                        start_perf = time.perf_counter()
+                                        start_time = datetime.now()
                                         response = step["func"](**kwargs)
+                                        end_time = datetime.now()
+                                        duration_seconds = time.perf_counter() - start_perf
                                         if response:
                                             st.session_state[step_key] = True
                                             # Log the completed step
                                             log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+
+                                            if llm_pricing is not None:
+                                                _record_step_metrics(step, duration_seconds, start_time, end_time, llm_pricing)
+
                                             if ctx["gc"]:
                                                 track_step_complete(
                                                     ctx["gc"], ctx["user_email"], ctx["agent_name"],
@@ -421,11 +698,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                                     duration_seconds=time.perf_counter() - _start_time,
                                                     run_mode="manual",
                                                 )
+
                                             st.success(f"{step['name']} completed!")
 
                                             # Only continue automation if it was explicitly triggered
                                             if st.session_state.get("automation_in_progress", False):
-                                                run_all_automated_steps(pipeline_sections)
+                                                run_all_automated_steps(pipeline_sections, llm_pricing)
                                                 st.rerun()
                                             st.rerun()
 
@@ -433,10 +711,18 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                             st.warning(f"{step['name']} not completed!")
                                     else:
                                         # Run the actual function
+                                        start_perf = time.perf_counter()
+                                        start_time = datetime.now()
                                         step["func"](**kwargs)
+                                        end_time = datetime.now()
+                                        duration_seconds = time.perf_counter() - start_perf
                                         st.session_state[step_key] = True
                                         # Log the completed step
                                         log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+
+                                        if llm_pricing is not None:
+                                            _record_step_metrics(step, duration_seconds, start_time, end_time, llm_pricing)
+
                                         if ctx["gc"]:
                                             track_step_complete(
                                                 ctx["gc"], ctx["user_email"], ctx["agent_name"],
@@ -444,6 +730,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                                 duration_seconds=time.perf_counter() - _start_time,
                                                 run_mode="manual",
                                             )
+
                                         st.success(f"{step['name']} completed!")
                                         st.rerun()
                                 except Exception as e:
@@ -456,15 +743,27 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                         )
                                     st.error(f"Error running {step['name']}: {e}")
                                     st.text(traceback.format_exc())
+                                finally:
+                                    _clear_step_context()
                         else:
                             # st.write(f"{step['name']}: **Done**")
                             st.write("**Status:** Done")
+                            metrics = st.session_state.get("step_metrics", {}).get(step["name"])
+                            if metrics:
+                                st.write(f"**Time Taken:** {_format_duration(metrics.get('duration_seconds'))}")
+                                if metrics.get("cost") is not None:
+                                    currency = "$"
+                                    if llm_pricing:
+                                        currency = llm_pricing.get("currency", "$")
+                                    st.write(f"**Total Cost:** {_format_cost(metrics['cost'], currency)}")
 
                             # Add delete button for completed steps
                             if st.button("Delete Step", type="secondary", key=f"delete_{step['name']}"):
                                 try:
-                                    # Get all dependent steps
-                                    affected_steps = get_dependent_steps(pipeline_sections, step["name"])
+                                    
+                                    affected_steps = get_dependent_steps(
+                                        pipeline_sections, step["name"], only_done=False
+                                    )
                                     
                                     affected_list = ", ".join(affected_steps)
                                     st.warning(f"Deleting this step will also delete these dependent steps: {affected_list}")
@@ -492,11 +791,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
     # st.write(st.session_state)
 
 
-def get_dependent_steps(pipeline_sections, step_name):
+def get_dependent_steps(pipeline_sections, step_name, only_done=True):
     """
     Find all steps that depend on the given step (directly or indirectly).
     Returns a list of step names including the starting step.
-    Only includes steps that are marked as done in the session state.
+    By default, only includes steps that are marked as done in the session state.
+    Set only_done=False to include all downstream dependent steps.
     Steps are returned in reverse dependency order (most dependent first).
     """
     all_steps = {}
@@ -511,8 +811,12 @@ def get_dependent_steps(pipeline_sections, step_name):
     # Function to recursively find dependent steps
     def find_dependents(step_to_check):
         for current_step, dependencies in all_steps.items():
-            # Only include steps that are marked as done
-            if step_to_check in dependencies and current_step not in dependent_steps and st.session_state.get(f"{current_step}_done", False):
+            is_done = st.session_state.get(f"{current_step}_done", False)
+            if (
+                step_to_check in dependencies
+                and current_step not in dependent_steps
+                and (is_done or not only_done)
+            ):
                 find_dependents(current_step)
                 dependent_steps.append(current_step)
     
@@ -559,6 +863,10 @@ def delete_steps(sheet, agent_name, step_names, pipeline_sections):
         pre_exec_key = f"{step_name}_pre_executed"
         if pre_exec_key in st.session_state:
             st.session_state[pre_exec_key] = False
+        if "step_metrics" in st.session_state:
+            st.session_state["step_metrics"].pop(step_name, None)
+        if "step_token_offsets" in st.session_state:
+            st.session_state["step_token_offsets"].pop(step_name, None)
         
         # Execute the delete function if it exists
         for section in pipeline_sections:
@@ -586,7 +894,7 @@ def delete_steps(sheet, agent_name, step_names, pipeline_sections):
 
 
 
-def run_all_automated_steps(pipeline_sections):
+def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
     """Run all steps in the pipeline that have their dependencies satisfied.
     - If skip_manual_step is checked - run all steps including manual ones.
     - If unchecked - stop execution when a manual step is reached.
@@ -640,6 +948,9 @@ def run_all_automated_steps(pipeline_sections):
                         with st.spinner(text = f"Running: Step {step_global_count}. {step['name']}...", show_time = True):
                             # Add current step to session state
                             st.session_state["current_step"] = step["name"]
+                            _set_step_context(st.session_state.get("agent_name", ""), step["name"])
+                            if llm_pricing is not None and _is_llm_step(step):
+                                _record_step_token_offset(step["name"])
 
                             # Gather actual arguments from session_state
                             kwargs = {}
@@ -660,10 +971,18 @@ def run_all_automated_steps(pipeline_sections):
                                 )
 
                             # Run the function
+                            start_perf = time.perf_counter()
+                            start_time = datetime.now()
                             step["func"](**kwargs)
+                            end_time = datetime.now()
+                            duration_seconds = time.perf_counter() - start_perf
                             st.session_state[step_key] = True
                             # Log the completed step
                             log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+
+                            if llm_pricing is not None:
+                                _record_step_metrics(step, duration_seconds, start_time, end_time, llm_pricing)
+
                             if ctx["gc"]:
                                 track_step_complete(
                                     ctx["gc"], ctx["user_email"], ctx["agent_name"],
@@ -671,6 +990,7 @@ def run_all_automated_steps(pipeline_sections):
                                     duration_seconds=time.perf_counter() - _start_time,
                                     run_mode="automated",
                                 )
+
                             progress_made = True
                             st.success(f"Auto-run: Step {step_global_count}. {step['name']} completed!")
 
@@ -685,6 +1005,8 @@ def run_all_automated_steps(pipeline_sections):
                         st.error(f"Error auto-running Step {step_global_count}. {step['name']}: {e}")
                         st.text(traceback.format_exc())
                         return
+                    finally:
+                        _clear_step_context()
     st.session_state["automation_in_progress"] = False
 
 
