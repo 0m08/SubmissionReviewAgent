@@ -57,10 +57,10 @@ from agents.graphics_definition_v2.image_graphics_agent.generate_candidates impo
     run_generate_image_and_video_candidates,
     delete_all_candidate_results,
 )
-from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
-    run_human_feedback_review_revise_for_all_rows,
-    delete_human_feedback_based_review_and_revise,
-)
+# from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+#     run_human_feedback_review_revise_for_all_rows,
+#     delete_human_feedback_based_review_and_revise,
+# )
 from agents.graphics_definition_v2.review_agent.visual_columns_for_human_feedback import (
     run_populate_human_feedback_visual_columns,
     delete_human_feedback_visual_columns,
@@ -235,64 +235,64 @@ pipeline_sections = [
             },
         ]
     },
-    {
-        "section_name": "Section 7: Human Feedback Revisions",
-        "steps": [
-            {
-                "name": "Review and Revise Graphics Definitions based on Human Feedback",
-                "func": run_human_feedback_review_revise_for_all_rows,
-                "depends_on": ["Review and Revise Graphics Definitions"],
-                "args": {
-                    "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
-                    "max_workers": 50,
-                    "use_only_drive_and_hvac": "use_only_drive_and_hvac",
-                },
-                "estimated_time": "20-40 minutes",
-                "description": "This step revises the graphics definitions based on the human feedback provided in the human_feedback column.",
-                "delete_func": delete_human_feedback_based_review_and_revise,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
-            # },
-            # {
-            #     "name": "Populate Human Feedback Original/Final Visual Columns",
-            #     "func": run_populate_human_feedback_visual_columns,
-            #     "depends_on": [],
-            #     "args": {
-            #         "sheet": "sheet",
-            #     },
-            #     "estimated_time": "1-5 minutes",
-            #     "description": "Adds dynamic columns after human_feedback_revision_tracking: Original Visual 1, Revised Visual 1, (blank gap), Original Visual 2, … per VO with feedback; IMAGE() for image URLs, HYPERLINK for YouTube; cell notes with When VO and Human Feedback.",
-            #     "delete_func": delete_human_feedback_visual_columns,
-            #     "delete_args": {
-            #         "sheet": "sheet"
-            #     }
-            # },
-        ]
-    },
-    {
-        "section_name": "Section 8: Layout Agent",
-        "steps": [
-            {
-                "name": "Run Layout Agent",
-                "func": run_layout_agent_for_all_rows,
-                "depends_on": ["Review and Revise Graphics Definitions based on Human Feedback"],
-                "args": {
-                    "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
-                    "max_workers": 50,
-                },
-                "estimated_time": "15-30 minutes",
-                "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
-                "delete_func": delete_layout_columns,
-                "delete_args": {
-                    "sheet": "sheet"
-                }
-            },
-        ]
-    },
+    # {
+    #     "section_name": "Section 7: Human Feedback Revisions",
+    #     "steps": [
+    #         {
+    #             "name": "Review and Revise Graphics Definitions based on Human Feedback",
+    #             "func": run_human_feedback_review_revise_for_all_rows,
+    #             "depends_on": ["Review and Revise Graphics Definitions"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "llm": "gemini_3_flash_thinking",
+    #                 "max_workers": 50,
+    #                 "use_only_drive_and_hvac": "use_only_drive_and_hvac",
+    #             },
+    #             "estimated_time": "20-40 minutes",
+    #             "description": "This step revises the graphics definitions based on the human feedback provided in the human_feedback column.",
+    #             "delete_func": delete_human_feedback_based_review_and_revise,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             }
+    #         },
+    #         # },
+    #         # {
+    #         #     "name": "Populate Human Feedback Original/Final Visual Columns",
+    #         #     "func": run_populate_human_feedback_visual_columns,
+    #         #     "depends_on": [],
+    #         #     "args": {
+    #         #         "sheet": "sheet",
+    #         #     },
+    #         #     "estimated_time": "1-5 minutes",
+    #         #     "description": "Adds dynamic columns after human_feedback_revision_tracking: Original Visual 1, Revised Visual 1, (blank gap), Original Visual 2, … per VO with feedback; IMAGE() for image URLs, HYPERLINK for YouTube; cell notes with When VO and Human Feedback.",
+    #         #     "delete_func": delete_human_feedback_visual_columns,
+    #         #     "delete_args": {
+    #         #         "sheet": "sheet"
+    #         #     }
+    #         # },
+    #     ]
+    # },
+    # {
+    #     "section_name": "Section 8: Layout Agent",
+    #     "steps": [
+    #         {
+    #             "name": "Run Layout Agent",
+    #             "func": run_layout_agent_for_all_rows,
+    #             "depends_on": ["Review and Revise Graphics Definitions based on Human Feedback"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "llm": "gemini_3_flash_thinking",
+    #                 "max_workers": 50,
+    #             },
+    #             "estimated_time": "15-30 minutes",
+    #             "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
+    #             "delete_func": delete_layout_columns,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             }
+    #         },
+    #     ]
+    # },
     # {
     #     "section_name": "Section 8: Download Assets to Drive",
     #     "steps": [

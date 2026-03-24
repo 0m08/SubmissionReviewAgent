@@ -23,6 +23,7 @@ from typing import List, Dict, Optional, Tuple, Any
 import tempfile
 import subprocess
 import urllib.parse
+import traceback
 
 load_dotenv()
 

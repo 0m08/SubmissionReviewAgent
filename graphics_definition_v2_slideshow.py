@@ -15,13 +15,34 @@ from openai import OpenAI
 from PIL import UnidentifiedImageError
 
 from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
+from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+    run_human_feedback_review_revise_for_all_rows,
+)
 
 
 DEFAULT_SHEET_NAME = "Slide Chunks"
 FINAL_GRAPHICS_COLUMN = "final_graphics_definition"
 HUMAN_FEEDBACK_COLUMN = "human_feedback"
+HUMAN_FEEDBACK_STATUS_COLUMN = "human_feedback_status"
+HUMAN_FEEDBACK_TRACKING_COLUMN = "human_feedback_revision_tracking"
+HUMAN_REVIEW_ACTIONS_COLUMN = "human_review_actions"
+HUMAN_REVIEW_FILTER_OPTIONS = ["all", "approved", "revised", "unreviewed"]
+DEFAULT_REJECT_FEEDBACK = "I did not like the visual that is currently assigned. Find and assign a better visual."
 TTS_MODEL = "gpt-4o-mini-tts"
 TTS_VOICE = "alloy"
+
+ACTION_NONE = "unreviewed"
+ACTION_APPROVE = "approve"
+ACTION_REJECT_DRIVE_HVAC = "reject_drive_hvac"
+ACTION_REJECT_ALL = "reject_all"
+ACTION_REJECT_AI = "reject_ai"
+
+ACTION_LABELS = {
+    ACTION_APPROVE: "Approve",
+    ACTION_REJECT_DRIVE_HVAC: "Reject, search again only in Drive and HVAC School videos",
+    ACTION_REJECT_ALL: "Reject, search again everywhere",
+    ACTION_REJECT_AI: "Reject, generate with AI",
+}
 
 
 def get_or_create_human_feedback_column(worksheet):
@@ -42,6 +63,86 @@ def get_or_create_human_feedback_column(worksheet):
     except Exception:
         return None
     return col_index
+
+
+def get_round_column_name(base_name, round_index):
+    return base_name if round_index == 0 else f"{base_name}_{round_index}"
+
+
+def get_or_create_column(worksheet, column_name):
+    try:
+        headers = worksheet.row_values(1)
+    except Exception:
+        return None
+    target = column_name.strip().lower()
+    for i, h in enumerate(headers):
+        if safe_str(h).strip().lower() == target:
+            return i + 1
+    col_index = len(headers) + 1
+    try:
+        # Some sheets have a fixed column count; extend before writing new header.
+        try:
+            current_cols = int(getattr(worksheet, "col_count", 0) or 0)
+        except Exception:
+            current_cols = 0
+        if current_cols and col_index > current_cols:
+            worksheet.add_cols(col_index - current_cols)
+        worksheet.update_cell(1, col_index, column_name)
+    except Exception as e:
+        print(f"[gdv2_slideshow] Failed to create column '{column_name}' at index {col_index}: {e}")
+        return None
+    return col_index
+
+
+def detect_current_round(df):
+    round_index = 0
+    while True:
+        next_col = get_round_column_name(HUMAN_FEEDBACK_COLUMN, round_index + 1)
+        if next_col in df.columns:
+            round_index += 1
+            continue
+        return round_index
+
+
+def _parse_json_map(raw):
+    text = safe_str(raw).strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _set_review_action(action_key, action_value):
+    st.session_state[action_key] = action_value
+
+
+def _inject_review_button_layout_css():
+    st.markdown(
+        """
+        <style>
+        button[aria-label*="Approve"],
+        button[aria-label*="Reject (Drive + HVAC)"],
+        button[aria-label*="Reject (Search all)"],
+        button[aria-label*="Reject (Generate with AI)"] {
+            padding: 0.28rem 0.50rem !important;
+            min-height: 2.0rem !important;
+            font-size: 0.90rem !important;
+        }
+        button[aria-label*="Approve"] p,
+        button[aria-label*="Reject (Drive + HVAC)"] p,
+        button[aria-label*="Reject (Search all)"] p,
+        button[aria-label*="Reject (Generate with AI)"] p {
+            font-size: 0.90rem !important;
+            margin: 0 !important;
+            line-height: 1.15 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def safe_str(value):
@@ -121,6 +222,19 @@ def parse_youtube_embed(url):
         "start": start_val,
         "end": end_val,
     }
+
+
+def to_youtube_watch_url(url):
+    """Convert YouTube embed/short/watch links to canonical watch URL with start time."""
+    meta = parse_youtube_embed(url)
+    if not meta or not meta.get("video_id"):
+        return url
+    video_id = meta["video_id"]
+    start_seconds = int(meta.get("start") or 0)
+    watch_url = f"https://www.youtube.com/watch?v={video_id}"
+    if start_seconds > 0:
+        watch_url += f"&t={start_seconds}s"
+    return watch_url
 
 
 def detect_asset_type(asset):
@@ -447,6 +561,8 @@ def build_slides_from_df(df, column_map):
             "final_definition_raw": final_def,
             "segments": segments,
         }
+        for col_name in df.columns:
+            slide[col_name] = row.get(col_name, "")
         slides.append(slide)
     return slides
 
@@ -1233,53 +1349,177 @@ def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, dri
             html = _get_inspector_video_html(asset, embed_key)
             if html:
                 st.components.v1.html(html, height=360)
-            st.markdown(f"[Open video]({asset})")
+            st.markdown(f"[Open video]({to_youtube_watch_url(asset)})")
         else:
             st.warning("Video URL missing.")
 
 
-def _render_inspector_step_feedback(fb_key):
-    """Feedback widget only — isolated fragment so typing doesn't rerun visuals."""
+def _render_inspector_step_review_controls(step_key_prefix):
+    action_key = f"{step_key_prefix}_action"
+    feedback_key = f"{step_key_prefix}_feedback"
+
+    if action_key not in st.session_state:
+        st.session_state[action_key] = ACTION_NONE
+    if feedback_key not in st.session_state:
+        st.session_state[feedback_key] = ""
+
+    st.markdown("**Review action**")
+    current_action = st.session_state.get(action_key, ACTION_NONE)
+
+    btn_cols = st.columns(4, gap="small")
+    with btn_cols[0]:
+        approve_label = "🟢 Approve" if current_action == ACTION_APPROVE else "Approve"
+        st.button(
+            approve_label,
+            key=f"{step_key_prefix}_btn_approve",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_APPROVE),
+            use_container_width=True,
+        )
+    with btn_cols[1]:
+        reject_dh_label = "🔴 Reject (Drive + HVAC)" if current_action == ACTION_REJECT_DRIVE_HVAC else "Reject (Drive + HVAC)"
+        st.button(
+            reject_dh_label,
+            key=f"{step_key_prefix}_btn_reject_drive_hvac",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_REJECT_DRIVE_HVAC),
+            use_container_width=True,
+        )
+    with btn_cols[2]:
+        reject_all_label = "🔴 Reject (Search all)" if current_action == ACTION_REJECT_ALL else "Reject (Search all)"
+        st.button(
+            reject_all_label,
+            key=f"{step_key_prefix}_btn_reject_all",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_REJECT_ALL),
+            use_container_width=True,
+        )
+    with btn_cols[3]:
+        reject_ai_label = "🔵 Reject (Generate with AI)" if current_action == ACTION_REJECT_AI else "Reject (Generate with AI)"
+        st.button(
+            reject_ai_label,
+            key=f"{step_key_prefix}_btn_reject_ai",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_REJECT_AI),
+            use_container_width=True,
+        )
+
+    current_action = st.session_state.get(action_key, ACTION_NONE)
+    if current_action == ACTION_APPROVE:
+        st.markdown(":green[Selected: Approve]")
+    elif current_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL):
+        st.markdown(f":red[Selected: {ACTION_LABELS.get(current_action, 'Reject')}]")
+    elif current_action == ACTION_REJECT_AI:
+        st.markdown(":blue[Selected: Reject, generate with AI]")
+    else:
+        st.caption("Unreviewed")
+
     st.text_area(
         "Human feedback (optional)",
-        key=fb_key,
+        key=feedback_key,
         placeholder="e.g. Wrong image; need diagram of X",
         height=80,
     )
 
 
-def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None):
+def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False):
     if not slides:
         st.info("No slide data to display.")
         return
 
     can_save = sheet is not None and worksheet_name
+    _inject_review_button_layout_css()
+    round_feedback_col = get_round_column_name(HUMAN_FEEDBACK_COLUMN, current_round)
+    round_status_col = get_round_column_name(HUMAN_FEEDBACK_STATUS_COLUMN, current_round)
+    round_tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
+    round_actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, current_round)
 
+    previous_actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, max(0, current_round - 1))
+
+    # First-load behavior: show everything in round 0, then default to revised+unreviewed for later rounds.
+    if current_round == 0 and action_filter == "all":
+        show_revised = True
+        show_unreviewed = True
+        show_approved = True
+    else:
+        show_revised = action_filter in ("all", "revised")
+        show_unreviewed = action_filter in ("all", "unreviewed") or (action_filter == "revised" and include_unreviewed_with_revised)
+        show_approved = action_filter in ("all", "approved")
+
+    any_visible_items = False
     for slide_idx, slide in enumerate(slides, start=1):
+        segments = slide.get("segments", [])
+        if not segments:
+            continue
+
+        row_index = slide.get("row_index", slide_idx - 1)
+        row_actions_key = f"gdv2_row_actions_{row_index}_r{current_round}"
+        row_actions = st.session_state.setdefault(row_actions_key, {})
+
+        prev_row_actions = {}
+        if current_round > 0:
+            raw_prev_actions = slide.get(previous_actions_col, "")
+            prev_row_actions = _parse_json_map(raw_prev_actions)
+
+        visible_segments = []
+        for segment in segments:
+            visible_steps = []
+            for step in segment.get("steps", []):
+                visual_id = f"S{segment['segment_index']}V{step['step_index']}"
+                action_scope_key = f"{row_index}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
+                action_key = f"{action_scope_key}_action"
+                feedback_key = f"{action_scope_key}_feedback"
+
+                if action_scope_key in row_actions and action_key not in st.session_state:
+                    st.session_state[action_key] = row_actions[action_scope_key].get("action", ACTION_NONE)
+                if action_scope_key in row_actions and feedback_key not in st.session_state:
+                    st.session_state[feedback_key] = row_actions[action_scope_key].get("feedback", "")
+
+                current_action = st.session_state.get(action_key, ACTION_NONE)
+                if current_round > 0:
+                    prev_action = safe_str(prev_row_actions.get(visual_id, {}).get("action", ""))
+                    is_revised_from_prev_round = prev_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI)
+                else:
+                    is_revised_from_prev_round = False
+
+                is_unreviewed = current_action == ACTION_NONE
+                is_approved = current_action == ACTION_APPROVE
+                is_revised = current_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI) or is_revised_from_prev_round
+                visible = (
+                    (show_approved and is_approved)
+                    or (show_revised and is_revised)
+                    or (show_unreviewed and is_unreviewed)
+                )
+                if not visible:
+                    continue
+
+                visible_steps.append((step, action_scope_key, action_key, feedback_key, visual_id))
+            if visible_steps:
+                visible_segments.append((segment, visible_steps))
+
+        if not visible_segments:
+            continue
+
+        any_visible_items = True
         title_parts = [f"Slide {slide_idx}"]
         if slide.get("slide_title"):
             title_parts.append(slide["slide_title"])
         if slide.get("topic") or slide.get("subtopic"):
             title_parts.append(f"{slide.get('topic', '')} / {slide.get('subtopic', '')}".strip(" /"))
         slide_title = " - ".join([part for part in title_parts if part])
+
         with st.expander(slide_title, expanded=False):
             if slide.get("slide_chunk"):
                 st.markdown("**Slide Content**")
                 st.write(slide["slide_chunk"])
 
-            segments = slide.get("segments", [])
-            if not segments:
-                st.warning("No visual steps parsed for this slide.")
-                if slide.get("final_definition_raw"):
-                    st.markdown("**Raw Definition**")
-                    st.text(slide["final_definition_raw"])
-                continue
-
-            row_index = slide.get("row_index", slide_idx - 1)
-
-            for segment in segments:
+            for segment, visible_steps in visible_segments:
                 st.markdown(f"### Segment {segment['segment_index']}")
-                for step in segment.get("steps", []):
+                for step, action_scope_key, action_key, feedback_key, visual_id in visible_steps:
                     st.markdown(f"**VO Part {step['step_index']}**")
                     if step.get("voiceover"):
                         st.write(step["voiceover"])
@@ -1293,7 +1533,6 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None)
                     ) if asset_type == "image" else ""
                     embed_key = f"{slide_idx}-{segment['segment_index']}-{step['step_index']}"
 
-                    # Visuals in their own fragment when available: feedback edits won't remount iframes/images
                     def _visual_block():
                         _render_inspector_step_visual(
                             asset, asset_type, display_url, embed_key, drive
@@ -1304,61 +1543,141 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None)
                     else:
                         _visual_block()
 
-                    if step.get("instruction"):
-                        st.markdown("**Instruction**")
-                        st.write(step["instruction"])
-                    if step.get("justification"):
-                        st.markdown("**Justification**")
-                        st.write(step["justification"])
-
-                    fb_key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
                     if _st_fragment is not None:
-                        _st_fragment(lambda k=fb_key: _render_inspector_step_feedback(k))()
+                        _st_fragment(lambda k=action_scope_key: _render_inspector_step_review_controls(k))()
                     else:
-                        _render_inspector_step_feedback(fb_key)
+                        _render_inspector_step_review_controls(action_scope_key)
+                    action_selected = st.session_state.get(action_key, ACTION_NONE)
+                    if action_selected == ACTION_APPROVE:
+                        st.success("Approved")
+
+                    row_actions[action_scope_key] = {
+                        "action": st.session_state.get(action_key, ACTION_NONE),
+                        "feedback": st.session_state.get(feedback_key, ""),
+                        "visual_id": visual_id,
+                        "voiceover": step.get("voiceover", ""),
+                        "segment_index": segment["segment_index"],
+                        "step_index": step["step_index"],
+                    }
+
+    if not any_visible_items:
+        st.info("No visuals match the selected review filter.")
 
     if can_save:
         st.divider()
         if st.button("Save all Feedback to sheet", type="primary"):
             worksheet = None
-            col = None
+            had_save_error = False
             try:
                 worksheet = sheet.worksheet(worksheet_name)
-                col = get_or_create_human_feedback_column(worksheet)
             except Exception as e:
                 st.error(f"Failed to access worksheet: {e}")
+                had_save_error = True
 
-            if worksheet and col is None:
-                st.error("Could not find or create human_feedback column.")
-            elif worksheet and col:
+            if worksheet:
+                round_feedback_col_idx = get_or_create_column(worksheet, round_feedback_col)
+                round_status_col_idx = get_or_create_column(worksheet, round_status_col)
+                round_tracking_col_idx = get_or_create_column(worksheet, round_tracking_col)
+                round_actions_col_idx = get_or_create_column(worksheet, round_actions_col)
+                if any(v is None for v in [round_feedback_col_idx, round_status_col_idx, round_tracking_col_idx, round_actions_col_idx]):
+                    st.error(
+                        "Could not find or create one or more round review columns. "
+                        "Please check if the sheet is protected or has restricted edit permissions."
+                    )
+                    had_save_error = True
+
+            if worksheet and not had_save_error:
                 saved_count = 0
+                reject_count = 0
                 for slide in slides:
                     segments = slide.get("segments", [])
                     if not segments:
                         continue
                     row_index = slide.get("row_index", 0)
                     parts = []
+                    row_action_map_by_visual_id = {}
+                    segment_mode_map = {}
+                    row_actions = st.session_state.get(f"gdv2_row_actions_{row_index}_r{current_round}", {})
                     for segment in segments:
                         for step in segment.get("steps", []):
-                            fb_key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
-                            fb_text = (st.session_state.get(fb_key) or "").strip()
-                            if not fb_text:
-                                continue
+                            action_scope_key = f"{row_index}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
+                            item = row_actions.get(action_scope_key, {})
+                            action = safe_str(item.get("action", ACTION_NONE)).strip() or ACTION_NONE
+                            fb_text = safe_str(item.get("feedback", "")).strip()
+                            visual_id = f"S{segment['segment_index']}V{step['step_index']}"
                             vo = (step.get("voiceover") or "").strip()
-                            parts.append(f"When VO: {vo}\nHuman Feedback: {fb_text}")
-                    if parts:
-                        value = "\n\n".join(parts)
-                        sheet_row = int(row_index) + 2
-                        try:
-                            worksheet.update_cell(sheet_row, col, value)
+                            row_action_map_by_visual_id[visual_id] = {
+                                "action": action,
+                                "feedback": fb_text,
+                                "vo": vo,
+                                "segment": segment["segment_index"],
+                            }
+
+                            if action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+                                reject_count += 1
+                                effective_feedback = fb_text if fb_text else DEFAULT_REJECT_FEEDBACK
+                                parts.append(f"When VO: {vo}\nHuman Feedback: {effective_feedback}")
+                                segment_mode = "all" if action in (ACTION_REJECT_ALL, ACTION_REJECT_AI) else "drive_hvac"
+                                existing = segment_mode_map.get(str(segment["segment_index"]), "drive_hvac")
+                                if existing == "all" or segment_mode == "all":
+                                    segment_mode_map[str(segment["segment_index"])] = "all"
+                                else:
+                                    segment_mode_map[str(segment["segment_index"])] = "drive_hvac"
+
+                    feedback_value = "\n\n".join(parts) if parts else ""
+                    sheet_row = int(row_index) + 2
+                    try:
+                        worksheet.update_cell(sheet_row, round_feedback_col_idx, feedback_value)
+                        worksheet.update_cell(sheet_row, round_status_col_idx, "")
+                        worksheet.update_cell(sheet_row, round_tracking_col_idx, "")
+                        worksheet.update_cell(
+                            sheet_row,
+                            round_actions_col_idx,
+                            json.dumps(
+                                {
+                                    "actions": row_action_map_by_visual_id,
+                                    "segment_modes": segment_mode_map,
+                                    "round": current_round,
+                                },
+                                ensure_ascii=True,
+                            ),
+                        )
+                        if feedback_value or row_action_map_by_visual_id:
                             saved_count += 1
-                        except Exception as e:
-                            st.error(f"Failed to save feedback for row {sheet_row}: {e}")
+                    except Exception as e:
+                        st.error(f"Failed to save review for row {sheet_row}: {e}")
+                        had_save_error = True
 
                 if saved_count > 0:
-                    st.success(f"Feedback saved for {saved_count} slide(s).")
+                    st.success(f"Review saved for {saved_count} slide(s).")
                 else:
-                    st.warning("No feedback entered for any slide.")
+                    st.warning("No review actions entered for any slide.")
+
+            if not had_save_error and worksheet:
+                st.info("Starting revision process based on the saved review...")
+                try:
+                    if reject_count > 0:
+                        run_human_feedback_review_revise_for_all_rows(
+                            sheet=sheet,
+                            llm="gemini_3_flash_thinking",
+                            max_workers=50,
+                            use_only_drive_and_hvac=False,
+                            human_feedback_column=round_feedback_col,
+                            human_feedback_status_column=round_status_col,
+                            human_feedback_revision_tracking_column=round_tracking_col,
+                            human_review_actions_column=round_actions_col,
+                        )
+                        st.success("Human-feedback revision completed.")
+                        st.session_state["gdv2_round"] = current_round + 1
+                        st.session_state["gdv2_visual_filter"] = "revised"
+                    else:
+                        st.info("No rejected visuals found; skipped review-revise run.")
+
+                    _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
+                    st.session_state["gdv2_df"] = refreshed_df
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Human-feedback revision failed: {e}")
 
 
 def main():
@@ -1372,7 +1691,7 @@ def main():
         pass
 
     st.title("Graphics Definition V2 Slideshow")
-    st.caption("Preview and playback for final graphics definitions with narration sync.")
+    st.caption("Review generated visuals and submit human feedback.")
 
     if "gc" not in st.session_state:
         st.error("Google Sheets client not found. Please log in first.")
@@ -1429,6 +1748,8 @@ def main():
             st.session_state["gdv2_df"] = df
             st.session_state["gdv2_df_sheet"] = worksheet_name
             st.session_state["gdv2_df_sheet_link"] = sheet_link
+            st.session_state["gdv2_round"] = detect_current_round(df)
+            st.session_state["gdv2_visual_filter"] = "all" if st.session_state["gdv2_round"] == 0 else "revised"
         except Exception as e:
             st.error(f"Failed to load data: {e}")
             return
@@ -1461,7 +1782,11 @@ def main():
         else []
     )
 
-    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    if "gdv2_round" not in st.session_state:
+        st.session_state["gdv2_round"] = detect_current_round(df)
+    if "gdv2_visual_filter" not in st.session_state:
+        st.session_state["gdv2_visual_filter"] = "all" if st.session_state["gdv2_round"] == 0 else "revised"
+    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
     with filter_col1:
         topic_filter = st.selectbox("Topic", options=["All"] + topic_values)
     with filter_col2:
@@ -1478,6 +1803,14 @@ def main():
         subtopic_filter = st.selectbox("Subtopic", options=subtopic_options)
     with filter_col3:
         search_text = st.text_input("Search", value="")
+    with filter_col4:
+        visual_filter = st.selectbox(
+            "Visual Review Filter",
+            options=HUMAN_REVIEW_FILTER_OPTIONS,
+            index=HUMAN_REVIEW_FILTER_OPTIONS.index(st.session_state.get("gdv2_visual_filter", "all")),
+            format_func=lambda x: x.capitalize(),
+        )
+        st.session_state["gdv2_visual_filter"] = visual_filter
 
     filtered_df = df.copy()
     if topic_filter != "All" and column_map["topic"]:
@@ -1506,38 +1839,16 @@ def main():
     else:
         st.session_state["gdv2_slideshow_key"] = compute_slideshow_key(steps)
 
-    tabs = st.tabs(["Inspector Mode", "Slideshow Mode"])
-    with tabs[0]:
-        render_inspector(slides, column_map, drive, sheet=sheet, worksheet_name=worksheet_name)
-
-    with tabs[1]:
-        if not steps:
-            st.info("No visual steps available for slideshow.")
-            return
-
-        if "OPENAI_API_KEY" not in os.environ:
-            st.warning("OPENAI_API_KEY not set. Slideshow requires OpenAI TTS.")
-            return
-
-        prep_col1, prep_col2 = st.columns([1, 3])
-        with prep_col1:
-            prepare = st.button("Prepare Slideshow Assets")
-        with prep_col2:
-            st.caption("Preloads images, audio, and video players before playback.")
-
-        if prepare:
-            client = get_openai_client()
-            prepared_steps = prepare_slideshow_assets(steps, drive, client)
-            st.session_state["gdv2_prepared_steps"] = prepared_steps
-            st.success("Assets prepared.")
-
-        prepared_steps = st.session_state.get("gdv2_prepared_steps")
-        if not prepared_steps:
-            st.info("Prepare assets to enable playback.")
-            return
-
-        slideshow_html = build_slideshow_html(prepared_steps)
-        st.components.v1.html(slideshow_html, height=760, scrolling=True)
+    render_inspector(
+        slides,
+        column_map,
+        drive,
+        sheet=sheet,
+        worksheet_name=worksheet_name,
+        current_round=int(st.session_state.get("gdv2_round", 0)),
+        action_filter=visual_filter,
+        include_unreviewed_with_revised=int(st.session_state.get("gdv2_round", 0)) > 0,
+    )
 
 
 if __name__ == "__main__":
