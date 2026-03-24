@@ -10,10 +10,17 @@ load_dotenv()
 def main():
     parser = argparse.ArgumentParser(description="Launch a Lightning AI job for a single agent via SDK.")
     parser.add_argument('--sheet_link', required=True, help='Google Sheet URL')
-    parser.add_argument('--drive_folder_id', required=True, help='Google Drive folder ID')
+    parser.add_argument('--drive_folder_id', default='', help='Google Drive folder ID')
     parser.add_argument('--agent_name', required=True, help='Name of the agent to run')
     parser.add_argument('--user_email', default='', help='User email for job notifications')
     parser.add_argument('--toggles', default='', help='JSON string of UI toggle values to forward')
+    parser.add_argument('--human_feedback_column', default='', help='Round-specific human feedback column')
+    parser.add_argument('--human_feedback_status_column', default='', help='Round-specific human feedback status column')
+    parser.add_argument('--human_feedback_revision_tracking_column', default='', help='Round-specific tracking column')
+    parser.add_argument('--human_review_actions_column', default='', help='Round-specific review actions column')
+    parser.add_argument('--llm', default='', help='LLM name override')
+    parser.add_argument('--max_workers', default='', help='Max workers override')
+    parser.add_argument('--use_only_drive_and_hvac', default='', help='true/false override')
     args = parser.parse_args()
 
     # Use GDRIVE_SA_B64 directly if available, otherwise encode GDRIVE_SA_JSON
@@ -59,6 +66,21 @@ def main():
     if args.toggles:
         escaped_toggles = args.toggles.replace("'", "'\"'\"'")
         toggles_arg = f" --toggles '{escaped_toggles}'"
+    hf_args = ""
+    if args.human_feedback_column:
+        hf_args += f" --human_feedback_column '{_shell_escape(args.human_feedback_column)}'"
+    if args.human_feedback_status_column:
+        hf_args += f" --human_feedback_status_column '{_shell_escape(args.human_feedback_status_column)}'"
+    if args.human_feedback_revision_tracking_column:
+        hf_args += f" --human_feedback_revision_tracking_column '{_shell_escape(args.human_feedback_revision_tracking_column)}'"
+    if args.human_review_actions_column:
+        hf_args += f" --human_review_actions_column '{_shell_escape(args.human_review_actions_column)}'"
+    if args.llm:
+        hf_args += f" --llm '{_shell_escape(args.llm)}'"
+    if args.max_workers:
+        hf_args += f" --max_workers '{_shell_escape(args.max_workers)}'"
+    if args.use_only_drive_and_hvac:
+        hf_args += f" --use_only_drive_and_hvac '{_shell_escape(args.use_only_drive_and_hvac)}'"
     command = (
         f"echo 'numpy<2' > /tmp/constraints.txt && "
         f"pip install 'numpy<2' 'matplotlib>=3.9' 'scikit-learn>=1.5' google-cloud-aiplatform && "
@@ -69,6 +91,7 @@ def main():
         f"--drive_folder_id '{args.drive_folder_id}' "
         f"--agent_name '{agent}'"
         f"{toggles_arg}"
+        f"{hf_args}"
     )
 
     print(f"\n[INFO] Submitting job for agent: {agent}")

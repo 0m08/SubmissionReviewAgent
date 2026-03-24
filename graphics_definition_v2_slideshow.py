@@ -4,7 +4,10 @@ import imghdr
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, urlparse
 
@@ -1704,7 +1707,21 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
 
     if can_save:
         st.divider()
-        if st.button("Save all Feedback to sheet and Revise the assigned visuals", type="primary"):
+        save_col1, save_col2 = st.columns(2)
+        with save_col1:
+            save_and_revise_now = st.button(
+                "Save feedback to sheet and revise visuals based on feedback",
+                type="primary",
+                key="gdv2_save_revise_now_btn",
+            )
+        with save_col2:
+            save_and_revise_bg = st.button(
+                "Save feedback to sheet and revise visuals based on feedback in background",
+                type="primary",
+                key="gdv2_save_revise_bg_btn",
+            )
+
+        if save_and_revise_now or save_and_revise_bg:
             worksheet = None
             had_save_error = False
             try:
@@ -1850,38 +1867,132 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     )
 
             if not had_save_error and worksheet:
-                st.info("Starting revision process based on the given feedbacks...")
-                try:
-                    if reject_count > 0:
-                        run_human_feedback_review_revise_for_all_rows(
-                            sheet=sheet,
-                            llm="gemini_3_flash_thinking",
-                            max_workers=50,
-                            use_only_drive_and_hvac=False,
-                            human_feedback_column=round_feedback_col,
-                            human_feedback_status_column=round_status_col,
-                            human_feedback_revision_tracking_column=round_tracking_col,
-                            human_review_actions_column=round_actions_col,
-                        )
-                        st.success("Human-feedback revision completed.")
-                        st.session_state["gdv2_round"] = current_round + 1
-                        # Do not mutate widget state key after widget instantiation in same run.
-                        # Apply this on next run before the selectbox is created.
-                        st.session_state["gdv2_pending_visual_filter"] = "revised"
-                        st.session_state["gdv2_revision_notice"] = True
-                    else:
-                        st.info("No rejected visuals found; skipped review-revise run.")
+                if save_and_revise_now:
+                    st.info("Starting revision process based on the given feedbacks...")
+                    try:
+                        if reject_count > 0:
+                            run_human_feedback_review_revise_for_all_rows(
+                                sheet=sheet,
+                                llm="gemini_3_flash_thinking",
+                                max_workers=50,
+                                use_only_drive_and_hvac=False,
+                                human_feedback_column=round_feedback_col,
+                                human_feedback_status_column=round_status_col,
+                                human_feedback_revision_tracking_column=round_tracking_col,
+                                human_review_actions_column=round_actions_col,
+                            )
+                            st.success("Human-feedback revision completed.")
+                            st.session_state["gdv2_round"] = current_round + 1
+                            # Do not mutate widget state key after widget instantiation in same run.
+                            # Apply this on next run before the selectbox is created.
+                            st.session_state["gdv2_pending_visual_filter"] = "revised"
+                            st.session_state["gdv2_revision_notice"] = True
+                        else:
+                            st.info("No rejected visuals found; skipped review-revise run.")
 
-                    _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
-                    st.session_state["gdv2_df"] = refreshed_df
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Human-feedback revision failed: {e}")
+                        _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
+                        st.session_state["gdv2_df"] = refreshed_df
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Human-feedback revision failed: {e}")
+                else:
+                    if reject_count <= 0:
+                        st.info("No rejected visuals found; skipped review-revise run.")
+                    else:
+                        user_email = st.session_state.get("user_email", "") or ""
+                        cmd = [
+                            sys.executable,
+                            "launch_agents_via_sdk.py",
+                            "--sheet_link",
+                            st.session_state.get("gdv2_sheet_link", ""),
+                            "--drive_folder_id",
+                            st.session_state.get("root_folder_id", ""),
+                            "--agent_name",
+                            "human_feedback_review_revise",
+                            "--user_email",
+                            user_email,
+                            "--human_feedback_column",
+                            round_feedback_col,
+                            "--human_feedback_status_column",
+                            round_status_col,
+                            "--human_feedback_revision_tracking_column",
+                            round_tracking_col,
+                            "--human_review_actions_column",
+                            round_actions_col,
+                            "--llm",
+                            "gemini_3_flash_thinking",
+                            "--max_workers",
+                            "50",
+                        ]
+                        with st.spinner("Submitting background job..."):
+                            process = subprocess.Popen(
+                                cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                            )
+                            logs = ""
+                            job_link = None
+                            job_name = None
+                            link_re = re.compile(r"^\[JOB_LINK\]\s+(?P<link>\S+)\s*$")
+                            name_re = re.compile(r"^\[JOB_NAME\]\s+(?P<name>.+?)\s*$")
+                            start = time.time()
+                            while True:
+                                if process.stdout is None:
+                                    break
+                                line = process.stdout.readline()
+                                if not line:
+                                    if process.poll() is not None:
+                                        break
+                                    if time.time() - start > 10:
+                                        break
+                                    time.sleep(0.1)
+                                    continue
+                                logs += line
+                                m = link_re.match(line.strip())
+                                if m:
+                                    job_link = m.group("link")
+                                    break
+                                m2 = name_re.match(line.strip())
+                                if m2:
+                                    job_name = m2.group("name")
+                            try:
+                                if process.stdout is not None:
+                                    process.stdout.close()
+                            except Exception:
+                                pass
+                            try:
+                                process.wait(timeout=2)
+                            except Exception:
+                                pass
+
+                        if job_link:
+                            st.session_state["gdv2_hf_bg_link"] = job_link
+                            st.session_state.pop("gdv2_hf_bg_name", None)
+                            st.success("Background human-feedback revise job submitted.")
+                            st.markdown(f"**Background job:** [{job_link}]({job_link})")
+                        elif job_name:
+                            st.session_state["gdv2_hf_bg_name"] = job_name
+                            st.session_state.pop("gdv2_hf_bg_link", None)
+                            st.success("Background human-feedback revise job submitted.")
+                            st.markdown(f"**Background job:** `{job_name}`")
+                            with st.expander("Launcher output (no job link found)", expanded=False):
+                                st.code(logs[-5000:] if len(logs) > 5000 else logs)
+                        else:
+                            st.error("Background job submission did not return a job link.")
+                            with st.expander("Launcher output", expanded=True):
+                                st.code(logs[-5000:] if len(logs) > 5000 else logs)
 
         if st.session_state.get("gdv2_revision_notice", False):
             st.info(
                 "Visuals have been revised based on all the feedbacks, you can now review the revised visuals and leave any new feedback if you want."
             )
+        if st.session_state.get("gdv2_hf_bg_link"):
+            st.markdown(
+                f"**Background job:** [{st.session_state['gdv2_hf_bg_link']}]({st.session_state['gdv2_hf_bg_link']})"
+            )
+        elif st.session_state.get("gdv2_hf_bg_name"):
+            st.markdown(f"**Background job:** `{st.session_state['gdv2_hf_bg_name']}`")
 
 
 def main():
@@ -1906,14 +2017,13 @@ def main():
 
     sheet_link_default = st.session_state.get("sheet_link", "")
     sheet_link = st.text_input("Google Sheet link", value=sheet_link_default)
-    if not sheet_link:
-        st.info("Enter a Google Sheet link to load Slide Chunks data.")
-        return
-
     load_sheet = st.button("Load Sheet")
-    if load_sheet or st.session_state.get("gdv2_sheet_link") != sheet_link:
+    if load_sheet and not (sheet_link and sheet_link.strip()):
+        st.info("Please enter sheet link.")
+    if load_sheet and sheet_link and sheet_link.strip():
         try:
             sheet = gc.open_by_url(sheet_link)
+            st.session_state["sheet_link"] = sheet_link
             st.session_state["gdv2_sheet"] = sheet
             st.session_state["gdv2_sheet_link"] = sheet_link
             st.session_state["gdv2_df"] = None
@@ -1928,22 +2038,14 @@ def main():
 
     sheet = st.session_state.get("gdv2_sheet")
     if not sheet:
-        st.info("Load a sheet to continue.")
         return
 
-    worksheet_names = get_worksheet_names(sheet)
-    worksheet_name = st.selectbox(
-        "Worksheet",
-        options=worksheet_names,
-        index=worksheet_names.index(DEFAULT_SHEET_NAME)
-        if DEFAULT_SHEET_NAME in worksheet_names
-        else 0,
-    )
-
-    refresh = st.button("Refresh Data")
+    worksheet_name = DEFAULT_SHEET_NAME
+    refresh = False
+    active_sheet_link = st.session_state.get("gdv2_sheet_link", "")
     worksheet_or_sheet_changed = (
         st.session_state.get("gdv2_df_sheet") != worksheet_name
-        or st.session_state.get("gdv2_df_sheet_link") != sheet_link
+        or st.session_state.get("gdv2_df_sheet_link") != active_sheet_link
     )
     if (
         refresh
@@ -1955,7 +2057,7 @@ def main():
             _, df = get_sheet_data_and_df(sheet, worksheet_name)
             st.session_state["gdv2_df"] = df
             st.session_state["gdv2_df_sheet"] = worksheet_name
-            st.session_state["gdv2_df_sheet_link"] = sheet_link
+            st.session_state["gdv2_df_sheet_link"] = active_sheet_link
             st.session_state["gdv2_round"] = detect_current_round(df)
         except Exception as e:
             st.error(f"Failed to load data: {e}")

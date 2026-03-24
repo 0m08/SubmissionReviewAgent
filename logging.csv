@@ -12285,3 +12285,214 @@ OPTION E: Two side-by-side electrical labels, one reading ""208V"" and the other
 ================================================================================"
 "2026-03-24 17:22:12","INFO","app.print","Human Feedback Review & Revise complete."
 "2026-03-24 17:22:12","INFO","app.print","================================================================================"
+"2026-03-24 19:04:21","INFO","app.print","Initializing Google Drive instance..."
+"2026-03-24 19:04:21","INFO","app.print","Drive instance initialized"
+"2026-03-24 19:04:21","INFO","app.print","
+================================================================================"
+"2026-03-24 19:04:21","INFO","app.print","Starting Human Feedback Review & Revise for 1 row(s)"
+"2026-03-24 19:04:21","INFO","app.print","================================================================================
+"
+"2026-03-24 19:04:21","INFO","app.print","Processing 1 row(s) in parallel with 50 worker(s)...
+"
+"2026-03-24 19:04:21","INFO","app.print","
+================================================================================"
+"2026-03-24 19:04:21","INFO","app.print","[HUMAN FEEDBACK] Processing row 1 — ACR Tubing Types"
+"2026-03-24 19:04:21","INFO","app.print","================================================================================"
+"2026-03-24 19:04:21","INFO","app.print","  Building segment visual map: 2 voiceover segments, 2 graphics segments"
+"2026-03-24 19:04:21","INFO","app.print","Segment 1: 2 visual step(s)"
+"2026-03-24 19:04:21","INFO","app.print","Segment 2: 2 visual step(s)"
+"2026-03-24 19:04:21","INFO","app.print","  Building segment visual map: 2 voiceover segments, 2 graphics segments"
+"2026-03-24 19:04:21","INFO","app.print","Segment 1: 2 visual step(s)"
+"2026-03-24 19:04:21","INFO","app.print","Segment 2: 2 visual step(s)"
+"2026-03-24 19:04:21","INFO","app.print","  Parsed human feedback for 1 segment(s): [1]"
+"2026-03-24 19:04:21","INFO","app.print","
+[STEP 1] Revising visuals based on human feedback..."
+"2026-03-24 19:04:23","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-24 19:04:30","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-24 19:04:30","INFO","app.print","
+[ImageGenerator] 🎯 Strategy Decided:
+OPTION A: A clean, external view of a copper tubing coil resting on a flat surface.
+OPTION B: A simple dial with the needle pointing to a section clearly labeled ""SOFT"".
+OPTION C: A soft yellow glow outlining a coiled copper tube to emphasize its specific type.
+OPTION D: A universal icon of a spiral placed next to the copper coil to represent the ""rolled"" characteristic.
+OPTION E: A side-by-side view showing a flexible coil labeled ""SOFT"" and a rigid straight pipe labeled ""HARD""."
+"2026-03-24 19:04:30","INFO","app.print","
+[ImageGenerator] ── Analysis Round 1 ─────────────────────────"
+"2026-03-24 19:04:30","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-24 19:04:32","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-24 19:04:33","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-24 19:04:35","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-24 19:04:35","INFO","app.print","[ImageGenerator] ✅ JSON Brief Approved (Round 1)."
+"2026-03-24 19:04:36","INFO","app.print","
+[ImageGenerator] ── Image Generation Round 1 ──────────────────"
+"2026-03-24 19:04:36","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-24 19:05:03","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-24 19:05:03","INFO","app.print","[ImageGenerator]   Image generated ((1376, 768))."
+"2026-03-24 19:05:04","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-24 19:05:12","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-24 19:05:12","INFO","app.print","[ImageGenerator] ✅ Image Approved."
+"2026-03-24 19:05:17","INFO","app.print","✅ Uploaded S1V1_seg1_ai_round2_20260324_190512.jpg to Drive: https://drive.google.com/file/d/1WgyOelMzDQj4mG-ARIUH6n2sVkf4b-UQ/view"
+"2026-03-24 19:05:17","INFO","app.print","  Revising segment 1 with human feedback..."
+"2026-03-24 19:05:17","INFO","app.print","    Human feedback: When VO: and hard drawn.
+Human Feedback: I did not like the visual that is currently assigned. Find and assign a better ..."
+"2026-03-24 19:05:17","INFO","app.print","Segment 1: Using image_pool"
+"2026-03-24 19:05:17","INFO","app.print","Segment 1 candidates: 17 image(s), 2 video clip(s), 6 frame video(s)"
+"2026-03-24 19:05:37","INFO","app.print","⚠️ Error downloading image from Fogco Environmental Systems | https://fogco.com/wp-content/uploads/2020/01/Copper-Coil1.jpg: No connection adapters were found for 'Fogco Environmental Systems | https://fogco.com/wp-content/uploads/2020/01/Copper-Coil1.jpg'"
+"2026-03-24 19:05:37","INFO","app.print","WARNING: Failed to load image asset from Fogco Environmental Systems | https://fogco.com/wp-content/uploads/2020/01/Coppe..."
+"2026-03-24 19:05:40","INFO","app.print","  Loaded 57 part(s) for human-feedback revision (2 current visual(s), 17 image(s), 8 video(s))"
+"2026-03-24 19:05:40","INFO","app.print","  Invoking Gemini multimodal human-feedback revision (model: gemini_3_flash_thinking)..."
+"2026-03-24 19:05:41","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-24 19:11:06","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-24 19:11:06","INFO","app.print","
+Human-feedback revision response (SEGMENT 1):
+<output>
+
+<evaluation_breakdown>
+
+1. Voiceover Sentence Understanding
+   - The voiceover sentence is: ""There are typically two types of ACR tubing: soft rolled and hard drawn.""
+   - This sentence introduces the two primary forms of Air Conditioning and Refrigeration (ACR) copper tubing.
+   - The human feedback specifically addresses the second part of the sentence: ""and hard drawn.""
+   - ""Hard drawn"" copper tubing refers to rigid, straight lengths of pipe, as opposed to the flexible coils of ""soft rolled"" tubing.
+
+2. Human Feedback Interpretation
+   - The reviewer is dissatisfied with the current visual for ""and hard drawn.""
+   - Current visual (S1V2) is a video clip showing a technician in a warehouse with coils in the foreground. While straight pipes are visible in the background, it is not a clear or focused representation of hard-drawn tubing.
+   - Requirement: A clear, high-quality visual specifically showing hard-drawn (straight/rigid) copper tubing.
+   - Constraint: The replacement must be more relevant and instructionally effective than the current warehouse shot.
+
+3. Image Candidates Scan
+   - IMG_1: Close-up of a single copper pipe segment.
+   - IMG_2: End-on view of stacked copper pipes.
+   - IMG_3: Perspective view of stacked copper pipes.
+   - IMG_4: Installed copper piping inside an air handling unit.
+   - IMG_5: High-quality, professional shot of stacked straight copper pipes in a warehouse setting.
+   - IMG_6: Technician holding a flared copper pipe (soft tubing).
+   - IMG_7: Technician bending copper pipe (soft tubing).
+   - IMG_8: Technician working with a straight pipe on a gravel surface.
+   - IMG_9: Copper coil (soft rolled).
+   - IMG_10: Copper coil (soft rolled).
+   - IMG_11: Copper coil (soft rolled).
+   - IMG_12: Copper coil (soft rolled).
+   - IMG_13: Copper coil (soft rolled).
+   - IMG_14: Copper coil (soft rolled).
+   - IMG_15: Product shot of several straight copper pipes of different diameters on a white background.
+   - IMG_16: Product shot of three parallel straight copper pipes on a white background.
+   - IMG_17: Product shot of three short straight copper pipe segments on a white background.
+
+4. Video Candidates Scan
+   - Videos from which video clips or still frames can be used:
+     - VID_1.1: Instructor demonstrating copper properties. At ~18:18, he holds a straight length of hard copper alongside a bent soft pipe.
+     - VID_1.2: Close-up shots of copper piping installed in a refrigeration system.
+   - Videos from which ONLY still frames can be used:
+     - VID_2.1: Title cards and rolling off copper coils.
+     - VID_2.2: Educational video showing various types of copper pipe (K, L, M) and stacked pipes.
+     - VID_2.3: Instructor demonstrating different copper pipes and fittings. At 0:09, he points to straight ""hard drawn"" sticks.
+     - VID_2.4: Chart showing copper pipe gauges.
+     - VID_2.5: Hand pointing to various sizes of straight copper pipes.
+     - VID_2.6: Technician cutting and joining ACR copper tube (source of the current visual).
+
+5. Candidate Fit Analysis
+   - The goal is to find the best visual for ""hard drawn"" tubing.
+   - IMG_15, IMG_16, and IMG_17 are clean product shots on white backgrounds.
+   - IMG_5 is a very professional industrial shot of stacked pipes.
+   - VID_1.1 (18:18) shows the instructor holding the pipe, but he is also holding a soft pipe, which might be distracting for this specific VO part.
+   - S1V1 (the visual for ""soft rolled"") is an Amazon product shot of a coil on a white background (https://images-na.ssl-images-amazon.com/images/I/61b6kphNmnL.jpg).
+   - For instructional consistency, using a similar product shot on a white background for the second type (""hard drawn"") is the most effective design choice.
+   - IMG_15 is the most comprehensive of the white-background shots, showing multiple pipes of different diameters, which is typical for ACR applications.
+
+6. Video Timestamp / Frame Selection Thinking
+   - While a video clip from VID_1.1 (18:18-18:20) is available, the VO part ""and hard drawn"" is very brief. A static image provides a clearer, more stable ""definition"" visual that contrasts perfectly with the coil shown in the first half of the sentence.
+   - IMG_15 is selected as the replacement.
+
+7. Additional Analysis:
+   - By selecting IMG_15, we create a clear visual parallel: S1V1 shows a coil (soft) on white, and S1V2 shows straight pipes (hard) on white. This symmetry helps the learner immediately distinguish between the two types.
+
+</evaluation_breakdown>
+
+<replacement_visuals>
+
+<visual>
+
+<visual_id>
+S1V2
+</visual_id>
+
+<voiceover_part>
+and hard drawn.
+</voiceover_part>
+
+<current_visual_url>
+https://www.youtube.com/embed/JvF3xM2_TU8?start=9&end=10
+</current_visual_url>
+
+<replacement_visual_url>
+https://images-na.ssl-images-amazon.com/images/I/51FdOe8il+L.jpg
+</replacement_visual_url>
+
+<visual_instruction>
+A clear product photograph of several straight, rigid copper pipes of various diameters, shown against a plain white background.
+</visual_instruction>
+
+<selection_justification>
+IMG_15 is the most appropriate replacement because it provides a clear, high-quality visual of hard-drawn copper tubing, characterized by its rigid, straight form. This directly addresses the human feedback by replacing a cluttered warehouse video with a focused product shot. Furthermore, using an image on a white background maintains visual consistency with the visual assigned to the first part of the sentence (S1V1), which also features a product shot on a white background, making the instructional contrast between ""soft rolled"" and ""hard drawn"" much more effective.
+</selection_justification>
+
+</visual>
+
+</replacement_visuals>
+
+</output>
+"
+"2026-03-24 19:11:06","INFO","app.print","  Successfully revised segment 1 with human feedback"
+"2026-03-24 19:11:06","INFO","app.print","Found 4 'Graphics to use:' URL(s) in graphics definition (text)"
+"2026-03-24 19:11:06","INFO","app.print","  Added (AI Generated) label for 1 visual(s)"
+"2026-03-24 19:11:06","INFO","app.print","  Saving revision to sheet..."
+"2026-03-24 19:11:08","INFO","app.print","  Revision saved"
+"2026-03-24 19:11:08","INFO","app.print","  Building segment visual map: 2 voiceover segments, 2 graphics segments"
+"2026-03-24 19:11:08","INFO","app.print","Segment 1: 2 visual step(s)"
+"2026-03-24 19:11:08","INFO","app.print","Segment 2: 2 visual step(s)"
+"2026-03-24 19:11:08","INFO","app.print","
+[STEP 2] Reviewing replacements against human feedback..."
+"2026-03-24 19:11:08","INFO","app.print","  Reviewing human-feedback satisfaction for SLIDE_1..."
+"2026-03-24 19:11:08","INFO","app.print","  Loaded 5 asset part(s) for satisfaction review"
+"2026-03-24 19:11:08","INFO","app.print","  Invoking Gemini multimodal satisfaction review (model: gemini_3_flash_thinking)..."
+"2026-03-24 19:11:09","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-24 19:11:20","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-24 19:11:20","INFO","app.print","
+Satisfaction review response (SLIDE_1):
+<evaluation_breakdown>
+
+- Human Feedback Summary: The reviewer requested a better, more relevant visual for the voiceover segment ""and hard drawn."" They were dissatisfied with the original visual, which was a video of a presenter in a warehouse setting.
+- Explicit Visual Requirements: There are no explicit visual requirements mentioned in the feedback, other than the visual being ""better"" and ""relevant"" to the term ""hard drawn"" copper tubing.
+- Review of the replacement visuals: 
+    - S1V2: The replacement visual is a clear, high-quality image showing three straight lengths of copper tubing.
+- Satisfaction Analysis: In the context of HVAC and ACR (Air Conditioning and Refrigeration) tubing, ""hard drawn"" refers to rigid copper pipe that is supplied in straight lengths, as opposed to ""soft rolled"" tubing which is flexible and supplied in coils. The replacement visual specifically shows straight, rigid copper pipes, which is the exact visual representation of ""hard drawn"" tubing. This is a significant improvement over the original warehouse scene as it focuses directly on the specific component being discussed in the voiceover.
+- Additional Analysis: The replacement visual is professional, clear, and directly supports the technical terminology used in the voiceover. It satisfies the reviewer's request for a more relevant visual.
+
+</evaluation_breakdown>
+
+<review>
+
+<verdict>
+PASS
+</verdict>
+
+</review>
+"
+"2026-03-24 19:11:20","INFO","app.print","  Verdict: PASS, Failures: 0"
+"2026-03-24 19:11:20","INFO","app.print","
+  Human feedback satisfaction PASSED for row 1"
+"2026-03-24 19:11:20","INFO","app.print","Found 4 'Graphics to use:' URL(s) in graphics definition (text)"
+"2026-03-24 19:11:21","INFO","app.print","Found 3 Drive link(s) but none needed (snapshot) labels"
+"2026-03-24 19:11:21","INFO","app.print","  Saving finalized row 1 to sheet..."
+"2026-03-24 19:11:25","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-24 19:11:25","INFO","app.print","  Row 1 saved"
+"2026-03-24 19:11:28","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-24 19:11:28","INFO","app.print","Row 1: PASS"
+"2026-03-24 19:11:28","INFO","app.print","Row 1 completed and saved"
+"2026-03-24 19:11:31","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-24 19:11:31","INFO","app.print","
+================================================================================"
+"2026-03-24 19:11:31","INFO","app.print","Human Feedback Review & Revise complete."
+"2026-03-24 19:11:31","INFO","app.print","================================================================================"

@@ -20,7 +20,7 @@ from services.drive_service import login_with_service_account
 # Set up argument parser
 parser = argparse.ArgumentParser(description="Run agent pipeline in CLI mode.")
 parser.add_argument("--sheet_link", required=True, help="Google Sheet URL")
-parser.add_argument("--drive_folder_id", required=True, help="Google Drive folder ID")
+parser.add_argument("--drive_folder_id", default="", help="Google Drive folder ID")
 parser.add_argument(
     "--agent_name",
     required=True,
@@ -31,11 +31,19 @@ parser.add_argument(
         "graphics_definition",
         "graphics_definition_v2",
         "assessment",
+        "human_feedback_review_revise",
     ],
     help="Agent/pipeline to run",
 )
 parser.add_argument("--user_email", default="", help="User email for job notifications (or set USER_EMAIL env)")
 parser.add_argument("--toggles", default="", help="JSON string of UI toggle values")
+parser.add_argument("--human_feedback_column", default="human_feedback")
+parser.add_argument("--human_feedback_status_column", default="human_feedback_status")
+parser.add_argument("--human_feedback_revision_tracking_column", default="human_feedback_revision_tracking")
+parser.add_argument("--human_review_actions_column", default="human_review_actions")
+parser.add_argument("--llm", default="gemini_3_flash_thinking")
+parser.add_argument("--max_workers", type=int, default=50)
+parser.add_argument("--use_only_drive_and_hvac", default="false")
 args = parser.parse_args()
 
 AGENT_DISPLAY_NAMES = {
@@ -45,6 +53,7 @@ AGENT_DISPLAY_NAMES = {
     "graphics_definition": "Graphics Definition",
     "graphics_definition_v2": "Graphics Definition V2",
     "assessment": "Assessment",
+    "human_feedback_review_revise": "Human Feedback Review & Revise",
 }
 ui_agent_name = AGENT_DISPLAY_NAMES.get(args.agent_name, args.agent_name)
 
@@ -85,22 +94,24 @@ AGENT_PIPELINES = {
     "graphics_definition_v2": "graphics_definition_v2",
     "assessment": "assessment",
 }
-pipeline_module_name = AGENT_PIPELINES.get(args.agent_name)
-if not pipeline_module_name:
-    print(f"[ERROR] Unknown agent: {args.agent_name}")
-    sys.exit(1)
+pipeline_sections = None
+if args.agent_name != "human_feedback_review_revise":
+    pipeline_module_name = AGENT_PIPELINES.get(args.agent_name)
+    if not pipeline_module_name:
+        print(f"[ERROR] Unknown agent: {args.agent_name}")
+        sys.exit(1)
 
-try:
-    pipeline_module = importlib.import_module(pipeline_module_name)
-except ImportError as e:
-    print(f"[ERROR] Could not import pipeline module '{pipeline_module_name}': {e}")
-    sys.exit(1)
+    try:
+        pipeline_module = importlib.import_module(pipeline_module_name)
+    except ImportError as e:
+        print(f"[ERROR] Could not import pipeline module '{pipeline_module_name}': {e}")
+        sys.exit(1)
 
-# Prepare pipeline sections
-pipeline_sections = getattr(pipeline_module, "pipeline_sections", None)
-if pipeline_sections is None:
-    print(f"[ERROR] Pipeline sections not found in module '{pipeline_module_name}'.")
-    sys.exit(1)
+    # Prepare pipeline sections
+    pipeline_sections = getattr(pipeline_module, "pipeline_sections", None)
+    if pipeline_sections is None:
+        print(f"[ERROR] Pipeline sections not found in module '{pipeline_module_name}'.")
+        sys.exit(1)
 
 # Set up session state
 session_state = {
@@ -155,6 +166,10 @@ def _format_time_utc_and_ist():
     utc_now = datetime.utcnow()
     ist_now = utc_now + timedelta(hours=5, minutes=30)
     return f"{utc_now.strftime('%Y-%m-%d %H:%M')} UTC ({ist_now.strftime('%Y-%m-%d %H:%M')} IST)"
+
+
+def _to_bool(v):
+    return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
 def _get_agent_work_count(sheet, agent_name):
@@ -237,6 +252,26 @@ if args.agent_name == 'graphics_definition':
     worksheet_name = 'Slide Chunks'
     ensure_reference_description_column(sheet, worksheet_name)
 
+if args.agent_name == "human_feedback_review_revise":
+    from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+        run_human_feedback_review_revise_for_all_rows,
+    )
+
+    def _run_target():
+        run_human_feedback_review_revise_for_all_rows(
+            sheet=sheet,
+            llm=args.llm,
+            max_workers=args.max_workers,
+            use_only_drive_and_hvac=_to_bool(args.use_only_drive_and_hvac),
+            human_feedback_column=args.human_feedback_column,
+            human_feedback_status_column=args.human_feedback_status_column,
+            human_feedback_revision_tracking_column=args.human_feedback_revision_tracking_column,
+            human_review_actions_column=args.human_review_actions_column,
+        )
+else:
+    def _run_target():
+        run_all_automated_steps_for_cli(pipeline_sections, session_state)
+
 for k, v in session_state.items():
     st.session_state[k] = v
 
@@ -290,7 +325,7 @@ if user_email and is_email_configured():
         print(f"[INFO] Sent 'agent is running' notification to {user_email}")
 
 try:
-    run_all_automated_steps_for_cli(pipeline_sections, session_state)
+    _run_target()
     if user_email and is_email_configured() and first_message_id:
         completed_at = _format_time_utc_and_ist()
         subject = f"Re: {thread_subject_base}"
