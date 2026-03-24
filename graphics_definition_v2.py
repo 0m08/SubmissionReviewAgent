@@ -331,8 +331,8 @@ llm_pricing = {
 TOP_TOGGLES = [
     {
         "key": "use_only_drive_and_hvac",
-        "label": "Use only drive images and HVAC School channel videos",
-        "default": False,
+        "label": "Use only Drive images and videos from 'HVAC School' and 'Love2HVAC with Ty' youtube channel",
+        "default": True,
     },
 ]
 

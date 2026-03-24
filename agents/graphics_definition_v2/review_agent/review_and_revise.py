@@ -40,12 +40,11 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     parse_segments_from_voiceover,
     parse_video_url_timestamps,
     convert_watch_url_to_embed_url,
-    process_video_frames_in_xml,
+    expand_youtube_single_timestamp_clips_in_xml,
+    process_video_frames_in_text_format,
+    normalize_youtube_timestamp_urls,
     format_aggregation_definition_for_sheet,
     aggregate_graphics_definition_for_segment,
-    extract_video_id_from_url,
-    extract_frame_from_youtube_video,
-    upload_image_to_drive,
     video_frames_drive_folder_id,
 )
 from agents.graphics_definition_v2.image_graphics_agent.storyboard_agent import (
@@ -1401,158 +1400,6 @@ def parse_visual_steps(segment_text):
         if data:
             steps.append(data)
     return steps
-
-
-def normalize_youtube_timestamp_urls(graphics_definition_text):
-    """
-    Normalize YouTube URLs with t= parameter to start= parameter format.
-
-    :param graphics_definition_text: Text string containing graphics definition
-    :return: Modified text with normalized URLs, or original text if no changes needed
-    """
-    
-    if not graphics_definition_text or not graphics_definition_text.strip():
-        return graphics_definition_text
-    
-    try:
-        
-        # Pattern to find YouTube URLs with t= parameter (e.g., t=125s)
-        pattern = r'(https?://(?:www\.)?youtube\.com/watch\?v=[^&\s\?]+)([&?])(t=(\d+)s)'
-        
-        def replace_timestamp(match):
-            base_url = match.group(1)  # URL up to and including v=...
-            separator = match.group(2)  # & or ?
-            timestamp_seconds = match.group(4)  # Just the number part
-            
-            # Always use & as separator since base_url already has ?v=...
-            return f"{base_url}&start={timestamp_seconds}s"
-        
-        normalized_text = re.sub(pattern, replace_timestamp, graphics_definition_text)
-        
-        if normalized_text != graphics_definition_text:
-            count = len(re.findall(pattern, graphics_definition_text))
-            print(f"  Normalized {count} YouTube URL(s): converted t= parameter to start= parameter")
-            return normalized_text
-        
-        return graphics_definition_text
-        
-    except Exception as e:
-        print(f"⚠️ Error normalizing YouTube timestamp URLs: {e}")
-        import traceback
-        traceback.print_exc()
-        return graphics_definition_text
-
-
-def process_video_frames_in_text_format(graphics_definition_text, drive, drive_folder_id=video_frames_drive_folder_id):
-    """
-    Find all YouTube URLs with only start timestamps (video frames) in the text format graphics definition, extract frames, upload to Drive, and replace URLs in text.
-    
-    :param graphics_definition_text: Text string containing graphics definition in "Graphics to use:" format
-    :param drive: Google Drive instance
-    :param drive_folder_id: Drive folder ID to store extracted frames
-    :return: Modified text with Drive URLs instead of YouTube frame URLs, or original text if processing fails
-    """
-    
-    if not graphics_definition_text or not graphics_definition_text.strip():
-        return graphics_definition_text
-    
-    if not drive:
-        print("⚠️ Drive instance not available, skipping video frame extraction")
-        return graphics_definition_text
-    
-    try:
-        
-        # Find all "Graphics to use:" lines
-        graphics_pattern = r'Graphics to use:\s*(https?://[^\s\n]+)'
-        matches = re.findall(graphics_pattern, graphics_definition_text, re.IGNORECASE)
-        print(f"Found {len(matches)} 'Graphics to use:' URLs in graphics definition")
-        
-        
-        # Dictionary to cache processed frames: {youtube_url: drive_url}
-        processed_frames = {}
-        
-        # Process each asset URL
-        for asset_url in matches:
-            asset_url = asset_url.strip()
-            
-            # Check if it's a YouTube URL with only start parameter (no end)
-            if 'youtube.com/embed' in asset_url or 'youtube.com/watch' in asset_url:
-                # Parse URL to check if it has only start, no end
-                parsed_url = urllib.parse.urlparse(asset_url)
-                query_params = urllib.parse.parse_qs(parsed_url.query)
-                
-                has_start = 'start' in query_params or 'start' in asset_url
-                has_end = 'end' in query_params or 'end' in asset_url
-                
-                # If it has start but no end, it's a frame to extract
-                if has_start and not has_end:
-                    print(f"    Found YouTube still frame URL: {asset_url}")
-                    # Check if we've already processed this URL
-                    if asset_url in processed_frames:
-                        continue
-                    
-                    # Extract video ID and timestamp
-                    video_id = extract_video_id_from_url(asset_url)
-                    # Pattern to match start= parameter (handles both ?start= and &start=)
-                    start_match = re.search(r'[?&]start=(\d+)', asset_url)
-                    timestamp = int(start_match.group(1)) if start_match else None
-                    
-                    if not video_id or timestamp is None:
-                        print(f"⚠️ Could not parse video ID or timestamp from URL: {asset_url}")
-                        continue
-                    
-                    # Generate filename
-                    filename = f"{video_id}_frame_{timestamp}s.jpg"
-                    
-                    # Create temp file for extracted frame
-                    temp_frame_path = os.path.join(tempfile.gettempdir(), filename)
-                    
-                    try:
-                        print(f"🎬 Extracting frame from video {video_id} at {timestamp}s...")
-                        # Extract frame
-                        success = extract_frame_from_youtube_video(video_id, timestamp, temp_frame_path)
-                        
-                        if success and os.path.exists(temp_frame_path):
-                            # Upload to Drive
-                            drive_url = upload_image_to_drive(
-                                temp_frame_path,
-                                filename,
-                                drive_folder_id,
-                                drive
-                            )
-                            
-                            if drive_url:
-                                processed_frames[asset_url] = drive_url
-                                print(f"✅ Successfully processed frame: {asset_url} -> {drive_url}")
-                            else:
-                                print(f"⚠️ Failed to upload frame for {asset_url}, keeping original URL")
-                        else:
-                            print(f"⚠️ Failed to extract frame for {asset_url}, keeping original URL")
-                    finally:
-                        # Clean up temp frame file
-                        if os.path.exists(temp_frame_path):
-                            try:
-                                os.remove(temp_frame_path)
-                            except:
-                                pass
-        
-        # Replace all processed URLs in text
-        if processed_frames:
-            modified_text = graphics_definition_text
-            for youtube_url, drive_url in processed_frames.items():
-                # Replace all occurrences of this YouTube URL in the text
-                modified_text = modified_text.replace(youtube_url, drive_url)
-            
-            print(f"✅ Replaced {len(processed_frames)} video frame URLs with Drive URLs")
-            return modified_text
-        
-        return graphics_definition_text
-        
-    except Exception as e:
-        print(f"⚠️ Error processing video frames in text format: {e}")
-        import traceback
-        traceback.print_exc()
-        return graphics_definition_text
 
 
 def check_file_in_folder(drive, file_id, folder_id):
@@ -3757,7 +3604,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                 visual_assignment_strategy=visual_assignment_strategy,
             )
             if graphics_definition_xml:
-                graphics_definition_xml = process_video_frames_in_xml(graphics_definition_xml, drive)
+                graphics_definition_xml = expand_youtube_single_timestamp_clips_in_xml(graphics_definition_xml)
                 updated_segments[segment_num] = graphics_definition_xml
                 print(f"      Segment {segment_num}: Graphics definition generated")
             else:
@@ -4168,7 +4015,7 @@ def run_review_loop_for_slide(criterion_name, prompt_template, row_index, row, d
         if updated_segments:
             # Process video frames before merging (convert YouTube frames to Drive images)
             for segment_num, replacement_xml in updated_segments.items():
-                processed_xml = process_video_frames_in_xml(replacement_xml, drive)
+                processed_xml = expand_youtube_single_timestamp_clips_in_xml(replacement_xml)
                 if processed_xml != replacement_xml:
                     updated_segments[segment_num] = processed_xml
                     print(f"  Processed video frames for segment {segment_num}")

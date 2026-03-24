@@ -28,10 +28,10 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     get_drive_instance,
     parse_video_url_timestamps,
     convert_watch_url_to_embed_url,
-    process_video_frames_in_xml,
+    expand_youtube_single_timestamp_clips_in_xml,
     upload_image_to_drive,
 )
-from agents.graphics_asset_creation.image_generator import generate_asset
+from agents.graphics_asset_creation.generator.image_generator import generate_asset
 
 from agents.graphics_definition_v2.review_agent.review_and_revise import (
     _safe_str,
@@ -61,6 +61,7 @@ load_dotenv()
 
 MAX_HUMAN_FEEDBACK_REGEN_ATTEMPTS = 2
 AI_GENERATED_IMAGES_FOLDER_ID = "1c3rmYhF8kCrJVv3ui1-362mr90OCkEqB"
+AI_NO_FEEDBACK_MARKER = "No Feedback"
 
 
 # ===========================================================================
@@ -742,6 +743,8 @@ def parse_human_feedback_for_row(human_feedback_text, voiceover_text, final_grap
         vo_part = vo_match.group(1).strip() if vo_match else ""
         fb_text = fb_match.group(1).strip() if fb_match else ""
 
+        # Preserve explicit AI-empty-feedback marker so Reject (Generate with AI)
+        # remains actionable without injecting default feedback text.
         if not fb_text:
             continue
 
@@ -910,7 +913,7 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
         video_candidates=video_candidates_text,
     )
 
-    # --- Print TEXT PROMPT only (separate from multimodal parts) ---
+    # # Print the fully formatted text prompt for debugging/reproducibility.
     # print(f"\n{'=' * 80}")
     # print(f"HUMAN FEEDBACK REVISION (Segment {segment_num}) [Strategy: {visual_assignment_strategy}]")
     # print(f"{'=' * 80}")
@@ -1525,6 +1528,10 @@ def process_human_feedback_row(
         print("\n[STEP 1] Revising visuals based on human feedback...")
         updated_segments: Dict[int, str] = {}
         ai_generated_urls: Set[str] = set()
+        # Segments/VO parts that should go through satisfaction review.
+        # AI-generated replacements are intentionally excluded from this review path.
+        review_segment_nums: List[int] = []
+        review_vo_parts_with_feedback_by_segment: Dict[int, Set[str]] = {}
 
         for segment_num, vo_fb_pairs in feedback_by_segment.items():
             segment = segments_map.get(segment_num, {})
@@ -1557,7 +1564,8 @@ def process_human_feedback_row(
                 action_value = _safe_str(action_entry.get("action", "")).strip().lower()
 
                 if action_value == "reject_ai":
-                    effective_feedback = _safe_str(fb_text).strip() or "I did not like the visual that is currently assigned. Find and assign a better visual."
+                    raw_feedback = _safe_str(fb_text).strip()
+                    effective_feedback = "" if raw_feedback == AI_NO_FEEDBACK_MARKER else raw_feedback
                     ai_url, ai_err = _generate_ai_visual_replacement(
                         slide_title=slide_title,
                         slide_chunk=slide_chunk,
@@ -1589,6 +1597,10 @@ def process_human_feedback_row(
 
             revised_xml = ""
             if non_ai_vo_fb_pairs:
+                review_segment_nums.append(segment_num)
+                review_vo_parts_with_feedback_by_segment[segment_num] = {
+                    _normalize_vo_for_match(vo_part) for vo_part, _ in non_ai_vo_fb_pairs
+                }
                 human_feedback_formatted = "\n\n".join(
                     f"When VO: {vo_part}\nHuman Feedback: {fb_text}"
                     for vo_part, fb_text in non_ai_vo_fb_pairs
@@ -1628,7 +1640,7 @@ def process_human_feedback_row(
             revised_xml = _compose_replacement_xml_from_visual_blocks(combined_blocks)
 
             if revised_xml:
-                processed_xml = process_video_frames_in_xml(revised_xml, drive)
+                processed_xml = expand_youtube_single_timestamp_clips_in_xml(revised_xml)
                 if processed_xml != revised_xml:
                     print(f"  Processed video frames for segment {segment_num}")
                     revised_xml = processed_xml
@@ -1682,6 +1694,19 @@ def process_human_feedback_row(
             hf_revision_tracking, "after_revision", segments_map, replaced_visual_ids_by_segment
         )
 
+        # AI-only rows: skip review + regeneration by design.
+        if not review_segment_nums:
+            print("\n[STEP 2] Skipped: only AI-generation actions were requested.")
+            _finalize_row(row_index, df, drive, ws)
+            df.at[row_index, human_feedback_status_column] = "PASS"
+            df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
+            if ws is not None:
+                with _sheet_lock:
+                    save_to_sheet(ws, df)
+                    format_worksheet(ws)
+            print(f"Row {row_index + 1}: PASS (AI generation only, review skipped)")
+            return
+
         # --- REVIEW (single) ---
         print("\n[STEP 2] Reviewing replacements against human feedback...")
         verdict, failures, satisfaction_conversation_history = review_human_feedback_satisfaction(
@@ -1694,12 +1719,14 @@ def process_human_feedback_row(
             slide_chunk=slide_chunk,
             human_feedback=_format_human_feedback_for_prompt(human_feedback_raw),
             segments_map=segments_map,
-            segment_nums=reviewed_segment_nums,
+            segment_nums=review_segment_nums,
             drive=drive,
             llm=llm,
             visual_assignment_strategy=visual_assignment_strategy,
-            original_visuals_by_segment=original_visuals_by_segment,
-            vo_parts_with_feedback_by_segment=vo_parts_with_feedback_by_segment,
+            original_visuals_by_segment={
+                k: v for k, v in original_visuals_by_segment.items() if k in set(review_segment_nums)
+            },
+            vo_parts_with_feedback_by_segment=review_vo_parts_with_feedback_by_segment,
         )
 
         if verdict == "PASS":
@@ -2059,7 +2086,11 @@ def _generate_ai_visual_replacement(
     Generate an AI image, upload to Drive, and return shareable URL.
     Returns (url, error_message).
     """
-    voiceover_focus = f'When VO: "{vo_part}"\nHuman Feedback: {feedback_text}'
+    feedback_text = _safe_str(feedback_text).strip()
+    if feedback_text and feedback_text != AI_NO_FEEDBACK_MARKER:
+        voiceover_focus = f'When VO: "{vo_part}"\nHuman Feedback: {feedback_text}'
+    else:
+        voiceover_focus = f'When VO: "{vo_part}"'
     result = generate_asset(
         slide_title=slide_title,
         slide_content=slide_chunk,
