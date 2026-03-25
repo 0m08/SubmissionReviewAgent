@@ -1428,6 +1428,31 @@ Remember: Strictly use the same output format as before while reviewing the NEW 
 # D. Per-row orchestration
 # ---------------------------------------------------------------------------
 
+def _hf_status_head_for_skip(status: str) -> str:
+    """Leading token before '|' so PASS | AI_UPLOAD_FAILED: ... still skips batch re-runs."""
+    s = _safe_str(status).strip()
+    if "|" in s:
+        return s.split("|", 1)[0].strip().upper()
+    return s.strip().upper()
+
+
+def _hf_row_should_skip_in_batch(status: str) -> bool:
+    # Rows saved as "PASS | AI_UPLOAD_FAILED: ..." still skip re-runs; clear the status cell to retry the row.
+    return _hf_status_head_for_skip(status) in ("DONE", "PASS")
+
+
+def _compose_hf_status_with_ai_errors(base: str, ai_errors: List[str]) -> str:
+    if not ai_errors:
+        return _safe_str(base).strip()
+    detail = "; ".join(ai_errors)
+    if len(detail) > 4500:
+        detail = detail[:4497] + "..."
+    base_s = _safe_str(base).strip()
+    if base_s.upper() == "ERROR":
+        return f"ERROR: {detail}"
+    return f"{base_s} | AI_UPLOAD_FAILED: {detail}"
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -1528,6 +1553,7 @@ def process_human_feedback_row(
         print("\n[STEP 1] Revising visuals based on human feedback...")
         updated_segments: Dict[int, str] = {}
         ai_generated_urls: Set[str] = set()
+        ai_generation_errors: List[str] = []
         # Segments/VO parts that should go through satisfaction review.
         # AI-generated replacements are intentionally excluded from this review path.
         review_segment_nums: List[int] = []
@@ -1577,7 +1603,9 @@ def process_human_feedback_row(
                         drive=drive,
                     )
                     if ai_err:
-                        raise RuntimeError(ai_err)
+                        print(f"  WARNING: {ai_err}")
+                        ai_generation_errors.append(ai_err)
+                        continue
                     ai_generated_urls.add(ai_url)
                     justification = _safe_str(matched_step.get("selection_justification", "")).strip() or "AI-generated visual selected based on reviewer feedback."
                     ai_visual_blocks.append(
@@ -1698,13 +1726,23 @@ def process_human_feedback_row(
         if not review_segment_nums:
             print("\n[STEP 2] Skipped: only AI-generation actions were requested.")
             _finalize_row(row_index, df, drive, ws)
-            df.at[row_index, human_feedback_status_column] = "PASS"
+            if ai_generation_errors and not updated_segments:
+                df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                    "ERROR", ai_generation_errors
+                )
+            else:
+                df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                    "PASS", ai_generation_errors
+                )
             df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
                     format_worksheet(ws)
-            print(f"Row {row_index + 1}: PASS (AI generation only, review skipped)")
+            if ai_generation_errors and not updated_segments:
+                print(f"Row {row_index + 1}: ERROR (AI upload failed; no revisions saved)")
+            else:
+                print(f"Row {row_index + 1}: PASS (AI generation only, review skipped)")
             return
 
         # --- REVIEW (single) ---
@@ -1732,7 +1770,9 @@ def process_human_feedback_row(
         if verdict == "PASS":
             print(f"\n  Human feedback satisfaction PASSED for row {row_index + 1}")
             _finalize_row(row_index, df, drive, ws)
-            df.at[row_index, human_feedback_status_column] = "PASS"
+            df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                "PASS", ai_generation_errors
+            )
             df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
             if ws is not None:
                 with _sheet_lock:
@@ -1866,7 +1906,9 @@ def process_human_feedback_row(
             if regen_verdict == "PASS":
                 print(f"  Regeneration PASSED on attempt {attempt}")
                 _finalize_row(row_index, df, drive, ws)
-                df.at[row_index, human_feedback_status_column] = "PASS"
+                df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                    "PASS", ai_generation_errors
+                )
                 df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
                 if ws is not None:
                     with _sheet_lock:
@@ -1882,7 +1924,9 @@ def process_human_feedback_row(
 
         # All regen attempts exhausted
         _finalize_row(row_index, df, drive, ws)
-        df.at[row_index, human_feedback_status_column] = "FAIL"
+        df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+            "FAIL", ai_generation_errors
+        )
         df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
         if ws is not None:
             with _sheet_lock:
@@ -2111,9 +2155,12 @@ def _generate_ai_visual_replacement(
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
         image.convert("RGB").save(tmp_path, format="JPEG", quality=92)
-        drive_url = upload_image_to_drive(tmp_path, filename, AI_GENERATED_IMAGES_FOLDER_ID, drive)
+        drive_url, upload_err = upload_image_to_drive(
+            tmp_path, filename, AI_GENERATED_IMAGES_FOLDER_ID, drive
+        )
         if not drive_url:
-            return None, f"Drive upload failed for {visual_id}"
+            detail = upload_err or "unknown error"
+            return None, f"Drive upload failed for {visual_id}: {detail}"
         return drive_url, None
     except Exception as e:
         return None, f"AI image upload failed for {visual_id}: {e}"
@@ -2309,16 +2356,24 @@ def run_human_feedback_review_revise_for_all_rows(
     if not drive:
         print("ERROR: Drive instance unavailable. Aborting.")
         return
-    print("Drive instance initialized")
+    try:
+        about = drive.GetAbout()
+        email = (about.get("user") or {}).get("emailAddress") or ""
+        if email.endswith(".gserviceaccount.com"):
+            print(f"Drive instance initialized (service account: {email})")
+        else:
+            print(f"Drive instance initialized (OAuth user: {email})")
+    except Exception as e:
+        print(f"Drive instance initialized (could not read identity: {e})")
 
     rows_to_process = []
     for index, row in df.iterrows():
         hf = _safe_str(row.get(human_feedback_column, "")).strip()
         if not hf or hf == "nan":
             continue
-        status = _safe_str(row.get(human_feedback_status_column, "")).strip().upper()
-        if status in ("DONE", "PASS"):
-            print(f"  Skipping row {index + 1}: {human_feedback_status_column}={status}")
+        status_raw = _safe_str(row.get(human_feedback_status_column, ""))
+        if _hf_row_should_skip_in_batch(status_raw):
+            print(f"  Skipping row {index + 1}: {human_feedback_status_column}={status_raw}")
             continue
         rows_to_process.append(index)
 

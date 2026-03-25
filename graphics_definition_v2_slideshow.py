@@ -1924,6 +1924,19 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             "--max_workers",
                             "50",
                         ]
+                        _rt = st.session_state.get("google_oauth_refresh_token")
+                        if _rt:
+                            cmd.extend(
+                                [
+                                    "--google_oauth_refresh_token_b64",
+                                    base64.b64encode(_rt.encode("utf-8")).decode("ascii"),
+                                ]
+                            )
+                        else:
+                            st.info(
+                                "No refresh token in session (re-login with Google to enable user Drive uploads "
+                                "in the cloud job). Otherwise the job uses the service account for AI image uploads."
+                            )
                         with st.spinner("Submitting background job..."):
                             process = subprocess.Popen(
                                 cmd,
@@ -1970,12 +1983,10 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             st.session_state["gdv2_hf_bg_link"] = job_link
                             st.session_state.pop("gdv2_hf_bg_name", None)
                             st.success("Background human-feedback revise job submitted.")
-                            st.markdown(f"**Background job:** [{job_link}]({job_link})")
                         elif job_name:
                             st.session_state["gdv2_hf_bg_name"] = job_name
                             st.session_state.pop("gdv2_hf_bg_link", None)
                             st.success("Background human-feedback revise job submitted.")
-                            st.markdown(f"**Background job:** `{job_name}`")
                             with st.expander("Launcher output (no job link found)", expanded=False):
                                 st.code(logs[-5000:] if len(logs) > 5000 else logs)
                         else:

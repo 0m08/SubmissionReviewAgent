@@ -133,6 +133,10 @@ def login():
                     st.session_state["role"] = user_info["role"]
                     st.session_state["user_email"] = user_email
                     st.session_state["user_pages"] = user_info["pages"]
+                    if getattr(creds, "refresh_token", None):
+                        st.session_state["google_oauth_refresh_token"] = creds.refresh_token
+                    else:
+                        st.session_state.pop("google_oauth_refresh_token", None)
 
                     # Track login event
                     track_login(gc, user_email)
@@ -243,6 +247,14 @@ def login():
                                 st.session_state["role"] = user_info["role"]
                                 st.session_state["user_email"] = user_email
                                 st.session_state["user_pages"] = user_info["pages"]
+                                try:
+                                    _rt = getattr(gauth.credentials, "refresh_token", None)
+                                    if _rt:
+                                        st.session_state["google_oauth_refresh_token"] = _rt
+                                    else:
+                                        st.session_state.pop("google_oauth_refresh_token", None)
+                                except Exception:
+                                    st.session_state.pop("google_oauth_refresh_token", None)
 
                                 # Track login event
                                 track_login(gc, user_email)

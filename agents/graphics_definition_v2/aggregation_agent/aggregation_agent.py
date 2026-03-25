@@ -2017,15 +2017,86 @@ def check_file_exists_in_drive(drive, folder_id, filename):
         return None
 
 
+def _format_bytes_human_readable(num_bytes: Optional[int]) -> str:
+    """
+    Convert bytes to a compact human-readable string.
+    """
+    if num_bytes is None:
+        return "unknown"
+    try:
+        value = float(num_bytes)
+    except Exception:
+        return str(num_bytes)
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    idx = 0
+    while value >= 1024 and idx < len(units) - 1:
+        value /= 1024.0
+        idx += 1
+    return f"{value:.2f} {units[idx]}"
+
+
+def _build_drive_diagnostics(drive, folder_id: Optional[str] = None) -> str:
+    """
+    Best-effort Drive diagnostics for failed uploads.
+    Includes authenticated account email and storage usage.
+    """
+    details: List[str] = []
+    try:
+        about = drive.GetAbout() or {}
+        user = about.get("user", {}) if isinstance(about, dict) else {}
+        email = user.get("emailAddress")
+        if email:
+            details.append(f"auth_email={email}")
+
+        quota_total = about.get("quotaBytesTotal")
+        quota_used = about.get("quotaBytesUsed")
+        total_int = int(quota_total) if quota_total not in (None, "") else None
+        used_int = int(quota_used) if quota_used not in (None, "") else None
+        free_int = None if total_int is None or used_int is None else max(total_int - used_int, 0)
+        pct = None if total_int in (None, 0) or used_int is None else (used_int / total_int) * 100.0
+
+        details.append(f"quota_used={_format_bytes_human_readable(used_int)}")
+        details.append(f"quota_total={_format_bytes_human_readable(total_int)}")
+        details.append(f"quota_free={_format_bytes_human_readable(free_int)}")
+        if pct is not None:
+            details.append(f"quota_used_pct={pct:.2f}%")
+    except Exception as meta_err:
+        details.append(f"drive_about_error={meta_err}")
+
+    if folder_id:
+        details.append(f"target_folder_id={folder_id}")
+        try:
+            folder = drive.CreateFile({"id": folder_id})
+            folder.FetchMetadata(fields="title,owners(emailAddress),shared,teamDriveId,driveId")
+            folder_title = folder.get("title")
+            owners = folder.get("owners") or []
+            owner_emails = [
+                o.get("emailAddress")
+                for o in owners
+                if isinstance(o, dict) and o.get("emailAddress")
+            ]
+            if folder_title:
+                details.append(f"target_folder_title={folder_title}")
+            if owner_emails:
+                details.append(f"target_folder_owners={','.join(owner_emails)}")
+            shared_drive_id = folder.get("driveId") or folder.get("teamDriveId")
+            if shared_drive_id:
+                details.append(f"shared_drive_id={shared_drive_id}")
+        except Exception as folder_meta_err:
+            details.append(f"folder_meta_error={folder_meta_err}")
+
+    return " | ".join(details)
+
+
 def upload_image_to_drive(image_path, filename, folder_id, drive):
     """
     Upload an image file to Google Drive folder.
-    
+
     :param image_path: Local path to the image file
     :param filename: Name to use for the file in Drive
     :param folder_id: Drive folder ID to upload to
     :param drive: Google Drive instance
-    :return: Shareable Drive URL or None if upload fails
+    :return: (shareable_url, error_message). On success error_message is None; on failure url is None.
     """
     try:
         # Check if file already exists
@@ -2034,8 +2105,8 @@ def upload_image_to_drive(image_path, filename, folder_id, drive):
             file_id = existing_file['id']
             shareable_url = f"https://drive.google.com/file/d/{file_id}/view"
             print(f"✅ File {filename} already exists in Drive, reusing: {shareable_url}")
-            return shareable_url
-        
+            return shareable_url, None
+
         # Upload new file
         file_drive = drive.CreateFile({
             'title': filename,
@@ -2043,17 +2114,27 @@ def upload_image_to_drive(image_path, filename, folder_id, drive):
         })
         file_drive.SetContentFile(image_path)
         file_drive.Upload()
-        
+
         # Get shareable URL
         file_id = file_drive['id']
         shareable_url = f"https://drive.google.com/file/d/{file_id}/view"
-        
+
         print(f"✅ Uploaded {filename} to Drive: {shareable_url}")
-        return shareable_url
-        
+        return shareable_url, None
+
     except Exception as e:
         print(f"⚠️ Error uploading {filename} to Drive: {e}")
-        return None
+        err = str(e).strip() or repr(e)
+        diagnostics = _build_drive_diagnostics(drive, folder_id)
+        if "quotaExceeded" in err or "storage quota" in err.lower():
+            err = (
+                f"{err} — The Google account that owns this Drive folder is out of storage "
+                "(or the shared drive quota is exhausted). Free space or upload to a folder "
+                f"in an account with available quota. [{diagnostics}]"
+            )
+        elif diagnostics:
+            err = f"{err} [{diagnostics}]"
+        return None, err
 
 
 def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=video_frames_drive_folder_id):
@@ -2122,7 +2203,7 @@ def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=
 
                         if success and os.path.exists(temp_frame_path):
                             # Upload to Drive
-                            drive_url = upload_image_to_drive(
+                            drive_url, upload_err = upload_image_to_drive(
                                 temp_frame_path,
                                 filename,
                                 drive_folder_id,
@@ -2133,7 +2214,10 @@ def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=
                                 processed_frames[asset_url] = drive_url
                                 print(f"✅ Successfully processed frame: {asset_url} -> {drive_url}")
                             else:
-                                print(f"⚠️ Failed to upload frame for {asset_url}, keeping original URL")
+                                detail = f" ({upload_err})" if upload_err else ""
+                                print(
+                                    f"⚠️ Failed to upload frame for {asset_url}{detail}, keeping original URL"
+                                )
                         else:
                             print(f"⚠️ Failed to extract frame for {asset_url}, keeping original URL")
                     finally:

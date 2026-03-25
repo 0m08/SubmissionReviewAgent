@@ -44,6 +44,7 @@ email_to_role_mapping = {
     "surabhi@skillcatapp.com": "Instructional Designer",
     "trizah@skillcatapp.com": "Instructional Designer",
     "vinaypal@skillcatapp.com": "Instructional Designer",
+    "isaac@skillcatapp.com": "Instructional Designer",
          
     # Visual Designer - Access to graphics-related tools, image search, quality compliance, video search
     "ajay@skillcatapp.com": "Visual Designer",

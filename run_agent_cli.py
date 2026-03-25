@@ -14,7 +14,7 @@ from services.sheets_service import get_sheet_data_and_df
 # Google Sheets / Drive
 import gspread
 from pydrive2.drive import GoogleDrive
-from services.drive_service import login_with_service_account
+from services.drive_service import login_with_service_account, try_build_user_drive_for_background_jobs
 
 
 # Set up argument parser
@@ -85,6 +85,20 @@ except Exception as e:
     print(f"[ERROR] Failed to authenticate Google Drive: {e}")
     sys.exit(1)
 
+drive_for_session = drive
+oauth_drive = try_build_user_drive_for_background_jobs()
+if oauth_drive is not None:
+    drive_for_session = oauth_drive
+    print(
+        "[INFO] Background job: using OAuth user Google Drive. Sheets access remains service-account."
+    )
+else:
+    print(
+        "[INFO] Background job: using service-account Google Drive. "
+        "Use 'run in background' from the app while logged in with Google (or set GOOGLE_OAUTH_REFRESH_TOKEN "
+        "on the job) to match in-browser Drive uploads."
+    )
+
 # Map agent_name to pipeline module
 AGENT_PIPELINES = {
     "course_outline": "course_outline",
@@ -117,7 +131,7 @@ if args.agent_name != "human_feedback_review_revise":
 session_state = {
     "sheet": sheet,
     "agent_name": ui_agent_name,
-    "drive": drive,
+    "drive": drive_for_session,
     "skip_manual_step": True,
     "root_folder_id": args.drive_folder_id,
     "gc": gc,
@@ -275,21 +289,23 @@ else:
 for k, v in session_state.items():
     st.session_state[k] = v
 
-# Notifications: send "agent is running" only when Execute has started 
+# Notifications: each message is standalone (no In-Reply-To / thread with other mails for this run).
 user_email = (args.user_email or os.environ.get("USER_EMAIL", "")).strip()
 course_name = session_state.get("course_name", "Unknown course")
-first_message_id = None
+notify = False
 if not user_email:
     print("[INFO] No USER_EMAIL set; skipping notification emails.")
 elif not is_email_configured():
     print("[INFO] SMTP_USER or SMTP_APP_PASSWORD not set in job environment; skipping notification emails.")
-# Base subject used for threading completion emails
-thread_subject_base = f"Course generation: {ui_agent_name} AI Agent – Running"
+else:
+    notify = True
 
-if user_email and is_email_configured():
+running_subject = f"Course generation: {ui_agent_name} AI Agent – Running"
+
+if notify:
     count, count_label = _get_agent_work_count(sheet, args.agent_name)
     started_at = _format_time_utc_and_ist()
-    subject = thread_subject_base
+    subject = running_subject
     work_scope = ""
     if count is not None:
         work_scope = f"Work scope: {count} {count_label} to process.\n\n"
@@ -320,15 +336,15 @@ if user_email and is_email_configured():
         f"<p>You may close the browser tab or window where you started this agent, or even shut down your computer. The agent is running in the cloud and will continue on its own. You will receive a follow-up email when it completes successfully or if an error occurs—no need to keep the app open.</p>"
         f"<p>Thank you for using Course Generation AI Agents.</p>"
     )
-    first_message_id = send_notification_email(to_email=user_email, subject=subject, body_plain=body, body_html=body_html)
-    if first_message_id:
+    _started_mid = send_notification_email(to_email=user_email, subject=subject, body_plain=body, body_html=body_html)
+    if _started_mid:
         print(f"[INFO] Sent 'agent is running' notification to {user_email}")
 
 try:
     _run_target()
-    if user_email and is_email_configured() and first_message_id:
+    if notify:
         completed_at = _format_time_utc_and_ist()
-        subject = f"Re: {thread_subject_base}"
+        subject = f"Course generation: {ui_agent_name} AI Agent – Completed"
         body = (
             f"Your {ui_agent_name} AI agent has completed successfully in the background.\n\n"
             f"————————————————————————————\n"
@@ -357,12 +373,11 @@ try:
             to_email=user_email,
             subject=subject,
             body_plain=body,
-            reply_to_message_id=first_message_id,
             body_html=body_html,
         )
         print(f"[INFO] Sent completion notification to {user_email}")
 except Exception as err:
-    if user_email and is_email_configured() and first_message_id:
+    if notify:
         failed_at = _format_time_utc_and_ist()
         err_escaped = str(err).replace("<", "&lt;").replace(">", "&gt;")
         subject = f"Course generation: {ui_agent_name} AI Agent – Error"
@@ -402,7 +417,6 @@ except Exception as err:
             to_email=user_email,
             subject=subject,
             body_plain=body,
-            reply_to_message_id=first_message_id,
             body_html=body_html,
         )
         print(f"[INFO] Sent error notification to {user_email}")
