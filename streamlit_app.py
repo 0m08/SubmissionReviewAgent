@@ -404,11 +404,11 @@ vectorstore_page = st.Page(
     # Optional: default=True or role-based logic
 )
 
-get_images_page = st.Page(
-    "get_images_from_graphics_definitions.py",
-    title="Image Search with Graphics Definitions",
-    icon=":material/image_search:",
-)
+# get_images_page = st.Page(
+#     "get_images_from_graphics_definitions.py",
+#     title="Image Search with Graphics Definitions",
+#     icon=":material/image_search:",
+# )
 
 quality_compliance_scoring_page = st.Page(
     "quality_compliance_scoring.py",
@@ -524,7 +524,7 @@ page_name_to_object = {
     "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
     "vectorstore_page": vectorstore_page,
-    "get_images_page": get_images_page,
+    #"get_images_page": get_images_page,
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
@@ -549,8 +549,8 @@ agent_pages = [
     "slide_chunks_page",
     #"graphics_definition_page",
     "graphics_definition_v2_page",
-    "assessments_generation_page",
-    "get_images_page"]
+    "assessments_generation_page"]
+    #"get_images_page"]
 tool_pages = [
     # "graphics_search_page",
     "vectorstore_page",
