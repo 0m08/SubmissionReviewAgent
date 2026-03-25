@@ -1426,6 +1426,9 @@ def run_automation(
     drive=None,
     progress_callback=None,   # Optional[Callable[[int, int], None]]
     skip_filled_rows: bool = False,
+    input_column_name: str = "final_graphics_definition",
+    output_column_name: str = "final_graphics_definition",
+    write_final_graphics: bool = True,
 ):
     """
     Batch-process the entire source sheet with FULL parallelism.
@@ -1445,7 +1448,9 @@ def run_automation(
         progress_callback: Optional callable invoked after each subsegment completes.
                            Signature: progress_callback(completed: int, total: int)
                            useful for driving a UI progress bar.
-        skip_filled_rows: Whether to skip rows that already have content in the 'final_graphics' column.
+        skip_filled_rows: Whether to skip rows that already have content in the output column (`output_column_name`).
+        write_final_graphics: Whether to create/update the legacy `final_graphics` column.
+                              When False, this pipeline writes only `output_column_name`.
         max_workers / subseg_workers: Accepted for backward-compatibility only;
                                      silently ignored.
     """
@@ -1487,21 +1492,41 @@ def run_automation(
         if len(df) > 0:
             print(f"📊 First row sample: {dict(df.iloc[0])}")
 
-        # Ensure 'final_graphics' column exists
+        # Ensure output columns exist
         source_headers     = ws_source.row_values(1)
         FINAL_GRAPHICS_COL = 'final_graphics'
-        if FINAL_GRAPHICS_COL not in source_headers:
-            next_col = len(source_headers) + 1
-            with sheet_lock:
-                ws_source.update(
-                    range_name=rowcol_to_a1(1, next_col),
-                    values=[[FINAL_GRAPHICS_COL]]
-                )
-            source_headers.append(FINAL_GRAPHICS_COL)
-            print(f"📌 Added '{FINAL_GRAPHICS_COL}' column at position {next_col}")
+        FINAL_GRAPHICS_DEFINITION_COL = output_column_name
+        output_cols = [FINAL_GRAPHICS_DEFINITION_COL]
+        if write_final_graphics:
+            output_cols.insert(0, FINAL_GRAPHICS_COL)
 
-        fg_col_idx = source_headers.index(FINAL_GRAPHICS_COL) + 1   # 1-based
-        print(f"📌 Writing results to column '{FINAL_GRAPHICS_COL}' (col {fg_col_idx})")
+        for col_name in output_cols:
+            if col_name not in source_headers:
+                next_col = len(source_headers) + 1
+                with sheet_lock:
+                    ws_source.update(
+                        range_name=rowcol_to_a1(1, next_col),
+                        values=[[col_name]]
+                    )
+                source_headers.append(col_name)
+                print(f"📌 Added '{col_name}' column at position {next_col}")
+
+        fg_def_col_idx = source_headers.index(FINAL_GRAPHICS_DEFINITION_COL) + 1   # 1-based
+        fg_col_idx = None
+        if write_final_graphics:
+            fg_col_idx = source_headers.index(FINAL_GRAPHICS_COL) + 1   # 1-based
+
+        if write_final_graphics:
+            print(
+                f"📌 Writing results to columns "
+                f"'{FINAL_GRAPHICS_COL}' (col {fg_col_idx}) and "
+                f"'{FINAL_GRAPHICS_DEFINITION_COL}' (col {fg_def_col_idx})"
+            )
+        else:
+            print(
+                f"📌 Writing results to column "
+                f"'{FINAL_GRAPHICS_DEFINITION_COL}' (col {fg_def_col_idx}) only"
+            )
 
         # Scan all rows → pre-create Drive folders → build flat global work list
         print("\n🔍 Phase 1: Scanning all rows and pre-creating Drive folders…")
@@ -1513,15 +1538,17 @@ def run_automation(
         for df_idx, (_, row) in enumerate(df.iterrows()):
             # Resume/Completion check: Skip if row already has generated content
             if skip_filled_rows:
-                existing_result = str(row.get(FINAL_GRAPHICS_COL, '')).strip()
+                existing_result = str(row.get(output_column_name, '')).strip()
                 # Check for a Drive link as a proxy for 'successfully processed'
                 if existing_result and "drive.google.com" in existing_result.lower():
-                    print(f"  ⏭️ Row {df_idx + 1}: Already has 'final_graphics' content. Skipping.")
+                    print(
+                        f"  ⏭️ Row {df_idx + 1}: Already has '{output_column_name}' content. Skipping."
+                    )
                     rows_written.add(df_idx)
                     continue
             slide_title        = str(row.get('Slide Chunk Title', ''))
             slide_content      = str(row.get('Slide Chunk', ''))
-            final_graphics_def = str(row.get('final_graphics_definition', ''))
+            final_graphics_def = str(row.get(input_column_name, ''))
             sheet_row_number   = df_idx + 2   # +1 for 1-based, +1 for header row
 
             print(f"\n  Row {df_idx + 1}: {slide_title[:60]}")
@@ -1586,6 +1613,13 @@ def run_automation(
         print(f"   Rows scanned            : {len(df)}")
         print(f"   Total valid subsegments : {total_subsegments}")
         print(f"   Workers to launch       : {total_subsegments}  (1 worker per subsegment)")
+
+        # Ensure UI progress bar updates even when there are 0 eligible subsegments.
+        if progress_callback:
+            try:
+                progress_callback(0, total_subsegments)
+            except Exception:
+                pass
 
         if total_subsegments == 0:
             print("⚠️ No valid subsegments found across any row. Rows will be written immediately with original graphics text.")
@@ -1696,7 +1730,8 @@ def run_automation(
             row_subseg_links.update(results.get(df_idx, {}))
 
             rebuilt_text = _rebuild_final_graphics_text(final_graphics_def, row_subseg_links)
-            cell_addr    = rowcol_to_a1(sheet_row_number, fg_col_idx)
+            cell_addr_def = rowcol_to_a1(sheet_row_number, fg_def_col_idx)
+            cell_addr_fg = rowcol_to_a1(sheet_row_number, fg_col_idx) if fg_col_idx is not None else None
 
             written = False
             for write_attempt in range(3):
@@ -1711,8 +1746,19 @@ def run_automation(
                         except Exception:
                             pass
                     with sheet_lock:
-                        ws_source.update(range_name=cell_addr, values=[[rebuilt_text]])
-                    print(f"  ✏️  Written sheet row {sheet_row_number} → {cell_addr}")
+                        ws_source.update(range_name=cell_addr_def, values=[[rebuilt_text]])
+                        if write_final_graphics and cell_addr_fg:
+                            ws_source.update(range_name=cell_addr_fg, values=[[rebuilt_text]])
+
+                    if write_final_graphics and cell_addr_fg:
+                        print(
+                            f"  ✏️  Written sheet row {sheet_row_number} → "
+                            f"{cell_addr_def} and {cell_addr_fg}"
+                        )
+                    else:
+                        print(
+                            f"  ✏️  Written sheet row {sheet_row_number} → {cell_addr_def}"
+                        )
                     written = True
                     break
                 except Exception as sheet_err:

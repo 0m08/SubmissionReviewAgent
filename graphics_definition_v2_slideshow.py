@@ -18,9 +18,11 @@ from openai import OpenAI
 from PIL import UnidentifiedImageError
 
 from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
+from services.sheets_service import hide_columns_by_name
 from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
     run_human_feedback_review_revise_for_all_rows,
 )
+from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import run_automation
 
 
 DEFAULT_SHEET_NAME = "Slide Chunks"
@@ -30,6 +32,7 @@ HUMAN_FEEDBACK_STATUS_COLUMN = "human_feedback_status"
 HUMAN_FEEDBACK_TRACKING_COLUMN = "human_feedback_revision_tracking"
 HUMAN_REVIEW_ACTIONS_COLUMN = "human_review_actions"
 HUMAN_REVIEW_FILTER_OPTIONS = ["all", "approved", "revised", "unreviewed"]
+EDITED_FILTER_OPTION = "edited"
 DEFAULT_REJECT_FEEDBACK = "I did not like the visual that is currently assigned. Find and assign a better visual that is relevant for this voiceover part"
 TTS_MODEL = "gpt-4o-mini-tts"
 TTS_VOICE = "alloy"
@@ -70,7 +73,8 @@ def get_or_create_human_feedback_column(worksheet):
 
 
 def get_round_column_name(base_name, round_index):
-    return base_name if round_index == 0 else f"{base_name}_{round_index}"
+
+    return f"{base_name}_{round_index + 1}"
 
 
 def get_or_create_column(worksheet, column_name):
@@ -505,6 +509,20 @@ def parse_graphics_definition(text):
     if fallback_step:
         return [_build_segment(1, [fallback_step])]
     return []
+
+
+def _primary_asset_url(asset_text: str) -> str:
+    """
+    Extract the stable 'primary' URL from an asset field.
+
+    The asset text can accidentally include extra labels/lines after regen, so
+    raw string equality produces false positives. We normalize comparison to
+    only the first http(s) URL when present.
+    """
+    s = safe_str(asset_text).strip()
+    s = re.sub(r"\s+", " ", s)
+    m = re.search(r"https?://[^\s)>\"]+", s)
+    return m.group(0).strip() if m else s
 
 
 def _fallback_step_from_text(text):
@@ -1559,6 +1577,8 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
         show_approved = action_filter in ("all", "approved")
 
     any_visible_items = False
+    edited_visual_ids_by_row = st.session_state.get("gdv2_edited_visual_ids_by_row", {}) if action_filter == EDITED_FILTER_OPTION else {}
+
     for slide_idx, slide in enumerate(slides, start=1):
         segments = slide.get("segments", [])
         if not segments:
@@ -1584,6 +1604,9 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
             visible_steps = []
             for step in segment.get("steps", []):
                 visual_id = f"S{segment['segment_index']}V{step['step_index']}"
+                is_edited = False
+                if action_filter == EDITED_FILTER_OPTION:
+                    is_edited = visual_id in edited_visual_ids_by_row.get(row_index, set())
                 action_scope_key = f"{row_index}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
                 action_key = f"{action_scope_key}_action"
                 feedback_key = f"{action_scope_key}_feedback"
@@ -1640,11 +1663,14 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 is_unreviewed = effective_action == ACTION_NONE
                 is_approved = effective_action == ACTION_APPROVE
                 is_revised = effective_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI)
-                visible = (
-                    (show_approved and is_approved)
-                    or (show_revised and is_revised)
-                    or (show_unreviewed and is_unreviewed)
-                )
+                if action_filter == EDITED_FILTER_OPTION:
+                    visible = is_edited
+                else:
+                    visible = (
+                        (show_approved and is_approved)
+                        or (show_revised and is_revised)
+                        or (show_unreviewed and is_unreviewed)
+                    )
                 if not visible:
                     continue
 
@@ -1710,16 +1736,34 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
         save_col1, save_col2 = st.columns(2)
         with save_col1:
             save_and_revise_now = st.button(
-                "Save feedback to sheet and revise visuals based on feedback",
+                "Save all feedback and revise visuals",
                 type="primary",
                 key="gdv2_save_revise_now_btn",
             )
         with save_col2:
             save_and_revise_bg = st.button(
-                "Save feedback to sheet and revise visuals based on feedback in background",
+                "Save all feedback and revise visuals in background",
                 type="primary",
                 key="gdv2_save_revise_bg_btn",
             )
+
+        st.divider()
+        regen_col1, regen_col2 = st.columns(2)
+        with regen_col1:
+            regen_web_now = st.button(
+                "Regenerate web images with AI",
+                type="primary",
+                key="gdv2_regen_web_now_btn",
+            )
+        with regen_col2:
+            regen_web_bg = st.button(
+                "Regenerate web images with AI in Background",
+                type="primary",
+                key="gdv2_regen_web_bg_btn",
+            )
+
+        if regen_web_bg:
+            st.info("Background regeneration is not implemented yet. Use the sync button for now.")
 
         if save_and_revise_now or save_and_revise_bg:
             worksheet = None
@@ -1994,6 +2038,116 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             with st.expander("Launcher output", expanded=True):
                                 st.code(logs[-5000:] if len(logs) > 5000 else logs)
 
+        if regen_web_now:
+            sheet_url = st.session_state.get("gdv2_sheet_link", "") or ""
+            if not sheet_url.strip():
+                st.error("Missing sheet URL. Please re-load the sheet using the 'Load Sheet' button.")
+            else:
+                try:
+                    worksheet = sheet.worksheet(worksheet_name)
+                    headers = worksheet.row_values(1)
+
+                    # Archive + hide the current main column into final_graphics_definition_N.
+                    main_col = FINAL_GRAPHICS_COLUMN
+                    if main_col not in headers:
+                        st.error(f"Column '{main_col}' not found in worksheet. Cannot regenerate.")
+                        return
+
+                    max_n = 0
+                    for h in headers:
+                        if isinstance(h, str) and h.startswith(f"{main_col}_"):
+                            suffix = h[len(f"{main_col}_"):]
+                            if suffix.isdigit():
+                                max_n = max(max_n, int(suffix))
+
+                    next_n = max_n + 1
+                    archive_col = f"{main_col}_{next_n}"
+
+                    # Rename header cell: final_graphics_definition -> final_graphics_definition_N
+                    main_col_idx_1based = headers.index(main_col) + 1
+                    worksheet.update_cell(1, main_col_idx_1based, archive_col)
+
+                    # Refresh df so the helper can find correct column indices.
+                    _, df_after_archive = get_sheet_data_and_df(sheet, worksheet_name)
+                    # Hide archived history column(s) and also hide legacy final_graphics.
+                    hide_columns_by_name(
+                        worksheet,
+                        [archive_col, FINAL_GRAPHICS_COLUMN],
+                        df_after_archive,
+                    )
+
+                    # Create the new visible main column header again.
+                    get_or_create_column(worksheet, main_col)
+
+                    st.info("Regenerating web images now. This can take a while...")
+                    regen_status = st.empty()
+                    regen_progress = st.progress(0.0, text="Regenerating web images: 0% | Just started...")
+                    regen_start_time = time.time()
+
+                    def _regen_progress_cb(completed: int, total: int):
+                        # Called by run_automation after each subsegment completes.
+                        pct = (completed / total) if total else 1.0
+                        pct = max(0.0, min(1.0, pct))
+                        elapsed_seconds = time.time() - regen_start_time
+
+                        if total == 0:
+                            text = (
+                                "Regenerating web images: Nothing to regenerate "
+                                "(0 eligible subsegments)."
+                            )
+                            regen_status.markdown(text)
+                            regen_progress.progress(1.0, text=text)
+                            return
+
+                        if completed > 0 and total and total >= completed:
+                            seconds_per_task = elapsed_seconds / completed
+                            remaining_tasks = total - completed
+                            estimated_remaining_seconds = max(0.0, seconds_per_task * remaining_tasks)
+
+                            elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_seconds)))
+                            remaining_time_str = str(datetime.timedelta(seconds=int(estimated_remaining_seconds)))
+                            text = (
+                                f"Regenerating web images: {int(pct * 100)}% "
+                                f"({completed}/{total}) | Elapsed: {elapsed_time_str} | Remaining: {remaining_time_str}"
+                            )
+                        else:
+                            text = (
+                                f"Regenerating web images: {int(pct * 100)}% "
+                                f"({completed}/{total}) | Elapsed: {str(datetime.timedelta(seconds=int(elapsed_seconds)))}"
+                            )
+
+                        # Update both the status line and the progress bar.
+                        # (Depending on Streamlit timing, the status line tends to render more reliably.)
+                        regen_status.markdown(text)
+                        regen_progress.progress(pct, text=text)
+
+                    with st.spinner("Running regeneration pipeline..."):
+                        run_automation(
+                            sheet_url=sheet_url,
+                            source_tab=worksheet_name,
+                            output_folder_name="Web Image Regeneration",
+                            gc=st.session_state.get("gc"),
+                            drive=st.session_state.get("drive"),
+                            progress_callback=_regen_progress_cb,
+                            skip_filled_rows=False,
+                            input_column_name=archive_col,
+                            output_column_name=main_col,
+                            write_final_graphics=False,
+                        )
+
+                    # Refresh inspector state so regenerated links are visible immediately.
+                    _clear_inspector_image_cache()
+                    st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
+                    _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
+                    st.session_state["gdv2_df"] = refreshed_df
+                    st.session_state["gdv2_round"] = detect_current_round(refreshed_df)
+                    st.session_state["gdv2_pending_visual_filter"] = EDITED_FILTER_OPTION
+                    st.success("✅ Regeneration complete. Results are written back to the sheet.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Regeneration failed: {e}")
+                    raise
+
         if st.session_state.get("gdv2_revision_notice", False):
             st.info(
                 "Visuals have been revised based on all the feedbacks, you can now review the revised visuals and leave any new feedback if you want."
@@ -2079,6 +2233,26 @@ def main():
         st.warning("No data found in the selected worksheet.")
         return
 
+    # Determine whether an archived "previous version" column exists so we can show the edited filter.
+    archive_cols = []
+    for c in df.columns:
+        if isinstance(c, str) and c.startswith(f"{FINAL_GRAPHICS_COLUMN}_"):
+            suffix = c[len(f"{FINAL_GRAPHICS_COLUMN}_"):]
+            if suffix.isdigit():
+                archive_cols.append((int(suffix), c))
+    archive_cols.sort(key=lambda x: x[0])
+    latest_archive_col = archive_cols[-1][1] if archive_cols else None
+    show_edited_filter = latest_archive_col is not None
+
+
+    # If the sheet contains a human-feedback status column for any round (human_feedback_status_n),bwe treat that as meaning the human-feedback revise pipeline ran at least once.
+    revise_happened_ever = any(
+        isinstance(c, str)
+        and c.startswith(f"{HUMAN_FEEDBACK_STATUS_COLUMN}_")
+        and c[len(f"{HUMAN_FEEDBACK_STATUS_COLUMN}_") :].isdigit()
+        for c in df.columns
+    )
+
     column_map = {
         "topic": find_column(df, "Topic"),
         "subtopic": find_column(df, "Subtopic"),
@@ -2105,10 +2279,21 @@ def main():
     if "gdv2_round" not in st.session_state:
         st.session_state["gdv2_round"] = detect_current_round(df)
     pending_visual_filter = st.session_state.pop("gdv2_pending_visual_filter", None)
-    if pending_visual_filter in HUMAN_REVIEW_FILTER_OPTIONS:
+    if pending_visual_filter == EDITED_FILTER_OPTION and show_edited_filter:
+        st.session_state["gdv2_visual_filter"] = EDITED_FILTER_OPTION
+    elif pending_visual_filter in HUMAN_REVIEW_FILTER_OPTIONS:
         st.session_state["gdv2_visual_filter"] = pending_visual_filter
     if "gdv2_visual_filter" not in st.session_state:
-        st.session_state["gdv2_visual_filter"] = "all" if st.session_state["gdv2_round"] == 0 else "revised"
+        # Default filter selection across sessions:
+        # - If regen happened at least once, prefer `edited`.
+        # - Else if only revise happened, default to `revised`.
+        # - Else default to `all` (first time / nothing done yet).
+        if show_edited_filter:
+            st.session_state["gdv2_visual_filter"] = EDITED_FILTER_OPTION
+        elif revise_happened_ever:
+            st.session_state["gdv2_visual_filter"] = "revised"
+        else:
+            st.session_state["gdv2_visual_filter"] = "all"
     filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
     with filter_col1:
         topic_filter = st.selectbox("Topic", options=["All"] + topic_values)
@@ -2132,11 +2317,12 @@ def main():
                 "all" if int(st.session_state.get("gdv2_round", 0)) == 0 else "revised"
             )
         current_visual_filter = st.session_state.get("gdv2_visual_filter", "all")
-        if current_visual_filter not in HUMAN_REVIEW_FILTER_OPTIONS:
+        visual_options = HUMAN_REVIEW_FILTER_OPTIONS + ([EDITED_FILTER_OPTION] if show_edited_filter else [])
+        if current_visual_filter not in visual_options:
             st.session_state["gdv2_visual_filter"] = "all"
         visual_filter = st.selectbox(
             "Visual Review Filter",
-            options=HUMAN_REVIEW_FILTER_OPTIONS,
+            options=visual_options,
             key="gdv2_visual_filter",
             format_func=lambda x: x.capitalize(),
         )
@@ -2167,6 +2353,41 @@ def main():
             st.session_state["gdv2_slideshow_key"] = current_key
     else:
         st.session_state["gdv2_slideshow_key"] = compute_slideshow_key(steps)
+
+    # If the user is filtering by "edited", compute which visuals changed between
+    # the latest archived column and the current FINAL_GRAPHICS_COLUMN.
+    if visual_filter == EDITED_FILTER_OPTION and latest_archive_col:
+        edited_visual_ids_by_row = {}
+
+        for row_idx, row in filtered_df.iterrows():
+            curr_def = safe_str(row.get(FINAL_GRAPHICS_COLUMN, "")).strip()
+            prev_def = safe_str(row.get(latest_archive_col, "")).strip()
+            curr_segments = parse_graphics_definition(curr_def)
+            prev_segments = parse_graphics_definition(prev_def)
+
+            curr_assets = {}
+            for seg in curr_segments:
+                for stp in seg.get("steps", []):
+                    vid = f"S{seg['segment_index']}V{stp['step_index']}"
+                    curr_assets[vid] = _primary_asset_url(stp.get("asset", ""))
+
+            prev_assets = {}
+            for seg in prev_segments:
+                for stp in seg.get("steps", []):
+                    vid = f"S{seg['segment_index']}V{stp['step_index']}"
+                    prev_assets[vid] = _primary_asset_url(stp.get("asset", ""))
+
+            changed = set()
+            for vid, asset in curr_assets.items():
+                if prev_assets.get(vid, "") != asset:
+                    changed.add(vid)
+            # If a visual id exists in prev but not curr, it no longer renders; ignore.
+
+            edited_visual_ids_by_row[row_idx] = changed
+
+        st.session_state["gdv2_edited_visual_ids_by_row"] = edited_visual_ids_by_row
+    else:
+        st.session_state["gdv2_edited_visual_ids_by_row"] = {}
 
     render_inspector(
         slides,

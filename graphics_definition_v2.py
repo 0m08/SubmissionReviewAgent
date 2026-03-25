@@ -196,7 +196,7 @@ pipeline_sections = [
         "section_name": "Section 5: Final Aggregation Agent",
         "steps": [
             {
-                "name": "Run Aggregation Agent",
+                "name": "Aggregation Agent",
                 "func": run_aggregation_agent_for_all_rows,
                 "depends_on": ["Generate Image and Video Pools"],
                 "args": {
