@@ -32,6 +32,7 @@ parser.add_argument(
         "graphics_definition_v2",
         "assessment",
         "human_feedback_review_revise",
+        "web_image_regeneration_bg",
     ],
     help="Agent/pipeline to run",
 )
@@ -44,6 +45,12 @@ parser.add_argument("--human_review_actions_column", default="human_review_actio
 parser.add_argument("--llm", default="gemini_3_flash_thinking")
 parser.add_argument("--max_workers", type=int, default=50)
 parser.add_argument("--use_only_drive_and_hvac", default="false")
+parser.add_argument("--source_tab", default="Slide Chunks")
+parser.add_argument("--regen_input_column", default="")
+parser.add_argument("--regen_output_column", default="final_graphics_definition")
+parser.add_argument("--regen_output_folder_name", default="Web Image Regeneration")
+parser.add_argument("--regen_write_final_graphics", default="false")
+parser.add_argument("--regen_skip_filled_rows", default="false")
 args = parser.parse_args()
 
 AGENT_DISPLAY_NAMES = {
@@ -54,6 +61,7 @@ AGENT_DISPLAY_NAMES = {
     "graphics_definition_v2": "Graphics Definition V2",
     "assessment": "Assessment",
     "human_feedback_review_revise": "Human Feedback Review & Revise",
+    "web_image_regeneration_bg": "Web Images to AI Images Regeneration",
 }
 ui_agent_name = AGENT_DISPLAY_NAMES.get(args.agent_name, args.agent_name)
 
@@ -109,7 +117,7 @@ AGENT_PIPELINES = {
     "assessment": "assessment",
 }
 pipeline_sections = None
-if args.agent_name != "human_feedback_review_revise":
+if args.agent_name not in ("human_feedback_review_revise", "web_image_regeneration_bg"):
     pipeline_module_name = AGENT_PIPELINES.get(args.agent_name)
     if not pipeline_module_name:
         print(f"[ERROR] Unknown agent: {args.agent_name}")
@@ -281,6 +289,26 @@ if args.agent_name == "human_feedback_review_revise":
             human_feedback_status_column=args.human_feedback_status_column,
             human_feedback_revision_tracking_column=args.human_feedback_revision_tracking_column,
             human_review_actions_column=args.human_review_actions_column,
+        )
+elif args.agent_name == "web_image_regeneration_bg":
+    from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import run_automation
+
+    def _run_target():
+        input_col = (args.regen_input_column or "").strip()
+        if not input_col:
+            raise ValueError("Missing --regen_input_column for web_image_regeneration_bg.")
+        output_col = (args.regen_output_column or "final_graphics_definition").strip()
+        run_automation(
+            sheet_url=args.sheet_link,
+            source_tab=(args.source_tab or "Slide Chunks").strip(),
+            output_folder_name=(args.regen_output_folder_name or "Web Image Regeneration").strip(),
+            gc=gc,
+            drive=drive_for_session,
+            progress_callback=None,
+            skip_filled_rows=_to_bool(args.regen_skip_filled_rows),
+            input_column_name=input_col,
+            output_column_name=output_col,
+            write_final_graphics=_to_bool(args.regen_write_final_graphics),
         )
 else:
     def _run_target():

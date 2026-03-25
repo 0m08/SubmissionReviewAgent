@@ -21,6 +21,12 @@ def main():
     parser.add_argument('--llm', default='', help='LLM name override')
     parser.add_argument('--max_workers', default='', help='Max workers override')
     parser.add_argument('--use_only_drive_and_hvac', default='', help='true/false override')
+    parser.add_argument('--source_tab', default='', help='Worksheet tab name for regen background job')
+    parser.add_argument('--regen_input_column', default='', help='Input graphics definition column for regen')
+    parser.add_argument('--regen_output_column', default='', help='Output graphics definition column for regen')
+    parser.add_argument('--regen_output_folder_name', default='', help='Drive output folder name for regen')
+    parser.add_argument('--regen_write_final_graphics', default='', help='true/false for writing legacy final_graphics')
+    parser.add_argument('--regen_skip_filled_rows', default='', help='true/false resume flag for regen')
     parser.add_argument(
         '--google_oauth_refresh_token_b64',
         default='',
@@ -101,6 +107,18 @@ def main():
         hf_args += f" --max_workers '{_shell_escape(args.max_workers)}'"
     if args.use_only_drive_and_hvac:
         hf_args += f" --use_only_drive_and_hvac '{_shell_escape(args.use_only_drive_and_hvac)}'"
+    if args.source_tab:
+        hf_args += f" --source_tab '{_shell_escape(args.source_tab)}'"
+    if args.regen_input_column:
+        hf_args += f" --regen_input_column '{_shell_escape(args.regen_input_column)}'"
+    if args.regen_output_column:
+        hf_args += f" --regen_output_column '{_shell_escape(args.regen_output_column)}'"
+    if args.regen_output_folder_name:
+        hf_args += f" --regen_output_folder_name '{_shell_escape(args.regen_output_folder_name)}'"
+    if args.regen_write_final_graphics:
+        hf_args += f" --regen_write_final_graphics '{_shell_escape(args.regen_write_final_graphics)}'"
+    if args.regen_skip_filled_rows:
+        hf_args += f" --regen_skip_filled_rows '{_shell_escape(args.regen_skip_filled_rows)}'"
     command = (
         f"echo 'numpy<2' > /tmp/constraints.txt && "
         f"pip install 'numpy<2' 'matplotlib>=3.9' 'scikit-learn>=1.5' google-cloud-aiplatform && "

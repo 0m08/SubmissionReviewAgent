@@ -1763,7 +1763,166 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
             )
 
         if regen_web_bg:
-            st.info("Background regeneration is not implemented yet. Use the sync button for now.")
+            sheet_url = st.session_state.get("gdv2_sheet_link", "") or ""
+            if not sheet_url.strip():
+                st.error("Missing sheet URL. Please re-load the sheet using the 'Load Sheet' button.")
+            else:
+                try:
+                    worksheet = sheet.worksheet(worksheet_name)
+                    headers = worksheet.row_values(1)
+
+                    main_col = FINAL_GRAPHICS_COLUMN
+                    if main_col not in headers:
+                        st.error(f"Column '{main_col}' not found in worksheet. Cannot regenerate in background.")
+                        return
+
+                    archive_cols = []
+                    for h in headers:
+                        if isinstance(h, str) and h.startswith(f"{main_col}_"):
+                            suffix = h[len(f"{main_col}_"):]
+                            if suffix.isdigit():
+                                archive_cols.append((int(suffix), h))
+                    archive_cols.sort(key=lambda x: x[0])
+                    latest_archive_col = archive_cols[-1][1] if archive_cols else None
+
+                    _, df_before = get_sheet_data_and_df(sheet, worksheet_name)
+                    output_values = []
+                    if main_col in df_before.columns:
+                        output_values = [
+                            safe_str(v).strip()
+                            for v in df_before[main_col].tolist()
+                            if safe_str(v).strip() and safe_str(v).strip().lower() != "nan"
+                        ]
+                    total_rows = len(df_before)
+                    filled_count = len(output_values)
+                    has_partial_output = total_rows > 0 and 0 < filled_count < total_rows
+                    has_any_output = filled_count > 0
+
+                    # Resume mode: a previous regen already created an archive and output is partially filled.
+                    if latest_archive_col and (has_partial_output or not has_any_output):
+                        archive_col = latest_archive_col
+                        skip_filled_rows_for_regen = True
+                        st.info(
+                            f"Resuming interrupted regeneration from '{archive_col}'. "
+                            "Only remaining rows will be processed."
+                        )
+                    else:
+                        max_n = archive_cols[-1][0] if archive_cols else 0
+                        next_n = max_n + 1
+                        archive_col = f"{main_col}_{next_n}"
+
+                        # Fresh run: archive current main column and create a new output main column.
+                        main_col_idx_1based = headers.index(main_col) + 1
+                        worksheet.update_cell(1, main_col_idx_1based, archive_col)
+
+                        _, df_after_archive = get_sheet_data_and_df(sheet, worksheet_name)
+                        hide_columns_by_name(
+                            worksheet,
+                            [archive_col, FINAL_GRAPHICS_COLUMN],
+                            df_after_archive,
+                        )
+                        get_or_create_column(worksheet, main_col)
+                        skip_filled_rows_for_regen = False
+
+                    user_email = st.session_state.get("user_email", "") or ""
+                    cmd = [
+                        sys.executable,
+                        "launch_agents_via_sdk.py",
+                        "--sheet_link",
+                        sheet_url,
+                        "--drive_folder_id",
+                        st.session_state.get("root_folder_id", ""),
+                        "--agent_name",
+                        "web_image_regeneration_bg",
+                        "--user_email",
+                        user_email,
+                        "--source_tab",
+                        worksheet_name,
+                        "--regen_input_column",
+                        archive_col,
+                        "--regen_output_column",
+                        main_col,
+                        "--regen_output_folder_name",
+                        "Web Image Regeneration",
+                        "--regen_write_final_graphics",
+                        "false",
+                        "--regen_skip_filled_rows",
+                        "true" if skip_filled_rows_for_regen else "false",
+                    ]
+
+                    _rt = st.session_state.get("google_oauth_refresh_token")
+                    if _rt:
+                        cmd.extend(
+                            [
+                                "--google_oauth_refresh_token_b64",
+                                base64.b64encode(_rt.encode("utf-8")).decode("ascii"),
+                            ]
+                        )
+                    else:
+                        st.info(
+                            "No refresh token in session (re-login with Google to enable user Drive uploads "
+                            "in the cloud job). Otherwise the job uses the service account for AI image uploads."
+                        )
+
+                    with st.spinner("Submitting background regeneration job..."):
+                        process = subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                        )
+                        logs = ""
+                        job_link = None
+                        job_name = None
+                        link_re = re.compile(r"^\[JOB_LINK\]\s+(?P<link>\S+)\s*$")
+                        name_re = re.compile(r"^\[JOB_NAME\]\s+(?P<name>.+?)\s*$")
+                        start = time.time()
+                        while True:
+                            if process.stdout is None:
+                                break
+                            line = process.stdout.readline()
+                            if not line:
+                                if process.poll() is not None:
+                                    break
+                                if time.time() - start > 10:
+                                    break
+                                time.sleep(0.1)
+                                continue
+                            logs += line
+                            m = link_re.match(line.strip())
+                            if m:
+                                job_link = m.group("link")
+                                break
+                            m2 = name_re.match(line.strip())
+                            if m2:
+                                job_name = m2.group("name")
+                        try:
+                            if process.stdout is not None:
+                                process.stdout.close()
+                        except Exception:
+                            pass
+                        try:
+                            process.wait(timeout=2)
+                        except Exception:
+                            pass
+
+                    if job_link:
+                        st.session_state["gdv2_regen_bg_link"] = job_link
+                        st.session_state.pop("gdv2_regen_bg_name", None)
+                        st.success("Background web-image regeneration job submitted.")
+                    elif job_name:
+                        st.session_state["gdv2_regen_bg_name"] = job_name
+                        st.session_state.pop("gdv2_regen_bg_link", None)
+                        st.success("Background web-image regeneration job submitted.")
+                        with st.expander("Launcher output (no job link found)", expanded=False):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
+                    else:
+                        st.error("Background regeneration submission did not return a job link.")
+                        with st.expander("Launcher output", expanded=True):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
+                except Exception as e:
+                    st.error(f"Background regeneration failed before launch: {e}")
+                    raise
 
         if save_and_revise_now or save_and_revise_bg:
             worksheet = None
@@ -2047,37 +2206,58 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     worksheet = sheet.worksheet(worksheet_name)
                     headers = worksheet.row_values(1)
 
-                    # Archive + hide the current main column into final_graphics_definition_N.
                     main_col = FINAL_GRAPHICS_COLUMN
                     if main_col not in headers:
                         st.error(f"Column '{main_col}' not found in worksheet. Cannot regenerate.")
                         return
 
-                    max_n = 0
+                    archive_cols = []
                     for h in headers:
                         if isinstance(h, str) and h.startswith(f"{main_col}_"):
                             suffix = h[len(f"{main_col}_"):]
                             if suffix.isdigit():
-                                max_n = max(max_n, int(suffix))
+                                archive_cols.append((int(suffix), h))
+                    archive_cols.sort(key=lambda x: x[0])
+                    latest_archive_col = archive_cols[-1][1] if archive_cols else None
 
-                    next_n = max_n + 1
-                    archive_col = f"{main_col}_{next_n}"
+                    _, df_before = get_sheet_data_and_df(sheet, worksheet_name)
+                    output_values = []
+                    if main_col in df_before.columns:
+                        output_values = [
+                            safe_str(v).strip()
+                            for v in df_before[main_col].tolist()
+                            if safe_str(v).strip() and safe_str(v).strip().lower() != "nan"
+                        ]
+                    total_rows = len(df_before)
+                    filled_count = len(output_values)
+                    has_partial_output = total_rows > 0 and 0 < filled_count < total_rows
+                    has_any_output = filled_count > 0
 
-                    # Rename header cell: final_graphics_definition -> final_graphics_definition_N
-                    main_col_idx_1based = headers.index(main_col) + 1
-                    worksheet.update_cell(1, main_col_idx_1based, archive_col)
+                    if latest_archive_col and (has_partial_output or not has_any_output):
+                        archive_col = latest_archive_col
+                        skip_filled_rows_for_regen = True
+                        st.info(
+                            f"Resuming interrupted regeneration from '{archive_col}'. "
+                            "Only remaining rows will be processed."
+                        )
+                    else:
+                        max_n = archive_cols[-1][0] if archive_cols else 0
+                        next_n = max_n + 1
+                        archive_col = f"{main_col}_{next_n}"
 
-                    # Refresh df so the helper can find correct column indices.
-                    _, df_after_archive = get_sheet_data_and_df(sheet, worksheet_name)
-                    # Hide archived history column(s) and also hide legacy final_graphics.
-                    hide_columns_by_name(
-                        worksheet,
-                        [archive_col, FINAL_GRAPHICS_COLUMN],
-                        df_after_archive,
-                    )
+                        # Fresh run: archive current main column and create a new output main column.
+                        main_col_idx_1based = headers.index(main_col) + 1
+                        worksheet.update_cell(1, main_col_idx_1based, archive_col)
 
-                    # Create the new visible main column header again.
-                    get_or_create_column(worksheet, main_col)
+                        _, df_after_archive = get_sheet_data_and_df(sheet, worksheet_name)
+                        # Hide archived history column(s) and also hide legacy final_graphics.
+                        hide_columns_by_name(
+                            worksheet,
+                            [archive_col, FINAL_GRAPHICS_COLUMN],
+                            df_after_archive,
+                        )
+                        get_or_create_column(worksheet, main_col)
+                        skip_filled_rows_for_regen = False
 
                     st.info("Regenerating web images now. This can take a while...")
                     regen_status = st.empty()
@@ -2129,7 +2309,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             gc=st.session_state.get("gc"),
                             drive=st.session_state.get("drive"),
                             progress_callback=_regen_progress_cb,
-                            skip_filled_rows=False,
+                            skip_filled_rows=skip_filled_rows_for_regen,
                             input_column_name=archive_col,
                             output_column_name=main_col,
                             write_final_graphics=False,
@@ -2158,6 +2338,12 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
             )
         elif st.session_state.get("gdv2_hf_bg_name"):
             st.markdown(f"**Background job:** `{st.session_state['gdv2_hf_bg_name']}`")
+        if st.session_state.get("gdv2_regen_bg_link"):
+            st.markdown(
+                f"**Background regen job:** [{st.session_state['gdv2_regen_bg_link']}]({st.session_state['gdv2_regen_bg_link']})"
+            )
+        elif st.session_state.get("gdv2_regen_bg_name"):
+            st.markdown(f"**Background regen job:** `{st.session_state['gdv2_regen_bg_name']}`")
 
 
 def main():
