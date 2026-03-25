@@ -89,7 +89,7 @@ role_page_access = {
         "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page"
     ],
     "Basic User": [
-        "vectorstore_page",
+        "vectorstore_page", "video_search_tool_page",
         "paraphraser_page","image_translation_page", "image_editing_tool_page",
         "curriculum_mapping_tool_page"
     ],
