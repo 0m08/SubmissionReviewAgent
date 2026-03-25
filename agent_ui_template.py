@@ -457,6 +457,14 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     ]
                     if toggle_values:
                         cmd.extend(["--toggles", json.dumps(toggle_values)])
+                    _rt = st.session_state.get("google_oauth_refresh_token")
+                    if _rt:
+                        cmd.extend(
+                            [
+                                "--google_oauth_refresh_token_b64",
+                                base64.b64encode(_rt.encode("utf-8")).decode("ascii"),
+                            ]
+                        )
                     with st.spinner("Submitting background job..."):
                         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                         logs = ""

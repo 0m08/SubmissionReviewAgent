@@ -23,6 +23,7 @@ from typing import List, Dict, Optional, Tuple, Any
 import tempfile
 import subprocess
 import urllib.parse
+import traceback
 
 load_dotenv()
 
@@ -1737,6 +1738,108 @@ def extract_video_id_from_url(youtube_url):
     return None
 
 
+def format_youtube_timestamp_note(total_seconds: int) -> str:
+    """
+    Human-readable timestamp for "(use the image at …)" lines, e.g. 70 -> "1m10s".
+    """
+    if total_seconds < 0:
+        total_seconds = 0
+    h = total_seconds // 3600
+    rem = total_seconds % 3600
+    m = rem // 60
+    s = rem % 60
+    if h > 0:
+        return f"{h}h{m}m{s}s"
+    if m > 0:
+        return f"{m}m{s}s"
+    return f"{s}s"
+
+
+def _youtube_query_start_seconds(query_params) -> Optional[int]:
+    """First integer seconds from start= or t= in parse_qs result."""
+    if "start" in query_params and query_params["start"]:
+        mm = re.search(r"\d+", str(query_params["start"][0]))
+        if mm:
+            return int(mm.group(0))
+    if "t" in query_params and query_params["t"]:
+        mm = re.search(r"\d+", str(query_params["t"][0]))
+        if mm:
+            return int(mm.group(0))
+    return None
+
+
+def _youtube_query_has_end(query_params) -> bool:
+    if "end" not in query_params or not query_params["end"]:
+        return False
+    return bool(re.search(r"\d+", str(query_params["end"][0])))
+
+
+def try_expand_youtube_single_timestamp_to_one_second_embed(url: str) -> Optional[str]:
+    """
+    If URL is a YouTube embed/watch/youtu.be link with a single moment (start or t=) and no end=,
+    return canonical embed URL with start=n and end=n+1. Otherwise None.
+    """
+    if not url:
+        return None
+    raw = url.strip().rstrip(".,);\"'")
+    video_id = extract_video_id_from_url(raw)
+    if not video_id:
+        return None
+    parsed = urllib.parse.urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or ""
+    qs = urllib.parse.parse_qs(parsed.query)
+
+    if _youtube_query_has_end(qs):
+        return None
+
+    start_sec = _youtube_query_start_seconds(qs)
+    if start_sec is None:
+        return None
+
+    if "youtube.com" in host:
+        if "/embed/" in path:
+            if "start" not in qs:
+                return None
+        elif "/watch" in path or path.endswith("/watch"):
+            if "start" not in qs and "t" not in qs:
+                return None
+        else:
+            return None
+    elif "youtu.be" in host:
+        if "start" not in qs and "t" not in qs:
+            return None
+    else:
+        return None
+
+    return f"https://www.youtube.com/embed/{video_id}?start={start_sec}&end={start_sec + 1}"
+
+
+def parse_youtube_embed_one_second_clip_start(url: str) -> Optional[int]:
+    """
+    If URL is youtube.com/embed with start=n and end=n+1, return n; else None.
+    """
+    if not url or "youtube.com/embed" not in url:
+        return None
+    raw = url.strip().rstrip(".,);\"'")
+    parsed = urllib.parse.urlparse(raw)
+    if "/embed/" not in (parsed.path or ""):
+        return None
+    qs = urllib.parse.parse_qs(parsed.query)
+    if not _youtube_query_has_end(qs):
+        return None
+    start_sec = _youtube_query_start_seconds(qs)
+    if start_sec is None:
+        return None
+    mm = re.search(r"\d+", str(qs["end"][0]))
+    if not mm:
+        return None
+    end_sec = int(mm.group(0))
+    if end_sec != start_sec + 1:
+        return None
+    return start_sec
+
+
 def extract_frame_from_youtube_video(video_id, timestamp_seconds, output_path):
     """
     Extract a single frame from a YouTube video at a specific timestamp.
@@ -1914,15 +2017,86 @@ def check_file_exists_in_drive(drive, folder_id, filename):
         return None
 
 
+def _format_bytes_human_readable(num_bytes: Optional[int]) -> str:
+    """
+    Convert bytes to a compact human-readable string.
+    """
+    if num_bytes is None:
+        return "unknown"
+    try:
+        value = float(num_bytes)
+    except Exception:
+        return str(num_bytes)
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    idx = 0
+    while value >= 1024 and idx < len(units) - 1:
+        value /= 1024.0
+        idx += 1
+    return f"{value:.2f} {units[idx]}"
+
+
+def _build_drive_diagnostics(drive, folder_id: Optional[str] = None) -> str:
+    """
+    Best-effort Drive diagnostics for failed uploads.
+    Includes authenticated account email and storage usage.
+    """
+    details: List[str] = []
+    try:
+        about = drive.GetAbout() or {}
+        user = about.get("user", {}) if isinstance(about, dict) else {}
+        email = user.get("emailAddress")
+        if email:
+            details.append(f"auth_email={email}")
+
+        quota_total = about.get("quotaBytesTotal")
+        quota_used = about.get("quotaBytesUsed")
+        total_int = int(quota_total) if quota_total not in (None, "") else None
+        used_int = int(quota_used) if quota_used not in (None, "") else None
+        free_int = None if total_int is None or used_int is None else max(total_int - used_int, 0)
+        pct = None if total_int in (None, 0) or used_int is None else (used_int / total_int) * 100.0
+
+        details.append(f"quota_used={_format_bytes_human_readable(used_int)}")
+        details.append(f"quota_total={_format_bytes_human_readable(total_int)}")
+        details.append(f"quota_free={_format_bytes_human_readable(free_int)}")
+        if pct is not None:
+            details.append(f"quota_used_pct={pct:.2f}%")
+    except Exception as meta_err:
+        details.append(f"drive_about_error={meta_err}")
+
+    if folder_id:
+        details.append(f"target_folder_id={folder_id}")
+        try:
+            folder = drive.CreateFile({"id": folder_id})
+            folder.FetchMetadata(fields="title,owners(emailAddress),shared,teamDriveId,driveId")
+            folder_title = folder.get("title")
+            owners = folder.get("owners") or []
+            owner_emails = [
+                o.get("emailAddress")
+                for o in owners
+                if isinstance(o, dict) and o.get("emailAddress")
+            ]
+            if folder_title:
+                details.append(f"target_folder_title={folder_title}")
+            if owner_emails:
+                details.append(f"target_folder_owners={','.join(owner_emails)}")
+            shared_drive_id = folder.get("driveId") or folder.get("teamDriveId")
+            if shared_drive_id:
+                details.append(f"shared_drive_id={shared_drive_id}")
+        except Exception as folder_meta_err:
+            details.append(f"folder_meta_error={folder_meta_err}")
+
+    return " | ".join(details)
+
+
 def upload_image_to_drive(image_path, filename, folder_id, drive):
     """
     Upload an image file to Google Drive folder.
-    
+
     :param image_path: Local path to the image file
     :param filename: Name to use for the file in Drive
     :param folder_id: Drive folder ID to upload to
     :param drive: Google Drive instance
-    :return: Shareable Drive URL or None if upload fails
+    :return: (shareable_url, error_message). On success error_message is None; on failure url is None.
     """
     try:
         # Check if file already exists
@@ -1931,8 +2105,8 @@ def upload_image_to_drive(image_path, filename, folder_id, drive):
             file_id = existing_file['id']
             shareable_url = f"https://drive.google.com/file/d/{file_id}/view"
             print(f"✅ File {filename} already exists in Drive, reusing: {shareable_url}")
-            return shareable_url
-        
+            return shareable_url, None
+
         # Upload new file
         file_drive = drive.CreateFile({
             'title': filename,
@@ -1940,17 +2114,27 @@ def upload_image_to_drive(image_path, filename, folder_id, drive):
         })
         file_drive.SetContentFile(image_path)
         file_drive.Upload()
-        
+
         # Get shareable URL
         file_id = file_drive['id']
         shareable_url = f"https://drive.google.com/file/d/{file_id}/view"
-        
+
         print(f"✅ Uploaded {filename} to Drive: {shareable_url}")
-        return shareable_url
-        
+        return shareable_url, None
+
     except Exception as e:
         print(f"⚠️ Error uploading {filename} to Drive: {e}")
-        return None
+        err = str(e).strip() or repr(e)
+        diagnostics = _build_drive_diagnostics(drive, folder_id)
+        if "quotaExceeded" in err or "storage quota" in err.lower():
+            err = (
+                f"{err} — The Google account that owns this Drive folder is out of storage "
+                "(or the shared drive quota is exhausted). Free space or upload to a folder "
+                f"in an account with available quota. [{diagnostics}]"
+            )
+        elif diagnostics:
+            err = f"{err} [{diagnostics}]"
+        return None, err
 
 
 def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=video_frames_drive_folder_id):
@@ -1972,7 +2156,7 @@ def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=
     
     try:
         # Find all <asset> tags
-        asset_pattern = r'<asset>(.*?)</asset>'
+        asset_pattern = r"<asset>(.*?)</asset>"
         assets = re.findall(asset_pattern, graphics_definition_xml, re.DOTALL | re.IGNORECASE)
         
         # Dictionary to cache processed frames: {youtube_url: drive_url}
@@ -1983,14 +2167,14 @@ def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=
             asset_url = asset_content.strip()
             
             # Check if it's a YouTube URL with only start parameter (no end)
-            if 'youtube.com/embed' in asset_url or 'youtube.com/watch' in asset_url:
+            if "youtube.com/embed" in asset_url or "youtube.com/watch" in asset_url:
                 # Parse URL to check if it has only start, no end
                 parsed_url = urllib.parse.urlparse(asset_url)
                 query_params = urllib.parse.parse_qs(parsed_url.query)
-                
-                has_start = 'start' in query_params or 'start' in asset_url
-                has_end = 'end' in query_params or 'end' in asset_url
-                
+
+                has_start = "start" in query_params or "start" in asset_url
+                has_end = "end" in query_params or "end" in asset_url
+
                 # If it has start but no end, it's a frame to extract
                 if has_start and not has_end:
                     # Check if we've already processed this URL
@@ -1999,176 +2183,27 @@ def process_video_frames_in_xml(graphics_definition_xml, drive, drive_folder_id=
                     
                     # Extract video ID and timestamp
                     video_id = extract_video_id_from_url(asset_url)
-                    start_match = re.search(r'[?&]start=(\d+)', asset_url)
+                    start_match = re.search(r"[?&]start=(\d+)", asset_url)
                     timestamp = int(start_match.group(1)) if start_match else None
-                    
+
                     if not video_id or timestamp is None:
                         print(f"⚠️ Could not parse video ID or timestamp from URL: {asset_url}")
                         continue
-                    
+
                     # Generate filename
                     filename = f"{video_id}_frame_{timestamp}s.jpg"
-                    
+
                     # Create temp file for extracted frame
                     temp_frame_path = os.path.join(tempfile.gettempdir(), filename)
-                    
+
                     try:
                         print(f"🎬 Extracting frame from video {video_id} at {timestamp}s...")
                         # Extract frame
                         success = extract_frame_from_youtube_video(video_id, timestamp, temp_frame_path)
-                        
-                        if success and os.path.exists(temp_frame_path):
-                            # Upload to Drive
-                            drive_url = upload_image_to_drive(
-                                temp_frame_path,
-                                filename,
-                                drive_folder_id,
-                                drive
-                            )
-                            
-                            if drive_url:
-                                processed_frames[asset_url] = drive_url
-                                print(f"✅ Successfully processed frame: {asset_url} -> {drive_url}")
-                            else:
-                                print(f"⚠️ Failed to upload frame for {asset_url}, keeping original URL")
-                        else:
-                            print(f"⚠️ Failed to extract frame for {asset_url}, keeping original URL")
-                    finally:
-                        # Clean up temp frame file
-                        if os.path.exists(temp_frame_path):
-                            try:
-                                os.remove(temp_frame_path)
-                            except:
-                                pass
-        
-        # Replace all processed URLs in XML
-        if processed_frames:
-            modified_xml = graphics_definition_xml
-            for youtube_url, drive_url in processed_frames.items():
-                # Replace all occurrences of this YouTube URL in the XML
-                modified_xml = modified_xml.replace(youtube_url, drive_url)
-            
-            print(f"✅ Replaced {len(processed_frames)} video frame URLs with Drive URLs")
-            return modified_xml
-        
-        return graphics_definition_xml
-        
-    except Exception as e:
-        print(f"⚠️ Error processing video frames in XML: {e}")
-        import traceback
-        traceback.print_exc()
-        # Return original XML on error
-        return graphics_definition_xml
-
-
-def normalize_youtube_timestamp_urls(graphics_definition_text):
-    """
-    Normalize YouTube URLs with t= parameter to start= parameter format.
-
-    :param graphics_definition_text: Text string containing graphics definition
-    :return: Modified text with normalized URLs, or original text if no changes needed
-    """
-    
-    if not graphics_definition_text or not graphics_definition_text.strip():
-        return graphics_definition_text
-
-    try:
-        # Pattern to find YouTube URLs with t= parameter (e.g., t=125s)
-        pattern = r'(https?://(?:www\.)?youtube\.com/watch\?v=[^&\s\?]+)([&?])(t=(\d+)s)'
-
-        def replace_timestamp(match):
-            base_url = match.group(1)  # URL up to and including v=...
-            separator = match.group(2)  # & or ?
-            timestamp_seconds = match.group(4)  # Just the number part
-            # Always use & as separator since base_url already has ?v=...
-            return f"{base_url}&start={timestamp_seconds}s"
-
-        normalized_text = re.sub(pattern, replace_timestamp, graphics_definition_text)
-
-        if normalized_text != graphics_definition_text:
-            count = len(re.findall(pattern, graphics_definition_text))
-            print(f"  Normalized {count} YouTube URL(s): converted t= parameter to start= parameter")
-            return normalized_text
-
-        return graphics_definition_text
-
-    except Exception as e:
-        print(f"⚠️ Error normalizing YouTube timestamp URLs: {e}")
-        import traceback
-        traceback.print_exc()
-        return graphics_definition_text
-
-
-def process_video_frames_in_text_format(graphics_definition_text, drive, drive_folder_id = video_frames_drive_folder_id):
-    """
-    Find all YouTube URLs with only start timestamps (video frames) in the text graphics definition, extract frames, upload to Drive, and replace URLs in text.
-
-    :param graphics_definition_text: Text string containing graphics definition
-    :param drive: Google Drive instance
-    :param drive_folder_id: Drive folder ID to store extracted frames
-    :return: Modified text with Drive URLs instead of YouTube frame URLs, or original text if processing fails
-    """
-    
-    if not graphics_definition_text or not graphics_definition_text.strip():
-        return graphics_definition_text
-
-    if not drive:
-        print("⚠️ Drive instance not available, skipping video frame extraction (text format)")
-        return graphics_definition_text
-
-    try:
-        # Find all "Graphics to use:" lines
-        graphics_pattern = r'Graphics to use:\s*(https?://[^\s\n]+)'
-        matches = re.findall(graphics_pattern, graphics_definition_text, re.IGNORECASE)
-        print(f"Found {len(matches)} 'Graphics to use:' URLs in graphics definition (text)")
-
-        # Dictionary to cache processed frames: {youtube_url: drive_url}
-        processed_frames = {}
-
-        # Process each asset URL
-        for asset_url in matches:
-            asset_url = asset_url.strip()
-
-            # Check if it's a YouTube URL with only start parameter (no end)
-            if 'youtube.com/embed' in asset_url or 'youtube.com/watch' in asset_url:
-                # Parse URL to check if it has only start, no end
-                parsed_url = urllib.parse.urlparse(asset_url)
-                query_params = urllib.parse.parse_qs(parsed_url.query)
-
-                has_start = 'start' in query_params or 'start' in asset_url
-                has_end = 'end' in query_params or 'end' in asset_url
-
-                # If it has start but no end, it's a frame to extract
-                if has_start and not has_end:
-                    print(f"    Found YouTube still frame URL (text): {asset_url}")
-                    # Check if we've already processed this URL
-                    if asset_url in processed_frames:
-                        continue
-
-                    # Extract video ID and timestamp
-                    video_id = extract_video_id_from_url(asset_url)
-                    # Pattern to match start= parameter (handles both ?start= and &start=)
-                    start_match = re.search(r'[?&]start=(\d+)', asset_url)
-                    timestamp = int(start_match.group(1)) if start_match else None
-
-                    if not video_id or timestamp is None:
-                        print(f"⚠️ Could not parse video ID or timestamp from URL: {asset_url}")
-                        continue
-
-                    # Generate filename
-                    filename = f"{video_id}_frame_{timestamp}s.jpg"
-
-                    # Create temp file for extracted frame
-                    temp_frame_path = os.path.join(tempfile.gettempdir(), filename)
-
-                    try:
-                        print(f"🎬 Extracting frame from video {video_id} at {timestamp}s (text)...")
-                        # Extract frame
-                        success = extract_frame_from_youtube_video(video_id, timestamp, temp_frame_path)
 
                         if success and os.path.exists(temp_frame_path):
                             # Upload to Drive
-                            drive_url = upload_image_to_drive(
+                            drive_url, upload_err = upload_image_to_drive(
                                 temp_frame_path,
                                 filename,
                                 drive_folder_id,
@@ -2177,9 +2212,12 @@ def process_video_frames_in_text_format(graphics_definition_text, drive, drive_f
 
                             if drive_url:
                                 processed_frames[asset_url] = drive_url
-                                print(f"✅ Successfully processed frame (text): {asset_url} -> {drive_url}")
+                                print(f"✅ Successfully processed frame: {asset_url} -> {drive_url}")
                             else:
-                                print(f"⚠️ Failed to upload frame for {asset_url}, keeping original URL")
+                                detail = f" ({upload_err})" if upload_err else ""
+                                print(
+                                    f"⚠️ Failed to upload frame for {asset_url}{detail}, keeping original URL"
+                                )
                         else:
                             print(f"⚠️ Failed to extract frame for {asset_url}, keeping original URL")
                     finally:
@@ -2190,21 +2228,162 @@ def process_video_frames_in_text_format(graphics_definition_text, drive, drive_f
                             except Exception:
                                 pass
 
-        # Replace all processed URLs in text
+        # Replace all processed URLs in XML
         if processed_frames:
-            modified_text = graphics_definition_text
+            modified_xml = graphics_definition_xml
             for youtube_url, drive_url in processed_frames.items():
-                # Replace all occurrences of this YouTube URL in the text
-                modified_text = modified_text.replace(youtube_url, drive_url)
+                # Replace all occurrences of this YouTube URL in the XML
+                modified_xml = modified_xml.replace(youtube_url, drive_url)
 
-            print(f"✅ Replaced {len(processed_frames)} video frame URLs with Drive URLs (text)")
-            return modified_text
+            print(f"✅ Replaced {len(processed_frames)} video frame URLs with Drive URLs")
+            return modified_xml
 
-        return graphics_definition_text
+        return graphics_definition_xml
 
     except Exception as e:
-        print(f"⚠️ Error processing video frames in text format (aggregation): {e}")
-        import traceback
+        print(f"⚠️ Error processing video frames in XML: {e}")
+        traceback.print_exc()
+        # Return original XML on error
+        return graphics_definition_xml
+
+
+def expand_youtube_single_timestamp_clips_in_xml(graphics_definition_xml):
+    """
+    Convert YouTube single-timestamp URLs in <asset> (embed/watch/youtu.be with start or t=, no end)
+    to 1-second embed clips: start=n&end=n+1.
+
+    Does not require Drive. For extracting still frames to Drive images, use process_video_frames_in_xml.
+
+    :param graphics_definition_xml: XML string containing graphics definition
+    :return: Modified XML with expanded URLs, or original XML if nothing changed / on error
+    """
+    if not graphics_definition_xml or not graphics_definition_xml.strip():
+        return graphics_definition_xml
+
+    try:
+        asset_pattern = r"<asset>(.*?)</asset>"
+        assets = re.findall(asset_pattern, graphics_definition_xml, re.DOTALL | re.IGNORECASE)
+        replacements = {}
+
+        for asset_content in assets:
+            asset_url = asset_content.strip()
+            expanded = try_expand_youtube_single_timestamp_to_one_second_embed(asset_url)
+            if expanded and expanded != asset_url:
+                replacements[asset_url] = expanded
+                print(f"🎬 XML <asset>: expanded single-timestamp URL to 1s clip: {asset_url[:80]}...")
+
+        if replacements:
+            modified_xml = graphics_definition_xml
+            for old_u, new_u in replacements.items():
+                modified_xml = modified_xml.replace(old_u, new_u)
+            print(f"✅ Updated {len(replacements)} <asset> YouTube URL(s) to 1-second embed clips (XML)")
+            return modified_xml
+
+        return graphics_definition_xml
+
+    except Exception as e:
+        print(f"⚠️ Error expanding YouTube single-timestamp URLs in XML: {e}")
+        traceback.print_exc()
+        return graphics_definition_xml
+
+
+def normalize_youtube_timestamp_urls(graphics_definition_text):
+    """
+    Expand YouTube single-timestamp links (watch + t=/start=, embed + start= only, youtu.be + t=)
+    to embed URLs with start=n&end=n+1 anywhere they appear in the text.
+
+    :param graphics_definition_text: Text string containing graphics definition
+    :return: Modified text with expanded URLs, or original text if no changes needed
+    """
+
+    if not graphics_definition_text or not graphics_definition_text.strip():
+        return graphics_definition_text
+
+    try:
+        url_token = re.compile(r"https?://[^\s]+")
+        lines = graphics_definition_text.split("\n")
+        out_lines = []
+        total = 0
+
+        for line in lines:
+            new_line = line
+            for m in reversed(list(url_token.finditer(line))):
+                url = m.group(0)
+                expanded = try_expand_youtube_single_timestamp_to_one_second_embed(url)
+                if expanded:
+                    new_line = new_line[: m.start()] + expanded + new_line[m.end() :]
+                    total += 1
+            out_lines.append(new_line)
+
+        normalized_text = "\n".join(out_lines)
+        if total:
+            print(f"  Normalized {total} YouTube URL(s) to 1-second embed clips (start & end)")
+        return normalized_text
+
+    except Exception as e:
+        print(f"⚠️ Error normalizing YouTube timestamp URLs: {e}")
+        traceback.print_exc()
+        return graphics_definition_text
+
+
+def process_video_frames_in_text_format(graphics_definition_text, drive, drive_folder_id = video_frames_drive_folder_id):
+    """
+    On each "Graphics to use:" line: expand single-timestamp YouTube URLs to 1s embed clips and add
+    "(use the image at …)" on the following line when missing. Also ensures that line exists for
+    embed URLs that are already start=n&end=n+1 (e.g. after XML post-process + format).
+
+    drive / drive_folder_id are unused but kept for API compatibility.
+
+    Previous behavior (commented at end of function): extract frame, upload to Drive, replace URL.
+    """
+    if not graphics_definition_text or not graphics_definition_text.strip():
+        return graphics_definition_text
+
+    try:
+        graphics_use_pattern = re.compile(
+            r'(Graphics to use:\s*(?:\n\s*)?)(https?://[^\s\n]+)',
+            re.IGNORECASE | re.MULTILINE,
+        )
+        text = graphics_definition_text
+        matches = list(graphics_use_pattern.finditer(text))
+        print(f"Found {len(matches)} 'Graphics to use:' URL(s) in graphics definition (text)")
+
+        for m in reversed(matches):
+            prefix, url = m.group(1), m.group(2).strip()
+            new_url = url
+            start_sec = None
+
+            expanded = try_expand_youtube_single_timestamp_to_one_second_embed(url)
+            if expanded:
+                new_url = expanded
+                start_sec = parse_youtube_embed_one_second_clip_start(expanded)
+            else:
+                start_sec = parse_youtube_embed_one_second_clip_start(url)
+                if start_sec is not None:
+                    new_url = url
+
+            if start_sec is None:
+                continue
+
+            note_line = f"(use the image at {format_youtube_timestamp_note(start_sec)})"
+            end_pos = m.end()
+            rest = text[end_pos:]
+            rest_nl = rest.lstrip("\n")
+            already_note = rest_nl.lower().startswith("(use the image at")
+
+            block = prefix + new_url
+            if not already_note:
+                block += "\n" + note_line
+            text = text[: m.start()] + block + text[end_pos:]
+
+            print(f"🎬 Text: YouTube 1s clip + note for Graphics line (start={start_sec}s)")
+
+        if text != graphics_definition_text:
+            print("✅ Updated Graphics to use block(s) with 1-second YouTube embed clips and notes (text)")
+        return text
+
+    except Exception as e:
+        print(f"⚠️ Error processing YouTube clips in text format (aggregation): {e}")
         traceback.print_exc()
         return graphics_definition_text
 
@@ -3265,13 +3444,9 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     )
     
     if graphics_definition_xml:
-        # Post-processing: Extract video frames and replace with Drive URLs
-        print(f"🔄 Processing video frames in graphics definition...")
-        graphics_definition_xml = process_video_frames_in_xml(
-            graphics_definition_xml,
-            drive,
-            video_frames_drive_folder_id
-        )
+        # Post-processing: single-timestamp YouTube URLs -> 1s embed clips in <asset>
+        print(f"🔄 Expanding single-timestamp YouTube URLs in graphics definition XML...")
+        graphics_definition_xml = expand_youtube_single_timestamp_clips_in_xml(graphics_definition_xml)
         
         # Format the definition for the sheet
         formatted_segment = format_aggregation_definition_for_sheet(
@@ -3406,14 +3581,9 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             )
             
             if graphics_definition_xml:
-                # Post-processing: Extract video frames and replace with Drive URLs (XML-level)
-                print(f"🔄 Processing video frames in graphics definition ...")
-                video_frames_drive_folder_id = os.environ.get("VIDEO_FRAMES_DRIVE_FOLDER_ID", "")
-                graphics_definition_xml = process_video_frames_in_xml(
-                    graphics_definition_xml,
-                    drive,
-                    video_frames_drive_folder_id
-                )
+                # Post-processing: single-timestamp YouTube URLs -> 1s embed clips in <asset>
+                print(f"🔄 Expanding single-timestamp YouTube URLs in graphics definition XML...")
+                graphics_definition_xml = expand_youtube_single_timestamp_clips_in_xml(graphics_definition_xml)
                 
                 # Format the definition for the sheet (entire slide, but still include SEGMENT 1 marker)
                 formatted_segment = format_aggregation_definition_for_sheet(
@@ -3428,7 +3598,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     try:
                         # 1) Normalize YouTube URLs (t= → start=)
                         normalized = normalize_youtube_timestamp_urls(formatted_segment)
-                        # 2) Convert any remaining YouTube frame URLs (start only) to Drive images
+                        # 2) Graphics lines: 1s YouTube embed clips + "(use the image at …)" notes
                         processed = process_video_frames_in_text_format(normalized, drive)
                         # 3) Add "(snapshot)" labels for Drive links from the video frames folder
                         labeled = add_snapshot_label_to_drive_links(processed, drive)
@@ -3647,11 +3817,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         print("❌ Could not initialize Google Drive. Aborting.")
         return
     
-    # Ensure final_graphics_definition and evaluation_breakdown columns exist
+    # Ensure final_graphics_definition column exists
     if "final_graphics_definition" not in df.columns:
         df["final_graphics_definition"] = ""
-    if "evaluation_breakdown" not in df.columns:
-        df["evaluation_breakdown"] = ""
     
     # Filter rows that have voiceover_segment but missing final_graphics_definition
     rows_to_process = []
@@ -3698,11 +3866,10 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         for future in as_completed(futures):
             index = futures[future]
             try:
-                row_index, final_graphics_def_text, evaluation_breakdown_text = future.result()
+                row_index, final_graphics_def_text, _ = future.result()
                 
                 # Update dataframe
                 df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
-                df.at[row_index, "evaluation_breakdown"] = evaluation_breakdown_text
                 
                 # Update progress
                 progress.update()
@@ -3715,7 +3882,6 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
-                df.at[index, "evaluation_breakdown"] = f"ERROR: {str(e)}"
                 progress.update()
                 # Save immediately even on error
                 print(f'Saving row {index + 2} (with error) to sheet immediately.')
@@ -3749,10 +3915,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         for idx, row, error in invalid_rows[:3]:  # Show first 3 errors
             print(f"  Row {idx}: {error}")
         
-        # Clear final_graphics_definition and evaluation_breakdown for invalid rows
+        # Clear final_graphics_definition for invalid rows
         for index, row, error_msg in invalid_rows:
             df.at[index, "final_graphics_definition"] = ""
-            df.at[index, "evaluation_breakdown"] = ""
         
         # Save cleared state
         save_to_sheet(ws, df)
@@ -3776,9 +3941,8 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
             for future in as_completed(futures):
                 index = futures[future]
                 try:
-                    row_index, final_graphics_def_text, evaluation_breakdown_text = future.result()
+                    row_index, final_graphics_def_text, _ = future.result()
                     df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
-                    df.at[row_index, "evaluation_breakdown"] = evaluation_breakdown_text
                     # Save immediately after each row completes in retry
                     print(f'Saving row {row_index + 2} (retry) to sheet immediately.')
                     save_to_sheet(ws, df)
@@ -3786,7 +3950,6 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 except Exception as e:
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
-                    df.at[index, "evaluation_breakdown"] = f"ERROR: {str(e)}"
                     # Save immediately even on error in retry
                     print(f'Saving row {index + 2} (retry, with error) to sheet immediately.')
                     save_to_sheet(ws, df)
@@ -3825,7 +3988,10 @@ def delete_final_graphics_definition(sheet):
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     if "final_graphics_definition" in df.columns:
-        df = df.drop(columns=["final_graphics_definition", "evaluation_breakdown"])
+        cols_to_drop = ["final_graphics_definition"]
+        if "evaluation_breakdown" in df.columns:
+            cols_to_drop.append("evaluation_breakdown")
+        df = df.drop(columns=cols_to_drop)
         clear_worksheet(ws)
         save_to_sheet(ws, df)
         print(f"🗑️ Deleted 'final_graphics_definition' column from '{worksheet_name}' worksheet")

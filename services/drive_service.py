@@ -320,6 +320,46 @@ def init_clients_from_credentials(creds: Credentials, client_id: str = None, cli
     return gauth, drive, gc
 
 
+def try_build_user_drive_for_background_jobs():
+    """
+    Build a PyDrive GoogleDrive client using a user OAuth refresh token from the environment for background jobs.
+
+    - OAUTH_CLIENT_ID / OAUTH_CLIENT_SECRET — same as Streamlit
+    - GOOGLE_OAUTH_REFRESH_TOKEN — refresh token for the Google account that should own uploads
+
+    
+    """
+    refresh = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
+    if not refresh:
+        return None
+    client_id = os.getenv("OAUTH_CLIENT_ID", "").strip()
+    client_secret = os.getenv("OAUTH_CLIENT_SECRET", "").strip()
+    if not client_id or not client_secret:
+        return None
+    try:
+        from google.auth.transport.requests import Request
+
+        creds = Credentials(
+            None,
+            refresh_token=refresh,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=GOOGLE_OAUTH_SCOPES,
+        )
+        creds.refresh(Request())
+        _gauth, drive, _gc = init_clients_from_credentials(
+            creds, client_id=client_id, client_secret=client_secret
+        )
+        if drive is None:
+            print("[WARN] init_clients_from_credentials returned no GoogleDrive instance.")
+            return None
+        return drive
+    except Exception as e:
+        print(f"[WARN] Could not build user Drive from GOOGLE_OAUTH_REFRESH_TOKEN: {e}")
+        return None
+
+
 def share_sheet_with_service_account(sheet, service_account_email: str, creds: Credentials):
     """
     Share a Google Sheet with a service account email using OAuth credentials.

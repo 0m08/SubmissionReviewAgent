@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import os
 import re
+import json
 import threading
+import tempfile
+from datetime import datetime
+from urllib.parse import parse_qs, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -23,8 +28,10 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     get_drive_instance,
     parse_video_url_timestamps,
     convert_watch_url_to_embed_url,
-    process_video_frames_in_xml,
+    expand_youtube_single_timestamp_clips_in_xml,
+    upload_image_to_drive,
 )
+from agents.graphics_asset_creation.generator.image_generator import generate_asset
 
 from agents.graphics_definition_v2.review_agent.review_and_revise import (
     _safe_str,
@@ -53,6 +60,8 @@ from agents.graphics_definition_v2.review_agent.review_and_revise import (
 load_dotenv()
 
 MAX_HUMAN_FEEDBACK_REGEN_ATTEMPTS = 2
+AI_GENERATED_IMAGES_FOLDER_ID = "1c3rmYhF8kCrJVv3ui1-362mr90OCkEqB"
+AI_NO_FEEDBACK_MARKER = "No Feedback"
 
 
 # ===========================================================================
@@ -734,6 +743,8 @@ def parse_human_feedback_for_row(human_feedback_text, voiceover_text, final_grap
         vo_part = vo_match.group(1).strip() if vo_match else ""
         fb_text = fb_match.group(1).strip() if fb_match else ""
 
+        # Preserve explicit AI-empty-feedback marker so Reject (Generate with AI)
+        # remains actionable without injecting default feedback text.
         if not fb_text:
             continue
 
@@ -804,7 +815,7 @@ def _normalize_vo_for_match(vo_text):
 # B. Human-feedback revision function
 # ---------------------------------------------------------------------------
 
-def revise_segment_with_human_feedback(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, human_feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text=""):
+def revise_segment_with_human_feedback(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, human_feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", candidate_mode="all"):
     """
     Revise segment visuals based on human feedback using human-feedback revision prompts.
 
@@ -827,6 +838,7 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
     :param visual_assignment_strategy: Visual assignment strategy
     :param video_pool_text: Video pool text
     :param video_pool_other_channels_text: Video pool other channels text
+    :param candidate_mode: "all" or "drive_hvac" (drive images + timestamped embed videos only)
     :return: Replacement XML string or None if revision fails
     """
     
@@ -842,6 +854,15 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
         video_pool_text=video_pool_text,
         video_pool_other_channels_text=video_pool_other_channels_text,
     )
+
+    if str(candidate_mode).strip().lower() == "drive_hvac":
+        images = [c for c in images if _is_drive_url(c.get("url", ""))]
+        videos = [c for c in videos if _is_embed_with_start_end(c.get("url", ""))]
+        frame_videos = []
+        print(
+            f"  Restricted candidate mode for segment {segment_num}: "
+            f"{len(images)} drive image(s), {len(videos)} timestamped video clip(s)"
+        )
     candidate_map = {
         c["id"]: c["url"]
         for c in images + videos + frame_videos
@@ -892,7 +913,7 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
         video_candidates=video_candidates_text,
     )
 
-    # --- Print TEXT PROMPT only (separate from multimodal parts) ---
+    # # Print the fully formatted text prompt for debugging/reproducibility.
     # print(f"\n{'=' * 80}")
     # print(f"HUMAN FEEDBACK REVISION (Segment {segment_num}) [Strategy: {visual_assignment_strategy}]")
     # print(f"{'=' * 80}")
@@ -1407,6 +1428,31 @@ Remember: Strictly use the same output format as before while reviewing the NEW 
 # D. Per-row orchestration
 # ---------------------------------------------------------------------------
 
+def _hf_status_head_for_skip(status: str) -> str:
+    """Leading token before '|' so PASS | AI_UPLOAD_FAILED: ... still skips batch re-runs."""
+    s = _safe_str(status).strip()
+    if "|" in s:
+        return s.split("|", 1)[0].strip().upper()
+    return s.strip().upper()
+
+
+def _hf_row_should_skip_in_batch(status: str) -> bool:
+    # Rows saved as "PASS | AI_UPLOAD_FAILED: ..." still skip re-runs; clear the status cell to retry the row.
+    return _hf_status_head_for_skip(status) in ("DONE", "PASS")
+
+
+def _compose_hf_status_with_ai_errors(base: str, ai_errors: List[str]) -> str:
+    if not ai_errors:
+        return _safe_str(base).strip()
+    detail = "; ".join(ai_errors)
+    if len(detail) > 4500:
+        detail = detail[:4497] + "..."
+    base_s = _safe_str(base).strip()
+    if base_s.upper() == "ERROR":
+        return f"ERROR: {detail}"
+    return f"{base_s} | AI_UPLOAD_FAILED: {detail}"
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -1416,7 +1462,20 @@ Remember: Strictly use the same output format as before while reviewing the NEW 
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def process_human_feedback_row(row_index, df, course_name, target_audience, drive, llm, ws, use_only_drive_and_hvac=False):
+def process_human_feedback_row(
+    row_index,
+    df,
+    course_name,
+    target_audience,
+    drive,
+    llm,
+    ws,
+    use_only_drive_and_hvac=False,
+    human_feedback_column="human_feedback",
+    human_feedback_status_column="human_feedback_status",
+    human_feedback_revision_tracking_column="human_feedback_revision_tracking",
+    human_review_actions_column="human_review_actions",
+):
     """
     Process a single row's full human-feedback workflow: revise, review, optional regen loop, then write status and tracking to df.
 
@@ -1439,7 +1498,15 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
         subtopic_name = _safe_str(row.get("Subtopic", ""))
         voiceover_text = _safe_str(row.get("voiceover_segment", ""))
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
-        human_feedback_raw = _safe_str(row.get("human_feedback", ""))
+        human_feedback_raw = _safe_str(row.get(human_feedback_column, ""))
+        actions_map, segment_mode_map = _parse_actions_payload(row.get(human_review_actions_column, ""))
+        round_index = 0
+        m_round = re.search(r"_(\d+)$", str(human_feedback_column))
+        if m_round:
+            try:
+                round_index = int(m_round.group(1))
+            except Exception:
+                round_index = 0
         slide_id = f"SLIDE_{row_index + 1}"
 
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
@@ -1459,7 +1526,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
         )
         if not feedback_by_segment:
             print("  No actionable feedback parsed; skipping row.")
-            df.at[row_index, "human_feedback_status"] = "PASS"
+            df.at[row_index, human_feedback_status_column] = "PASS"
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
@@ -1485,6 +1552,12 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
         # --- REVISE (single loop) ---
         print("\n[STEP 1] Revising visuals based on human feedback...")
         updated_segments: Dict[int, str] = {}
+        ai_generated_urls: Set[str] = set()
+        ai_generation_errors: List[str] = []
+        # Segments/VO parts that should go through satisfaction review.
+        # AI-generated replacements are intentionally excluded from this review path.
+        review_segment_nums: List[int] = []
+        review_vo_parts_with_feedback_by_segment: Dict[int, Set[str]] = {}
 
         for segment_num, vo_fb_pairs in feedback_by_segment.items():
             segment = segments_map.get(segment_num, {})
@@ -1497,37 +1570,105 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
                 for step in segment.get("visual_steps", [])
             ])
 
-            human_feedback_formatted = "\n\n".join(
-                f"When VO: {vo_part}\nHuman Feedback: {fb_text}"
-                for vo_part, fb_text in vo_fb_pairs
-            )
-            revised_xml = revise_segment_with_human_feedback(
-                course_name=course_name,
-                target_audience=target_audience,
-                topic_name=topic_name,
-                subtopic_name=subtopic_name,
-                slide_title=slide_title,
-                slide_chunk=slide_chunk,
-                vo_text=vo_text,
-                current_visuals=current_visuals,
-                human_feedback=human_feedback_formatted,
-                image_pool_text=_safe_str(row.get("image_pool", "")),
-                video_pool_filtered_text=_safe_str(row.get("video_pool_filtered", "")),
-                drive_results_text=_safe_str(row.get("drive_results", "")),
-                web_results_text=_safe_str(row.get("web_results", "")),
-                segment_num=segment_num,
-                drive=drive,
-                llm=llm,
-                visual_assignment_strategy=visual_assignment_strategy,
-                video_pool_text=_safe_str(row.get("video_pool", "")),
-                video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
-            )
+            ai_visual_blocks: List[str] = []
+            non_ai_vo_fb_pairs: List[Tuple[str, str]] = []
+            segment_steps = segment.get("visual_steps", [])
 
+            for vo_part, fb_text in vo_fb_pairs:
+                matched_step = None
+                norm_vo = _normalize_vo_for_match(vo_part)
+                for step in segment_steps:
+                    if _normalize_vo_for_match(step.get("voiceover_part", "")) == norm_vo:
+                        matched_step = step
+                        break
+                if matched_step is None:
+                    non_ai_vo_fb_pairs.append((vo_part, fb_text))
+                    continue
+
+                visual_id = _safe_str(matched_step.get("visual_id", "")).strip()
+                action_entry = actions_map.get(visual_id, {}) if visual_id else {}
+                action_value = _safe_str(action_entry.get("action", "")).strip().lower()
+
+                if action_value == "reject_ai":
+                    raw_feedback = _safe_str(fb_text).strip()
+                    effective_feedback = "" if raw_feedback == AI_NO_FEEDBACK_MARKER else raw_feedback
+                    ai_url, ai_err = _generate_ai_visual_replacement(
+                        slide_title=slide_title,
+                        slide_chunk=slide_chunk,
+                        vo_part=_safe_str(matched_step.get("voiceover_part", "")),
+                        feedback_text=effective_feedback,
+                        visual_id=visual_id,
+                        segment_num=segment_num,
+                        round_index=round_index,
+                        drive=drive,
+                    )
+                    if ai_err:
+                        print(f"  WARNING: {ai_err}")
+                        ai_generation_errors.append(ai_err)
+                        continue
+                    ai_generated_urls.add(ai_url)
+                    justification = _safe_str(matched_step.get("selection_justification", "")).strip() or "AI-generated visual selected based on reviewer feedback."
+                    ai_visual_blocks.append(
+                        (
+                            f"<visual>\n"
+                            f"<visual_id>{visual_id}</visual_id>\n"
+                            f"<voiceover_part>{_safe_str(matched_step.get('voiceover_part', ''))}</voiceover_part>\n"
+                            f"<current_visual_url>{_safe_str(matched_step.get('asset', ''))}</current_visual_url>\n"
+                            f"<replacement_visual_url>{ai_url}</replacement_visual_url>\n"
+                            f"<visual_instruction>{_safe_str(matched_step.get('visual_instruction', ''))}</visual_instruction>\n"
+                            f"<selection_justification>{justification}</selection_justification>\n"
+                            f"</visual>"
+                        )
+                    )
+                else:
+                    non_ai_vo_fb_pairs.append((vo_part, fb_text))
+
+            revised_xml = ""
+            if non_ai_vo_fb_pairs:
+                review_segment_nums.append(segment_num)
+                review_vo_parts_with_feedback_by_segment[segment_num] = {
+                    _normalize_vo_for_match(vo_part) for vo_part, _ in non_ai_vo_fb_pairs
+                }
+                human_feedback_formatted = "\n\n".join(
+                    f"When VO: {vo_part}\nHuman Feedback: {fb_text}"
+                    for vo_part, fb_text in non_ai_vo_fb_pairs
+                )
+                seg_mode = _safe_str(segment_mode_map.get(str(segment_num), "drive_hvac")).strip().lower()
+                candidate_mode = "all" if seg_mode == "all" else "drive_hvac"
+                revised_xml = revise_segment_with_human_feedback(
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    slide_title=slide_title,
+                    slide_chunk=slide_chunk,
+                    vo_text=vo_text,
+                    current_visuals=current_visuals,
+                    human_feedback=human_feedback_formatted,
+                    image_pool_text=_safe_str(row.get("image_pool", "")),
+                    video_pool_filtered_text=_safe_str(row.get("video_pool_filtered", "")),
+                    drive_results_text=_safe_str(row.get("drive_results", "")),
+                    web_results_text=_safe_str(row.get("web_results", "")),
+                    segment_num=segment_num,
+                    drive=drive,
+                    llm=llm,
+                    visual_assignment_strategy=visual_assignment_strategy,
+                    video_pool_text=_safe_str(row.get("video_pool", "")),
+                    video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
+                    candidate_mode=candidate_mode,
+                )
+
+            combined_blocks: List[str] = []
             if revised_xml:
                 stripped = revised_xml.strip()
                 if not stripped.startswith("<replacement_visuals>") and not stripped.startswith("<replacement_visual>"):
                     revised_xml = f"<replacement_visuals>\n{revised_xml}\n</replacement_visuals>"
-                processed_xml = process_video_frames_in_xml(revised_xml, drive)
+                combined_blocks.extend(_extract_visual_blocks(revised_xml))
+            combined_blocks.extend([re.sub(r"^\s*<visual>\s*|\s*</visual>\s*$", "", b.strip(), flags=re.DOTALL) for b in ai_visual_blocks])
+            revised_xml = _compose_replacement_xml_from_visual_blocks(combined_blocks)
+
+            if revised_xml:
+                processed_xml = expand_youtube_single_timestamp_clips_in_xml(revised_xml)
                 if processed_xml != revised_xml:
                     print(f"  Processed video frames for segment {segment_num}")
                     revised_xml = processed_xml
@@ -1549,6 +1690,13 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
                 final_graphics_definition = processed_def
                 df.at[row_index, "final_graphics_definition"] = final_graphics_definition
                 print("  Processed video frames in final graphics definition")
+
+            if ai_generated_urls:
+                labeled_def = _add_ai_generated_label_for_urls(final_graphics_definition, ai_generated_urls)
+                if labeled_def != final_graphics_definition:
+                    final_graphics_definition = labeled_def
+                    df.at[row_index, "final_graphics_definition"] = final_graphics_definition
+                    print(f"  Added (AI Generated) label for {len(ai_generated_urls)} visual(s)")
 
             if ws is not None:
                 print("  Saving revision to sheet...")
@@ -1574,6 +1722,29 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
             hf_revision_tracking, "after_revision", segments_map, replaced_visual_ids_by_segment
         )
 
+        # AI-only rows: skip review + regeneration by design.
+        if not review_segment_nums:
+            print("\n[STEP 2] Skipped: only AI-generation actions were requested.")
+            _finalize_row(row_index, df, drive, ws)
+            if ai_generation_errors and not updated_segments:
+                df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                    "ERROR", ai_generation_errors
+                )
+            else:
+                df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                    "PASS", ai_generation_errors
+                )
+            df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
+            if ws is not None:
+                with _sheet_lock:
+                    save_to_sheet(ws, df)
+                    format_worksheet(ws)
+            if ai_generation_errors and not updated_segments:
+                print(f"Row {row_index + 1}: ERROR (AI upload failed; no revisions saved)")
+            else:
+                print(f"Row {row_index + 1}: PASS (AI generation only, review skipped)")
+            return
+
         # --- REVIEW (single) ---
         print("\n[STEP 2] Reviewing replacements against human feedback...")
         verdict, failures, satisfaction_conversation_history = review_human_feedback_satisfaction(
@@ -1586,19 +1757,23 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
             slide_chunk=slide_chunk,
             human_feedback=_format_human_feedback_for_prompt(human_feedback_raw),
             segments_map=segments_map,
-            segment_nums=reviewed_segment_nums,
+            segment_nums=review_segment_nums,
             drive=drive,
             llm=llm,
             visual_assignment_strategy=visual_assignment_strategy,
-            original_visuals_by_segment=original_visuals_by_segment,
-            vo_parts_with_feedback_by_segment=vo_parts_with_feedback_by_segment,
+            original_visuals_by_segment={
+                k: v for k, v in original_visuals_by_segment.items() if k in set(review_segment_nums)
+            },
+            vo_parts_with_feedback_by_segment=review_vo_parts_with_feedback_by_segment,
         )
 
         if verdict == "PASS":
             print(f"\n  Human feedback satisfaction PASSED for row {row_index + 1}")
             _finalize_row(row_index, df, drive, ws)
-            df.at[row_index, "human_feedback_status"] = "PASS"
-            df.at[row_index, HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN] = _format_human_feedback_revision_tracking(hf_revision_tracking)
+            df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                "PASS", ai_generation_errors
+            )
+            df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
@@ -1616,19 +1791,46 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
         for attempt in range(1, MAX_HUMAN_FEEDBACK_REGEN_ATTEMPTS + 1):
             print(f"\n  Regeneration attempt {attempt}/{MAX_HUMAN_FEEDBACK_REGEN_ATTEMPTS}")
             row = df.loc[row_index]
-            replaced_visual_ids_by_segment, old_asset_urls_by_visual_id = regenerate_failed_segments(
-                row_index=row_index,
-                row=row,
-                df=df,
-                course_name=course_name,
-                target_audience=target_audience,
-                drive=drive,
-                llm=llm,
-                failed_segments=failed_segments,
-                feedback_by_segment=regen_feedback,
-                ws=ws,
-                use_only_drive_and_hvac=use_only_drive_and_hvac,
-            )
+            restricted_segments = [s for s in failed_segments if _safe_str(segment_mode_map.get(str(s), "drive_hvac")).strip().lower() != "all"]
+            all_segments = [s for s in failed_segments if _safe_str(segment_mode_map.get(str(s), "drive_hvac")).strip().lower() == "all"]
+            replaced_visual_ids_by_segment = {}
+            old_asset_urls_by_visual_id = {}
+
+            if restricted_segments:
+                restricted_feedback = {k: v for k, v in regen_feedback.items() if k in restricted_segments}
+                r_rep, r_old = regenerate_failed_segments(
+                    row_index=row_index,
+                    row=row,
+                    df=df,
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    drive=drive,
+                    llm=llm,
+                    failed_segments=restricted_segments,
+                    feedback_by_segment=restricted_feedback,
+                    ws=ws,
+                    use_only_drive_and_hvac=True,
+                )
+                replaced_visual_ids_by_segment.update(r_rep or {})
+                old_asset_urls_by_visual_id.update(r_old or {})
+
+            if all_segments:
+                all_feedback = {k: v for k, v in regen_feedback.items() if k in all_segments}
+                a_rep, a_old = regenerate_failed_segments(
+                    row_index=row_index,
+                    row=row,
+                    df=df,
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    drive=drive,
+                    llm=llm,
+                    failed_segments=all_segments,
+                    feedback_by_segment=all_feedback,
+                    ws=ws,
+                    use_only_drive_and_hvac=False,
+                )
+                replaced_visual_ids_by_segment.update(a_rep or {})
+                old_asset_urls_by_visual_id.update(a_old or {})
             _finalize_row(row_index, df, drive, ws)
 
             row = df.loc[row_index]
@@ -1665,7 +1867,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
                 previous_failures_lines.append(f"Segment {seg_num}:\n{block}")
             previous_failures_text = "\n\n".join(previous_failures_lines)
 
-            human_feedback_formatted = _format_human_feedback_for_prompt(_safe_str(row.get("human_feedback", "")))
+            human_feedback_formatted = _format_human_feedback_for_prompt(_safe_str(row.get(human_feedback_column, "")))
 
             print(f"\n  [REGENERATION] Follow-up satisfaction review (attempt {attempt}):")
             if conversation_history and replaced_visual_ids_by_segment:
@@ -1704,8 +1906,10 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
             if regen_verdict == "PASS":
                 print(f"  Regeneration PASSED on attempt {attempt}")
                 _finalize_row(row_index, df, drive, ws)
-                df.at[row_index, "human_feedback_status"] = "PASS"
-                df.at[row_index, HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN] = _format_human_feedback_revision_tracking(hf_revision_tracking)
+                df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+                    "PASS", ai_generation_errors
+                )
+                df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
                 if ws is not None:
                     with _sheet_lock:
                         save_to_sheet(ws, df)
@@ -1720,8 +1924,10 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
 
         # All regen attempts exhausted
         _finalize_row(row_index, df, drive, ws)
-        df.at[row_index, "human_feedback_status"] = "FAIL"
-        df.at[row_index, HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN] = _format_human_feedback_revision_tracking(hf_revision_tracking)
+        df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
+            "FAIL", ai_generation_errors
+        )
+        df.at[row_index, human_feedback_revision_tracking_column] = _format_human_feedback_revision_tracking(hf_revision_tracking)
         if ws is not None:
             with _sheet_lock:
                 save_to_sheet(ws, df)
@@ -1730,7 +1936,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
 
     except Exception as e:
         print(f"  ERROR processing human-feedback row {row_index + 1}: {e}")
-        df.at[row_index, "human_feedback_status"] = f"ERROR: {str(e)}"
+        df.at[row_index, human_feedback_status_column] = f"ERROR: {str(e)}"
         if ws is not None:
             with _sheet_lock:
                 save_to_sheet(ws, df)
@@ -1824,6 +2030,146 @@ def _build_regen_feedback(failures, segments_map, visual_assignment_strategy):
 
 
 HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN = "human_feedback_revision_tracking"
+
+
+def _parse_actions_payload(raw):
+    text = _safe_str(raw).strip()
+    if not text:
+        return {}, {}
+    try:
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            return {}, {}
+        actions = payload.get("actions", {})
+        segment_modes = payload.get("segment_modes", {})
+        if not isinstance(actions, dict):
+            actions = {}
+        if not isinstance(segment_modes, dict):
+            segment_modes = {}
+        return actions, segment_modes
+    except Exception:
+        return {}, {}
+
+
+def _is_drive_url(url: str) -> bool:
+    if not url:
+        return False
+    lowered = str(url).lower()
+    return "drive.google.com" in lowered or "docs.google.com" in lowered
+
+
+def _is_embed_with_start_end(url: str) -> bool:
+    if not url:
+        return False
+    try:
+        parsed = urlparse(str(url))
+        if "youtube.com" not in parsed.netloc or "/embed/" not in parsed.path:
+            return False
+        qs = parse_qs(parsed.query or "")
+        return bool(qs.get("start")) and bool(qs.get("end"))
+    except Exception:
+        return False
+
+
+def _extract_visual_blocks(replacement_xml: str) -> List[str]:
+    if not replacement_xml or not replacement_xml.strip():
+        return []
+    content = _extract_tag(replacement_xml, "replacement_visuals") or _extract_tag(replacement_xml, "replacement_visual")
+    if not content:
+        return []
+    return re.findall(r"<visual>(.*?)</visual>", content, re.DOTALL | re.IGNORECASE)
+
+
+def _compose_replacement_xml_from_visual_blocks(visual_blocks: List[str]) -> str:
+    if not visual_blocks:
+        return ""
+    parts = ["<replacement_visuals>"]
+    for block in visual_blocks:
+        parts.append("<visual>")
+        parts.append(block.strip())
+        parts.append("</visual>")
+    parts.append("</replacement_visuals>")
+    return "\n".join(parts)
+
+
+def _add_ai_generated_label_for_urls(graphics_definition_text: str, ai_urls: Set[str]) -> str:
+    """
+    Add '(AI Generated)' on a new line right after 'Graphics to use: <url>' for ai-generated URLs.
+    """
+    if not graphics_definition_text or not ai_urls:
+        return graphics_definition_text
+
+    lines = graphics_definition_text.splitlines()
+    output_lines: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        output_lines.append(line)
+        m = re.match(r"^(\s*)Graphics to use:\s*(\S+)\s*$", line, re.IGNORECASE)
+        if m:
+            url = m.group(2).strip()
+            if url in ai_urls:
+                next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                if next_line != "(AI Generated)":
+                    output_lines.append("(AI Generated)")
+        i += 1
+    return "\n".join(output_lines)
+
+
+def _generate_ai_visual_replacement(
+    slide_title: str,
+    slide_chunk: str,
+    vo_part: str,
+    feedback_text: str,
+    visual_id: str,
+    segment_num: int,
+    round_index: int,
+    drive,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Generate an AI image, upload to Drive, and return shareable URL.
+    Returns (url, error_message).
+    """
+    feedback_text = _safe_str(feedback_text).strip()
+    if feedback_text and feedback_text != AI_NO_FEEDBACK_MARKER:
+        voiceover_focus = f'When VO: "{vo_part}"\nHuman Feedback: {feedback_text}'
+    else:
+        voiceover_focus = f'When VO: "{vo_part}"'
+    result = generate_asset(
+        slide_title=slide_title,
+        slide_content=slide_chunk,
+        voiceover_focus=voiceover_focus,
+        aspect_ratio="16:9",
+        image_size="1K",
+    )
+    if result.get("error"):
+        return None, f"AI generation failed for {visual_id}: {result['error']}"
+    image = result.get("image")
+    if image is None:
+        return None, f"AI generation returned no image for {visual_id}"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{visual_id}_seg{segment_num}_ai_round{round_index}_{timestamp}.jpg"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = tmp.name
+        image.convert("RGB").save(tmp_path, format="JPEG", quality=92)
+        drive_url, upload_err = upload_image_to_drive(
+            tmp_path, filename, AI_GENERATED_IMAGES_FOLDER_ID, drive
+        )
+        if not drive_url:
+            detail = upload_err or "unknown error"
+            return None, f"Drive upload failed for {visual_id}: {detail}"
+        return drive_url, None
+    except Exception as e:
+        return None, f"AI image upload failed for {visual_id}: {e}"
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
 
 def _get_asset_url_for_visual(segments_map, visual_id):
@@ -1969,7 +2315,16 @@ def _format_human_feedback_revision_tracking(tracking):
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, use_only_drive_and_hvac=False):
+def run_human_feedback_review_revise_for_all_rows(
+    sheet,
+    llm="gemini_3_flash_thinking",
+    max_workers=50,
+    use_only_drive_and_hvac=False,
+    human_feedback_column="human_feedback",
+    human_feedback_status_column="human_feedback_status",
+    human_feedback_revision_tracking_column=HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN,
+    human_review_actions_column="human_review_actions",
+):
     """
     Entry point: process all rows that have human feedback in the Slide Chunks sheet (revise, review, optional regeneration per row).
 
@@ -1986,29 +2341,39 @@ def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thi
     course_name = _safe_str(course_info_df.loc[0, "Course Name"])
     target_audience = _safe_str(course_info_df.loc[0, "Target Audience & Industry"])
 
-    if "human_feedback" not in df.columns:
-        print("No human_feedback column found. Nothing to process.")
+    if human_feedback_column not in df.columns:
+        print(f"No {human_feedback_column} column found. Nothing to process.")
         return
-    if "human_feedback_status" not in df.columns:
-        df["human_feedback_status"] = ""
-    if HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN not in df.columns:
-        df[HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN] = ""
+    if human_feedback_status_column not in df.columns:
+        df[human_feedback_status_column] = ""
+    if human_feedback_revision_tracking_column not in df.columns:
+        df[human_feedback_revision_tracking_column] = ""
+    if human_review_actions_column not in df.columns:
+        df[human_review_actions_column] = ""
 
     print("Initializing Google Drive instance...")
     drive = get_drive_instance()
     if not drive:
         print("ERROR: Drive instance unavailable. Aborting.")
         return
-    print("Drive instance initialized")
+    try:
+        about = drive.GetAbout()
+        email = (about.get("user") or {}).get("emailAddress") or ""
+        if email.endswith(".gserviceaccount.com"):
+            print(f"Drive instance initialized (service account: {email})")
+        else:
+            print(f"Drive instance initialized (OAuth user: {email})")
+    except Exception as e:
+        print(f"Drive instance initialized (could not read identity: {e})")
 
     rows_to_process = []
     for index, row in df.iterrows():
-        hf = _safe_str(row.get("human_feedback", "")).strip()
+        hf = _safe_str(row.get(human_feedback_column, "")).strip()
         if not hf or hf == "nan":
             continue
-        status = _safe_str(row.get("human_feedback_status", "")).strip().upper()
-        if status in ("DONE", "PASS"):
-            print(f"  Skipping row {index + 1}: human_feedback_status={status}")
+        status_raw = _safe_str(row.get(human_feedback_status_column, ""))
+        if _hf_row_should_skip_in_batch(status_raw):
+            print(f"  Skipping row {index + 1}: {human_feedback_status_column}={status_raw}")
             continue
         rows_to_process.append(index)
 
@@ -2044,6 +2409,10 @@ def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thi
                     llm,
                     ws,
                     use_only_drive_and_hvac,
+                    human_feedback_column,
+                    human_feedback_status_column,
+                    human_feedback_revision_tracking_column,
+                    human_review_actions_column,
                 ): row_index
                 for row_index in rows_to_process
             }
@@ -2070,6 +2439,10 @@ def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thi
                     llm,
                     ws,
                     use_only_drive_and_hvac,
+                    human_feedback_column,
+                    human_feedback_status_column,
+                    human_feedback_revision_tracking_column,
+                    human_review_actions_column,
                 )
                 _safe_progress_update()
             except Exception as e:
