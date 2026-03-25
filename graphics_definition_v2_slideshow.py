@@ -1742,7 +1742,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
             )
         with save_col2:
             save_and_revise_bg = st.button(
-                "Save all feedback and revise visuals in background",
+                "Save all feedback and revise visuals in Background",
                 type="primary",
                 key="gdv2_save_revise_bg_btn",
             )
@@ -2322,6 +2322,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     st.session_state["gdv2_df"] = refreshed_df
                     st.session_state["gdv2_round"] = detect_current_round(refreshed_df)
                     st.session_state["gdv2_pending_visual_filter"] = EDITED_FILTER_OPTION
+                    st.session_state["gdv2_regen_notice"] = True
                     st.success("✅ Regeneration complete. Results are written back to the sheet.")
                     st.rerun()
                 except Exception as e:
@@ -2331,6 +2332,10 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
         if st.session_state.get("gdv2_revision_notice", False):
             st.info(
                 "Visuals have been revised based on all the feedbacks, you can now review the revised visuals and leave any new feedback if you want."
+            )
+        if st.session_state.get("gdv2_regen_notice", False):
+            st.info(
+                "Web-image regeneration completed. Review the edited visuals and leave additional feedback if needed."
             )
         if st.session_state.get("gdv2_hf_bg_link"):
             st.markdown(
@@ -2381,6 +2386,7 @@ def main():
             st.session_state["gdv2_df_sheet"] = None
             st.session_state["gdv2_df_sheet_link"] = sheet_link
             st.session_state.pop("gdv2_revision_notice", None)
+            st.session_state.pop("gdv2_regen_notice", None)
             _clear_inspector_image_cache()
             st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
         except Exception as e:
