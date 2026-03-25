@@ -320,6 +320,27 @@ def generate_structured_output(prompt, structured_output, model="gemini-2.0-flas
         raise e
 
 
+def call_llm_with_retry(func, *args, max_retries=3, initial_wait=2, **kwargs):
+    """
+    Retry an LLM call with exponential backoff.
+    Works with google.genai client methods and other direct API calls.
+    """
+    import time
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_exc = e
+            if attempt < max_retries - 1:
+                wait_time = initial_wait * (2 ** attempt)
+                print(f"  ⚠️ LLM call failed: {e}. Retrying in {wait_time}s... ({attempt+1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                print(f"  ❌ LLM call failed after {max_retries} attempts: {e}")
+    raise last_exc
+
+
 # Function to make llm calls
 def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = None):
     """

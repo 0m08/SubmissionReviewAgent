@@ -4,7 +4,10 @@ import imghdr
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, urlparse
 
@@ -15,13 +18,38 @@ from openai import OpenAI
 from PIL import UnidentifiedImageError
 
 from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
+from services.sheets_service import hide_columns_by_name
+from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+    run_human_feedback_review_revise_for_all_rows,
+)
+from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import run_automation
 
 
 DEFAULT_SHEET_NAME = "Slide Chunks"
 FINAL_GRAPHICS_COLUMN = "final_graphics_definition"
 HUMAN_FEEDBACK_COLUMN = "human_feedback"
+HUMAN_FEEDBACK_STATUS_COLUMN = "human_feedback_status"
+HUMAN_FEEDBACK_TRACKING_COLUMN = "human_feedback_revision_tracking"
+HUMAN_REVIEW_ACTIONS_COLUMN = "human_review_actions"
+HUMAN_REVIEW_FILTER_OPTIONS = ["all", "approved", "revised", "unreviewed"]
+EDITED_FILTER_OPTION = "edited"
+DEFAULT_REJECT_FEEDBACK = "I did not like the visual that is currently assigned. Find and assign a better visual that is relevant for this voiceover part"
 TTS_MODEL = "gpt-4o-mini-tts"
 TTS_VOICE = "alloy"
+
+ACTION_NONE = "unreviewed"
+ACTION_APPROVE = "approve"
+ACTION_REJECT_DRIVE_HVAC = "reject_drive_hvac"
+ACTION_REJECT_ALL = "reject_all"
+ACTION_REJECT_AI = "reject_ai"
+AI_NO_FEEDBACK_MARKER = "No Feedback"
+
+ACTION_LABELS = {
+    ACTION_APPROVE: "Approve",
+    ACTION_REJECT_DRIVE_HVAC: "Reject, search again only in Drive and HVAC School videos",
+    ACTION_REJECT_ALL: "Reject, search again everywhere",
+    ACTION_REJECT_AI: "Reject, generate with AI",
+}
 
 
 def get_or_create_human_feedback_column(worksheet):
@@ -42,6 +70,155 @@ def get_or_create_human_feedback_column(worksheet):
     except Exception:
         return None
     return col_index
+
+
+def get_round_column_name(base_name, round_index):
+
+    return f"{base_name}_{round_index + 1}"
+
+
+def get_or_create_column(worksheet, column_name):
+    try:
+        headers = worksheet.row_values(1)
+    except Exception:
+        return None
+    target = column_name.strip().lower()
+    for i, h in enumerate(headers):
+        if safe_str(h).strip().lower() == target:
+            return i + 1
+    col_index = len(headers) + 1
+    try:
+        # Some sheets have a fixed column count; extend before writing new header.
+        try:
+            current_cols = int(getattr(worksheet, "col_count", 0) or 0)
+        except Exception:
+            current_cols = 0
+        if current_cols and col_index > current_cols:
+            worksheet.add_cols(col_index - current_cols)
+        worksheet.update_cell(1, col_index, column_name)
+    except Exception as e:
+        print(f"[gdv2_slideshow] Failed to create column '{column_name}' at index {col_index}: {e}")
+        return None
+    return col_index
+
+
+def detect_current_round(df):
+    def _has_non_empty_values(col_name):
+        if col_name not in df.columns:
+            return False
+        try:
+            for v in df[col_name].tolist():
+                text = safe_str(v).strip()
+                if text and text.lower() != "nan":
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _round_exists(round_index):
+        return any(
+            get_round_column_name(base, round_index) in df.columns
+            for base in (
+                HUMAN_FEEDBACK_COLUMN,
+                HUMAN_FEEDBACK_STATUS_COLUMN,
+                HUMAN_FEEDBACK_TRACKING_COLUMN,
+                HUMAN_REVIEW_ACTIONS_COLUMN,
+            )
+        )
+
+    def _round_has_data(round_index):
+        return any(
+            _has_non_empty_values(get_round_column_name(base, round_index))
+            for base in (
+                HUMAN_FEEDBACK_COLUMN,
+                HUMAN_FEEDBACK_STATUS_COLUMN,
+                HUMAN_FEEDBACK_TRACKING_COLUMN,
+                HUMAN_REVIEW_ACTIONS_COLUMN,
+            )
+        )
+
+    # Determine highest round index represented by existing round columns.
+    highest_existing_round = 0
+    while _round_exists(highest_existing_round + 1):
+        highest_existing_round += 1
+
+    # If the latest existing round already has data, next writable round is +1.
+    # If latest existing round has no data yet, continue in that round.
+    if _round_has_data(highest_existing_round):
+        return highest_existing_round + 1
+    return highest_existing_round
+
+
+def _parse_json_map(raw):
+    text = safe_str(raw).strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _extract_actions_map(raw):
+    parsed = _parse_json_map(raw)
+    if not parsed:
+        return {}
+    # Current payload shape: {"actions": {...}, "segment_modes": {...}, "round": n}
+    actions = parsed.get("actions")
+    if isinstance(actions, dict):
+        return actions
+    # Backward compatibility: payload may itself already be the actions map.
+    if all(isinstance(v, dict) for v in parsed.values()):
+        return parsed
+    return {}
+
+
+def _set_review_action(action_key, action_value):
+    st.session_state[action_key] = action_value
+
+
+def _col_to_a1(col_index: int) -> str:
+    """Convert 1-based column index to A1 column letters."""
+    if col_index <= 0:
+        return "A"
+    letters = []
+    n = int(col_index)
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        letters.append(chr(65 + rem))
+    return "".join(reversed(letters))
+
+
+def _chunked(seq, size):
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+
+def _inject_review_button_layout_css():
+    st.markdown(
+        """
+        <style>
+        button[aria-label*="Approve"],
+        button[aria-label*="Reject (Drive + HVAC School Videos)"],
+        button[aria-label*="Reject (Search all)"],
+        button[aria-label*="Reject (Generate with AI)"] {
+            padding: 0.28rem 0.50rem !important;
+            min-height: 2.0rem !important;
+            font-size: 0.90rem !important;
+        }
+        button[aria-label*="Approve"] p,
+        button[aria-label*="Reject (Drive + HVAC School Videos)"] p,
+        button[aria-label*="Reject (Search all)"] p,
+        button[aria-label*="Reject (Generate with AI)"] p {
+            font-size: 0.90rem !important;
+            margin: 0 !important;
+            line-height: 1.15 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def safe_str(value):
@@ -94,9 +271,20 @@ def is_youtube_embed(url):
     return "youtube.com/embed" in lowered or "youtu.be/" in lowered
 
 
+def _first_http_url_in_text(text):
+    """First URL token; strips trailing junk e.g. '...end=20 (use the image at 19s)'."""
+    if not text:
+        return None
+    m = re.search(r"https?://[^\s]+", str(text).strip())
+    if not m:
+        return None
+    return m.group(0).rstrip(".,);\"'")
+
+
 def parse_youtube_embed(url):
     if not url:
         return None
+    url = _first_http_url_in_text(url) or url
     parsed = urlparse(url)
     video_id = ""
     if "youtube.com" in parsed.netloc and "/embed/" in parsed.path:
@@ -121,6 +309,19 @@ def parse_youtube_embed(url):
         "start": start_val,
         "end": end_val,
     }
+
+
+def to_youtube_watch_url(url):
+    """Convert YouTube embed/short/watch links to canonical watch URL with start time."""
+    meta = parse_youtube_embed(url)
+    if not meta or not meta.get("video_id"):
+        return url
+    video_id = meta["video_id"]
+    start_seconds = int(meta.get("start") or 0)
+    watch_url = f"https://www.youtube.com/watch?v={video_id}"
+    if start_seconds > 0:
+        watch_url += f"&t={start_seconds}s"
+    return watch_url
 
 
 def detect_asset_type(asset):
@@ -278,6 +479,10 @@ def _parse_formatted_block(block):
         if matched:
             continue
         if current_key:
+            if current_key == "asset" and re.match(
+                r"^\(\s*use the image at\b", line, re.IGNORECASE
+            ):
+                continue
             data[current_key] = f"{data[current_key]} {line}".strip()
     if any(data.values()):
         return {
@@ -304,6 +509,20 @@ def parse_graphics_definition(text):
     if fallback_step:
         return [_build_segment(1, [fallback_step])]
     return []
+
+
+def _primary_asset_url(asset_text: str) -> str:
+    """
+    Extract the stable 'primary' URL from an asset field.
+
+    The asset text can accidentally include extra labels/lines after regen, so
+    raw string equality produces false positives. We normalize comparison to
+    only the first http(s) URL when present.
+    """
+    s = safe_str(asset_text).strip()
+    s = re.sub(r"\s+", " ", s)
+    m = re.search(r"https?://[^\s)>\"]+", s)
+    return m.group(0).strip() if m else s
 
 
 def _fallback_step_from_text(text):
@@ -447,6 +666,8 @@ def build_slides_from_df(df, column_map):
             "final_definition_raw": final_def,
             "segments": segments,
         }
+        for col_name in df.columns:
+            slide[col_name] = row.get(col_name, "")
         slides.append(slide)
     return slides
 
@@ -941,6 +1162,10 @@ def build_slideshow_html(prepared_steps):
         if (!player || step.videoEnd === null || step.videoEnd === undefined) {{
           return;
         }}
+        const clipLen = Number(step.videoEnd) - Number(step.videoStart || 0);
+        const loopShortClip =
+          clipLen > 0 &&
+          clipLen <= 30;
         videoEnded = false;
         videoCheckInterval = setInterval(() => {{
           let currentTime = 0;
@@ -949,18 +1174,25 @@ def build_slideshow_html(prepared_steps):
           }} catch (e) {{
             return;
           }}
-          if (currentTime >= step.videoEnd - 0.05) {{
-            try {{
-              player.pauseVideo();
-              player.seekTo(step.videoEnd, true);
-            }} catch (e) {{}}
-            videoEnded = true;
-            clearTimers();
-            if (narrationDone && (step.videoEnd - (step.videoStart || 0)) > (step.audioDuration || 0)) {{
-              advanceStep(1);
+          if (currentTime >= step.videoEnd - 0.12) {{
+            if (loopShortClip) {{
+              try {{
+                player.seekTo(step.videoStart || 0, true);
+                player.playVideo();
+              }} catch (e) {{}}
+            }} else {{
+              try {{
+                player.pauseVideo();
+                player.seekTo(step.videoEnd, true);
+              }} catch (e) {{}}
+              videoEnded = true;
+              clearTimers();
+              if (narrationDone && clipLen > (step.audioDuration || 0)) {{
+                advanceStep(1);
+              }}
             }}
           }}
-        }}, 200);
+        }}, 100);
       }}
 
       function playStep(index) {{
@@ -1001,8 +1233,20 @@ def build_slideshow_html(prepared_steps):
           if (currentVideo) {{
             try {{
               currentVideo.mute();
-              currentVideo.seekTo(step.videoStart || 0, true);
-              currentVideo.playVideo();
+              if (
+                step.videoEnd !== null &&
+                step.videoEnd !== undefined &&
+                step.videoId
+              ) {{
+                currentVideo.loadVideoById({{
+                  videoId: step.videoId,
+                  startSeconds: step.videoStart || 0,
+                  endSeconds: step.videoEnd,
+                }});
+              }} else {{
+                currentVideo.seekTo(step.videoStart || 0, true);
+                currentVideo.playVideo();
+              }}
             }} catch (e) {{}}
             setupVideoMonitoring(step, index);
           }}
@@ -1233,53 +1477,226 @@ def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, dri
             html = _get_inspector_video_html(asset, embed_key)
             if html:
                 st.components.v1.html(html, height=360)
-            st.markdown(f"[Open video]({asset})")
+            st.markdown(f"[Open video]({to_youtube_watch_url(asset)})")
         else:
             st.warning("Video URL missing.")
 
 
-def _render_inspector_step_feedback(fb_key):
-    """Feedback widget only — isolated fragment so typing doesn't rerun visuals."""
+def _render_inspector_step_review_controls(step_key_prefix):
+    action_key = f"{step_key_prefix}_action"
+    feedback_key = f"{step_key_prefix}_feedback"
+
+    if action_key not in st.session_state:
+        st.session_state[action_key] = ACTION_NONE
+    if feedback_key not in st.session_state:
+        st.session_state[feedback_key] = ""
+
+    st.markdown("**Review action**")
+    current_action = st.session_state.get(action_key, ACTION_NONE)
+
+    btn_cols = st.columns(4, gap="small")
+    with btn_cols[0]:
+        approve_label = "🟢 Approve" if current_action == ACTION_APPROVE else "Approve"
+        st.button(
+            approve_label,
+            key=f"{step_key_prefix}_btn_approve",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_APPROVE),
+            use_container_width=True,
+        )
+    with btn_cols[1]:
+        reject_dh_label = "🔴 Reject (Drive + HVAC School Videos)" if current_action == ACTION_REJECT_DRIVE_HVAC else "Reject (Drive + HVAC School Videos)"
+        st.button(
+            reject_dh_label,
+            key=f"{step_key_prefix}_btn_reject_drive_hvac",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_REJECT_DRIVE_HVAC),
+            use_container_width=True,
+        )
+    with btn_cols[2]:
+        reject_all_label = "🔴 Reject (Search all)" if current_action == ACTION_REJECT_ALL else "Reject (Search all)"
+        st.button(
+            reject_all_label,
+            key=f"{step_key_prefix}_btn_reject_all",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_REJECT_ALL),
+            use_container_width=True,
+        )
+    with btn_cols[3]:
+        reject_ai_label = "🔵 Reject (Generate with AI)" if current_action == ACTION_REJECT_AI else "Reject (Generate with AI)"
+        st.button(
+            reject_ai_label,
+            key=f"{step_key_prefix}_btn_reject_ai",
+            type="secondary",
+            on_click=_set_review_action,
+            args=(action_key, ACTION_REJECT_AI),
+            use_container_width=True,
+        )
+
+    current_action = st.session_state.get(action_key, ACTION_NONE)
+    if current_action == ACTION_APPROVE:
+        st.markdown(":green[Selected: Approve]")
+    elif current_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL):
+        st.markdown(f":red[Selected: {ACTION_LABELS.get(current_action, 'Reject')}]")
+    elif current_action == ACTION_REJECT_AI:
+        st.markdown(":blue[Selected: Reject, generate with AI]")
+    else:
+        st.caption("Unreviewed")
+
     st.text_area(
         "Human feedback (optional)",
-        key=fb_key,
+        key=feedback_key,
         placeholder="e.g. Wrong image; need diagram of X",
         height=80,
     )
 
 
-def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None):
+def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False):
     if not slides:
         st.info("No slide data to display.")
         return
 
     can_save = sheet is not None and worksheet_name
+    _inject_review_button_layout_css()
+    round_feedback_col = get_round_column_name(HUMAN_FEEDBACK_COLUMN, current_round)
+    round_status_col = get_round_column_name(HUMAN_FEEDBACK_STATUS_COLUMN, current_round)
+    round_tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
+    round_actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, current_round)
+
+    # First-load behavior: show everything in round 0, then default to revised+unreviewed for later rounds.
+    if current_round == 0 and action_filter == "all":
+        show_revised = True
+        show_unreviewed = True
+        show_approved = True
+    else:
+        show_revised = action_filter in ("all", "revised")
+        show_unreviewed = action_filter in ("all", "unreviewed") or (action_filter == "revised" and include_unreviewed_with_revised)
+        show_approved = action_filter in ("all", "approved")
+
+    any_visible_items = False
+    edited_visual_ids_by_row = st.session_state.get("gdv2_edited_visual_ids_by_row", {}) if action_filter == EDITED_FILTER_OPTION else {}
 
     for slide_idx, slide in enumerate(slides, start=1):
+        segments = slide.get("segments", [])
+        if not segments:
+            continue
+
+        row_index = slide.get("row_index", slide_idx - 1)
+        row_actions_key = f"gdv2_row_actions_{row_index}_r{current_round}"
+        row_actions = st.session_state.setdefault(row_actions_key, {})
+
+        # Build latest non-none action per visual across all completed previous rounds.
+        historical_action_by_visual = {}
+        if current_round > 0:
+            for round_idx in range(current_round):
+                historical_actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, round_idx)
+                actions_map = _extract_actions_map(slide.get(historical_actions_col, ""))
+                for historical_visual_id, historical_item in actions_map.items():
+                    historical_action = safe_str(historical_item.get("action", ACTION_NONE)).strip() or ACTION_NONE
+                    if historical_action != ACTION_NONE:
+                        historical_action_by_visual[historical_visual_id] = historical_action
+
+        visible_segments = []
+        for segment in segments:
+            visible_steps = []
+            for step in segment.get("steps", []):
+                visual_id = f"S{segment['segment_index']}V{step['step_index']}"
+                is_edited = False
+                if action_filter == EDITED_FILTER_OPTION:
+                    is_edited = visual_id in edited_visual_ids_by_row.get(row_index, set())
+                action_scope_key = f"{row_index}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
+                action_key = f"{action_scope_key}_action"
+                feedback_key = f"{action_scope_key}_feedback"
+
+                persisted_action = ACTION_NONE
+                if action_scope_key in row_actions:
+                    persisted_action = safe_str(
+                        row_actions[action_scope_key].get("action", ACTION_NONE)
+                    ).strip() or ACTION_NONE
+                historical_action = historical_action_by_visual.get(visual_id, ACTION_NONE)
+
+                if action_key not in st.session_state:
+                    # First-time hydration for this run.
+                    if persisted_action != ACTION_NONE:
+                        st.session_state[action_key] = persisted_action
+                    elif historical_action == ACTION_APPROVE:
+                        st.session_state[action_key] = ACTION_APPROVE
+                    else:
+                        st.session_state[action_key] = ACTION_NONE
+                else:
+                    # If stale session value is unreviewed but previous round was approved,
+                    # keep approve preselected unless user has made a non-empty choice now.
+                    current_state_action = safe_str(
+                        st.session_state.get(action_key, ACTION_NONE)
+                    ).strip() or ACTION_NONE
+                    if (
+                        current_state_action == ACTION_NONE
+                        and persisted_action == ACTION_NONE
+                        and historical_action == ACTION_APPROVE
+                    ):
+                        st.session_state[action_key] = ACTION_APPROVE
+                if action_scope_key in row_actions and feedback_key not in st.session_state:
+                    st.session_state[feedback_key] = row_actions[action_scope_key].get("feedback", "")
+
+                current_action = st.session_state.get(action_key, ACTION_NONE)
+                current_feedback = st.session_state.get(feedback_key, "")
+                # Persist latest per-visual state before applying visibility filtering.
+                # Otherwise actions can be lost when a visual becomes hidden by the active filter.
+                row_actions[action_scope_key] = {
+                    "action": current_action,
+                    "feedback": current_feedback,
+                    "visual_id": visual_id,
+                    "voiceover": step.get("voiceover", ""),
+                    "segment_index": segment["segment_index"],
+                    "step_index": step["step_index"],
+                }
+                effective_action = current_action
+                # For "unreviewed" filter, show true current-round unreviewed visuals.
+                # Do not backfill from historical action, otherwise round 1+ can show empty
+                # even when reviewer has not selected any action in this round yet.
+                if effective_action == ACTION_NONE and action_filter != "unreviewed":
+                    effective_action = historical_action_by_visual.get(visual_id, ACTION_NONE)
+
+                is_unreviewed = effective_action == ACTION_NONE
+                is_approved = effective_action == ACTION_APPROVE
+                is_revised = effective_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI)
+                if action_filter == EDITED_FILTER_OPTION:
+                    visible = is_edited
+                else:
+                    visible = (
+                        (show_approved and is_approved)
+                        or (show_revised and is_revised)
+                        or (show_unreviewed and is_unreviewed)
+                    )
+                if not visible:
+                    continue
+
+                visible_steps.append((step, action_scope_key, action_key, feedback_key, visual_id))
+            if visible_steps:
+                visible_segments.append((segment, visible_steps))
+
+        if not visible_segments:
+            continue
+
+        any_visible_items = True
         title_parts = [f"Slide {slide_idx}"]
         if slide.get("slide_title"):
             title_parts.append(slide["slide_title"])
         if slide.get("topic") or slide.get("subtopic"):
             title_parts.append(f"{slide.get('topic', '')} / {slide.get('subtopic', '')}".strip(" /"))
         slide_title = " - ".join([part for part in title_parts if part])
+
         with st.expander(slide_title, expanded=False):
             if slide.get("slide_chunk"):
                 st.markdown("**Slide Content**")
                 st.write(slide["slide_chunk"])
 
-            segments = slide.get("segments", [])
-            if not segments:
-                st.warning("No visual steps parsed for this slide.")
-                if slide.get("final_definition_raw"):
-                    st.markdown("**Raw Definition**")
-                    st.text(slide["final_definition_raw"])
-                continue
-
-            row_index = slide.get("row_index", slide_idx - 1)
-
-            for segment in segments:
+            for segment, visible_steps in visible_segments:
                 st.markdown(f"### Segment {segment['segment_index']}")
-                for step in segment.get("steps", []):
+                for step, action_scope_key, action_key, feedback_key, visual_id in visible_steps:
                     st.markdown(f"**VO Part {step['step_index']}**")
                     if step.get("voiceover"):
                         st.write(step["voiceover"])
@@ -1293,7 +1710,6 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None)
                     ) if asset_type == "image" else ""
                     embed_key = f"{slide_idx}-{segment['segment_index']}-{step['step_index']}"
 
-                    # Visuals in their own fragment when available: feedback edits won't remount iframes/images
                     def _visual_block():
                         _render_inspector_step_visual(
                             asset, asset_type, display_url, embed_key, drive
@@ -1304,61 +1720,444 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None)
                     else:
                         _visual_block()
 
-                    if step.get("instruction"):
-                        st.markdown("**Instruction**")
-                        st.write(step["instruction"])
-                    if step.get("justification"):
-                        st.markdown("**Justification**")
-                        st.write(step["justification"])
-
-                    fb_key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
                     if _st_fragment is not None:
-                        _st_fragment(lambda k=fb_key: _render_inspector_step_feedback(k))()
+                        _st_fragment(lambda k=action_scope_key: _render_inspector_step_review_controls(k))()
                     else:
-                        _render_inspector_step_feedback(fb_key)
+                        _render_inspector_step_review_controls(action_scope_key)
+                    action_selected = st.session_state.get(action_key, ACTION_NONE)
+                    if action_selected == ACTION_APPROVE:
+                        st.success("Approved")
+
+    if not any_visible_items:
+        st.info("No visuals match the selected review filter.")
 
     if can_save:
         st.divider()
-        if st.button("Save all Feedback to sheet", type="primary"):
+        save_col1, save_col2 = st.columns(2)
+        with save_col1:
+            save_and_revise_now = st.button(
+                "Save all feedback and revise visuals",
+                type="primary",
+                key="gdv2_save_revise_now_btn",
+            )
+        with save_col2:
+            save_and_revise_bg = st.button(
+                "Save all feedback and revise visuals in background",
+                type="primary",
+                key="gdv2_save_revise_bg_btn",
+            )
+
+        st.divider()
+        regen_col1, regen_col2 = st.columns(2)
+        with regen_col1:
+            regen_web_now = st.button(
+                "Regenerate web images with AI",
+                type="primary",
+                key="gdv2_regen_web_now_btn",
+            )
+        with regen_col2:
+            regen_web_bg = st.button(
+                "Regenerate web images with AI in Background",
+                type="primary",
+                key="gdv2_regen_web_bg_btn",
+            )
+
+        if regen_web_bg:
+            st.info("Background regeneration is not implemented yet. Use the sync button for now.")
+
+        if save_and_revise_now or save_and_revise_bg:
             worksheet = None
-            col = None
+            had_save_error = False
             try:
                 worksheet = sheet.worksheet(worksheet_name)
-                col = get_or_create_human_feedback_column(worksheet)
             except Exception as e:
                 st.error(f"Failed to access worksheet: {e}")
+                had_save_error = True
 
-            if worksheet and col is None:
-                st.error("Could not find or create human_feedback column.")
-            elif worksheet and col:
+            if worksheet:
+                round_feedback_col_idx = get_or_create_column(worksheet, round_feedback_col)
+                round_status_col_idx = get_or_create_column(worksheet, round_status_col)
+                round_tracking_col_idx = get_or_create_column(worksheet, round_tracking_col)
+                round_actions_col_idx = get_or_create_column(worksheet, round_actions_col)
+                if any(v is None for v in [round_feedback_col_idx, round_status_col_idx, round_tracking_col_idx, round_actions_col_idx]):
+                    st.error(
+                        "Could not find or create one or more round review columns. "
+                        "Please check if the sheet is protected or has restricted edit permissions."
+                    )
+                    had_save_error = True
+
+            if worksheet and not had_save_error:
                 saved_count = 0
+                reject_count = 0
+                skipped_existing_count = 0
+                pending_row_writes = []
                 for slide in slides:
                     segments = slide.get("segments", [])
                     if not segments:
                         continue
                     row_index = slide.get("row_index", 0)
                     parts = []
+                    row_action_map_by_visual_id = {}
+                    segment_mode_map = {}
+                    row_actions = st.session_state.get(f"gdv2_row_actions_{row_index}_r{current_round}", {})
                     for segment in segments:
                         for step in segment.get("steps", []):
-                            fb_key = f"gdv2_fb_{row_index}_{segment['segment_index']}_{step['step_index']}"
-                            fb_text = (st.session_state.get(fb_key) or "").strip()
-                            if not fb_text:
-                                continue
+                            action_scope_key = f"{row_index}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
+                            item = row_actions.get(action_scope_key, {})
+                            action = safe_str(item.get("action", ACTION_NONE)).strip() or ACTION_NONE
+                            fb_text = safe_str(item.get("feedback", "")).strip()
+                            visual_id = f"S{segment['segment_index']}V{step['step_index']}"
                             vo = (step.get("voiceover") or "").strip()
-                            parts.append(f"When VO: {vo}\nHuman Feedback: {fb_text}")
-                    if parts:
-                        value = "\n\n".join(parts)
-                        sheet_row = int(row_index) + 2
-                        try:
-                            worksheet.update_cell(sheet_row, col, value)
-                            saved_count += 1
-                        except Exception as e:
-                            st.error(f"Failed to save feedback for row {sheet_row}: {e}")
+                            row_action_map_by_visual_id[visual_id] = {
+                                "action": action,
+                                "feedback": fb_text,
+                                "vo": vo,
+                                "segment": segment["segment_index"],
+                            }
+
+                            if action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+                                reject_count += 1
+                                if action == ACTION_REJECT_AI:
+                                    # Keep AI generation prompt feedback empty when user leaves it blank,
+                                    # but persist a marker so backend still treats this as actionable.
+                                    effective_feedback = fb_text if fb_text else AI_NO_FEEDBACK_MARKER
+                                else:
+                                    effective_feedback = fb_text if fb_text else DEFAULT_REJECT_FEEDBACK
+                                parts.append(f"When VO: {vo}\nHuman Feedback: {effective_feedback}")
+                                segment_mode = "all" if action in (ACTION_REJECT_ALL, ACTION_REJECT_AI) else "drive_hvac"
+                                existing = segment_mode_map.get(str(segment["segment_index"]), "drive_hvac")
+                                if existing == "all" or segment_mode == "all":
+                                    segment_mode_map[str(segment["segment_index"])] = "all"
+                                else:
+                                    segment_mode_map[str(segment["segment_index"])] = "drive_hvac"
+
+                    # Resume-safe behavior:
+                    # use only round actions column as the checkpoint signal.
+                    existing_actions = safe_str(slide.get(round_actions_col, "")).strip()
+                    if existing_actions and existing_actions.lower() != "nan":
+                        skipped_existing_count += 1
+                        continue
+
+                    feedback_value = "\n\n".join(parts) if parts else ""
+                    sheet_row = int(row_index) + 2
+                    actions_payload = json.dumps(
+                        {
+                            "actions": row_action_map_by_visual_id,
+                            "segment_modes": segment_mode_map,
+                            "round": current_round,
+                        },
+                        ensure_ascii=True,
+                    )
+                    pending_row_writes.append(
+                        (
+                            sheet_row,
+                            feedback_value,
+                            "",
+                            "",
+                            actions_payload,
+                        )
+                    )
+                    if feedback_value or row_action_map_by_visual_id:
+                        saved_count += 1
+
+                # Batch write row updates to avoid per-cell quota spikes (429).
+                if pending_row_writes:
+                    try:
+                        feedback_col = _col_to_a1(round_feedback_col_idx)
+                        status_col = _col_to_a1(round_status_col_idx)
+                        tracking_col = _col_to_a1(round_tracking_col_idx)
+                        actions_col = _col_to_a1(round_actions_col_idx)
+
+                        # 250 rows -> 1000 ranges per request; keep request size moderate.
+                        for chunk in _chunked(pending_row_writes, 250):
+                            batch_ranges = []
+                            for sheet_row, feedback_value, status_value, tracking_value, actions_payload in chunk:
+                                batch_ranges.append(
+                                    {
+                                        "range": f"{feedback_col}{sheet_row}",
+                                        "values": [[feedback_value]],
+                                    }
+                                )
+                                batch_ranges.append(
+                                    {
+                                        "range": f"{status_col}{sheet_row}",
+                                        "values": [[status_value]],
+                                    }
+                                )
+                                batch_ranges.append(
+                                    {
+                                        "range": f"{tracking_col}{sheet_row}",
+                                        "values": [[tracking_value]],
+                                    }
+                                )
+                                batch_ranges.append(
+                                    {
+                                        "range": f"{actions_col}{sheet_row}",
+                                        "values": [[actions_payload]],
+                                    }
+                                )
+                            worksheet.batch_update(batch_ranges, value_input_option="RAW")
+                    except Exception as e:
+                        st.error(f"Failed to save review batch update: {e}")
+                        had_save_error = True
 
                 if saved_count > 0:
-                    st.success(f"Feedback saved for {saved_count} slide(s).")
+                    st.success(f"Review saved for {saved_count} slide(s).")
                 else:
-                    st.warning("No feedback entered for any slide.")
+                    st.warning("No review actions entered for any slide.")
+                if skipped_existing_count > 0:
+                    st.info(
+                        f"Skipped {skipped_existing_count} slide(s) because round columns already had saved values."
+                    )
+
+            if not had_save_error and worksheet:
+                if save_and_revise_now:
+                    st.info("Starting revision process based on the given feedbacks...")
+                    try:
+                        if reject_count > 0:
+                            run_human_feedback_review_revise_for_all_rows(
+                                sheet=sheet,
+                                llm="gemini_3_flash_thinking",
+                                max_workers=50,
+                                use_only_drive_and_hvac=False,
+                                human_feedback_column=round_feedback_col,
+                                human_feedback_status_column=round_status_col,
+                                human_feedback_revision_tracking_column=round_tracking_col,
+                                human_review_actions_column=round_actions_col,
+                            )
+                            st.success("Human-feedback revision completed.")
+                            st.session_state["gdv2_round"] = current_round + 1
+                            # Do not mutate widget state key after widget instantiation in same run.
+                            # Apply this on next run before the selectbox is created.
+                            st.session_state["gdv2_pending_visual_filter"] = "revised"
+                            st.session_state["gdv2_revision_notice"] = True
+                        else:
+                            st.info("No rejected visuals found; skipped review-revise run.")
+
+                        _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
+                        st.session_state["gdv2_df"] = refreshed_df
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Human-feedback revision failed: {e}")
+                else:
+                    if reject_count <= 0:
+                        st.info("No rejected visuals found; skipped review-revise run.")
+                    else:
+                        user_email = st.session_state.get("user_email", "") or ""
+                        cmd = [
+                            sys.executable,
+                            "launch_agents_via_sdk.py",
+                            "--sheet_link",
+                            st.session_state.get("gdv2_sheet_link", ""),
+                            "--drive_folder_id",
+                            st.session_state.get("root_folder_id", ""),
+                            "--agent_name",
+                            "human_feedback_review_revise",
+                            "--user_email",
+                            user_email,
+                            "--human_feedback_column",
+                            round_feedback_col,
+                            "--human_feedback_status_column",
+                            round_status_col,
+                            "--human_feedback_revision_tracking_column",
+                            round_tracking_col,
+                            "--human_review_actions_column",
+                            round_actions_col,
+                            "--llm",
+                            "gemini_3_flash_thinking",
+                            "--max_workers",
+                            "50",
+                        ]
+                        _rt = st.session_state.get("google_oauth_refresh_token")
+                        if _rt:
+                            cmd.extend(
+                                [
+                                    "--google_oauth_refresh_token_b64",
+                                    base64.b64encode(_rt.encode("utf-8")).decode("ascii"),
+                                ]
+                            )
+                        else:
+                            st.info(
+                                "No refresh token in session (re-login with Google to enable user Drive uploads "
+                                "in the cloud job). Otherwise the job uses the service account for AI image uploads."
+                            )
+                        with st.spinner("Submitting background job..."):
+                            process = subprocess.Popen(
+                                cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                            )
+                            logs = ""
+                            job_link = None
+                            job_name = None
+                            link_re = re.compile(r"^\[JOB_LINK\]\s+(?P<link>\S+)\s*$")
+                            name_re = re.compile(r"^\[JOB_NAME\]\s+(?P<name>.+?)\s*$")
+                            start = time.time()
+                            while True:
+                                if process.stdout is None:
+                                    break
+                                line = process.stdout.readline()
+                                if not line:
+                                    if process.poll() is not None:
+                                        break
+                                    if time.time() - start > 10:
+                                        break
+                                    time.sleep(0.1)
+                                    continue
+                                logs += line
+                                m = link_re.match(line.strip())
+                                if m:
+                                    job_link = m.group("link")
+                                    break
+                                m2 = name_re.match(line.strip())
+                                if m2:
+                                    job_name = m2.group("name")
+                            try:
+                                if process.stdout is not None:
+                                    process.stdout.close()
+                            except Exception:
+                                pass
+                            try:
+                                process.wait(timeout=2)
+                            except Exception:
+                                pass
+
+                        if job_link:
+                            st.session_state["gdv2_hf_bg_link"] = job_link
+                            st.session_state.pop("gdv2_hf_bg_name", None)
+                            st.success("Background human-feedback revise job submitted.")
+                        elif job_name:
+                            st.session_state["gdv2_hf_bg_name"] = job_name
+                            st.session_state.pop("gdv2_hf_bg_link", None)
+                            st.success("Background human-feedback revise job submitted.")
+                            with st.expander("Launcher output (no job link found)", expanded=False):
+                                st.code(logs[-5000:] if len(logs) > 5000 else logs)
+                        else:
+                            st.error("Background job submission did not return a job link.")
+                            with st.expander("Launcher output", expanded=True):
+                                st.code(logs[-5000:] if len(logs) > 5000 else logs)
+
+        if regen_web_now:
+            sheet_url = st.session_state.get("gdv2_sheet_link", "") or ""
+            if not sheet_url.strip():
+                st.error("Missing sheet URL. Please re-load the sheet using the 'Load Sheet' button.")
+            else:
+                try:
+                    worksheet = sheet.worksheet(worksheet_name)
+                    headers = worksheet.row_values(1)
+
+                    # Archive + hide the current main column into final_graphics_definition_N.
+                    main_col = FINAL_GRAPHICS_COLUMN
+                    if main_col not in headers:
+                        st.error(f"Column '{main_col}' not found in worksheet. Cannot regenerate.")
+                        return
+
+                    max_n = 0
+                    for h in headers:
+                        if isinstance(h, str) and h.startswith(f"{main_col}_"):
+                            suffix = h[len(f"{main_col}_"):]
+                            if suffix.isdigit():
+                                max_n = max(max_n, int(suffix))
+
+                    next_n = max_n + 1
+                    archive_col = f"{main_col}_{next_n}"
+
+                    # Rename header cell: final_graphics_definition -> final_graphics_definition_N
+                    main_col_idx_1based = headers.index(main_col) + 1
+                    worksheet.update_cell(1, main_col_idx_1based, archive_col)
+
+                    # Refresh df so the helper can find correct column indices.
+                    _, df_after_archive = get_sheet_data_and_df(sheet, worksheet_name)
+                    # Hide archived history column(s) and also hide legacy final_graphics.
+                    hide_columns_by_name(
+                        worksheet,
+                        [archive_col, FINAL_GRAPHICS_COLUMN],
+                        df_after_archive,
+                    )
+
+                    # Create the new visible main column header again.
+                    get_or_create_column(worksheet, main_col)
+
+                    st.info("Regenerating web images now. This can take a while...")
+                    regen_status = st.empty()
+                    regen_progress = st.progress(0.0, text="Regenerating web images: 0% | Just started...")
+                    regen_start_time = time.time()
+
+                    def _regen_progress_cb(completed: int, total: int):
+                        # Called by run_automation after each subsegment completes.
+                        pct = (completed / total) if total else 1.0
+                        pct = max(0.0, min(1.0, pct))
+                        elapsed_seconds = time.time() - regen_start_time
+
+                        if total == 0:
+                            text = (
+                                "Regenerating web images: Nothing to regenerate "
+                                "(0 eligible subsegments)."
+                            )
+                            regen_status.markdown(text)
+                            regen_progress.progress(1.0, text=text)
+                            return
+
+                        if completed > 0 and total and total >= completed:
+                            seconds_per_task = elapsed_seconds / completed
+                            remaining_tasks = total - completed
+                            estimated_remaining_seconds = max(0.0, seconds_per_task * remaining_tasks)
+
+                            elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_seconds)))
+                            remaining_time_str = str(datetime.timedelta(seconds=int(estimated_remaining_seconds)))
+                            text = (
+                                f"Regenerating web images: {int(pct * 100)}% "
+                                f"({completed}/{total}) | Elapsed: {elapsed_time_str} | Remaining: {remaining_time_str}"
+                            )
+                        else:
+                            text = (
+                                f"Regenerating web images: {int(pct * 100)}% "
+                                f"({completed}/{total}) | Elapsed: {str(datetime.timedelta(seconds=int(elapsed_seconds)))}"
+                            )
+
+                        # Update both the status line and the progress bar.
+                        # (Depending on Streamlit timing, the status line tends to render more reliably.)
+                        regen_status.markdown(text)
+                        regen_progress.progress(pct, text=text)
+
+                    with st.spinner("Running regeneration pipeline..."):
+                        run_automation(
+                            sheet_url=sheet_url,
+                            source_tab=worksheet_name,
+                            output_folder_name="Web Image Regeneration",
+                            gc=st.session_state.get("gc"),
+                            drive=st.session_state.get("drive"),
+                            progress_callback=_regen_progress_cb,
+                            skip_filled_rows=False,
+                            input_column_name=archive_col,
+                            output_column_name=main_col,
+                            write_final_graphics=False,
+                        )
+
+                    # Refresh inspector state so regenerated links are visible immediately.
+                    _clear_inspector_image_cache()
+                    st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
+                    _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
+                    st.session_state["gdv2_df"] = refreshed_df
+                    st.session_state["gdv2_round"] = detect_current_round(refreshed_df)
+                    st.session_state["gdv2_pending_visual_filter"] = EDITED_FILTER_OPTION
+                    st.success("✅ Regeneration complete. Results are written back to the sheet.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Regeneration failed: {e}")
+                    raise
+
+        if st.session_state.get("gdv2_revision_notice", False):
+            st.info(
+                "Visuals have been revised based on all the feedbacks, you can now review the revised visuals and leave any new feedback if you want."
+            )
+        if st.session_state.get("gdv2_hf_bg_link"):
+            st.markdown(
+                f"**Background job:** [{st.session_state['gdv2_hf_bg_link']}]({st.session_state['gdv2_hf_bg_link']})"
+            )
+        elif st.session_state.get("gdv2_hf_bg_name"):
+            st.markdown(f"**Background job:** `{st.session_state['gdv2_hf_bg_name']}`")
 
 
 def main():
@@ -1372,7 +2171,7 @@ def main():
         pass
 
     st.title("Graphics Definition V2 Slideshow")
-    st.caption("Preview and playback for final graphics definitions with narration sync.")
+    st.caption("Review generated visuals and submit human feedback.")
 
     if "gc" not in st.session_state:
         st.error("Google Sheets client not found. Please log in first.")
@@ -1383,19 +2182,19 @@ def main():
 
     sheet_link_default = st.session_state.get("sheet_link", "")
     sheet_link = st.text_input("Google Sheet link", value=sheet_link_default)
-    if not sheet_link:
-        st.info("Enter a Google Sheet link to load Slide Chunks data.")
-        return
-
     load_sheet = st.button("Load Sheet")
-    if load_sheet or st.session_state.get("gdv2_sheet_link") != sheet_link:
+    if load_sheet and not (sheet_link and sheet_link.strip()):
+        st.info("Please enter sheet link.")
+    if load_sheet and sheet_link and sheet_link.strip():
         try:
             sheet = gc.open_by_url(sheet_link)
+            st.session_state["sheet_link"] = sheet_link
             st.session_state["gdv2_sheet"] = sheet
             st.session_state["gdv2_sheet_link"] = sheet_link
             st.session_state["gdv2_df"] = None
             st.session_state["gdv2_df_sheet"] = None
             st.session_state["gdv2_df_sheet_link"] = sheet_link
+            st.session_state.pop("gdv2_revision_notice", None)
             _clear_inspector_image_cache()
             st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
         except Exception as e:
@@ -1404,23 +2203,18 @@ def main():
 
     sheet = st.session_state.get("gdv2_sheet")
     if not sheet:
-        st.info("Load a sheet to continue.")
         return
 
-    worksheet_names = get_worksheet_names(sheet)
-    worksheet_name = st.selectbox(
-        "Worksheet",
-        options=worksheet_names,
-        index=worksheet_names.index(DEFAULT_SHEET_NAME)
-        if DEFAULT_SHEET_NAME in worksheet_names
-        else 0,
+    worksheet_name = DEFAULT_SHEET_NAME
+    refresh = False
+    active_sheet_link = st.session_state.get("gdv2_sheet_link", "")
+    worksheet_or_sheet_changed = (
+        st.session_state.get("gdv2_df_sheet") != worksheet_name
+        or st.session_state.get("gdv2_df_sheet_link") != active_sheet_link
     )
-
-    refresh = st.button("Refresh Data")
     if (
         refresh
-        or st.session_state.get("gdv2_df_sheet") != worksheet_name
-        or st.session_state.get("gdv2_df_sheet_link") != sheet_link
+        or worksheet_or_sheet_changed
     ):
         try:
             _clear_inspector_image_cache()
@@ -1428,7 +2222,8 @@ def main():
             _, df = get_sheet_data_and_df(sheet, worksheet_name)
             st.session_state["gdv2_df"] = df
             st.session_state["gdv2_df_sheet"] = worksheet_name
-            st.session_state["gdv2_df_sheet_link"] = sheet_link
+            st.session_state["gdv2_df_sheet_link"] = active_sheet_link
+            st.session_state["gdv2_round"] = detect_current_round(df)
         except Exception as e:
             st.error(f"Failed to load data: {e}")
             return
@@ -1437,6 +2232,26 @@ def main():
     if df is None or df.empty:
         st.warning("No data found in the selected worksheet.")
         return
+
+    # Determine whether an archived "previous version" column exists so we can show the edited filter.
+    archive_cols = []
+    for c in df.columns:
+        if isinstance(c, str) and c.startswith(f"{FINAL_GRAPHICS_COLUMN}_"):
+            suffix = c[len(f"{FINAL_GRAPHICS_COLUMN}_"):]
+            if suffix.isdigit():
+                archive_cols.append((int(suffix), c))
+    archive_cols.sort(key=lambda x: x[0])
+    latest_archive_col = archive_cols[-1][1] if archive_cols else None
+    show_edited_filter = latest_archive_col is not None
+
+
+    # If the sheet contains a human-feedback status column for any round (human_feedback_status_n),bwe treat that as meaning the human-feedback revise pipeline ran at least once.
+    revise_happened_ever = any(
+        isinstance(c, str)
+        and c.startswith(f"{HUMAN_FEEDBACK_STATUS_COLUMN}_")
+        and c[len(f"{HUMAN_FEEDBACK_STATUS_COLUMN}_") :].isdigit()
+        for c in df.columns
+    )
 
     column_map = {
         "topic": find_column(df, "Topic"),
@@ -1461,7 +2276,25 @@ def main():
         else []
     )
 
-    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    if "gdv2_round" not in st.session_state:
+        st.session_state["gdv2_round"] = detect_current_round(df)
+    pending_visual_filter = st.session_state.pop("gdv2_pending_visual_filter", None)
+    if pending_visual_filter == EDITED_FILTER_OPTION and show_edited_filter:
+        st.session_state["gdv2_visual_filter"] = EDITED_FILTER_OPTION
+    elif pending_visual_filter in HUMAN_REVIEW_FILTER_OPTIONS:
+        st.session_state["gdv2_visual_filter"] = pending_visual_filter
+    if "gdv2_visual_filter" not in st.session_state:
+        # Default filter selection across sessions:
+        # - If regen happened at least once, prefer `edited`.
+        # - Else if only revise happened, default to `revised`.
+        # - Else default to `all` (first time / nothing done yet).
+        if show_edited_filter:
+            st.session_state["gdv2_visual_filter"] = EDITED_FILTER_OPTION
+        elif revise_happened_ever:
+            st.session_state["gdv2_visual_filter"] = "revised"
+        else:
+            st.session_state["gdv2_visual_filter"] = "all"
+    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
     with filter_col1:
         topic_filter = st.selectbox("Topic", options=["All"] + topic_values)
     with filter_col2:
@@ -1478,6 +2311,21 @@ def main():
         subtopic_filter = st.selectbox("Subtopic", options=subtopic_options)
     with filter_col3:
         search_text = st.text_input("Search", value="")
+    with filter_col4:
+        if "gdv2_visual_filter" not in st.session_state:
+            st.session_state["gdv2_visual_filter"] = (
+                "all" if int(st.session_state.get("gdv2_round", 0)) == 0 else "revised"
+            )
+        current_visual_filter = st.session_state.get("gdv2_visual_filter", "all")
+        visual_options = HUMAN_REVIEW_FILTER_OPTIONS + ([EDITED_FILTER_OPTION] if show_edited_filter else [])
+        if current_visual_filter not in visual_options:
+            st.session_state["gdv2_visual_filter"] = "all"
+        visual_filter = st.selectbox(
+            "Visual Review Filter",
+            options=visual_options,
+            key="gdv2_visual_filter",
+            format_func=lambda x: x.capitalize(),
+        )
 
     filtered_df = df.copy()
     if topic_filter != "All" and column_map["topic"]:
@@ -1506,38 +2354,51 @@ def main():
     else:
         st.session_state["gdv2_slideshow_key"] = compute_slideshow_key(steps)
 
-    tabs = st.tabs(["Inspector Mode", "Slideshow Mode"])
-    with tabs[0]:
-        render_inspector(slides, column_map, drive, sheet=sheet, worksheet_name=worksheet_name)
+    # If the user is filtering by "edited", compute which visuals changed between
+    # the latest archived column and the current FINAL_GRAPHICS_COLUMN.
+    if visual_filter == EDITED_FILTER_OPTION and latest_archive_col:
+        edited_visual_ids_by_row = {}
 
-    with tabs[1]:
-        if not steps:
-            st.info("No visual steps available for slideshow.")
-            return
+        for row_idx, row in filtered_df.iterrows():
+            curr_def = safe_str(row.get(FINAL_GRAPHICS_COLUMN, "")).strip()
+            prev_def = safe_str(row.get(latest_archive_col, "")).strip()
+            curr_segments = parse_graphics_definition(curr_def)
+            prev_segments = parse_graphics_definition(prev_def)
 
-        if "OPENAI_API_KEY" not in os.environ:
-            st.warning("OPENAI_API_KEY not set. Slideshow requires OpenAI TTS.")
-            return
+            curr_assets = {}
+            for seg in curr_segments:
+                for stp in seg.get("steps", []):
+                    vid = f"S{seg['segment_index']}V{stp['step_index']}"
+                    curr_assets[vid] = _primary_asset_url(stp.get("asset", ""))
 
-        prep_col1, prep_col2 = st.columns([1, 3])
-        with prep_col1:
-            prepare = st.button("Prepare Slideshow Assets")
-        with prep_col2:
-            st.caption("Preloads images, audio, and video players before playback.")
+            prev_assets = {}
+            for seg in prev_segments:
+                for stp in seg.get("steps", []):
+                    vid = f"S{seg['segment_index']}V{stp['step_index']}"
+                    prev_assets[vid] = _primary_asset_url(stp.get("asset", ""))
 
-        if prepare:
-            client = get_openai_client()
-            prepared_steps = prepare_slideshow_assets(steps, drive, client)
-            st.session_state["gdv2_prepared_steps"] = prepared_steps
-            st.success("Assets prepared.")
+            changed = set()
+            for vid, asset in curr_assets.items():
+                if prev_assets.get(vid, "") != asset:
+                    changed.add(vid)
+            # If a visual id exists in prev but not curr, it no longer renders; ignore.
 
-        prepared_steps = st.session_state.get("gdv2_prepared_steps")
-        if not prepared_steps:
-            st.info("Prepare assets to enable playback.")
-            return
+            edited_visual_ids_by_row[row_idx] = changed
 
-        slideshow_html = build_slideshow_html(prepared_steps)
-        st.components.v1.html(slideshow_html, height=760, scrolling=True)
+        st.session_state["gdv2_edited_visual_ids_by_row"] = edited_visual_ids_by_row
+    else:
+        st.session_state["gdv2_edited_visual_ids_by_row"] = {}
+
+    render_inspector(
+        slides,
+        column_map,
+        drive,
+        sheet=sheet,
+        worksheet_name=worksheet_name,
+        current_round=int(st.session_state.get("gdv2_round", 0)),
+        action_filter=visual_filter,
+        include_unreviewed_with_revised=int(st.session_state.get("gdv2_round", 0)) > 0,
+    )
 
 
 if __name__ == "__main__":

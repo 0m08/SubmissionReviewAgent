@@ -31,6 +31,38 @@ def load_image_as_base64(path):
 setup_logging()
 logger = get_logger(__name__)
 
+# Sidebar navigation: wrap long page titles instead of ellipsis truncation.
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebarNav"] a {
+        display: flex !important;
+        align-items: baseline !important;
+        gap: 0.35rem !important;
+    }
+    [data-testid="stSidebarNav"] a,
+    [data-testid="stSidebarNav"] a * {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-word !important;
+    }
+    [data-testid="stSidebarNav"] a svg {
+        flex-shrink: 0 !important;
+        margin-top: 0 !important;
+        transform: translateY(0.14rem);
+    }
+    [data-testid="stSidebarNav"] a > span:first-child,
+    [data-testid="stSidebarNav"] a > div:first-child {
+        flex-shrink: 0 !important;
+        align-self: baseline !important;
+        transform: translateY(0.14rem) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
     st.session_state.role = None
@@ -101,6 +133,10 @@ def login():
                     st.session_state["role"] = user_info["role"]
                     st.session_state["user_email"] = user_email
                     st.session_state["user_pages"] = user_info["pages"]
+                    if getattr(creds, "refresh_token", None):
+                        st.session_state["google_oauth_refresh_token"] = creds.refresh_token
+                    else:
+                        st.session_state.pop("google_oauth_refresh_token", None)
 
                     # Track login event
                     track_login(gc, user_email)
@@ -211,6 +247,14 @@ def login():
                                 st.session_state["role"] = user_info["role"]
                                 st.session_state["user_email"] = user_email
                                 st.session_state["user_pages"] = user_info["pages"]
+                                try:
+                                    _rt = getattr(gauth.credentials, "refresh_token", None)
+                                    if _rt:
+                                        st.session_state["google_oauth_refresh_token"] = _rt
+                                    else:
+                                        st.session_state.pop("google_oauth_refresh_token", None)
+                                except Exception:
+                                    st.session_state.pop("google_oauth_refresh_token", None)
 
                                 # Track login event
                                 track_login(gc, user_email)
@@ -422,7 +466,7 @@ curriculum_mapping_tool_page = st.Page(
 
 aggregation_agent_page = st.Page(
     "graphics_definition_v2_slideshow.py",
-    title="Aggregation Agent Slideshow",
+    title="View Graphics Definition Agent Outputs and Add Human Feedback",
     icon=":material/slideshow:",
 )
 
