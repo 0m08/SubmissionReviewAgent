@@ -188,7 +188,12 @@ def _find_col(record: dict, *candidates: str) -> str:
 # Row-level worker (parallelised)
 # ---------------------------------------------------------------------------
 
-def _process_record(record: dict, row_idx: int = 0) -> List[List[str]]:
+def _process_record(
+    record: dict,
+    row_idx: int = 0,
+    input_definition_col: str = "final_graphics_definition",
+    output_definition_col: str = "final_graphics",
+) -> List[List[str]]:
     """
     Process one source sheet record → list of output rows (one per voiceover).
 
@@ -203,12 +208,19 @@ def _process_record(record: dict, row_idx: int = 0) -> List[List[str]]:
     subtopic          = _find_col(record, "Subtopic")
     slide_chunk_title = _find_col(record, "Slide Chunk Title")
     slide_chunk       = _find_col(record, "Slide Chunk")
-    fgd_text          = _find_col(record, "final_graphics_definition",
-                                           "final_graphics_definitionn",  # typo in sheet header
-                                           "Final Graphics Definition",
-                                           "final_graphics_def")
-    fg_text           = _find_col(record, "final_graphics",
-                                           "Final Graphics")
+    fgd_text = _find_col(
+        record,
+        input_definition_col,
+        "final_graphics_definitionn",  # typo in sheet header
+        "Final Graphics Definition",
+        "final_graphics_def",
+    )
+    fg_text = _find_col(
+        record,
+        output_definition_col,
+        "final_graphics",
+        "Final Graphics",
+    )
 
     if not fgd_text.strip():
         print(f"[ImagePreview] Row {row_idx + 1}: final_graphics_definition is empty — skipping")
@@ -262,6 +274,34 @@ def _process_record(record: dict, row_idx: int = 0) -> List[List[str]]:
             output_cell,
         ])
     return rows
+
+
+def _resolve_preview_columns(headers: List[str]) -> Tuple[str, str]:
+    """
+    Decide which columns to use for Input/Output preview parsing.
+
+    Preferred (new regen flow):
+      - Input  = highest final_graphics_definition_<N>
+      - Output = final_graphics_definition
+
+    Legacy fallback (no archived columns present):
+      - Input  = final_graphics_definition
+      - Output = final_graphics
+    """
+    base_col = "final_graphics_definition"
+    max_n = 0
+    for h in headers:
+        if not isinstance(h, str):
+            continue
+        hs = h.strip()
+        if hs.startswith(f"{base_col}_"):
+            suffix = hs[len(f"{base_col}_") :]
+            if suffix.isdigit():
+                max_n = max(max_n, int(suffix))
+
+    if max_n > 0:
+        return f"{base_col}_{max_n}", base_col
+    return base_col, "final_graphics"
 
 
 # ---------------------------------------------------------------------------
@@ -319,16 +359,31 @@ def build_image_preview_sheet(
     print(f"[ImagePreview] {len(all_records)} source rows to process "
           f"(up to {max_workers} parallel workers)")
 
+    # ── Resolve which columns power preview input/output ─────────────────────
+    source_headers = source_ws.row_values(1)
+    input_definition_col, output_definition_col = _resolve_preview_columns(source_headers)
+    print(
+        f"[ImagePreview] Using columns: input='{input_definition_col}', "
+        f"output='{output_definition_col}'"
+    )
+
     # ── Diagnostic: print actual column names from first record ──────────────
     if all_records:
         first_keys = list(all_records[0].keys())
         print(f"[ImagePreview] Sheet columns detected: {first_keys}")
-        fgd_val = _find_col(all_records[0],
-                            "final_graphics_definition",
-                            "final_graphics_definitionn",  # typo in sheet header
-                            "Final Graphics Definition",
-                            "final_graphics_def")
-        fg_val  = _find_col(all_records[0], "final_graphics", "Final Graphics")
+        fgd_val = _find_col(
+            all_records[0],
+            input_definition_col,
+            "final_graphics_definitionn",  # typo in sheet header
+            "Final Graphics Definition",
+            "final_graphics_def",
+        )
+        fg_val = _find_col(
+            all_records[0],
+            output_definition_col,
+            "final_graphics",
+            "Final Graphics",
+        )
         print(f"[ImagePreview] Row 1 — fgd length: {len(fgd_val)}, "
               f"fg length: {len(fg_val)}")
         if fgd_val:
@@ -343,7 +398,13 @@ def build_image_preview_sheet(
     with ThreadPoolExecutor(max_workers=max_workers,
                             thread_name_prefix="ImagePreview") as pool:
         future_map = {
-            pool.submit(_process_record, rec, idx): idx
+            pool.submit(
+                _process_record,
+                rec,
+                idx,
+                input_definition_col,
+                output_definition_col,
+            ): idx
             for idx, rec in enumerate(all_records)
         }
         for future in as_completed(future_map):
