@@ -12496,3 +12496,151 @@ PASS
 ================================================================================"
 "2026-03-24 19:11:31","INFO","app.print","Human Feedback Review & Revise complete."
 "2026-03-24 19:11:31","INFO","app.print","================================================================================"
+"2026-03-25 16:02:52","INFO","app.print","Initializing Google Drive instance..."
+"2026-03-25 16:02:52","INFO","app.print","Drive instance initialized (OAuth user: niket@skillcatapp.com)"
+"2026-03-25 16:02:52","INFO","app.print","
+================================================================================"
+"2026-03-25 16:02:52","INFO","app.print","Starting Human Feedback Review & Revise for 1 row(s)"
+"2026-03-25 16:02:52","INFO","app.print","================================================================================
+"
+"2026-03-25 16:02:52","INFO","app.print","Processing 1 row(s) in parallel with 50 worker(s)...
+"
+"2026-03-25 16:02:52","INFO","app.print","
+================================================================================"
+"2026-03-25 16:02:52","INFO","app.print","[HUMAN FEEDBACK] Processing row 1 — Single-phase Wiring"
+"2026-03-25 16:02:52","INFO","app.print","================================================================================"
+"2026-03-25 16:02:52","INFO","app.print","  Building segment visual map: 1 voiceover segments, 1 graphics segments"
+"2026-03-25 16:02:52","INFO","app.print","Segment 1: 3 visual step(s)"
+"2026-03-25 16:02:52","INFO","app.print","  Building segment visual map: 1 voiceover segments, 1 graphics segments"
+"2026-03-25 16:02:52","INFO","app.print","Segment 1: 3 visual step(s)"
+"2026-03-25 16:02:52","INFO","app.print","  Parsed human feedback for 1 segment(s): [1]"
+"2026-03-25 16:02:52","INFO","app.print","
+[STEP 1] Revising visuals based on human feedback..."
+"2026-03-25 16:02:54","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:02:59","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:02:59","INFO","app.print","
+[ImageGenerator] 🎯 Strategy Decided:
+OPTION A: A clean external shot showing a suburban house next to a small one-story retail shop.
+OPTION B: A dial with a needle positioned between a ""Residential"" zone and a ""Light Commercial"" zone.
+OPTION C: A dark blue outline of a street where a home and a small office are highlighted with a bright white glow.
+OPTION D: Two large, clean icons representing a house and a small storefront with checkmarks above them.
+OPTION E: A simple graphic showing a large house icon next to a slightly larger office building icon to show the range of use."
+"2026-03-25 16:02:59","INFO","app.print","
+[ImageGenerator] ── Analysis Round 1 ─────────────────────────"
+"2026-03-25 16:02:59","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:03:01","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:03:02","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:03:05","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:03:05","INFO","app.print","[ImageGenerator] ✅ JSON Brief Approved (Round 1)."
+"2026-03-25 16:03:06","ERROR","app.print.stderr","Traceback (most recent call last):
+"
+"2026-03-25 16:03:06","ERROR","app.print.stderr","  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\agents\graphics_asset_creation\generator\image_generator.py"", line 619, in generate_asset
+    image, metadata = run_generation_stage(instructions, slide_title, slide_content, voiceover_focus, aspect_ratio, image_size, revision_history)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+"
+"2026-03-25 16:03:06","ERROR","app.print.stderr","  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\langsmith\run_helpers.py"", line 760, in wrapper
+    function_result = run_container[""context""].run(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+"
+"2026-03-25 16:03:06","ERROR","app.print.stderr","  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\agents\graphics_asset_creation\generator\image_generator.py"", line 550, in run_generation_stage
+    image_config=types.ImageConfig(**image_config),
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+"
+"2026-03-25 16:03:06","ERROR","app.print.stderr","  File ""C:\Users\pnike\OneDrive\Documents\GitHub\course_generation\3rdenv\Lib\site-packages\pydantic\main.py"", line 250, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+"
+"2026-03-25 16:03:06","ERROR","app.print.stderr","pydantic_core._pydantic_core.ValidationError: 1 validation error for ImageConfig
+aspect_ratio
+  Input should be a valid string [type=string_type, input_value=[{'stage': 'instruction',...ASS', 'new_issues': []}], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/string_type
+"
+"2026-03-25 16:03:06","INFO","app.print","  WARNING: AI generation failed for S1V3: 1 validation error for ImageConfig
+aspect_ratio
+  Input should be a valid string [type=string_type, input_value=[{'stage': 'instruction',...ASS', 'new_issues': []}], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/string_type"
+"2026-03-25 16:03:06","INFO","app.print","  WARNING: Revision produced no output for segment 1"
+"2026-03-25 16:03:06","INFO","app.print","  WARNING: No segments were updated by revision"
+"2026-03-25 16:03:06","INFO","app.print","  Building segment visual map: 1 voiceover segments, 1 graphics segments"
+"2026-03-25 16:03:06","INFO","app.print","Segment 1: 3 visual step(s)"
+"2026-03-25 16:03:06","INFO","app.print","
+[STEP 2] Skipped: only AI-generation actions were requested."
+"2026-03-25 16:03:06","INFO","app.print","Found 3 'Graphics to use:' URL(s) in graphics definition (text)"
+"2026-03-25 16:03:08","INFO","app.print","Found 3 Drive link(s) but none needed (snapshot) labels"
+"2026-03-25 16:03:08","INFO","app.print","  Saving finalized row 1 to sheet..."
+"2026-03-25 16:03:10","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-25 16:03:10","INFO","app.print","  Row 1 saved"
+"2026-03-25 16:03:12","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-25 16:03:12","INFO","app.print","Row 1: ERROR (AI upload failed; no revisions saved)"
+"2026-03-25 16:03:12","INFO","app.print","Row 1 completed and saved"
+"2026-03-25 16:03:14","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-25 16:03:14","INFO","app.print","
+================================================================================"
+"2026-03-25 16:03:14","INFO","app.print","Human Feedback Review & Revise complete."
+"2026-03-25 16:03:14","INFO","app.print","================================================================================"
+"2026-03-25 16:05:51","INFO","app.print","Initializing Google Drive instance..."
+"2026-03-25 16:05:51","INFO","app.print","Drive instance initialized (OAuth user: niket@skillcatapp.com)"
+"2026-03-25 16:05:51","INFO","app.print","
+================================================================================"
+"2026-03-25 16:05:51","INFO","app.print","Starting Human Feedback Review & Revise for 1 row(s)"
+"2026-03-25 16:05:51","INFO","app.print","================================================================================
+"
+"2026-03-25 16:05:51","INFO","app.print","Processing 1 row(s) in parallel with 50 worker(s)...
+"
+"2026-03-25 16:05:51","INFO","app.print","
+================================================================================"
+"2026-03-25 16:05:51","INFO","app.print","[HUMAN FEEDBACK] Processing row 1 — Single-phase Wiring"
+"2026-03-25 16:05:51","INFO","app.print","================================================================================"
+"2026-03-25 16:05:51","INFO","app.print","  Building segment visual map: 1 voiceover segments, 1 graphics segments"
+"2026-03-25 16:05:51","INFO","app.print","Segment 1: 3 visual step(s)"
+"2026-03-25 16:05:51","INFO","app.print","  Building segment visual map: 1 voiceover segments, 1 graphics segments"
+"2026-03-25 16:05:51","INFO","app.print","Segment 1: 3 visual step(s)"
+"2026-03-25 16:05:51","INFO","app.print","  Parsed human feedback for 1 segment(s): [1]"
+"2026-03-25 16:05:51","INFO","app.print","
+[STEP 1] Revising visuals based on human feedback..."
+"2026-03-25 16:05:53","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:06:00","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:06:00","INFO","app.print","
+[ImageGenerator] 🎯 Strategy Decided:
+OPTION A: A clean external view of a standard suburban home positioned next to a small retail storefront.
+OPTION B: A simple meter with a needle pointing to a green section labeled ""STANDARD LOAD.""
+OPTION C: Silhouettes of a residential house and a small office building highlighted with a soft yellow glow.
+OPTION D: Simple icons of a house and a storefront appearing next to a large green checkmark.
+OPTION E: A comparison showing a small house and shop highlighted in color while a massive industrial factory is greyed out."
+"2026-03-25 16:06:00","INFO","app.print","
+[ImageGenerator] ── Analysis Round 1 ─────────────────────────"
+"2026-03-25 16:06:00","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:06:02","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:06:03","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:06:05","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:06:05","INFO","app.print","[ImageGenerator] ✅ JSON Brief Approved (Round 1)."
+"2026-03-25 16:06:05","INFO","app.print","
+[ImageGenerator] ── Image Generation Round 1 ──────────────────"
+"2026-03-25 16:06:05","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:06:27","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:06:28","INFO","app.print","[ImageGenerator]   Image generated ((1376, 768))."
+"2026-03-25 16:06:29","INFO","google_genai.models","AFC is enabled with max remote calls: 10."
+"2026-03-25 16:06:33","INFO","httpx","HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent ""HTTP/1.1 200 OK"""
+"2026-03-25 16:06:33","INFO","app.print","[ImageGenerator] ✅ Image Approved."
+"2026-03-25 16:06:37","INFO","app.print","✅ Uploaded S1V3_seg1_ai_round1_20260325_160633.jpg to Drive: https://drive.google.com/file/d/1tEPvg_n6DTcVk6MOM1aHaxsBQv9SuqFp/view"
+"2026-03-25 16:06:37","INFO","app.print","Found 3 'Graphics to use:' URL(s) in graphics definition (text)"
+"2026-03-25 16:06:37","INFO","app.print","  Added (AI Generated) label for 1 visual(s)"
+"2026-03-25 16:06:37","INFO","app.print","  Saving revision to sheet..."
+"2026-03-25 16:06:38","INFO","app.print","  Revision saved"
+"2026-03-25 16:06:38","INFO","app.print","  Building segment visual map: 1 voiceover segments, 1 graphics segments"
+"2026-03-25 16:06:38","INFO","app.print","Segment 1: 3 visual step(s)"
+"2026-03-25 16:06:38","INFO","app.print","
+[STEP 2] Skipped: only AI-generation actions were requested."
+"2026-03-25 16:06:38","INFO","app.print","Found 3 'Graphics to use:' URL(s) in graphics definition (text)"
+"2026-03-25 16:06:39","INFO","app.print","Found 3 Drive link(s) but none needed (snapshot) labels"
+"2026-03-25 16:06:39","INFO","app.print","  Saving finalized row 1 to sheet..."
+"2026-03-25 16:06:41","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-25 16:06:41","INFO","app.print","  Row 1 saved"
+"2026-03-25 16:06:44","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-25 16:06:44","INFO","app.print","Row 1: PASS (AI generation only, review skipped)"
+"2026-03-25 16:06:44","INFO","app.print","Row 1 completed and saved"
+"2026-03-25 16:06:46","INFO","app.print","Sheet formatting completed successfully!"
+"2026-03-25 16:06:46","INFO","app.print","
+================================================================================"
+"2026-03-25 16:06:46","INFO","app.print","Human Feedback Review & Revise complete."
+"2026-03-25 16:06:46","INFO","app.print","================================================================================"
