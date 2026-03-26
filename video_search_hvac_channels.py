@@ -17,6 +17,8 @@ import json
 import tempfile
 import time
 import traceback
+import urllib.parse
+import urllib.request
 import streamlit as st
 from dotenv import load_dotenv
 from pydrive2.drive import GoogleDrive
@@ -34,6 +36,13 @@ VIDEO_EMBEDDINGS_FOLDER_NAME = (
     "Hands-On Field Work, Equipment Demos & Teardowns)"
 )
 VIDEO_EMBEDDING_DIM = 1408
+CHANNEL_FILTER_ALL = "All"
+CHANNEL_FILTER_OPTIONS = [
+    CHANNEL_FILTER_ALL,
+    "HVAC School",
+    "LOVE2HVAC with Ty Branaman",
+]
+_VIDEO_ID_TO_CHANNEL_CACHE = {}
 
 
 def get_drive_instance():
@@ -161,7 +170,7 @@ def get_query_embedding_video(model, video_path_or_bytes):
         return result.video_embeddings[0].embedding
 
 
-def search_hvac_video_embeddings(drive, query_type, query, k, folder_id=None, folder_name=None):
+def search_hvac_video_embeddings(drive, query_type, query, k, folder_id=None, folder_name=None, channel_filter=CHANNEL_FILTER_ALL):
     """
     Search the HVAC / Love2HVAC video embeddings vectorstore by text, image, or video.
 
@@ -171,6 +180,7 @@ def search_hvac_video_embeddings(drive, query_type, query, k, folder_id=None, fo
     :param k: Number of results to return.
     :param folder_id: Drive folder ID containing the vectorstore (default: VIDEO_EMBEDDINGS_FOLDER_ID).
     :param folder_name: Name of vectorstore folder in Drive (default: VIDEO_EMBEDDINGS_FOLDER_NAME).
+    :param channel_filter: One of CHANNEL_FILTER_OPTIONS. "All" disables filtering.
     :return: List of dicts with keys: title, video_id, start_time, end_time, video_url, segment_index.
     """
     folder_id = folder_id or VIDEO_EMBEDDINGS_FOLDER_ID
@@ -179,26 +189,41 @@ def search_hvac_video_embeddings(drive, query_type, query, k, folder_id=None, fo
     chroma = load_new_video_embeddings_chroma_db(drive, folder_id, folder_name)
     collection = chroma.collection
 
-    # Oversample so we have enough segments from many videos for diversity
-    fetch_k = min(k * 5, 500)
+    try:
+        collection_count = int(collection.count())
+    except Exception:
+        collection_count = max(k * 10, 200)
 
-    if query_type == "text":
-        docs = chroma.similarity_search(query, k=fetch_k)
-        raw = [_doc_to_result(doc) for doc in docs]
-    else:
+    # Dynamic fetch cap for latency; fallback to full fetch only if needed.
+    initial_fetch_k = min(collection_count, max(k * 10, 200))
+
+    query_embedding = None
+    if query_type != "text":
         model = get_vertex_embedding_model()
         if query_type == "image":
             query_embedding = get_query_embedding_image(model, query)
         else:
             query_embedding = get_query_embedding_video(model, query)
+
+    def _run_query(fetch_k):
+        if query_type == "text":
+            docs = chroma.similarity_search(query, k=fetch_k)
+            return [_doc_to_result(doc) for doc in docs]
+
         results = collection.query(
             query_embeddings=[query_embedding],
             n_results=fetch_k,
         )
-        raw = _chroma_results_to_list(results)
+        return _chroma_results_to_list(results)
 
-    raw = _dedupe_results_by_segment(raw)
-    return _apply_diversity_by_video(raw, k)
+    raw = _dedupe_results_by_segment(_run_query(initial_fetch_k))
+    filtered = _filter_results_by_channel(raw, channel_filter)
+
+    if channel_filter != CHANNEL_FILTER_ALL and len(filtered) < k and initial_fetch_k < collection_count:
+        raw_full = _dedupe_results_by_segment(_run_query(collection_count))
+        filtered = _filter_results_by_channel(raw_full, channel_filter)
+
+    return _apply_diversity_by_video(filtered, k)
 
 
 def _doc_to_result(doc):
@@ -292,6 +317,59 @@ def _chroma_results_to_list(results):
     return out
 
 
+def _normalize_channel_name(channel_name):
+    return (channel_name or "").strip().lower()
+
+
+def _extract_channel_name_from_item(item):
+    for key in ("channel_name", "channel", "channel_title", "author_name"):
+        value = item.get(key)
+        if value:
+            return str(value).strip()
+    return None
+
+
+def _resolve_channel_name_from_video_id(video_id):
+    if not video_id:
+        return None
+    if video_id in _VIDEO_ID_TO_CHANNEL_CACHE:
+        return _VIDEO_ID_TO_CHANNEL_CACHE[video_id]
+
+    oembed_url = (
+        "https://www.youtube.com/oembed?url="
+        + urllib.parse.quote(f"https://www.youtube.com/watch?v={video_id}", safe="")
+        + "&format=json"
+    )
+    try:
+        with urllib.request.urlopen(oembed_url, timeout=4) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        channel_name = payload.get("author_name")
+    except Exception:
+        channel_name = None
+
+    _VIDEO_ID_TO_CHANNEL_CACHE[video_id] = channel_name
+    return channel_name
+
+
+def _filter_results_by_channel(results, channel_filter):
+    if channel_filter == CHANNEL_FILTER_ALL:
+        return results
+
+    wanted = _normalize_channel_name(channel_filter)
+    out = []
+    for item in results:
+        channel_name = _extract_channel_name_from_item(item)
+        if not channel_name:
+            channel_name = _resolve_channel_name_from_video_id(item.get("video_id"))
+            if channel_name:
+                item["channel_name"] = channel_name
+
+        if _normalize_channel_name(channel_name) == wanted:
+            out.append(item)
+
+    return out
+
+
 def build_embed_url(video_id, start_time, end_time):
     """
     Build YouTube embed URL with start/end (plays once; user can use Play again to replay).
@@ -374,6 +452,13 @@ def render_hvac_visual_search(drive):
         key="hvac_tab_num_results",
     )
 
+    channel_filter = st.selectbox(
+        "Channel",
+        options=CHANNEL_FILTER_OPTIONS,
+        index=0,
+        key="hvac_tab_channel_filter",
+    )
+
     if st.button("Search", type="primary", key="hvac_tab_search_btn"):
         if query_value is None or (query_type == "text" and not str(query_value).strip()):
             st.warning("Please provide a search query or upload an image/video.")
@@ -386,6 +471,7 @@ def render_hvac_visual_search(drive):
                         query_type=query_type,
                         query=query_value,
                         k=num_results,
+                        channel_filter=channel_filter,
                     )
                 track_tool_action(
                     "Video Search",
