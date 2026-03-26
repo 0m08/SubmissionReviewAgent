@@ -193,7 +193,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 5: Final Aggregation Agent",
+        "section_name": "Section 5: Aggregation Agent",
         "steps": [
             {
                 "name": "Aggregation Agent",
@@ -219,7 +219,7 @@ pipeline_sections = [
             {
                 "name": "Review and Revise Graphics Definitions",
                 "func": run_review_and_revise_graphics_definition_v2_for_all_rows,
-                "depends_on": ["Run Aggregation Agent"],
+                "depends_on": ["Aggregation Agent"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
