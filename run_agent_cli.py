@@ -329,6 +329,12 @@ else:
     notify = True
 
 running_subject = f"Course generation: {ui_agent_name} AI Agent – Running"
+sheet_link = (args.sheet_link or "").strip()
+sheet_link_html = (
+    f'<a href="{sheet_link}" target="_blank" rel="noopener noreferrer">Link</a>'
+    if sheet_link else "N/A"
+)
+sheet_link_plain = f"Link ({sheet_link})" if sheet_link else "N/A"
 
 if notify:
     count, count_label = _get_agent_work_count(sheet, args.agent_name)
@@ -345,6 +351,7 @@ if notify:
         f"Agent Name:   {ui_agent_name}\n"
         f"Course Name:  {course_name}\n"
         f"Started At:   {started_at}\n\n"
+        f"Input Sheet:  {sheet_link_plain}\n\n"
         f"{work_scope}"
         f"————————————————————————————\n"
         f"NEXT STEPS\n"
@@ -358,7 +365,8 @@ if notify:
         f"<hr><p><b>AGENT DETAILS</b></p><hr>"
         f"<p><b>Agent Name:</b> {ui_agent_name}<br>"
         f"<b>Course Name:</b> {course_name}<br>"
-        f"<b>Started At:</b> {started_at}</p>"
+        f"<b>Started At:</b> {started_at}<br>"
+        f"<b>Input Sheet:</b> {sheet_link_html}</p>"
         f"{work_scope_html}"
         f"<hr><p><b>NEXT STEPS</b></p><hr>"
         f"<p>You may close the browser tab or window where you started this agent, or even shut down your computer. The agent is running in the cloud and will continue on its own. You will receive a follow-up email when it completes successfully or if an error occurs—no need to keep the app open.</p>"
@@ -381,6 +389,7 @@ try:
             f"Agent Name:   {ui_agent_name}\n"
             f"Course Name:  {course_name}\n"
             f"Completed At: {completed_at}\n"
+            f"Input Sheet:  {sheet_link_plain}\n"
             f"————————————————————————————\n"
             f"NEXT STEPS\n"
             f"————————————————————————————\n"
@@ -392,7 +401,8 @@ try:
             f"<hr><p><b>AGENT DETAILS</b></p><hr>"
             f"<p><b>Agent Name:</b> {ui_agent_name}<br>"
             f"<b>Course Name:</b> {course_name}<br>"
-            f"<b>Completed At:</b> {completed_at}</p>"
+            f"<b>Completed At:</b> {completed_at}<br>"
+            f"<b>Input Sheet:</b> {sheet_link_html}</p>"
             f"<hr><p><b>NEXT STEPS</b></p><hr>"
             f"<p>You can return to the Google Sheet that you are using as input for this agent, to review the outputs and continue with the next steps in your course workflow.</p>"
             f"<p>Thank you for using Course Generation AI Agents.</p>"
@@ -418,6 +428,7 @@ except Exception as err:
             f"Course:     {course_name}\n"
             f"Failed at:  {failed_at}\n"
             f"Status:     Error\n\n"
+            f"Input Sheet:  {sheet_link_plain}\n\n"
             f"————————————————————————————\n"
             f"ERROR MESSAGE\n"
             f"————————————————————————————\n"
@@ -434,7 +445,8 @@ except Exception as err:
             f"<p><b>Agent:</b> {ui_agent_name}<br>"
             f"<b>Course:</b> {course_name}<br>"
             f"<b>Failed at:</b> {failed_at}<br>"
-            f"<b>Status:</b> Error</p>"
+            f"<b>Status:</b> Error<br>"
+            f"<b>Input Sheet:</b> {sheet_link_html}</p>"
             f"<hr><p><b>ERROR MESSAGE</b></p><hr>"
             f"<p>{err_escaped}</p>"
             f"<hr><p><b>RECOMMENDED ACTIONS</b></p><hr>"
