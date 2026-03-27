@@ -137,14 +137,40 @@ def detect_current_round(df):
             )
         )
 
+    def _round_actions_complete(round_index):
+        """
+        A round is complete only when actions column exists and every row has
+        a parsable actions map with no unreviewed/blank action entries.
+        """
+        actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, round_index)
+        if actions_col not in df.columns:
+            return False
+        try:
+            for raw in df[actions_col].tolist():
+                text = safe_str(raw).strip()
+                if not text or text.lower() == "nan":
+                    return False
+                actions_map = _extract_actions_map(text)
+                if not actions_map:
+                    return False
+                for item in actions_map.values():
+                    if not isinstance(item, dict):
+                        return False
+                    action = safe_str(item.get("action", ACTION_NONE)).strip() or ACTION_NONE
+                    if action == ACTION_NONE:
+                        return False
+        except Exception:
+            return False
+        return True
+
     # Determine highest round index represented by existing round columns.
     highest_existing_round = 0
     while _round_exists(highest_existing_round + 1):
         highest_existing_round += 1
 
-    # If the latest existing round already has data, next writable round is +1.
-    # If latest existing round has no data yet, continue in that round.
-    if _round_has_data(highest_existing_round):
+    # Move to next round only if latest round exists, has data, and is complete.
+    # This preserves resume behavior after timeouts/partial saves.
+    if _round_has_data(highest_existing_round) and _round_actions_complete(highest_existing_round):
         return highest_existing_round + 1
     return highest_existing_round
 
@@ -195,6 +221,82 @@ def _chunked(seq, size):
         yield seq[i : i + size]
 
 
+def _build_row_review_payload(slide, row_actions, current_round):
+    segments = slide.get("segments", [])
+    parts = []
+    row_action_map_by_visual_id = {}
+    segment_mode_map = {}
+    reject_count = 0
+
+    for segment in segments:
+        for step in segment.get("steps", []):
+            action_scope_key = f"{slide.get('row_index', 0)}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
+            item = row_actions.get(action_scope_key, {})
+            action = safe_str(item.get("action", ACTION_NONE)).strip() or ACTION_NONE
+            fb_text = safe_str(item.get("feedback", "")).strip()
+            visual_id = f"S{segment['segment_index']}V{step['step_index']}"
+            vo = (step.get("voiceover") or "").strip()
+            row_action_map_by_visual_id[visual_id] = {
+                "action": action,
+                "feedback": fb_text,
+                "vo": vo,
+                "segment": segment["segment_index"],
+            }
+
+            if action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+                reject_count += 1
+                if action == ACTION_REJECT_AI:
+                    # Keep AI generation prompt feedback empty when user leaves it blank,
+                    # but persist a marker so backend still treats this as actionable.
+                    effective_feedback = fb_text if fb_text else AI_NO_FEEDBACK_MARKER
+                else:
+                    effective_feedback = fb_text if fb_text else DEFAULT_REJECT_FEEDBACK
+                parts.append(f"When VO: {vo}\nHuman Feedback: {effective_feedback}")
+                segment_mode = "all" if action in (ACTION_REJECT_ALL, ACTION_REJECT_AI) else "drive_hvac"
+                existing = segment_mode_map.get(str(segment["segment_index"]), "drive_hvac")
+                if existing == "all" or segment_mode == "all":
+                    segment_mode_map[str(segment["segment_index"])] = "all"
+                else:
+                    segment_mode_map[str(segment["segment_index"])] = "drive_hvac"
+
+    feedback_value = "\n\n".join(parts) if parts else ""
+    actions_payload = json.dumps(
+        {
+            "actions": row_action_map_by_visual_id,
+            "segment_modes": segment_mode_map,
+            "round": current_round,
+        },
+        ensure_ascii=True,
+    )
+    return feedback_value, actions_payload, reject_count, row_action_map_by_visual_id
+
+
+def _write_single_row_review(
+    worksheet,
+    row_index,
+    feedback_value,
+    actions_payload,
+    round_feedback_col_idx,
+    round_status_col_idx,
+    round_tracking_col_idx,
+    round_actions_col_idx,
+):
+    sheet_row = int(row_index) + 2
+    feedback_col = _col_to_a1(round_feedback_col_idx)
+    status_col = _col_to_a1(round_status_col_idx)
+    tracking_col = _col_to_a1(round_tracking_col_idx)
+    actions_col = _col_to_a1(round_actions_col_idx)
+    worksheet.batch_update(
+        [
+            {"range": f"{feedback_col}{sheet_row}", "values": [[feedback_value]]},
+            {"range": f"{status_col}{sheet_row}", "values": [[""]]},
+            {"range": f"{tracking_col}{sheet_row}", "values": [[""]]},
+            {"range": f"{actions_col}{sheet_row}", "values": [[actions_payload]]},
+        ],
+        value_input_option="RAW",
+    )
+
+
 def _inject_review_button_layout_css():
     st.markdown(
         """
@@ -214,6 +316,12 @@ def _inject_review_button_layout_css():
             font-size: 0.90rem !important;
             margin: 0 !important;
             line-height: 1.15 !important;
+        }
+        /* Make slide expander headings more prominent for review flow. */
+        div[data-testid="stExpander"] summary p {
+            font-size: 1.2rem !important;
+            font-weight: 700 !important;
+            line-height: 1.3 !important;
         }
         </style>
         """,
@@ -1565,6 +1673,21 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
     round_status_col = get_round_column_name(HUMAN_FEEDBACK_STATUS_COLUMN, current_round)
     round_tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
     round_actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, current_round)
+    review_col_indices = {
+        "feedback": None,
+        "status": None,
+        "tracking": None,
+        "actions": None,
+    }
+
+    def _ensure_review_columns(worksheet):
+        if all(v is not None for v in review_col_indices.values()):
+            return True
+        review_col_indices["feedback"] = get_or_create_column(worksheet, round_feedback_col)
+        review_col_indices["status"] = get_or_create_column(worksheet, round_status_col)
+        review_col_indices["tracking"] = get_or_create_column(worksheet, round_tracking_col)
+        review_col_indices["actions"] = get_or_create_column(worksheet, round_actions_col)
+        return all(v is not None for v in review_col_indices.values())
 
     # First-load behavior: show everything in round 0, then default to revised+unreviewed for later rounds.
     if current_round == 0 and action_filter == "all":
@@ -1587,6 +1710,11 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
         row_index = slide.get("row_index", slide_idx - 1)
         row_actions_key = f"gdv2_row_actions_{row_index}_r{current_round}"
         row_actions = st.session_state.setdefault(row_actions_key, {})
+        existing_saved_actions = safe_str(slide.get(round_actions_col, "")).strip()
+        slide_has_saved_progress = bool(existing_saved_actions and existing_saved_actions.lower() != "nan")
+        persisted_current_round_actions_by_visual = _extract_actions_map(
+            slide.get(round_actions_col, "")
+        )
 
         # Build latest non-none action per visual across all completed previous rounds.
         historical_action_by_visual = {}
@@ -1610,6 +1738,21 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 action_scope_key = f"{row_index}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
                 action_key = f"{action_scope_key}_action"
                 feedback_key = f"{action_scope_key}_feedback"
+                persisted_current_item = persisted_current_round_actions_by_visual.get(visual_id, {})
+                if action_scope_key not in row_actions and isinstance(persisted_current_item, dict):
+                    row_actions[action_scope_key] = {
+                        "action": safe_str(
+                            persisted_current_item.get("action", ACTION_NONE)
+                        ).strip()
+                        or ACTION_NONE,
+                        "feedback": safe_str(
+                            persisted_current_item.get("feedback", "")
+                        ),
+                        "visual_id": visual_id,
+                        "voiceover": step.get("voiceover", ""),
+                        "segment_index": segment["segment_index"],
+                        "step_index": step["step_index"],
+                    }
 
                 persisted_action = ACTION_NONE
                 if action_scope_key in row_actions:
@@ -1690,6 +1833,8 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
         slide_title = " - ".join([part for part in title_parts if part])
 
         with st.expander(slide_title, expanded=False):
+            if slide_has_saved_progress:
+                st.caption("This slide already has saved feedback for the current round.")
             if slide.get("slide_chunk"):
                 st.markdown("**Slide Content**")
                 st.write(slide["slide_chunk"])
@@ -1727,6 +1872,45 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     action_selected = st.session_state.get(action_key, ACTION_NONE)
                     if action_selected == ACTION_APPROVE:
                         st.success("Approved")
+
+            if can_save:
+                if st.button(
+                    "Save feedback for this slide",
+                    key=f"gdv2_save_slide_{row_index}_r{current_round}",
+                    use_container_width=True,
+                ):
+                    try:
+                        worksheet = sheet.worksheet(worksheet_name)
+                        if not _ensure_review_columns(worksheet):
+                            st.error(
+                                "Could not find or create one or more round review columns. "
+                                "Please check if the sheet is protected or has restricted edit permissions."
+                            )
+                        else:
+                            feedback_value, actions_payload, _, row_action_map_by_visual_id = _build_row_review_payload(
+                                slide=slide,
+                                row_actions=row_actions,
+                                current_round=current_round,
+                            )
+                            _write_single_row_review(
+                                worksheet=worksheet,
+                                row_index=row_index,
+                                feedback_value=feedback_value,
+                                actions_payload=actions_payload,
+                                round_feedback_col_idx=review_col_indices["feedback"],
+                                round_status_col_idx=review_col_indices["status"],
+                                round_tracking_col_idx=review_col_indices["tracking"],
+                                round_actions_col_idx=review_col_indices["actions"],
+                            )
+                            # Keep in-memory data synced so final save can skip already-saved rows.
+                            slide[round_actions_col] = actions_payload
+                            slide[round_feedback_col] = feedback_value
+                            if feedback_value or row_action_map_by_visual_id:
+                                st.success(f"Saved feedback for Slide {slide_idx}.")
+                            else:
+                                st.success(f"Saved current state for Slide {slide_idx}.")
+                    except Exception as e:
+                        st.error(f"Failed to save Slide {slide_idx}: {e}")
 
     if not any_visible_items:
         st.info("No visuals match the selected review filter.")
@@ -1934,11 +2118,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 had_save_error = True
 
             if worksheet:
-                round_feedback_col_idx = get_or_create_column(worksheet, round_feedback_col)
-                round_status_col_idx = get_or_create_column(worksheet, round_status_col)
-                round_tracking_col_idx = get_or_create_column(worksheet, round_tracking_col)
-                round_actions_col_idx = get_or_create_column(worksheet, round_actions_col)
-                if any(v is None for v in [round_feedback_col_idx, round_status_col_idx, round_tracking_col_idx, round_actions_col_idx]):
+                if not _ensure_review_columns(worksheet):
                     st.error(
                         "Could not find or create one or more round review columns. "
                         "Please check if the sheet is protected or has restricted edit permissions."
@@ -1955,40 +2135,13 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     if not segments:
                         continue
                     row_index = slide.get("row_index", 0)
-                    parts = []
-                    row_action_map_by_visual_id = {}
-                    segment_mode_map = {}
                     row_actions = st.session_state.get(f"gdv2_row_actions_{row_index}_r{current_round}", {})
-                    for segment in segments:
-                        for step in segment.get("steps", []):
-                            action_scope_key = f"{row_index}_{segment['segment_index']}_{step['step_index']}_r{current_round}"
-                            item = row_actions.get(action_scope_key, {})
-                            action = safe_str(item.get("action", ACTION_NONE)).strip() or ACTION_NONE
-                            fb_text = safe_str(item.get("feedback", "")).strip()
-                            visual_id = f"S{segment['segment_index']}V{step['step_index']}"
-                            vo = (step.get("voiceover") or "").strip()
-                            row_action_map_by_visual_id[visual_id] = {
-                                "action": action,
-                                "feedback": fb_text,
-                                "vo": vo,
-                                "segment": segment["segment_index"],
-                            }
-
-                            if action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
-                                reject_count += 1
-                                if action == ACTION_REJECT_AI:
-                                    # Keep AI generation prompt feedback empty when user leaves it blank,
-                                    # but persist a marker so backend still treats this as actionable.
-                                    effective_feedback = fb_text if fb_text else AI_NO_FEEDBACK_MARKER
-                                else:
-                                    effective_feedback = fb_text if fb_text else DEFAULT_REJECT_FEEDBACK
-                                parts.append(f"When VO: {vo}\nHuman Feedback: {effective_feedback}")
-                                segment_mode = "all" if action in (ACTION_REJECT_ALL, ACTION_REJECT_AI) else "drive_hvac"
-                                existing = segment_mode_map.get(str(segment["segment_index"]), "drive_hvac")
-                                if existing == "all" or segment_mode == "all":
-                                    segment_mode_map[str(segment["segment_index"])] = "all"
-                                else:
-                                    segment_mode_map[str(segment["segment_index"])] = "drive_hvac"
+                    feedback_value, actions_payload, row_reject_count, row_action_map_by_visual_id = _build_row_review_payload(
+                        slide=slide,
+                        row_actions=row_actions,
+                        current_round=current_round,
+                    )
+                    reject_count += row_reject_count
 
                     # Resume-safe behavior:
                     # use only round actions column as the checkpoint signal.
@@ -1997,40 +2150,31 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                         skipped_existing_count += 1
                         continue
 
-                    feedback_value = "\n\n".join(parts) if parts else ""
-                    sheet_row = int(row_index) + 2
-                    actions_payload = json.dumps(
-                        {
-                            "actions": row_action_map_by_visual_id,
-                            "segment_modes": segment_mode_map,
-                            "round": current_round,
-                        },
-                        ensure_ascii=True,
-                    )
                     pending_row_writes.append(
                         (
-                            sheet_row,
+                            row_index,
                             feedback_value,
-                            "",
-                            "",
                             actions_payload,
                         )
                     )
+                    slide[round_actions_col] = actions_payload
+                    slide[round_feedback_col] = feedback_value
                     if feedback_value or row_action_map_by_visual_id:
                         saved_count += 1
 
                 # Batch write row updates to avoid per-cell quota spikes (429).
                 if pending_row_writes:
                     try:
-                        feedback_col = _col_to_a1(round_feedback_col_idx)
-                        status_col = _col_to_a1(round_status_col_idx)
-                        tracking_col = _col_to_a1(round_tracking_col_idx)
-                        actions_col = _col_to_a1(round_actions_col_idx)
+                        feedback_col = _col_to_a1(review_col_indices["feedback"])
+                        status_col = _col_to_a1(review_col_indices["status"])
+                        tracking_col = _col_to_a1(review_col_indices["tracking"])
+                        actions_col = _col_to_a1(review_col_indices["actions"])
 
                         # 250 rows -> 1000 ranges per request; keep request size moderate.
                         for chunk in _chunked(pending_row_writes, 250):
                             batch_ranges = []
-                            for sheet_row, feedback_value, status_value, tracking_value, actions_payload in chunk:
+                            for row_index, feedback_value, actions_payload in chunk:
+                                sheet_row = int(row_index) + 2
                                 batch_ranges.append(
                                     {
                                         "range": f"{feedback_col}{sheet_row}",
@@ -2040,13 +2184,13 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                                 batch_ranges.append(
                                     {
                                         "range": f"{status_col}{sheet_row}",
-                                        "values": [[status_value]],
+                                        "values": [[""]],
                                     }
                                 )
                                 batch_ranges.append(
                                     {
                                         "range": f"{tracking_col}{sheet_row}",
-                                        "values": [[tracking_value]],
+                                        "values": [[""]],
                                     }
                                 )
                                 batch_ranges.append(
@@ -2064,10 +2208,6 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     st.success(f"Review saved for {saved_count} slide(s).")
                 else:
                     st.warning("No review actions entered for any slide.")
-                if skipped_existing_count > 0:
-                    st.info(
-                        f"Skipped {skipped_existing_count} slide(s) because round columns already had saved values."
-                    )
 
             if not had_save_error and worksheet:
                 if save_and_revise_now:
@@ -2437,13 +2577,52 @@ def main():
     show_edited_filter = latest_archive_col is not None
 
 
-    # If the sheet contains a human-feedback status column for any round (human_feedback_status_n),bwe treat that as meaning the human-feedback revise pipeline ran at least once.
+    # If the sheet contains a human-feedback status column for any round (human_feedback_status_n),
+    # treat that as meaning the human-feedback revise pipeline ran at least once.
     revise_happened_ever = any(
         isinstance(c, str)
         and c.startswith(f"{HUMAN_FEEDBACK_STATUS_COLUMN}_")
         and c[len(f"{HUMAN_FEEDBACK_STATUS_COLUMN}_") :].isdigit()
         for c in df.columns
     )
+
+    def _latest_populated_actions_round_incomplete() -> bool:
+        """
+        Check the latest human_review_actions_<n> column that has any data.
+        Return True when that latest populated round is incomplete.
+        """
+        action_rounds = []
+        for c in df.columns:
+            if not (isinstance(c, str) and c.startswith(f"{HUMAN_REVIEW_ACTIONS_COLUMN}_")):
+                continue
+            suffix = c[len(f"{HUMAN_REVIEW_ACTIONS_COLUMN}_"):]
+            if suffix.isdigit():
+                action_rounds.append((int(suffix), c))
+        action_rounds.sort(key=lambda x: x[0])
+        latest_populated_col = None
+        for _, col in action_rounds:
+            has_any_data = any(
+                safe_str(v).strip() and safe_str(v).strip().lower() != "nan"
+                for v in df[col].tolist()
+            )
+            if has_any_data:
+                latest_populated_col = col
+        if latest_populated_col is None:
+            return False
+        for raw in df[latest_populated_col].tolist():
+            text = safe_str(raw).strip()
+            if not text or text.lower() == "nan":
+                return True
+            actions_map = _extract_actions_map(text)
+            if not actions_map:
+                return True
+            if any(
+                safe_str(item.get("action", ACTION_NONE)).strip() in ("", ACTION_NONE)
+                for item in actions_map.values()
+                if isinstance(item, dict)
+            ):
+                return True
+        return False
 
     column_map = {
         "topic": find_column(df, "Topic"),
@@ -2470,6 +2649,7 @@ def main():
 
     if "gdv2_round" not in st.session_state:
         st.session_state["gdv2_round"] = detect_current_round(df)
+    latest_actions_round_incomplete = _latest_populated_actions_round_incomplete()
     pending_visual_filter = st.session_state.pop("gdv2_pending_visual_filter", None)
     if pending_visual_filter == EDITED_FILTER_OPTION and show_edited_filter:
         st.session_state["gdv2_visual_filter"] = EDITED_FILTER_OPTION
@@ -2478,10 +2658,13 @@ def main():
     if "gdv2_visual_filter" not in st.session_state:
         # Default filter selection across sessions:
         # - If regen happened at least once, prefer `edited`.
-        # - Else if only revise happened, default to `revised`.
+        # - Else if latest populated actions round is incomplete, default to `unreviewed`.
+        # - Else if revise happened before, default to `revised`.
         # - Else default to `all` (first time / nothing done yet).
         if show_edited_filter:
             st.session_state["gdv2_visual_filter"] = EDITED_FILTER_OPTION
+        elif latest_actions_round_incomplete:
+            st.session_state["gdv2_visual_filter"] = "unreviewed"
         elif revise_happened_ever:
             st.session_state["gdv2_visual_filter"] = "revised"
         else:
