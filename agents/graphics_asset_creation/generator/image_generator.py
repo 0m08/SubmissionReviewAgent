@@ -1,12 +1,19 @@
 import os
 import json
 import time
+import base64
 from io import BytesIO
 from typing import Optional
+from urllib.request import urlopen
 from PIL import Image
 from google import genai
 from google.genai import types
 from langsmith import traceable
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 # =============================================================================
 # STANDALONE UTILITIES
@@ -186,10 +193,123 @@ This reinforces industry standards and is non-negotiable for all HVAC training v
 ANALYSIS_MODEL  = "gemini-3-flash-preview"
 REVIEWER_MODEL  = "gemini-3-flash-preview"
 GENERATOR_MODEL = "gemini-3-pro-image-preview"
+OPENAI_FALLBACK_MODEL = "gpt-image-1.5"
 
 # ── Safety caps ───────────────────────────────────────────────────────────────
 MAX_INSTRUCTION_ROUNDS = 5
 MAX_IMAGE_ROUNDS       = 5
+
+
+def _get_openai_client() -> Optional[object]:
+    """Initialize the OpenAI client for fallback image generation."""
+    if OpenAI is None:
+        print("[ImageGenerator] OpenAI SDK unavailable; fallback disabled.")
+        return None
+    
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        try:
+            import streamlit as st
+            api_key = st.session_state.get("openai_api_key")
+        except (ImportError, Exception):
+            pass
+
+    if not api_key:
+        return None
+
+    try:
+        return OpenAI(api_key=api_key)
+    except Exception as e:
+        print(f"[ImageGenerator] Failed to initialize OpenAI client: {e}")
+        return None
+
+
+def _openai_size_from_inputs(image_size: str, aspect_ratio: Optional[str]) -> str:
+    """Map current generator settings to OpenAI-compatible sizes."""
+    ratio = (aspect_ratio or "").strip()
+    if ratio == "16:9":
+        return "1536x1024"
+    if ratio == "9:16":
+        return "1024x1536"
+    if ratio == "4:3":
+        return "1536x1024"
+    if ratio == "3:4":
+        return "1024x1536"
+
+    # Default square output for unknown/unsupported ratios.
+    return "1024x1024"
+
+
+def _extract_openai_image(response) -> Optional[Image.Image]:
+    """Extract PIL image from OpenAI image response payload."""
+    if not getattr(response, "data", None):
+        return None
+
+    first = response.data[0]
+
+    # Preferred path: pydantic-style response object
+    b64 = getattr(first, "b64_json", None)
+    if b64:
+        return Image.open(BytesIO(base64.b64decode(b64))).convert("RGB")
+
+    url = getattr(first, "url", None)
+    if url:
+        with urlopen(url, timeout=30) as resp:
+            return Image.open(BytesIO(resp.read())).convert("RGB")
+
+    # Fallback path: dict-style response payload
+    if isinstance(first, dict):
+        b64 = first.get("b64_json")
+        if b64:
+            return Image.open(BytesIO(base64.b64decode(b64))).convert("RGB")
+        url = first.get("url")
+        if url:
+            with urlopen(url, timeout=30) as resp:
+                return Image.open(BytesIO(resp.read())).convert("RGB")
+
+    return None
+
+
+def _generate_with_openai_fallback(
+    generation_user_prompt: str,
+    generation_system_instruction: str,
+    aspect_ratio: Optional[str],
+    image_size: str,
+) -> tuple[Optional[Image.Image], dict]:
+    """Final fallback image generation using gpt-image-1.5."""
+    client = _get_openai_client()
+    if not client:
+        return None, {"fallback": True, "error": "openai_client_unavailable", "model": OPENAI_FALLBACK_MODEL}
+
+    size = _openai_size_from_inputs(image_size=image_size, aspect_ratio=aspect_ratio)
+    prompt = (
+        "Fallback generation: keep behavior aligned with the primary model.\n\n"
+        f"{generation_system_instruction}\n\n"
+        f"{generation_user_prompt}"
+    )
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            print(f"[ImageGenerator] OpenAI fallback attempt {attempt}/{max_attempts}...")
+            if attempt > 1:
+                wait_s = 2 ** (attempt - 1)
+                print(f"[ImageGenerator] OpenAI fallback retry in {wait_s}s ({attempt}/{max_attempts})")
+                time.sleep(wait_s)
+
+            response = client.images.generate(
+                model=OPENAI_FALLBACK_MODEL,
+                prompt=prompt,
+                size=size,
+            )
+            image = _extract_openai_image(response)
+            if image is not None:
+                return image, {"fallback": True, "model": OPENAI_FALLBACK_MODEL, "size": size}
+            print(f"[ImageGenerator] OpenAI fallback returned no image payload ({attempt}/{max_attempts}).")
+        except Exception as e:
+            print(f"[ImageGenerator] OpenAI fallback attempt {attempt}/{max_attempts} failed: {e}")
+
+    return None, {"fallback": True, "error": "openai_fallback_failed", "model": OPENAI_FALLBACK_MODEL, "size": size}
 
 
 # =============================================================================
@@ -433,6 +553,11 @@ Examine these 5 options. Pick the most effective one and generate the JSON brief
             break
 
         print(f"[ImageGenerator]   REVISE — {len(review['new_issues'])} issue(s).")
+        if round_num < MAX_INSTRUCTION_ROUNDS:
+            print(
+                f"[ImageGenerator] ↻ Retrying instruction round "
+                f"{round_num + 1}/{MAX_INSTRUCTION_ROUNDS}."
+            )
         feedback = _ANALYSIS_FEEDBACK_TURN.format(issues=review["issues_text"])
         response = call_llm_with_retry(chat.send_message, feedback)
 
@@ -538,14 +663,15 @@ def run_generation_stage(
     image_config = {"image_size": image_size}
     if aspect_ratio: image_config["aspect_ratio"] = aspect_ratio
 
+    generation_system_instruction = (
+        (f"{_STYLING_GUIDE}\n\n" if _STYLING_GUIDE else "")
+        + "Draw exactly what the JSON brief describes — nothing more. "
+          "White background. Keep it simple and clean. Legible labels and annotations are allowed only if explicitly requested in the brief."
+    )
     chat = client.chats.create(
         model=GENERATOR_MODEL,
         config=types.GenerateContentConfig(
-            system_instruction=(
-                (f"{_STYLING_GUIDE}\n\n" if _STYLING_GUIDE else "")
-                + "Draw exactly what the JSON brief describes — nothing more. "
-                  "White background. Keep it simple and clean. Legible labels and annotations are allowed only if explicitly requested in the brief."
-            ),
+            system_instruction=generation_system_instruction,
             response_modalities=["TEXT", "IMAGE"],
             temperature=0.65,
             image_config=types.ImageConfig(**image_config),
@@ -554,49 +680,105 @@ def run_generation_stage(
 
     last_image = None
     round_num = 0
+    last_error = None
+    last_generation_prompt = approved_json_brief
 
     while True:
         round_num += 1
         print(f"\n[ImageGenerator] ── Image Generation Round {round_num} ──────────────────")
 
-        if round_num > MAX_IMAGE_ROUNDS: break
-
-        # Send JSON prompt in user prompt turn
-        if round_num == 1:
-            response = call_llm_with_retry(chat.send_message, approved_json_brief)
-
-        # Extract
-        generated_image = None
-        if response.candidates and response.candidates[0].content:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, "inline_data") and part.inline_data:
-                    generated_image = Image.open(BytesIO(part.inline_data.data))
-                    break
-        
-        if not generated_image: raise RuntimeError("No image generated.")
-
-        last_image = generated_image
-        print(f"[ImageGenerator]   Image generated ({generated_image.size}).")
-
-        # Review
-        review = _review_image(generated_image, slide_title, slide_content, voiceover_focus, approved_json_brief, round_num)
-        
-        revision_history.append({
-            "stage": "image",
-            "round": round_num,
-            "verdict": review["verdict"],
-            "new_issues": review["new_issues"],
-        })
-
-        if review["verdict"] == "PASS":
-            print(f"[ImageGenerator] ✅ Image Approved.")
+        if round_num > MAX_IMAGE_ROUNDS:
             break
 
-        print(f"[ImageGenerator]   REVISE — {len(review['new_issues'])} issue(s).")
-        feedback = _GENERATOR_FEEDBACK_TURN.format(issues=review["issues_text"])
-        response = call_llm_with_retry(chat.send_message, feedback)
+        try:
+            # Send JSON prompt in user prompt turn
+            if round_num == 1:
+                response = call_llm_with_retry(chat.send_message, approved_json_brief)
 
-    return last_image, {"rounds": round_num}
+            # Extract
+            generated_image = None
+            if response.candidates and response.candidates[0].content:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, "inline_data") and part.inline_data:
+                        generated_image = Image.open(BytesIO(part.inline_data.data))
+                        break
+
+            if not generated_image:
+                raise RuntimeError("No image generated.")
+
+            last_image = generated_image
+            print(f"[ImageGenerator]   Image generated ({generated_image.size}).")
+
+            # Review
+            review = _review_image(generated_image, slide_title, slide_content, voiceover_focus, approved_json_brief, round_num)
+
+            revision_history.append({
+                "stage": "image",
+                "round": round_num,
+                "verdict": review["verdict"],
+                "new_issues": review["new_issues"],
+                "model": GENERATOR_MODEL,
+            })
+
+            if review["verdict"] == "PASS":
+                print(f"[ImageGenerator] ✅ Image Approved.")
+                return last_image, {"rounds": round_num, "model": GENERATOR_MODEL, "fallback_used": False}
+
+            print(f"[ImageGenerator]   REVISE — {len(review['new_issues'])} issue(s).")
+            if round_num < MAX_IMAGE_ROUNDS:
+                print(
+                    f"[ImageGenerator] ↻ Retrying Nano Banana Pro round "
+                    f"{round_num + 1}/{MAX_IMAGE_ROUNDS}."
+                )
+            feedback = _GENERATOR_FEEDBACK_TURN.format(issues=review["issues_text"])
+            last_generation_prompt = feedback
+            response = call_llm_with_retry(chat.send_message, feedback)
+
+        except Exception as e:
+            last_error = e
+            print(f"[ImageGenerator] ⚠️ Round {round_num} failed: {e}")
+            if round_num < MAX_IMAGE_ROUNDS:
+                print(
+                    f"[ImageGenerator] ↻ Retrying Nano Banana Pro round "
+                    f"{round_num + 1}/{MAX_IMAGE_ROUNDS} after failure."
+                )
+            revision_history.append({
+                "stage": "image",
+                "round": round_num,
+                "verdict": "ERROR",
+                "new_issues": [str(e)],
+                "model": GENERATOR_MODEL,
+            })
+            continue
+
+    print(
+        f"[ImageGenerator] ⚠️ Nano Banana Pro ({GENERATOR_MODEL}) failed after {MAX_IMAGE_ROUNDS} rounds; "
+        f"going to fallback ({OPENAI_FALLBACK_MODEL})."
+    )
+    fallback_image, fallback_meta = _generate_with_openai_fallback(
+        generation_user_prompt=last_generation_prompt,
+        generation_system_instruction=generation_system_instruction,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+
+    if fallback_image is not None:
+        revision_history.append({
+            "stage": "image",
+            "round": "fallback",
+            "verdict": "PASS",
+            "new_issues": [],
+            "model": OPENAI_FALLBACK_MODEL,
+        })
+        print(f"[ImageGenerator] ✅ Fallback image generated by {OPENAI_FALLBACK_MODEL}.")
+        return fallback_image, {
+            "rounds": round_num,
+            "model": OPENAI_FALLBACK_MODEL,
+            "fallback_used": True,
+            "fallback": fallback_meta,
+        }
+
+    raise RuntimeError(f"Image generation failed after Gemini retries and {OPENAI_FALLBACK_MODEL} fallback. Last Gemini error: {last_error}")
 
 
 # =============================================================================
