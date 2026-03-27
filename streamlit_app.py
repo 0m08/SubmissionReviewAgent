@@ -11,15 +11,12 @@ import gspread
 import base64
 import json
 import os
-import hashlib
 from dotenv import load_dotenv
 from streamlit_clickable_images import clickable_images
 from utils.role_utils import get_user_info, get_user_pages, role_requires_oauth
 from config.logging_config import get_logger, setup_logging
 from mcp_ui_app import mcp_ui_page
 from services.activity_tracking_service import track_login, track_page_view
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 
 # from jira import JIRA
 
@@ -69,184 +66,6 @@ st.markdown(
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
     st.session_state.role = None
-
-# Lightweight in-memory auth cache keyed by browser fingerprint.
-# This avoids forced re-login when Streamlit reconnects and session_state is reset.
-_AUTH_CACHE = {}
-
-# Lightweight in-memory progress cache keyed by browser fingerprint.
-# Only JSON-serializable, non-auth keys are stored to keep overhead low.
-_PROGRESS_CACHE = {}
-_PROGRESS_TTL_SECONDS = 6 * 60 * 60
-_PROGRESS_SKIP_KEYS = {
-    "drive",
-    "gc",
-    "role",
-    "user_email",
-    "user_pages",
-    "oauth_authenticated",
-    "oauth_state",
-    "google_oauth_refresh_token",
-    "impersonated_role",
-}
-
-
-def _browser_fingerprint() -> str:
-    """Build a stable per-browser key from request metadata."""
-    try:
-        cookies = getattr(st.context, "cookies", {}) or {}
-    except Exception:
-        cookies = {}
-
-    xsrf = cookies.get("_streamlit_xsrf", "")
-    user_agent = ""
-    ip_addr = ""
-    try:
-        headers = getattr(st.context, "headers", {}) or {}
-        user_agent = headers.get("user-agent", "")
-        ip_addr = headers.get("x-forwarded-for", "") or headers.get("x-real-ip", "")
-    except Exception:
-        pass
-
-    raw = f"{xsrf}|{user_agent}|{ip_addr}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _cache_auth_session(refresh_token: str, user_email: str, role: str, user_pages: list):
-    """Store minimum auth context needed to rebuild a disconnected session."""
-    if not refresh_token:
-        return
-    key = _browser_fingerprint()
-    _AUTH_CACHE[key] = {
-        "refresh_token": refresh_token,
-        "user_email": user_email,
-        "role": role,
-        "user_pages": user_pages,
-        "updated_at": time.time(),
-    }
-
-
-def _is_json_safe(value) -> bool:
-    try:
-        json.dumps(value)
-        return True
-    except Exception:
-        return False
-
-
-def _cache_progress_snapshot():
-    """Persist a small, JSON-safe snapshot of non-auth session state."""
-    if not st.session_state.get("role"):
-        return
-
-    snapshot = {}
-    for key, value in st.session_state.items():
-        if key in _PROGRESS_SKIP_KEYS or key.startswith("_"):
-            continue
-        if not _is_json_safe(value):
-            continue
-        snapshot[key] = value
-
-    key = _browser_fingerprint()
-    _PROGRESS_CACHE[key] = {
-        "user_email": st.session_state.get("user_email", ""),
-        "updated_at": time.time(),
-        "snapshot": snapshot,
-    }
-
-
-def _restore_progress_snapshot():
-    """Restore non-auth progress keys once after reconnect."""
-    if st.session_state.get("_progress_restored"):
-        return
-
-    key = _browser_fingerprint()
-    cached = _PROGRESS_CACHE.get(key)
-    if not cached:
-        st.session_state["_progress_restored"] = True
-        return
-
-    updated_at = cached.get("updated_at", 0)
-    if time.time() - updated_at > _PROGRESS_TTL_SECONDS:
-        _PROGRESS_CACHE.pop(key, None)
-        st.session_state["_progress_restored"] = True
-        return
-
-    snapshot = cached.get("snapshot", {})
-    for s_key, s_val in snapshot.items():
-        if s_key not in st.session_state:
-            st.session_state[s_key] = s_val
-
-    st.session_state["_progress_restored"] = True
-
-
-def _try_rehydrate_auth_session() -> bool:
-    """Try to rebuild login state after reconnect without forcing OAuth UI."""
-    if st.session_state.get("role"):
-        return True
-
-    key = _browser_fingerprint()
-    cached = _AUTH_CACHE.get(key)
-    if not cached:
-        return False
-
-    refresh_token = cached.get("refresh_token", "")
-    if not refresh_token:
-        return False
-
-    oauth_client_id = os.getenv("OAUTH_CLIENT_ID", "").strip()
-    oauth_client_secret = os.getenv("OAUTH_CLIENT_SECRET", "").strip()
-    if not oauth_client_id or not oauth_client_secret:
-        return False
-
-    try:
-        creds = Credentials(
-            None,
-            refresh_token=refresh_token,
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=oauth_client_id,
-            client_secret=oauth_client_secret,
-            scopes=[
-                "https://www.googleapis.com/auth/drive",
-                "https://www.googleapis.com/auth/spreadsheets",
-            ],
-        )
-        creds.refresh(Request())
-
-        gauth, drive, gc = init_clients_from_credentials(
-            creds,
-            client_id=oauth_client_id,
-            client_secret=oauth_client_secret,
-        )
-
-        # Resolve latest role/page mapping from authorized list.
-        about = drive.GetAbout()
-        user_email = about.get("user", {}).get("emailAddress", "") or cached.get("user_email", "")
-        if not user_email:
-            return False
-
-        user_info = get_user_info(user_email)
-        if not user_info.get("is_authorized"):
-            return False
-
-        st.session_state["drive"] = drive
-        st.session_state["gc"] = gc
-        st.session_state["oauth_authenticated"] = True
-        st.session_state["role"] = user_info["role"]
-        st.session_state["user_email"] = user_email
-        st.session_state["user_pages"] = user_info["pages"]
-        st.session_state["google_oauth_refresh_token"] = refresh_token
-
-        _cache_auth_session(
-            refresh_token=refresh_token,
-            user_email=user_email,
-            role=user_info["role"],
-            user_pages=user_info["pages"],
-        )
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to rehydrate auth session: {e}")
-        return False
 
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -319,12 +138,6 @@ def login():
                     st.session_state["user_pages"] = user_info["pages"]
                     if getattr(creds, "refresh_token", None):
                         st.session_state["google_oauth_refresh_token"] = creds.refresh_token
-                        _cache_auth_session(
-                            refresh_token=creds.refresh_token,
-                            user_email=user_email,
-                            role=user_info["role"],
-                            user_pages=user_info["pages"],
-                        )
                     else:
                         st.session_state.pop("google_oauth_refresh_token", None)
 
@@ -441,12 +254,6 @@ def login():
                                     _rt = getattr(gauth.credentials, "refresh_token", None)
                                     if _rt:
                                         st.session_state["google_oauth_refresh_token"] = _rt
-                                        _cache_auth_session(
-                                            refresh_token=_rt,
-                                            user_email=user_email,
-                                            role=user_info["role"],
-                                            user_pages=user_info["pages"],
-                                        )
                                     else:
                                         st.session_state.pop("google_oauth_refresh_token", None)
                                 except Exception:
@@ -508,10 +315,6 @@ def login():
 
 def logout():
     """Immediately logs the user out by clearing role and authentication."""
-    # Remove cached auth for this browser fingerprint.
-    fp = _browser_fingerprint()
-    _AUTH_CACHE.pop(fp, None)
-    _PROGRESS_CACHE.pop(fp, None)
     # Delete all the items in Session state
     for key in st.session_state.keys():
         del st.session_state[key]
@@ -824,10 +627,6 @@ aggregation_agent_page = st.Page(
 # We'll build a dictionary of pages for the "logged in" scenario,
 # plus one for the "logged out" scenario.
 
-# Try restoring login when Streamlit reconnects and session_state was reset.
-_try_rehydrate_auth_session()
-_restore_progress_snapshot()
-
 # role_based_page_access_dict = {
 #     "Admin": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
 #     "Editor": [course_outline_page, research_notes_page, slide_chunks_page, graphics_definition_page, assessments_generation_page, vectorstore_page, get_images_page, quality_compliance_scoring_page, video_search_tool_page],
@@ -952,6 +751,3 @@ if st.session_state.role and "gc" in st.session_state and "user_email" in st.ses
 
 # Finally, call run() on whichever page the user selected in the nav.
 current_page.run()
-
-# Save a lightweight progress snapshot for reconnect recovery.
-_cache_progress_snapshot()
