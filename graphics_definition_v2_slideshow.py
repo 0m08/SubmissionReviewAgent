@@ -22,8 +22,6 @@ from services.sheets_service import hide_columns_by_name
 from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
     run_human_feedback_review_revise_for_all_rows,
     _format_human_feedback_revision_tracking,
-)
-from agents.graphics_definition_v2.review_agent.visual_columns_for_human_feedback import (
     _parse_tracking_column,
 )
 from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import run_automation
