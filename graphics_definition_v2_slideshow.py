@@ -21,6 +21,10 @@ from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
 from services.sheets_service import hide_columns_by_name
 from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
     run_human_feedback_review_revise_for_all_rows,
+    _format_human_feedback_revision_tracking,
+)
+from agents.graphics_definition_v2.review_agent.visual_columns_for_human_feedback import (
+    _parse_tracking_column,
 )
 from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import run_automation
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
@@ -241,8 +245,9 @@ def _build_row_review_payload(slide, row_actions, current_round):
             fb_text = safe_str(item.get("feedback", "")).strip()
             visual_id = f"S{segment['segment_index']}V{step['step_index']}"
             vo = (step.get("voiceover") or "").strip()
-            # ── Check for manual asset overrides from the image pool ────
-            override_key = f"asset_override_{slide.get('row_index', 0)}_{segment['segment_index']}_{step['step_index']}"
+            # ── Check for manual asset overrides from the image/video pool ──
+            # Key must match _assign_candidate_to_step which uses slide_idx_1based
+            override_key = f"asset_override_{slide.get('slide_idx_1based', slide.get('row_index', 0))}_{segment['segment_index']}_{step['step_index']}"
             if override_key in st.session_state:
                 assigned_asset = st.session_state[override_key]
             else:
@@ -272,15 +277,41 @@ def _build_row_review_payload(slide, row_actions, current_round):
                 else:
                     segment_mode_map[str(segment["segment_index"])] = "drive_hvac"
 
-    # ── Create a deep-ish copy of segments to apply overrides for the Sheet ──
-    # We want to update the 'final_graphics_definition' column with user's choices.
-    updated_segments = json.loads(json.dumps(segments))
-    for seg in updated_segments:
+    # ── Build override map: (seg_index, step_index) -> new_asset_url ────────
+    slide_key_prefix = slide.get("slide_idx_1based", slide.get("row_index", 0))
+    override_map = {}  # {(seg_idx, step_idx): new_url}
+    for seg in segments:
         for st_obj in seg.get("steps", []):
-            ov_key = f"asset_override_{slide.get('row_index', 0)}_{seg['segment_index']}_{st_obj['step_index']}"
+            ov_key = f"asset_override_{slide_key_prefix}_{seg['segment_index']}_{st_obj['step_index']}"
             if ov_key in st.session_state:
-                st_obj["asset"] = st.session_state[ov_key]
+                override_map[(seg["segment_index"], st_obj["step_index"])] = st.session_state[ov_key]
 
+    # ── Map manual overrides for tracking ───────────────────────────────────
+    # If a manual override is present, we update the tracking history.
+    tracking_text = safe_str(slide.get(get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round), "")).strip()
+    tracking_data = _parse_tracking_column(tracking_text)
+    
+    for (seg_idx, step_idx), new_url in override_map.items():
+        vid = f"S{seg_idx}V{step_idx}"
+        if vid not in tracking_data:
+            # Initialize with original if not already tracked
+            original_url = ""
+            for seg in segments:
+                if seg.get("segment_index") == seg_idx:
+                    for step in seg.get("steps", []):
+                        if step.get("step_index") == step_idx:
+                            original_url = (step.get("asset") or "").strip()
+                            break
+            tracking_data[vid] = {
+                "original": original_url or None,
+                "manually_selected": None,
+                "after_revision": None,
+                "after_regen_1": None,
+                "after_regen_2": None,
+            }
+        tracking_data[vid]["manually_selected"] = new_url
+
+    updated_tracking_text = _format_human_feedback_revision_tracking(tracking_data) if tracking_data else ""
     feedback_value = "\n\n".join(parts) if parts else ""
     actions_payload = json.dumps(
         {
@@ -290,10 +321,116 @@ def _build_row_review_payload(slide, row_actions, current_round):
         },
         ensure_ascii=True,
     )
-    
-    updated_graphics_json = json.dumps(updated_segments, ensure_ascii=False)
-    
-    return feedback_value, actions_payload, reject_count, row_action_map_by_visual_id, updated_graphics_json
+
+    # ── Surgically update only overridden asset URLs in the raw source text ──
+    # This preserves the original XML/JSON/text formatting of the column.
+    raw_def = safe_str(slide.get("final_definition_raw", "")).strip()
+    updated_graphics_text = _apply_asset_overrides_to_raw(raw_def, segments, override_map)
+
+    return feedback_value, actions_payload, reject_count, row_action_map_by_visual_id, updated_graphics_text, updated_tracking_text
+
+
+def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
+    """
+    Surgically update asset URLs in the original raw column text WITHOUT
+    reformatting or changing the overall structure.
+
+    Strategy (tried in order):
+    1. XML  — replace the <asset> tag content within the N-th <visual_step>
+               of the M-th <segment> (or top-level visual_steps for single-segment).
+    2. JSON — already-JSON column (from a previous save): parse, update, re-dump.
+    3. Fallback — plain URL swap in the raw text (best-effort).
+
+    :param raw_text: original column value (XML, JSON, or free-text)
+    :param parsed_segments: list of segment dicts (already parsed) — used for step ordering
+    :param override_map: dict of {(segment_index, step_index): new_url}
+    :returns: updated raw text, or original if nothing to change
+    """
+    if not override_map:
+        return raw_text  # Nothing changed
+
+    # ── Strategy 1: XML surgical replacement ─────────────────────────────────
+    if "<" in raw_text and ">" in raw_text:
+        result = _xml_surgical_asset_replace(raw_text, parsed_segments, override_map)
+        if result is not None:
+            return result
+
+    # ── Strategy 2: JSON column (from prior save) ────────────────────────────
+    stripped = raw_text.strip()
+    if stripped.startswith("[") or stripped.startswith("{"):
+        try:
+            data = json.loads(stripped)
+            segments_list = data if isinstance(data, list) else [data]
+            for seg in segments_list:
+                seg_idx = seg.get("segment_index", 1)
+                for step in seg.get("steps", []):
+                    step_idx = step.get("step_index", 1)
+                    if (seg_idx, step_idx) in override_map:
+                        step["asset"] = override_map[(seg_idx, step_idx)]
+            return json.dumps(segments_list, ensure_ascii=False)
+        except Exception:
+            pass
+
+    # ── Strategy 3: Plain URL swap (best-effort, last resort) ────────────────
+    updated = raw_text
+    for (seg_idx, step_idx), new_url in override_map.items():
+        # Find the original asset URL from parsed segments and swap it
+        old_url = ""
+        for seg in parsed_segments:
+            if seg.get("segment_index") == seg_idx:
+                for step in seg.get("steps", []):
+                    if step.get("step_index") == step_idx:
+                        old_url = (step.get("asset") or "").strip()
+                        break
+        if old_url and old_url in updated:
+            updated = updated.replace(old_url, new_url, 1)
+    return updated
+
+
+def _xml_surgical_asset_replace(raw_text, parsed_segments, override_map):
+    """
+    Find and replace <asset>...</asset> content for specific visual_steps within
+    the XML structure, returning the modified string or None on failure.
+    """
+    import xml.etree.ElementTree as ET
+
+    # Build a flat list of (seg_idx, step_idx, old_asset) in document order
+    # so we know the Nth visual_step globally and per-segment.
+    ordered = []  # [(seg_idx, step_idx, old_asset)]
+    for seg in parsed_segments:
+        for step in seg.get("steps", []):
+            ordered.append((seg["segment_index"], step["step_index"], (step.get("asset") or "").strip()))
+
+    # Use regex to find all <asset>...</asset> occurrences in document order
+    asset_pattern = re.compile(
+        r"(<(?:asset|graphics_to_use|graphic)\b[^>]*>)(.*?)(</(?:asset|graphics_to_use|graphic)>)",
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    matches = list(asset_pattern.finditer(raw_text))
+    if len(matches) != len(ordered):
+        # Count mismatch — can't reliably map positions to steps. Give up.
+        return None
+
+    # Build replacement map: match index -> new content
+    replacements = {}  # match_index -> new_url
+    for i, (seg_idx, step_idx, _old) in enumerate(ordered):
+        if (seg_idx, step_idx) in override_map:
+            replacements[i] = override_map[(seg_idx, step_idx)]
+
+    if not replacements:
+        return raw_text  # Nothing to replace
+
+    # Apply replacements from right to left to preserve string offsets
+    result = raw_text
+    for i in sorted(replacements.keys(), reverse=True):
+        m = matches[i]
+        new_url = replacements[i]
+        open_tag = m.group(1)
+        close_tag = m.group(3)
+        result = result[:m.start()] + f"{open_tag}{new_url}{close_tag}" + result[m.end():]
+
+    return result
 
 
 def _write_single_row_review(
@@ -307,6 +444,7 @@ def _write_single_row_review(
     round_actions_col_idx,
     updated_graphics_json=None,
     graphics_col_idx=None,
+    updated_tracking_text=None,
 ):
     """
     Batch update multiple columns for a single row.
@@ -319,8 +457,8 @@ def _write_single_row_review(
     
     data = [
         {"range": f"{feedback_col}{sheet_row}", "values": [[feedback_value]]},
-        {"range": f"{status_col}{sheet_row}", "values": [["Reviewed"]]},
-        {"range": f"{tracking_col}{sheet_row}", "values": [[f"Last updated: {time.ctime()}"]]},
+        {"range": f"{status_col}{sheet_row}", "values": [[""]]},
+        {"range": f"{tracking_col}{sheet_row}", "values": [[updated_tracking_text if updated_tracking_text else ""]]},
         {"range": f"{actions_col}{sheet_row}", "values": [[actions_payload]]},
     ]
     if updated_graphics_json and graphics_col_idx:
@@ -2185,6 +2323,10 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
         segments = slide.get("segments", [])
         if not segments:
             continue
+        
+        # Store 1-based slide_idx into the slide dict so that _build_row_review_payload
+        # can construct asset_override keys that match those used during assignment.
+        slide["slide_idx_1based"] = slide_idx
 
         row_index = slide.get("row_index", slide_idx - 1)
         row_actions_key = f"gdv2_row_actions_{row_index}_r{current_round}"
@@ -2348,7 +2490,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             )
                         else:
                             # 1. Build payload AND updated graphics JSON (includes manual candidates)
-                            fb_val, act_payload, _, row_act_map, up_graphics_json = _build_row_review_payload(
+                            fb_val, act_payload, _, row_act_map, up_graphics_json, up_tracking_text = _build_row_review_payload(
                                 slide=slide,
                                 row_actions=row_actions,
                                 current_round=current_round,
@@ -2370,13 +2512,14 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                                 round_tracking_col_idx=review_col_indices["tracking"],
                                 round_actions_col_idx=review_col_indices["actions"],
                                 updated_graphics_json=up_graphics_json,
-                                graphics_col_idx=graphics_col_idx
+                                graphics_col_idx=graphics_col_idx,
+                                updated_tracking_text=up_tracking_text
                             )
                             # Keep in-memory data synced
                             slide[round_actions_col] = act_payload
                             slide[round_feedback_col] = fb_val
                             slide[FINAL_GRAPHICS_COLUMN] = up_graphics_json
-                            if feedback_value or row_action_map_by_visual_id:
+                            if fb_val or row_act_map:
                                 st.success(f"Saved feedback for Slide {slide_idx}.")
                             else:
                                 st.success(f"Saved current state for Slide {slide_idx}.")
@@ -2606,13 +2749,16 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 reject_count = 0
                 skipped_existing_count = 0
                 pending_row_writes = []
+                # Get graphics column index once before the loop
+                graphics_col_idx_global = get_or_create_column(worksheet, FINAL_GRAPHICS_COLUMN)
+
                 for slide in slides:
                     segments = slide.get("segments", [])
                     if not segments:
                         continue
                     row_index = slide.get("row_index", 0)
                     row_actions = st.session_state.get(f"gdv2_row_actions_{row_index}_r{current_round}", {})
-                    feedback_value, actions_payload, row_reject_count, row_action_map_by_visual_id = _build_row_review_payload(
+                    fb_val, actions_payload, row_reject_count, row_act_map, up_graphics_json, up_tracking_text = _build_row_review_payload(
                         slide=slide,
                         row_actions=row_actions,
                         current_round=current_round,
@@ -2627,15 +2773,13 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                         continue
 
                     pending_row_writes.append(
-                        (
-                            row_index,
-                            feedback_value,
-                            actions_payload,
-                        )
+                        (row_index, fb_val, actions_payload, up_graphics_json, up_tracking_text)
                     )
                     slide[round_actions_col] = actions_payload
-                    slide[round_feedback_col] = feedback_value
-                    if feedback_value or row_action_map_by_visual_id:
+                    slide[round_feedback_col] = fb_val
+                    slide[FINAL_GRAPHICS_COLUMN] = up_graphics_json
+                    slide[round_tracking_col] = up_tracking_text
+                    if fb_val or row_act_map:
                         saved_count += 1
 
                 # Batch write row updates to avoid per-cell quota spikes (429).
@@ -2644,37 +2788,21 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                         feedback_col = _col_to_a1(review_col_indices["feedback"])
                         status_col = _col_to_a1(review_col_indices["status"])
                         tracking_col = _col_to_a1(review_col_indices["tracking"])
-                        actions_col = _col_to_a1(review_col_indices["actions"])
+                        actions_col_letter = _col_to_a1(review_col_indices["actions"])
+                        graphics_col_letter = _col_to_a1(graphics_col_idx_global) if graphics_col_idx_global else None
 
                         # 250 rows -> 1000 ranges per request; keep request size moderate.
                         for chunk in _chunked(pending_row_writes, 250):
                             batch_ranges = []
-                            for row_index, feedback_value, actions_payload in chunk:
+                            for row_index, fb_val, actions_payload, up_graphics_json, up_tracking_text in chunk:
                                 sheet_row = int(row_index) + 2
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{feedback_col}{sheet_row}",
-                                        "values": [[feedback_value]],
-                                    }
-                                )
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{status_col}{sheet_row}",
-                                        "values": [[""]],
-                                    }
-                                )
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{tracking_col}{sheet_row}",
-                                        "values": [[""]],
-                                    }
-                                )
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{actions_col}{sheet_row}",
-                                        "values": [[actions_payload]],
-                                    }
-                                )
+                                batch_ranges.append({"range": f"{feedback_col}{sheet_row}", "values": [[fb_val]]})
+                                batch_ranges.append({"range": f"{status_col}{sheet_row}", "values": [[""]]})
+                                batch_ranges.append({"range": f"{tracking_col}{sheet_row}", "values": [[up_tracking_text if up_tracking_text else ""]]})
+                                batch_ranges.append({"range": f"{actions_col_letter}{sheet_row}", "values": [[actions_payload]]})
+                                # Write updated graphics JSON (includes image/video assignments)
+                                if graphics_col_letter and up_graphics_json:
+                                    batch_ranges.append({"range": f"{graphics_col_letter}{sheet_row}", "values": [[up_graphics_json]]})
                             worksheet.batch_update(batch_ranges, value_input_option="RAW")
                     except Exception as e:
                         st.error(f"Failed to save review batch update: {e}")

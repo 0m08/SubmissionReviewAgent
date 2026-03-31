@@ -2214,6 +2214,7 @@ def _initialize_human_feedback_revision_tracking(segments_map, feedback_by_segme
             if visual_id:
                 tracking[visual_id] = {
                     "original": asset or None,
+                    "manually_selected": None,
                     "after_revision": None,
                     "after_regen_1": None,
                     "after_regen_2": None,
@@ -2292,6 +2293,9 @@ def _format_human_feedback_revision_tracking(tracking):
         data = tracking[visual_id]
         orig = data.get("original")
         lines.append(f"Original visual - {orig if orig else '(not found)'}")
+        ms = data.get("manually_selected")
+        if ms:
+            lines.append(f"Manual Selection - {ms}")
         ar = data.get("after_revision")
         lines.append(f"After revision - {ar if ar else 'No replacement'}")
         r1 = data.get("after_regen_1")

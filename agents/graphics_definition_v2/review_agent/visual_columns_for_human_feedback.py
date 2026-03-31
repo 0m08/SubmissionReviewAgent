@@ -30,6 +30,7 @@ HF_VIS_DIMENSION_PX = 200
 
 # Tracking line prefixes (must match _format_human_feedback_revision_tracking)
 ORIG_PREFIX = "Original visual - "
+MANUAL_PREFIX = "Manual Selection - "
 AFTER_REV_PREFIX = "After revision - "
 AFTER_REGEN1_PREFIX = "After regeneration loop 1 - "
 AFTER_REGEN2_PREFIX = "After regeneration loop 2 - "
@@ -206,6 +207,7 @@ def _parse_tracking_column(text: str) -> Dict[str, Dict[str, Optional[str]]]:
             current_id = line_stripped
             data = {
                 "original": None,
+                "manually_selected": None,
                 "after_revision": None,
                 "after_regen_1": None,
                 "after_regen_2": None,
@@ -216,6 +218,9 @@ def _parse_tracking_column(text: str) -> Dict[str, Dict[str, Optional[str]]]:
         if line_stripped.startswith(ORIG_PREFIX):
             v = line_stripped[len(ORIG_PREFIX) :].strip()
             data["original"] = None if v == "(not found)" else v
+        elif line_stripped.startswith(MANUAL_PREFIX):
+            v = line_stripped[len(MANUAL_PREFIX) :].strip()
+            data["manually_selected"] = None if v == NO_REPLACEMENT else v
         elif line_stripped.startswith(AFTER_REV_PREFIX):
             v = line_stripped[len(AFTER_REV_PREFIX) :].strip()
             data["after_revision"] = None if v == NO_REPLACEMENT else v
@@ -232,7 +237,7 @@ def _parse_tracking_column(text: str) -> Dict[str, Dict[str, Optional[str]]]:
 
 def _final_url_from_tracking(data: Dict[str, Optional[str]], original_fallback: Optional[str]) -> Optional[str]:
     """Last non-null stage wins; else original."""
-    for key in ("after_regen_2", "after_regen_1", "after_revision"):
+    for key in ("after_regen_2", "after_regen_1", "after_revision", "manually_selected"):
         v = data.get(key)
         if v:
             return v
