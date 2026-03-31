@@ -1895,7 +1895,7 @@ def _revert_asset_assignment(key):
     st.toast("Reverted to original asset", icon="↩️")
 
 
-def _fragment_candidate_images_expander(image_pool_text, segment_num, slide_idx, segment_steps, drive, embed_key_prefix):
+def _fragment_candidate_images_expander(image_pool_text, segment_num, slide_idx, target_step_index, drive, embed_key_prefix):
     """
     Paginated UI for alternative images: shows 3 at a time, slides by 2 on click.
     Deduplicates URLs within the segment.
@@ -1942,10 +1942,14 @@ def _fragment_candidate_images_expander(image_pool_text, segment_num, slide_idx,
         start_idx = max(0, n - max_visible)
         st.session_state[state_key] = start_idx
 
-    with st.expander(
+    show_candidates_key = f"show_img_candidates_{embed_key_prefix}"
+    if show_candidates_key not in st.session_state:
+        st.session_state[show_candidates_key] = False
+    st.toggle(
         f"🖼️ Alternative Images — {n} candidate{'s' if n != 1 else ''} considered",
-        expanded=False,
-    ):
+        key=show_candidates_key,
+    )
+    if st.session_state.get(show_candidates_key):
         visible_indices = list(range(start_idx, min(start_idx + max_visible, n)))
         cache = st.session_state.get(INSPECTOR_IMAGE_CACHE_KEY, {})
         
@@ -2007,40 +2011,26 @@ def _fragment_candidate_images_expander(image_pool_text, segment_num, slide_idx,
                     
                     st.image(img_data, use_container_width=True)
                 
-                # 2. Action popover placed directly below the image card
-                with st.popover("🎯 Action", use_container_width=True):
-                    st.markdown(f"**{title}**")
-                    
-                    # ── Option 1: Open high res link ──────────────────────────
-                    if is_drive_url(url):
-                        file_id = extract_drive_file_id(url)
-                        open_url = f"https://drive.google.com/file/d/{file_id}/view" if file_id else url
-                    elif is_youtube_embed(url):
-                        open_url = to_youtube_watch_url(url)
-                    else:
-                        open_url = url
-                    st.link_button("🔗 Open original link", open_url, use_container_width=True)
-                    
-                    st.divider()
-                    st.caption("Assign to Voiceover Step:")
-                    
-                    # Unpack step tuple correctly to avoid AttributeError
-                    if segment_steps:
-                        for step_tuple in segment_steps:
-                            # structure: (step_dict, action_scope_key, action_key, feedback_key, visual_id)
-                            step_dict = step_tuple[0]
-                            s_idx = step_dict.get("step_index", 1)
-                            st.button(
-                                f"Use for VO Part {s_idx}",
-                                key=f"assign_{embed_key_prefix}_{idx_in_list}_{s_idx}",
-                                on_click=_assign_candidate_to_step,
-                                args=(slide_idx, segment_num, s_idx, url),
-                                use_container_width=True
-                            )
-                    else:
-                        st.info("No VO parts found.")
+                # 2. Assignment button directly upfront
+                st.button(
+                    "Use for VO",
+                    key=f"assign_{embed_key_prefix}_{idx_in_list}_{target_step_index}",
+                    on_click=_assign_candidate_to_step,
+                    args=(slide_idx, segment_num, target_step_index, url),
+                    use_container_width=True
+                )
+                
+                # ── Option 1: Open high res link (Always visible, but secondary) ──
+                if is_drive_url(url):
+                    file_id = extract_drive_file_id(url)
+                    open_url = f"https://drive.google.com/file/d/{file_id}/view" if file_id else url
+                elif is_youtube_embed(url):
+                    open_url = to_youtube_watch_url(url)
+                else:
+                    open_url = url
+                st.markdown(f'<div style="text-align:center; font-size:0.8rem; margin-top: -12px; margin-bottom: 12px;"><a href="{open_url}" target="_blank">Open original</a></div>', unsafe_allow_html=True)
 
-def _fragment_candidate_videos_expander(video_pool_text, segment_num, slide_idx, segment_steps, embed_key_prefix):
+def _fragment_candidate_videos_expander(video_pool_text, segment_num, slide_idx, target_step_index, embed_key_prefix):
     """
     Shows alternative video candidates from the filtered video pool.
     Renders with looping players and assignment buttons.
@@ -2076,7 +2066,14 @@ def _fragment_candidate_videos_expander(video_pool_text, segment_num, slide_idx,
         start_idx = max(0, n - max_visible)
         st.session_state[state_key] = start_idx
         
-    with st.expander(f"🎬 Alternative Videos — {n} segments found", expanded=False):
+    show_videos_key = f"show_video_candidates_{embed_key_prefix}"
+    if show_videos_key not in st.session_state:
+        st.session_state[show_videos_key] = False
+    st.toggle(
+        f"🎬 Alternative Videos — {n} segments found",
+        key=show_videos_key,
+    )
+    if st.session_state.get(show_videos_key):
         visible_indices = list(range(start_idx, min(start_idx + max_visible, n)))
         
         # Navigation
@@ -2104,32 +2101,25 @@ def _fragment_candidate_videos_expander(video_pool_text, segment_num, slide_idx,
             
             with curr_col:
                 # ── Looping Player Unit ──────────────────────────────────────
-                with st.container(height=320, border=True):
+                with st.container(height=280, border=True):
                     if is_youtube_embed(v_url):
                         v_html = render_looping_youtube_embed(v_url, f"altvid_{embed_key_prefix}_{idx_in_list}", height=240)
                         st.components.v1.html(v_html, height=240)
                     else:
                         st.caption("Unsupported video format")
                         st.write(v_url)
-                    
-                    # 🎯 Re-assignment Popover
-                    with st.popover("🎯 Action", use_container_width=True):
-                        st.markdown(f"**{v_title}**")
-                        if is_youtube_embed(v_url):
-                             st.link_button("🔗 Open on YouTube", to_youtube_watch_url(v_url), use_container_width=True)
-                        
-                        st.divider()
-                        st.caption("Assign to Voiceover Step:")
-                        for step_tuple in segment_steps:
-                            s_dict = step_tuple[0]
-                            s_idx = s_dict.get("step_index", 1)
-                            st.button(
-                                f"Use for VO Part {s_idx}",
-                                key=f"assign_vid_{embed_key_prefix}_{idx_in_list}_{s_idx}",
-                                on_click=_assign_candidate_to_step,
-                                args=(slide_idx, segment_num, s_idx, v_url),
-                                use_container_width=True
-                            )
+                
+                # 🎯 Assignment button directly upfront (outside the container)
+                st.button(
+                    "Use for VO",
+                    key=f"assign_vid_{embed_key_prefix}_{idx_in_list}_{target_step_index}",
+                    on_click=_assign_candidate_to_step,
+                    args=(slide_idx, segment_num, target_step_index, v_url),
+                    use_container_width=True
+                )
+                
+                if is_youtube_embed(v_url):
+                    st.markdown(f'<div style="text-align:center; font-size:0.8rem; margin-top: -12px; margin-bottom: 12px;"><a href="{to_youtube_watch_url(v_url)}" target="_blank">Open on YouTube</a></div>', unsafe_allow_html=True)
 
 
 def _render_inspector_step_review_controls(step_key_prefix):
@@ -2214,28 +2204,7 @@ def _render_single_segment_block(
     """
     st.markdown(f"### Segment {seg_num}")
     
-    seg_embed_key = f"{slide_idx}-{seg_num}-segpool"
-    
-    # 1. Candidate Image Pool (Selection Pool)
-    _fragment_candidate_images_expander(
-        image_pool_text=image_pool_text,
-        segment_num=seg_num,
-        slide_idx=slide_idx,
-        segment_steps=visible_steps,
-        drive=drive,
-        embed_key_prefix=seg_embed_key,
-    )
-    
-    # 1.5 Candidate Video Pool (Selection Pool)
-    _fragment_candidate_videos_expander(
-        video_pool_text=video_pool_text,
-        segment_num=seg_num,
-        slide_idx=slide_idx,
-        segment_steps=visible_steps,
-        embed_key_prefix=seg_embed_key,
-    )
-    
-    # 2. VO Step Visuals & Controls
+    # VO Step Visuals & Controls
     for step_tuple in visible_steps:
         # tuple: (step_dict, action_scope_key, action_key, feedback_key, visual_id)
         s, scope_key, a_key, f_key, v_id = step_tuple
@@ -2258,10 +2227,31 @@ def _render_single_segment_block(
         # Determine fixed embed key for consistency
         this_embed_key = f"{slide_idx}-{seg_num}-{s['step_index']}"
         
+        # 1. Visual Assigned
         _render_inspector_step_visual(
             cur_asset, cur_type, cur_display, this_embed_key, drive
         )
         
+        # 2. Toggles for candidate images and videos
+        step_cand_key = f"{this_embed_key}-cand"
+        
+        _fragment_candidate_images_expander(
+            image_pool_text=image_pool_text,
+            segment_num=seg_num,
+            slide_idx=slide_idx,
+            target_step_index=s['step_index'],
+            drive=drive,
+            embed_key_prefix=step_cand_key,
+        )
+        
+        _fragment_candidate_videos_expander(
+            video_pool_text=video_pool_text,
+            segment_num=seg_num,
+            slide_idx=slide_idx,
+            target_step_index=s['step_index'],
+            embed_key_prefix=step_cand_key,
+        )
+
         if is_ov:
             st.button(
                 "↩️ Undo Re-assignment",
