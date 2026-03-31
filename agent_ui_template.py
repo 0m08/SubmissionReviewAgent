@@ -455,6 +455,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         "--user_email",
                         user_email,
                     ]
+                    if agent_code == "graphics_definition_v2":
+                        cmd.extend(["--machine", "CPU_X_8"])
                     if toggle_values:
                         cmd.extend(["--toggles", json.dumps(toggle_values)])
                     _rt = st.session_state.get("google_oauth_refresh_token")

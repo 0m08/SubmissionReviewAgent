@@ -3183,7 +3183,18 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
     :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :return: Tuple of (replaced_visual_ids_by_segment, old_asset_urls_by_visual_id)
     """
-    
+
+    if "web_results" not in df.columns:
+        if "drive_results" in df.columns:
+            df.insert(int(df.columns.get_loc("drive_results")) + 1, "web_results", "")
+        else:
+            df["web_results"] = ""
+    if "video_pool_other_channels" not in df.columns:
+        if "web_results" in df.columns:
+            df.insert(int(df.columns.get_loc("web_results")) + 1, "video_pool_other_channels", "")
+        else:
+            df["video_pool_other_channels"] = ""
+
     slide_title = _safe_str(row.get("Slide Chunk Title", ""))
     slide_chunk = _safe_str(row.get("Slide Chunk", ""))
     topic_name = _safe_str(row.get("Topic", ""))

@@ -27,11 +27,8 @@ def main():
     parser.add_argument('--regen_output_folder_name', default='', help='Drive output folder name for regen')
     parser.add_argument('--regen_write_final_graphics', default='', help='true/false for writing legacy final_graphics')
     parser.add_argument('--regen_skip_filled_rows', default='', help='true/false resume flag for regen')
-    parser.add_argument(
-        '--google_oauth_refresh_token_b64',
-        default='',
-        help='Base64-encoded UTF-8 Google OAuth refresh token (browser session) for human-feedback Drive uploads on the job',
-    )
+    parser.add_argument('--machine', default='CPU', help='Lightning machine type (e.g., CPU, CPU_X_8). Defaults to CPU.')
+    parser.add_argument('--google_oauth_refresh_token_b64', default='', help='Base64-encoded UTF-8 Google OAuth refresh token (browser session) for human-feedback Drive uploads on the job')
     args = parser.parse_args()
 
     # Use GDRIVE_SA_B64 directly if available, otherwise encode GDRIVE_SA_JSON
@@ -47,8 +44,8 @@ def main():
     vertex_ai_sa_b64 = os.environ.get("VERTEX_AI_SA_B64", "")
 
     # # Main ones
-    studio_name = "course-generation-agents"
-    #studio_name= "current"
+    #studio_name = "course-generation-agents"
+    studio_name= "current"
     teamspace = "Vision-model"
     user = "dilip"
 
@@ -132,11 +129,17 @@ def main():
         f"{hf_args}"
     )
 
+    machine_name = (args.machine or "CPU").strip().upper()
+    machine = getattr(Machine, machine_name, None)
+    if machine is None:
+        print(f"[WARN] Unknown machine '{args.machine}'. Falling back to Machine.CPU.")
+        machine = Machine.CPU
+
     print(f"\n[INFO] Submitting job for agent: {agent}")
     job = jobs_plugin.run(
         command,
         name = f"{agent}-job",
-        machine = Machine.CPU,
+        machine = machine,
         interruptible = True
     )
 
