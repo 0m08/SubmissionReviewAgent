@@ -44,8 +44,8 @@ def main():
     vertex_ai_sa_b64 = os.environ.get("VERTEX_AI_SA_B64", "")
 
     # # Main ones
-    #studio_name = "course-generation-agents"
-    studio_name= "current"
+    studio_name = "course-generation-agents"
+    #studio_name= "current"
     teamspace = "Vision-model"
     user = "dilip"
 
