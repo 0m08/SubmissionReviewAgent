@@ -60,6 +60,7 @@ email_to_role_mapping = {
 
     # HVAC School Users - Access to video search tool only
     "dilip.d.pandey1710@gmail.com": "HVAC School Users",
+    "bryan@kalosflorida.com": "HVAC School Users",
 }
 
 # Default role for users not found in email_to_role_mapping
