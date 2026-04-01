@@ -13,6 +13,13 @@ from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_
     parse_human_feedback_for_row,
     HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN,
     _normalize_vo_for_match,
+    ORIG_PREFIX,
+    MANUAL_PREFIX,
+    AFTER_REV_PREFIX,
+    AFTER_REGEN1_PREFIX,
+    AFTER_REGEN2_PREFIX,
+    NO_REPLACEMENT,
+    _parse_tracking_column,
 )
 from agents.graphics_definition_v2.review_agent.review_and_revise import (
     build_segment_visual_map,
@@ -28,12 +35,7 @@ HF_VIS_COLUMN_PREFIX = "hf_vis_"
 # Pixel size for Original/Revised visual columns and for data rows that contain them
 HF_VIS_DIMENSION_PX = 200
 
-# Tracking line prefixes (must match _format_human_feedback_revision_tracking)
-ORIG_PREFIX = "Original visual - "
-AFTER_REV_PREFIX = "After revision - "
-AFTER_REGEN1_PREFIX = "After regeneration loop 1 - "
-AFTER_REGEN2_PREFIX = "After regeneration loop 2 - "
-NO_REPLACEMENT = "No replacement"
+# (Prefixes imported from human_feedback_based_review_and_revise)
 
 
 def _is_youtube_or_embed_url(url: str) -> bool:
@@ -187,52 +189,9 @@ def _cell_value_for_url(url: str) -> str:
     return f'=IMAGE("{esc}")'
 
 
-def _parse_tracking_column(text: str) -> Dict[str, Dict[str, Optional[str]]]:
-    """
-    Parse human_feedback_revision_tracking column text into visual_id -> stages.
-    Returns dict: visual_id -> {original, after_revision, after_regen_1, after_regen_2}
-    """
-    out: Dict[str, Dict[str, Optional[str]]] = {}
-    if not text or not text.strip() or text.strip() == "nan":
-        return out
-
-    current_id: Optional[str] = None
-    data: Optional[Dict[str, Optional[str]]] = None
-    for line in text.splitlines():
-        line_stripped = line.strip()
-        if re.match(r"^S\d+V\d+$", line_stripped):
-            if current_id and data:
-                out[current_id] = data
-            current_id = line_stripped
-            data = {
-                "original": None,
-                "after_revision": None,
-                "after_regen_1": None,
-                "after_regen_2": None,
-            }
-            continue
-        if not current_id or data is None:
-            continue
-        if line_stripped.startswith(ORIG_PREFIX):
-            v = line_stripped[len(ORIG_PREFIX) :].strip()
-            data["original"] = None if v == "(not found)" else v
-        elif line_stripped.startswith(AFTER_REV_PREFIX):
-            v = line_stripped[len(AFTER_REV_PREFIX) :].strip()
-            data["after_revision"] = None if v == NO_REPLACEMENT else v
-        elif line_stripped.startswith(AFTER_REGEN1_PREFIX):
-            v = line_stripped[len(AFTER_REGEN1_PREFIX) :].strip()
-            data["after_regen_1"] = None if v == NO_REPLACEMENT else v
-        elif line_stripped.startswith(AFTER_REGEN2_PREFIX):
-            v = line_stripped[len(AFTER_REGEN2_PREFIX) :].strip()
-            data["after_regen_2"] = None if v == NO_REPLACEMENT else v
-    if current_id and data:
-        out[current_id] = data
-    return out
-
-
 def _final_url_from_tracking(data: Dict[str, Optional[str]], original_fallback: Optional[str]) -> Optional[str]:
     """Last non-null stage wins; else original."""
-    for key in ("after_regen_2", "after_regen_1", "after_revision"):
+    for key in ("after_regen_2", "after_regen_1", "after_revision", "manually_selected"):
         v = data.get(key)
         if v:
             return v

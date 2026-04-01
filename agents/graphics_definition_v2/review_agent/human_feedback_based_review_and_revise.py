@@ -63,6 +63,15 @@ MAX_HUMAN_FEEDBACK_REGEN_ATTEMPTS = 2
 AI_GENERATED_IMAGES_FOLDER_ID = "1c3rmYhF8kCrJVv3ui1-362mr90OCkEqB"
 AI_NO_FEEDBACK_MARKER = "No Feedback"
 
+# Tracking line prefixes (must match _format_human_feedback_revision_tracking)
+ORIG_PREFIX = "Original visual - "
+MANUAL_PREFIX = "Manual Selection - "
+AFTER_REV_PREFIX = "After revision - "
+AFTER_REGEN1_PREFIX = "After regeneration loop 1 - "
+AFTER_REGEN2_PREFIX = "After regeneration loop 2 - "
+NO_REPLACEMENT = "No replacement"
+HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN = "human_feedback_revision_tracking"
+
 
 # ===========================================================================
 # PROMPTS
@@ -1499,6 +1508,7 @@ def process_human_feedback_row(
         voiceover_text = _safe_str(row.get("voiceover_segment", ""))
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
         human_feedback_raw = _safe_str(row.get(human_feedback_column, ""))
+        tracking_raw = _safe_str(row.get(human_feedback_revision_tracking_column, ""))
         actions_map, segment_mode_map = _parse_actions_payload(row.get(human_review_actions_column, ""))
         round_index = 0
         m_round = re.search(r"_(\d+)$", str(human_feedback_column))
@@ -1536,7 +1546,9 @@ def process_human_feedback_row(
 
         reviewed_segment_nums = list(feedback_by_segment.keys())
         # Only track visuals whose VO had human feedback (not every visual in the segment)
-        hf_revision_tracking = _initialize_human_feedback_revision_tracking(segments_map, feedback_by_segment)
+        hf_revision_tracking = _initialize_human_feedback_revision_tracking(
+            segments_map, feedback_by_segment, existing_tracking_text=tracking_raw
+        )
 
         original_visuals_by_segment: Dict[int, List[dict]] = {}
         vo_parts_with_feedback_by_segment: Dict[int, Set[str]] = {}
@@ -2182,20 +2194,20 @@ def _get_asset_url_for_visual(segments_map, visual_id):
     return None
 
 
-def _initialize_human_feedback_revision_tracking(segments_map, feedback_by_segment):
+def _initialize_human_feedback_revision_tracking(segments_map, feedback_by_segment, existing_tracking_text=None):
     """
-    Initialize revision tracking only for visuals whose voiceover had human feedback.
-
-    Segments can have multiple visuals (e.g. S2V1, S2V2); if feedback targets only
-    one VO, we must not add every visual in that segment or the sheet shows spurious
-    "No replacement" blocks for visuals that were never revised.
+    Initialize revision tracking by merging existing tracking data with new revision targets.
+    This preserves "Manual Selection" and "Original" URLs even during AI revision cycles.
 
     :param segments_map: Map of segment_num to segment data
     :param feedback_by_segment: segment_num -> list of (vo_part, fb_text)
-    :return: Tracking dict keyed by visual_id with original and stage URLs
+    :param existing_tracking_text: Raw string from the sheet's tracking column
+    :return: Tracking dict keyed by visual_id with merged state
     """
+    # 1. Parse existing tracking text if provided
+    tracking = _parse_tracking_column(existing_tracking_text) if existing_tracking_text else {}
     
-    tracking: Dict[str, Dict[str, Optional[str]]] = {}
+    # 2. Ensure all visuals with feedback are represented
     for seg_num, vo_fb_pairs in feedback_by_segment.items():
         vo_parts_with_feedback = {_normalize_vo_for_match(vo_part) for vo_part, _ in vo_fb_pairs}
         segment = segments_map.get(seg_num, {})
@@ -2205,9 +2217,10 @@ def _initialize_human_feedback_revision_tracking(segments_map, feedback_by_segme
                 continue
             visual_id = step.get("visual_id", "")
             asset = step.get("asset", "")
-            if visual_id:
+            if visual_id and visual_id not in tracking:
                 tracking[visual_id] = {
                     "original": asset or None,
+                    "manually_selected": None,
                     "after_revision": None,
                     "after_regen_1": None,
                     "after_regen_2": None,
@@ -2260,6 +2273,53 @@ def _update_human_feedback_revision_tracking(tracking, stage, segments_map, repl
             tracking[visual_id][stage] = None
 
 
+def _parse_tracking_column(text: str) -> Dict[str, Dict[str, Optional[str]]]:
+    """
+    Parse human_feedback_revision_tracking column text into visual_id -> stages.
+    Returns dict: visual_id -> {original, manually_selected, after_revision, after_regen_1, after_regen_2}
+    """
+    out: Dict[str, Dict[str, Optional[str]]] = {}
+    if not text or not text.strip() or text.strip() == "nan":
+        return out
+
+    current_id: Optional[str] = None
+    data: Optional[Dict[str, Optional[str]]] = None
+    for line in text.splitlines():
+        line_stripped = line.strip()
+        if re.match(r"^S\d+V\d+$", line_stripped):
+            if current_id and data:
+                out[current_id] = data
+            current_id = line_stripped
+            data = {
+                "original": None,
+                "manually_selected": None,
+                "after_revision": None,
+                "after_regen_1": None,
+                "after_regen_2": None,
+            }
+            continue
+        if not current_id or data is None:
+            continue
+        if line_stripped.startswith(ORIG_PREFIX):
+            v = line_stripped[len(ORIG_PREFIX) :].strip()
+            data["original"] = None if v == "(not found)" else v
+        elif line_stripped.startswith(MANUAL_PREFIX):
+            v = line_stripped[len(MANUAL_PREFIX) :].strip()
+            data["manually_selected"] = None if v == NO_REPLACEMENT else v
+        elif line_stripped.startswith(AFTER_REV_PREFIX):
+            v = line_stripped[len(AFTER_REV_PREFIX) :].strip()
+            data["after_revision"] = None if v == NO_REPLACEMENT else v
+        elif line_stripped.startswith(AFTER_REGEN1_PREFIX):
+            v = line_stripped[len(AFTER_REGEN1_PREFIX) :].strip()
+            data["after_regen_1"] = None if v == NO_REPLACEMENT else v
+        elif line_stripped.startswith(AFTER_REGEN2_PREFIX):
+            v = line_stripped[len(AFTER_REGEN2_PREFIX) :].strip()
+            data["after_regen_2"] = None if v == NO_REPLACEMENT else v
+    if current_id and data:
+        out[current_id] = data
+    return out
+
+
 def _format_human_feedback_revision_tracking(tracking):
     """
     Format human-feedback revision tracking into a readable string for the sheet column.
@@ -2286,6 +2346,9 @@ def _format_human_feedback_revision_tracking(tracking):
         data = tracking[visual_id]
         orig = data.get("original")
         lines.append(f"Original visual - {orig if orig else '(not found)'}")
+        ms = data.get("manually_selected")
+        if ms:
+            lines.append(f"Manual Selection - {ms}")
         ar = data.get("after_revision")
         lines.append(f"After revision - {ar if ar else 'No replacement'}")
         r1 = data.get("after_regen_1")
