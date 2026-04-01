@@ -87,6 +87,8 @@ except Exception:
 
 def login():
     """Direct Google OAuth authentication - no username/password required."""
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=200)
     st.header("SkillCat AI Agents Ecosystem")
     
     # Handle OAuth callback first (when Google redirects back with ?code=...)
@@ -428,6 +430,8 @@ PAGE_DESCRIPTIONS = {
 
 
 def list_of_agents():
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=200)
     st.header("SkillCat AI Agents Ecosystem")
 
     effective_role = st.session_state.get("impersonated_role", st.session_state.get("role"))
