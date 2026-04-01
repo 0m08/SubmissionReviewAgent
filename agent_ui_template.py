@@ -27,7 +27,6 @@ from services.helper_functions import get_short_name
 from services.background_job_status_service import (
     get_latest_background_status,
     append_background_job_status,
-    clear_background_status_rows,
     IN_PROGRESS_STATUSES,
 )
 import re
@@ -366,13 +365,19 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             unsafe_allow_html=True
         )
 
-        # Three columns for actions on the same line
-        button_col1, button_col2, button_col3 = st.columns([1, 1, 1])
+        # Two primary actions on the same row
+        button_col1, button_col2 = st.columns([1, 1])
         with button_col1:
             run_all_automated = st.button("Run All Automated Steps", type="primary")
         with button_col2:
             run_in_background = st.button("Run the Agent in Background", type="primary")
-        with button_col3:
+
+        # Status button on next row, right side (under background-run button)
+        status_row_left, status_row_right = st.columns([1, 1])
+        with status_row_left:
+            if 'role' in st.session_state:
+                st.checkbox(label="Skip Manual Steps", value=False, key="skip_manual_step")
+        with status_row_right:
             check_background_status = st.button("Background Job Status")
 
         agent_code_for_state = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
@@ -414,9 +419,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
         # Admin exclusive features
         if 'role' in st.session_state: #and st.session_state['role'] == 'Admin':
-            # Skip Manual Steps
-            st.checkbox(label = "Skip Manual Steps", value = False, key = "skip_manual_step")
-            
             # # Reset completed steps option
             # if st.button("Reset All Completed Steps"):
             #     for section in pipeline_sections:
@@ -476,17 +478,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                             f"A background job is already in progress for this sheet and agent (status: {latest_status})."
                         )
                         return
-
-                    if latest_status == "failed":
-                        try:
-                            if st.session_state.get("gc") is not None:
-                                clear_background_status_rows(
-                                    gc=st.session_state["gc"],
-                                    sheet_link=sheet_link,
-                                    agent_name=step_name,
-                                )
-                        except Exception:
-                            pass
 
                     # Ensure environment variables are loaded
                     load_dotenv()
@@ -598,7 +589,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                 pass
                         st.success("Background job submitted.")
                         st.markdown(f"**Background job:** [{job_link}]({job_link})")
-                        st.markdown("**Background job status:** `pending`")
                     elif job_name:
                         st.session_state[background_name_key] = job_name
                         st.session_state.pop(background_link_key, None)
@@ -620,7 +610,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                 pass
                         st.success("Background job submitted.")
                         st.markdown(f"**Background job:** `{job_name}`")
-                        st.markdown("**Background job status:** `pending`")
                         with st.expander("Launcher output (no job link found)", expanded=False):
                             st.code(logs[-5000:] if len(logs) > 5000 else logs)
                     else:

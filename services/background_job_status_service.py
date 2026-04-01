@@ -1,7 +1,39 @@
 from datetime import datetime
+import re
+
 import gspread
 
 from services.sheets_service import format_worksheet
+
+# Match both docs.google.com/.../spreadsheets/d/ID and /d/ID forms.
+_SPREADSHEET_ID_RE = re.compile(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", re.I)
+_SPREADSHEET_ID_FALLBACK_RE = re.compile(r"/d/([a-zA-Z0-9_-]+)", re.I)
+
+
+def _spreadsheet_id_from_url(url: str) -> str:
+    if not url:
+        return ""
+    u = url.strip()
+    m = _SPREADSHEET_ID_RE.search(u) or _SPREADSHEET_ID_FALLBACK_RE.search(u)
+    return m.group(1) if m else ""
+
+
+def _sheet_link_matches_session(session_link: str, row_link: str) -> bool:
+    """
+    Same spreadsheet after re-login often uses a different URL string (#gid, ?usp=sharing, etc.).
+    Compare by spreadsheet ID; allow legacy rows with an empty Sheet Link cell.
+    """
+    session_link = (session_link or "").strip()
+    row_link = (row_link or "").strip()
+    if not session_link:
+        return True
+    if not row_link:
+        return True
+    sid_a = _spreadsheet_id_from_url(session_link)
+    sid_b = _spreadsheet_id_from_url(row_link)
+    if sid_a and sid_b:
+        return sid_a == sid_b
+    return session_link == row_link
 
 
 BACKGROUND_STATUS_HEADERS = [
@@ -107,7 +139,9 @@ def get_latest_background_status(
             continue
         if agent_name and str(rec.get("Agent Name", "")).strip() != agent_name:
             continue
-        if sheet_link and str(rec.get("Sheet Link", "")).strip() != sheet_link:
+        if sheet_link and not _sheet_link_matches_session(
+            sheet_link, str(rec.get("Sheet Link", ""))
+        ):
             continue
         return rec
     return None
@@ -132,13 +166,3 @@ def should_append_status(gc: gspread.Client, run_id: str, new_status: str, sheet
     prev = str(rec.get("Status", "")).strip().lower()
     curr = str(new_status or "").strip().lower()
     return prev != curr
-
-
-def clear_background_status_rows(gc: gspread.Client, sheet_link: str, agent_name: str) -> None:
-    ws = _get_status_ws(gc, sheet_link, agent_name, create_if_missing=True)
-    if ws is None:
-        return
-    total_rows = ws.row_count
-    if total_rows <= 1:
-        return
-    ws.batch_clear([f"A2:H{total_rows}"])
