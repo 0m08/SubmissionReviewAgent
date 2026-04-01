@@ -513,7 +513,6 @@ def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", m
                 if progress.should_save():
                     print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                     save_to_sheet(worksheet, df)
-                    format_worksheet(worksheet)
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed

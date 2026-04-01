@@ -3166,7 +3166,7 @@ def update_final_graphics_definition(original_text, updated_segments):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def regenerate_failed_segments(row_index, row, df, course_name, target_audience, drive, llm, failed_segments, feedback_by_segment, ws=None, use_only_drive_and_hvac=False):
+def regenerate_failed_segments(row_index, row, df, course_name, target_audience, drive, llm, failed_segments, feedback_by_segment, ws=None, use_only_drive_and_hvac=False, create_aux_search_columns_if_missing=False):
     """
     Regenerate visuals for failed segments: new search queries, search execution, and revision.
 
@@ -3181,19 +3181,20 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
     :param feedback_by_segment: Map of segment_num -> feedback string
     :param ws: Worksheet object or None
     :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
+    :param create_aux_search_columns_if_missing: If True, create web_results and video_pool_other_channels when missing.
     :return: Tuple of (replaced_visual_ids_by_segment, old_asset_urls_by_visual_id)
     """
-
-    if "web_results" not in df.columns:
-        if "drive_results" in df.columns:
-            df.insert(int(df.columns.get_loc("drive_results")) + 1, "web_results", "")
-        else:
-            df["web_results"] = ""
-    if "video_pool_other_channels" not in df.columns:
-        if "web_results" in df.columns:
-            df.insert(int(df.columns.get_loc("web_results")) + 1, "video_pool_other_channels", "")
-        else:
-            df["video_pool_other_channels"] = ""
+    if create_aux_search_columns_if_missing:
+        if "web_results" not in df.columns:
+            if "drive_results" in df.columns:
+                df.insert(int(df.columns.get_loc("drive_results")) + 1, "web_results", "")
+            else:
+                df["web_results"] = ""
+        if "video_pool_other_channels" not in df.columns:
+            if "web_results" in df.columns:
+                df.insert(int(df.columns.get_loc("web_results")) + 1, "video_pool_other_channels", "")
+            else:
+                df["video_pool_other_channels"] = ""
 
     slide_title = _safe_str(row.get("Slide Chunk Title", ""))
     slide_chunk = _safe_str(row.get("Slide Chunk", ""))
@@ -3287,7 +3288,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
 
         if use_only_drive_and_hvac:
             print(f"    Segment {segment_num}: Skipping web search (drive + HVAC only mode)")
-        else:
+        elif "web_results" in df.columns:
             try:
                 print(f"    Segment {segment_num}: Searching web...")
                 seg_num, web_results = process_web_search_segment(segment_num, queries)
@@ -3306,6 +3307,8 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
             except Exception as e:
                 print(f"  ERROR: Web search failed for segment {segment_num} (continuing with video searches): {e}")
                 traceback.print_exc()
+        else:
+            pass
 
         if not skip_video_candidates:
             try:
@@ -3329,7 +3332,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
 
             if use_only_drive_and_hvac:
                 print(f"    Segment {segment_num}: Skipping other-channels video search (drive + HVAC only mode)")
-            else:
+            elif "video_pool_other_channels" in df.columns:
                 segment_sentence = ""
                 for seg_idx, seg_text in voiceover_segments:
                     if seg_idx == segment_num:
@@ -3353,6 +3356,8 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                 except Exception as e:
                     print(f"  ERROR: Other-channels search failed for segment {segment_num}: {e}")
                     traceback.print_exc()
+            else:
+                pass
         else:
             print(f"Segment {segment_num}: Skipping video pool and other-channels search (transition slide)")
 
@@ -4880,7 +4885,6 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
             print(f"  Skipping row {row_index + 1}: Transition slide (review disabled)")
             return
 
@@ -4984,7 +4988,6 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
             print(f"  Saving row {row_index + 1} to sheet immediately...")
             with _sheet_lock:
                 save_to_sheet(ws, df)
-                format_worksheet(ws)
             print(f"  ✓ Row {row_index + 1} saved successfully")
             
     except Exception as e:
@@ -4995,7 +4998,6 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
         if ws is not None:
             with _sheet_lock:
                 save_to_sheet(ws, df)
-                format_worksheet(ws)
         raise  # Re-raise to be caught by the executor
 
 

@@ -931,14 +931,12 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                     if progress.should_save():
                         print(f"💾 Saving progress after {progress.completed_count} row(s)...")
                         save_to_sheet(ws, df)
-                        format_worksheet(ws)
                 except Exception as e:
                     print(f"❌ Error processing row {index}: {e}")
                     df.at[index, "layout_instructions"] = f"ERROR: {str(e)}"
                     df.at[index, "layout_evaluation"] = f"ERROR: {str(e)}"
                     progress.update()
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
     else:
         # Sequential fallback
         print(f"Processing {len(rows_to_process)} row(s) sequentially...\n")
@@ -968,14 +966,12 @@ def run_layout_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_work
                 if progress.should_save():
                     print(f"💾 Saving progress after row {index + 2}...")
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
             except Exception as e:
                 print(f"❌ Error processing row {index}: {e}")
                 df.at[index, "layout_instructions"] = f"ERROR: {str(e)}"
                 df.at[index, "layout_evaluation"] = f"ERROR: {str(e)}"
                 progress.update()
                 save_to_sheet(ws, df)
-                format_worksheet(ws)
     
     # Final save
     print("💾 Saving final layout results...")

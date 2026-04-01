@@ -135,12 +135,20 @@ def main():
         print(f"[WARN] Unknown machine '{args.machine}'. Falling back to Machine.CPU.")
         machine = Machine.CPU
 
+    gdv2_agent_markers = (
+        "graphics_definition_v2",
+        "human_feedback_review_revise",
+    )
+    is_gdv2_related_job = any(marker in (agent or "") for marker in gdv2_agent_markers)
+    interruptible = not is_gdv2_related_job
+
     print(f"\n[INFO] Submitting job for agent: {agent}")
+    print(f"[INFO] interruptible={interruptible}")
     job = jobs_plugin.run(
         command,
         name = f"{agent}-job",
         machine = machine,
-        interruptible = True
+        interruptible = interruptible
     )
 
 

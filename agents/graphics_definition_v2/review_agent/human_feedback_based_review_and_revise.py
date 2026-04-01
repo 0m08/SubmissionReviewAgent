@@ -1530,7 +1530,6 @@ def process_human_feedback_row(
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
             return
 
         print(f"  Parsed human feedback for {len(feedback_by_segment)} segment(s): {list(feedback_by_segment.keys())}")
@@ -1738,7 +1737,6 @@ def process_human_feedback_row(
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
             if ai_generation_errors and not updated_segments:
                 print(f"Row {row_index + 1}: ERROR (AI upload failed; no revisions saved)")
             else:
@@ -1777,7 +1775,6 @@ def process_human_feedback_row(
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
             print(f"Row {row_index + 1}: PASS")
             return
 
@@ -1828,6 +1825,7 @@ def process_human_feedback_row(
                     feedback_by_segment=all_feedback,
                     ws=ws,
                     use_only_drive_and_hvac=False,
+                    create_aux_search_columns_if_missing=True,
                 )
                 replaced_visual_ids_by_segment.update(a_rep or {})
                 old_asset_urls_by_visual_id.update(a_old or {})
@@ -1913,7 +1911,6 @@ def process_human_feedback_row(
                 if ws is not None:
                     with _sheet_lock:
                         save_to_sheet(ws, df)
-                        format_worksheet(ws)
                 print(f"Row {row_index + 1}: PASS (after regen attempt {attempt})")
                 return
             else:
@@ -1931,7 +1928,6 @@ def process_human_feedback_row(
         if ws is not None:
             with _sheet_lock:
                 save_to_sheet(ws, df)
-                format_worksheet(ws)
         print(f"  Row {row_index + 1}: FAIL after {MAX_HUMAN_FEEDBACK_REGEN_ATTEMPTS} regen attempts")
 
     except Exception as e:
@@ -1940,7 +1936,6 @@ def process_human_feedback_row(
         if ws is not None:
             with _sheet_lock:
                 save_to_sheet(ws, df)
-                format_worksheet(ws)
         raise
 
 
@@ -1978,7 +1973,6 @@ def _finalize_row(row_index, df, drive, ws):
         print(f"  Saving finalized row {row_index + 1} to sheet...")
         with _sheet_lock:
             save_to_sheet(ws, df)
-            format_worksheet(ws)
         print(f"  Row {row_index + 1} saved")
 
 
