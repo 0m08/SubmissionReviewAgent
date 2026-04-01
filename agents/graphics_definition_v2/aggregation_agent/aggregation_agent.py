@@ -3877,7 +3877,6 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 # Save immediately after each row completes
                 print(f'Saving row {row_index + 2} to sheet immediately.')
                 save_to_sheet(ws, df)
-                format_worksheet(ws)
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
@@ -3886,7 +3885,6 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 # Save immediately even on error
                 print(f'Saving row {index + 2} (with error) to sheet immediately.')
                 save_to_sheet(ws, df)
-                format_worksheet(ws)
 
     # Save final results before validation
     save_to_sheet(ws, df)
@@ -3946,14 +3944,12 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                     # Save immediately after each row completes in retry
                     print(f'Saving row {row_index + 2} (retry) to sheet immediately.')
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
                 except Exception as e:
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
                     # Save immediately even on error in retry
                     print(f'Saving row {index + 2} (retry, with error) to sheet immediately.')
                     save_to_sheet(ws, df)
-                    format_worksheet(ws)
     
     if retry_count > 0:
         # Check final state

@@ -373,7 +373,6 @@ def run_generate_video_search_query_for_all_rows(sheet, llm="gemini_3_flash_thin
                 if progress.should_save():
                     print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                     save_to_sheet(worksheet, df)
-                    format_worksheet(worksheet)
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed

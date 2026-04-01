@@ -1986,10 +1986,6 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     if latest_archive_col and (has_partial_output or not has_any_output):
                         archive_col = latest_archive_col
                         skip_filled_rows_for_regen = True
-                        st.info(
-                            f"Resuming interrupted regeneration from '{archive_col}'. "
-                            "Only remaining rows will be processed."
-                        )
                     else:
                         max_n = archive_cols[-1][0] if archive_cols else 0
                         next_n = max_n + 1
@@ -2032,6 +2028,8 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                         "false",
                         "--regen_skip_filled_rows",
                         "true" if skip_filled_rows_for_regen else "false",
+                        "--machine",
+                        "CPU_X_8",
                     ]
 
                     _rt = st.session_state.get("google_oauth_refresh_token")
@@ -2266,6 +2264,8 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             "gemini_3_flash_thinking",
                             "--max_workers",
                             "50",
+                            "--machine",
+                            "CPU_X_8",
                         ]
                         _rt = st.session_state.get("google_oauth_refresh_token")
                         if _rt:

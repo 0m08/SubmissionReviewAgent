@@ -460,7 +460,7 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
 
     :param sheet: The gspread sheet object.
     :param llm: The language model to use.
-    :param max_workers: Number of parallel workers (default 5).
+    :param max_workers: Number of parallel workers (default 50).
     :return: None
     """
     worksheet_name = "Slide Chunks"
@@ -506,7 +506,7 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
         progress = SmartProgressBar(
             total_tasks=total_tasks,
             description="Generating storyboards",
-            save_interval=5
+            save_interval=25
         )
 
         # Collect results as they complete
@@ -521,11 +521,9 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
                 # Update progress
                 progress.update()
                 
-                # Save every 5 rows
                 if progress.should_save():
                     print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                     save_to_sheet(worksheet, df)
-                    format_worksheet(worksheet)
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
@@ -534,7 +532,6 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
 
     # Save final results before validation 
     save_to_sheet(worksheet, df)
-    format_worksheet(worksheet)
 
     # Validation and retry logic
     max_retries = 3
@@ -564,13 +561,9 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
         retry_count += 1
         print(f"\n⚠️ Found {len(invalid_rows)} rows with Slide Chunk but empty storyboard_planning. Retrying (attempt {retry_count}/{max_retries})...")
         
-        # Clear storyboard_planning for invalid rows
+        # Clear storyboard_planning in memory for invalid rows.
         for index, row in invalid_rows:
             df.at[index, "storyboard_planning"] = ""
-        
-        # Save cleared state
-        save_to_sheet(worksheet, df)
-        format_worksheet(worksheet)
         
         # Retry processing invalid rows
         futures_map = {}
@@ -591,7 +584,6 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
         
         # Save after retry
         save_to_sheet(worksheet, df)
-        format_worksheet(worksheet)
     
     if retry_count > 0:
         # Check final state
