@@ -22,7 +22,14 @@ from langtrace_python_sdk import langtrace # Must precede any llm module imports
 import tempfile, json, base64
 import subprocess
 import sys
+
 from services.helper_functions import get_short_name
+from services.background_job_status_service import (
+    get_latest_background_status,
+    append_background_job_status,
+    clear_background_status_rows,
+    IN_PROGRESS_STATUSES,
+)
 import re
 
 # Mapping from display names used in the Streamlit UI to the
@@ -359,22 +366,51 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             unsafe_allow_html=True
         )
 
-        # Two columns for the buttons, placed horizontally on the same line
-        button_col1, button_col2 = st.columns([1, 1])
+        # Three columns for actions on the same line
+        button_col1, button_col2, button_col3 = st.columns([1, 1, 1])
         with button_col1:
             run_all_automated = st.button("Run All Automated Steps", type="primary")
         with button_col2:
             run_in_background = st.button("Run the Agent in Background", type="primary")
+        with button_col3:
+            check_background_status = st.button("Background Job Status")
 
         agent_code_for_state = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
         background_link_key = f"background_job_link::{agent_code_for_state}"
         background_name_key = f"background_job_name::{agent_code_for_state}"
+        background_run_id_key = f"background_job_run_id::{agent_code_for_state}"
         if st.session_state.get(background_link_key):
             st.markdown(
                 f"**Background job:** [{st.session_state[background_link_key]}]({st.session_state[background_link_key]})"
             )
         elif st.session_state.get(background_name_key):
             st.markdown(f"**Background job:** `{st.session_state[background_name_key]}`")
+
+        run_id = st.session_state.get(background_run_id_key, "") or ""
+        gc_for_status = st.session_state.get("gc")
+        sheet_link_for_status = (st.session_state.get("sheet_link") or "").strip()
+
+        if check_background_status:
+            if gc_for_status is None or not sheet_link_for_status:
+                st.info("Load sheet first to check background status.")
+            else:
+                try:
+                    status_record = get_latest_background_status(
+                        gc=gc_for_status,
+                        sheet_link=sheet_link_for_status,
+                        agent_name=step_name,
+                        run_id=run_id,
+                    )
+                except Exception:
+                    status_record = None
+                if not status_record:
+                    st.info("No background job has been run yet for this sheet and agent.")
+                else:
+                    status_text = str(status_record.get("Status", "")).strip().lower() or "unknown"
+                    status_time = str(status_record.get("Timestamp", "")).strip()
+                    st.markdown(f"**Background job status:** `{status_text}`")
+                    if status_time:
+                        st.caption(f"Last update: {status_time}")
 
         # Admin exclusive features
         if 'role' in st.session_state: #and st.session_state['role'] == 'Admin':
@@ -420,6 +456,38 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 if not sheet_link or not folder_id:
                     st.error("Sheet link or Drive folder ID missing. Please reload data.")
                 else:
+                    latest_status_record = None
+                    if st.session_state.get("gc") is not None:
+                        try:
+                            latest_status_record = get_latest_background_status(
+                                gc=st.session_state["gc"],
+                                sheet_link=sheet_link,
+                                agent_name=step_name,
+                            )
+                        except Exception:
+                            latest_status_record = None
+
+                    latest_status = ""
+                    if latest_status_record:
+                        latest_status = str(latest_status_record.get("Status", "")).strip().lower()
+
+                    if latest_status in IN_PROGRESS_STATUSES:
+                        st.warning(
+                            f"A background job is already in progress for this sheet and agent (status: {latest_status})."
+                        )
+                        return
+
+                    if latest_status == "failed":
+                        try:
+                            if st.session_state.get("gc") is not None:
+                                clear_background_status_rows(
+                                    gc=st.session_state["gc"],
+                                    sheet_link=sheet_link,
+                                    agent_name=step_name,
+                                )
+                        except Exception:
+                            pass
+
                     # Ensure environment variables are loaded
                     load_dotenv()
                     
@@ -472,8 +540,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         logs = ""
                         job_link = None
                         job_name = None
+                        run_id = None
                         link_re = re.compile(r"^\[JOB_LINK\]\s+(?P<link>\S+)\s*$")
                         name_re = re.compile(r"^\[JOB_NAME\]\s+(?P<name>.+?)\s*$")
+                        run_id_re = re.compile(r"^\[RUN_ID\]\s+(?P<run_id>\S+)\s*$")
                         start = time.time()
                         while True:
                             if process.stdout is None:
@@ -487,6 +557,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                 time.sleep(0.1)
                                 continue
                             logs += line
+                            m0 = run_id_re.match(line.strip())
+                            if m0:
+                                run_id = m0.group("run_id")
                             m = link_re.match(line.strip())
                             if m:
                                 job_link = m.group("link")
@@ -507,13 +580,47 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     if job_link:
                         st.session_state[background_link_key] = job_link
                         st.session_state.pop(background_name_key, None)
+                        if run_id:
+                            st.session_state[background_run_id_key] = run_id
+                            try:
+                                if st.session_state.get("gc") is not None:
+                                    append_background_job_status(
+                                        gc=st.session_state["gc"],
+                                        run_id=run_id,
+                                        user_email=user_email,
+                                        agent_name=step_name,
+                                        status="pending",
+                                        sheet_link=sheet_link or "",
+                                        job_link=job_link,
+                                        message="Submitted from UI; awaiting Lightning execution",
+                                    )
+                            except Exception:
+                                pass
                         st.success("Background job submitted.")
                         st.markdown(f"**Background job:** [{job_link}]({job_link})")
+                        st.markdown("**Background job status:** `pending`")
                     elif job_name:
                         st.session_state[background_name_key] = job_name
                         st.session_state.pop(background_link_key, None)
+                        if run_id:
+                            st.session_state[background_run_id_key] = run_id
+                            try:
+                                if st.session_state.get("gc") is not None:
+                                    append_background_job_status(
+                                        gc=st.session_state["gc"],
+                                        run_id=run_id,
+                                        user_email=user_email,
+                                        agent_name=step_name,
+                                        status="pending",
+                                        sheet_link=sheet_link or "",
+                                        job_link="",
+                                        message="Submitted from UI; awaiting Lightning execution",
+                                    )
+                            except Exception:
+                                pass
                         st.success("Background job submitted.")
                         st.markdown(f"**Background job:** `{job_name}`")
+                        st.markdown("**Background job status:** `pending`")
                         with st.expander("Launcher output (no job link found)", expanded=False):
                             st.code(logs[-5000:] if len(logs) > 5000 else logs)
                     else:

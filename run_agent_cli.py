@@ -2,6 +2,7 @@ import argparse
 import importlib
 import sys
 import os
+import signal
 from datetime import datetime, timedelta
 import streamlit as st
 import json
@@ -10,6 +11,7 @@ from agent_ui_template import log_completed_step, load_completed_steps
 from dotenv import load_dotenv
 from services.email_service import send_notification_email, is_email_configured
 from services.sheets_service import get_sheet_data_and_df
+from services.background_job_status_service import append_background_job_status
 
 # Google Sheets / Drive
 import gspread
@@ -51,6 +53,7 @@ parser.add_argument("--regen_output_column", default="final_graphics_definition"
 parser.add_argument("--regen_output_folder_name", default="Web Image Regeneration")
 parser.add_argument("--regen_write_final_graphics", default="false")
 parser.add_argument("--regen_skip_filled_rows", default="false")
+parser.add_argument("--run_id", default="", help="Launcher-generated background run identifier")
 args = parser.parse_args()
 
 AGENT_DISPLAY_NAMES = {
@@ -321,6 +324,8 @@ for k, v in session_state.items():
 user_email = (args.user_email or os.environ.get("USER_EMAIL", "")).strip()
 course_name = session_state.get("course_name", "Unknown course")
 notify = False
+run_id = (args.run_id or "").strip()
+terminal_notification_sent = False
 if not user_email:
     print("[INFO] No USER_EMAIL set; skipping notification emails.")
 elif not is_email_configured():
@@ -377,6 +382,86 @@ if notify:
         print(f"[INFO] Sent 'agent is running' notification to {user_email}")
 
 try:
+    append_background_job_status(
+        gc=gc,
+        run_id=run_id,
+        user_email=user_email,
+        agent_name=ui_agent_name,
+        status="running",
+        sheet_link=sheet_link,
+        message="Background job started",
+    )
+except Exception as _track_err:
+    print(f"[WARNING] Could not write background status 'running': {_track_err}")
+
+
+def _send_stopped_email_and_track(reason: str):
+    global terminal_notification_sent
+    if terminal_notification_sent:
+        return
+    terminal_notification_sent = True
+    stopped_at = _format_time_utc_and_ist()
+    if notify:
+        subject = f"Course generation: {ui_agent_name} AI Agent – Stopped"
+        body = (
+            f"Your {ui_agent_name} AI agent stopped before completion.\n\n"
+            f"————————————————————————————\n"
+            f"AGENT DETAILS\n"
+            f"————————————————————————————\n"
+            f"Agent:      {ui_agent_name}\n"
+            f"Course:     {course_name}\n"
+            f"Stopped at: {stopped_at}\n"
+            f"Status:     Stopped\n\n"
+            f"Input Sheet:  {sheet_link_plain}\n\n"
+            f"Reason: {reason}\n\n"
+            f"————————————————————————————\n"
+            f"RECOMMENDED ACTIONS\n"
+            f"————————————————————————————\n"
+            f"Please re-run the agent again by clicking the 'Run the Agent in Background' button in the app.\n"
+        )
+        body_html = (
+            f"<p>Your {ui_agent_name} AI agent stopped before completion.</p>"
+            f"<hr><p><b>AGENT DETAILS</b></p><hr>"
+            f"<p><b>Agent:</b> {ui_agent_name}<br>"
+            f"<b>Course:</b> {course_name}<br>"
+            f"<b>Stopped at:</b> {stopped_at}<br>"
+            f"<b>Status:</b> Stopped<br>"
+            f"<b>Input Sheet:</b> {sheet_link_html}<br>"
+            f"<b>Reason:</b> {reason}</p>"
+            f"<hr><p><b>RECOMMENDED ACTIONS</b></p><hr>"
+            f"<p>Please re-run the agent again by clicking the 'Run the Agent in Background' button in the app.</p>"
+        )
+        send_notification_email(
+            to_email=user_email,
+            subject=subject,
+            body_plain=body,
+            body_html=body_html,
+        )
+    try:
+        append_background_job_status(
+            gc=gc,
+            run_id=run_id,
+            user_email=user_email,
+            agent_name=ui_agent_name,
+            status="stopped",
+            sheet_link=sheet_link,
+            message=reason,
+        )
+    except Exception as _track_err:
+        print(f"[WARNING] Could not write background status 'stopped': {_track_err}")
+
+
+def _handle_stop_signal(signum, _frame):
+    signame = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+    print(f"[WARNING] Received {signame}; marking run as stopped.")
+    _send_stopped_email_and_track(f"Received {signame} in background job")
+    sys.exit(1)
+
+
+signal.signal(signal.SIGTERM, _handle_stop_signal)
+signal.signal(signal.SIGINT, _handle_stop_signal)
+
+try:
     _run_target()
     if notify:
         completed_at = _format_time_utc_and_ist()
@@ -414,11 +499,24 @@ try:
             body_html=body_html,
         )
         print(f"[INFO] Sent completion notification to {user_email}")
+    terminal_notification_sent = True
+    try:
+        append_background_job_status(
+            gc=gc,
+            run_id=run_id,
+            user_email=user_email,
+            agent_name=ui_agent_name,
+            status="completed",
+            sheet_link=sheet_link,
+            message="Background job completed successfully",
+        )
+    except Exception as _track_err:
+        print(f"[WARNING] Could not write background status 'completed': {_track_err}")
 except Exception as err:
     if notify:
         failed_at = _format_time_utc_and_ist()
         err_escaped = str(err).replace("<", "&lt;").replace(">", "&gt;")
-        subject = f"Course generation: {ui_agent_name} AI Agent – Error"
+        subject = f"Course generation: {ui_agent_name} AI Agent – Failed"
         body = (
             f"Your {ui_agent_name} AI agent encountered an error and did not complete successfully.\n\n"
             f"————————————————————————————\n"
@@ -427,7 +525,7 @@ except Exception as err:
             f"Agent:      {ui_agent_name}\n"
             f"Course:     {course_name}\n"
             f"Failed at:  {failed_at}\n"
-            f"Status:     Error\n\n"
+            f"Status:     Failed\n\n"
             f"Input Sheet:  {sheet_link_plain}\n\n"
             f"————————————————————————————\n"
             f"ERROR MESSAGE\n"
@@ -445,7 +543,7 @@ except Exception as err:
             f"<p><b>Agent:</b> {ui_agent_name}<br>"
             f"<b>Course:</b> {course_name}<br>"
             f"<b>Failed at:</b> {failed_at}<br>"
-            f"<b>Status:</b> Error<br>"
+            f"<b>Status:</b> Failed<br>"
             f"<b>Input Sheet:</b> {sheet_link_html}</p>"
             f"<hr><p><b>ERROR MESSAGE</b></p><hr>"
             f"<p>{err_escaped}</p>"
@@ -460,4 +558,17 @@ except Exception as err:
             body_html=body_html,
         )
         print(f"[INFO] Sent error notification to {user_email}")
+    terminal_notification_sent = True
+    try:
+        append_background_job_status(
+            gc=gc,
+            run_id=run_id,
+            user_email=user_email,
+            agent_name=ui_agent_name,
+            status="failed",
+            sheet_link=sheet_link,
+            message=str(err),
+        )
+    except Exception as _track_err:
+        print(f"[WARNING] Could not write background status 'failed': {_track_err}")
     sys.exit(1)
