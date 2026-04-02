@@ -1955,9 +1955,8 @@ def _do_undo_revision(
         del st.session_state[override_key]
 
     st.toast(f"Undo revision applied for {visual_id}.", icon="↩️")
-    # Fast refresh: rerun only the current fragment so the card updates instantly
-    # without reloading the full app.
-    st.rerun(scope="fragment")
+    # Trigger a full rerun so comparison_payload is rebuilt from the updated n-1 rounds.
+    st.rerun()
 
 
 def _build_comparison_payload_for_visual(
@@ -2587,7 +2586,7 @@ def _render_single_segment_block(
             st.success("Approved")
 
 
-def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False):
+def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False, show_comparison=True):
     if not slides:
         st.info("No slide data to display.")
         return
@@ -2750,14 +2749,16 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 if not visible:
                     continue
 
-                comparison_payload = _build_comparison_payload_for_visual(
-                    slide=slide,
-                    visual_id=visual_id,
-                    current_round=current_round,
-                    current_asset=step.get("asset", ""),
-                    historical_action_by_visual=historical_action_by_visual,
-                    historical_feedback_by_visual=historical_feedback_by_visual,
-                )
+                comparison_payload = None
+                if show_comparison:
+                    comparison_payload = _build_comparison_payload_for_visual(
+                        slide=slide,
+                        visual_id=visual_id,
+                        current_round=current_round,
+                        current_asset=step.get("asset", ""),
+                        historical_action_by_visual=historical_action_by_visual,
+                        historical_feedback_by_visual=historical_feedback_by_visual,
+                    )
 
                 undo_info = _compute_undo_info(
                     slide=slide,
@@ -3599,7 +3600,7 @@ def main():
             st.session_state["gdv2_visual_filter"] = "revised"
         else:
             st.session_state["gdv2_visual_filter"] = "all"
-    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+    filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns(5)
     with filter_col1:
         topic_filter = st.selectbox("Topic", options=["All"] + topic_values)
     with filter_col2:
@@ -3631,6 +3632,8 @@ def main():
             key="gdv2_visual_filter",
             format_func=lambda x: x.capitalize(),
         )
+    with filter_col5:
+        show_comparison = st.checkbox("Show Comparison", value=True, key="gdv2_show_comparison")
 
     filtered_df = df.copy()
     if topic_filter != "All" and column_map["topic"]:
@@ -3703,6 +3706,7 @@ def main():
         current_round=int(st.session_state.get("gdv2_round", 0)),
         action_filter=visual_filter,
         include_unreviewed_with_revised=int(st.session_state.get("gdv2_round", 0)) > 0,
+        show_comparison=show_comparison,
     )
 
 
