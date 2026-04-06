@@ -286,7 +286,21 @@ def _build_row_review_payload(slide, row_actions, current_round):
 
     # ── Map manual overrides for tracking ───────────────────────────────────
     # If a manual override is present, we update the tracking history.
-    tracking_text = safe_str(slide.get(get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round), "")).strip()
+    # Seed from current round first; if empty, fall back to latest previous
+    # round so n-1 history still drives current UI behavior.
+    current_tracking_col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
+    tracking_text = safe_str(slide.get(current_tracking_col_name, "")).strip()
+    if (
+        (not tracking_text or tracking_text.lower() == "nan")
+        and override_map
+        and int(current_round) > 0
+    ):
+        for prev_round_idx in range(int(current_round) - 1, -1, -1):
+            prev_col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, prev_round_idx)
+            prev_tracking_text = safe_str(slide.get(prev_col_name, "")).strip()
+            if prev_tracking_text and prev_tracking_text.lower() != "nan":
+                tracking_text = prev_tracking_text
+                break
     tracking_data = _parse_tracking_column(tracking_text)
     
     for (seg_idx, step_idx), new_url in override_map.items():
@@ -1783,35 +1797,319 @@ def _get_inspector_video_html(asset, embed_key):
     return html
 
 
-def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, drive):
-    """Image/video only — no widgets. Safe to run inside st.fragment."""
+def _find_latest_tracking_entry(slide, visual_id, current_round):
+    """Return the latest tracking entry for a visual up to current round."""
+    for round_idx in range(int(current_round), -1, -1):
+        col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, round_idx)
+        tracking_text = safe_str(slide.get(col_name, "")).strip()
+        if not tracking_text or tracking_text.lower() == "nan":
+            continue
+        tracking_data = _parse_tracking_column(tracking_text)
+        if not isinstance(tracking_data, dict):
+            continue
+        entry = tracking_data.get(visual_id)
+        if isinstance(entry, dict):
+            return entry
+    return {}
+
+
+def _compute_undo_info(slide, visual_id, current_round):
+    """
+    Scan tracking columns (latest round first) to find the newest one that has
+    an actual revision recorded for this visual_id (after_revision, after_regen_1,
+    or after_regen_2 is non-None).
+
+    Returns a dict of all args needed by _do_undo_revision, or None if nothing
+    to undo.
+    """
+    seg_match = re.match(r"S(\d+)V(\d+)", visual_id)
+    if not seg_match:
+        return None
+    seg_idx = int(seg_match.group(1))
+    step_idx = int(seg_match.group(2))
+
+    for round_idx in range(int(current_round), -1, -1):
+        col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, round_idx)
+        tracking_text = safe_str(slide.get(col_name, "")).strip()
+        if not tracking_text or tracking_text.lower() == "nan":
+            continue
+        tracking_data = _parse_tracking_column(tracking_text)
+        if not isinstance(tracking_data, dict):
+            continue
+        entry = tracking_data.get(visual_id)
+        if not isinstance(entry, dict):
+            continue
+        # Only allow undo when at least one revision key is filled
+        has_revision = any(
+            entry.get(k) is not None
+            for k in ("after_revision", "after_regen_1", "after_regen_2")
+        )
+        if not has_revision:
+            continue
+        original_url = safe_str(entry.get("original", "")).strip()
+        if not original_url:
+            continue
+        return {
+            "tracking_round_idx": round_idx,
+            "tracking_col_name": col_name,
+            "current_tracking_text": tracking_text,
+            "original_url": original_url,
+            "seg_idx": seg_idx,
+            "step_idx": step_idx,
+            "raw_def": safe_str(slide.get("final_definition_raw", "")).strip(),
+            "parsed_segments": slide.get("segments", []),
+        }
+    return None
+
+
+def _do_undo_revision(
+    slide,
+    row_index,
+    slide_idx,
+    visual_id,
+    seg_idx,
+    step_idx,
+    original_url,
+    tracking_round_idx,
+    current_tracking_text,
+    raw_def,
+    parsed_segments,
+    worksheet_name="Slide Chunks",
+):
+    """
+    Callback for the 'Undo Revision' button.
+    1. Resets after_revision / after_regen_1 / after_regen_2 to None in the
+       tracking column (keeps 'original' and 'manually_selected' unchanged).
+    2. Restores the original URL in final_graphics_definition.
+    3. Writes both to the Google Sheet.
+    4. Syncs the in-memory df so the UI reflects the change without a full
+       page reload.
+    """
+    sheet = st.session_state.get("gdv2_sheet")
+    if not sheet:
+        st.error("Sheet not found in session. Please reload the sheet.")
+        return
+    try:
+        worksheet = sheet.worksheet(worksheet_name)
+    except Exception as e:
+        st.error(f"Failed to access worksheet: {e}")
+        return
+
+    # 1. Reset revision keys in the tracking column
+    tracking_data = _parse_tracking_column(current_tracking_text)
+    updated_tracking_text = current_tracking_text  # fallback to unchanged
+    if visual_id in tracking_data:
+        entry = tracking_data[visual_id]
+        entry["after_revision"] = None
+        entry["after_regen_1"] = None
+        entry["after_regen_2"] = None
+        updated_tracking_text = _format_human_feedback_revision_tracking(tracking_data)
+
+    # 2. Restore original URL in final_graphics_definition
+    override_map = {(seg_idx, step_idx): original_url} if original_url else {}
+    updated_raw_def = _apply_asset_overrides_to_raw(raw_def, parsed_segments, override_map)
+
+    # 3. Find column indices and write to sheet
+    tracking_col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, tracking_round_idx)
+    tracking_col_idx = get_or_create_column(worksheet, tracking_col_name)
+    graphics_col_idx = get_or_create_column(worksheet, FINAL_GRAPHICS_COLUMN)
+
+    if not tracking_col_idx:
+        st.error(f"Could not find tracking column '{tracking_col_name}' in the sheet.")
+        return
+
+    sheet_row = int(row_index) + 2
+    batch_ranges = [
+        {
+            "range": f"{_col_to_a1(tracking_col_idx)}{sheet_row}",
+            "values": [[updated_tracking_text]],
+        }
+    ]
+    if original_url and graphics_col_idx:
+        batch_ranges.append(
+            {
+                "range": f"{_col_to_a1(graphics_col_idx)}{sheet_row}",
+                "values": [[updated_raw_def]],
+            }
+        )
+    try:
+        worksheet.batch_update(batch_ranges, value_input_option="RAW")
+    except Exception as e:
+        st.error(f"Failed to write undo revision to sheet: {e}")
+        return
+
+    # 4. Sync in-memory df and slide object so the inspector reflects the undone state immediately
+    df = st.session_state.get("gdv2_df")
+    if df is not None and row_index in df.index:
+        df.at[row_index, tracking_col_name] = updated_tracking_text
+        if original_url and FINAL_GRAPHICS_COLUMN in df.columns:
+            df.at[row_index, FINAL_GRAPHICS_COLUMN] = updated_raw_def
+        st.session_state["gdv2_df"] = df
+    
+    # Sync the slide object fields if it's passed (avoids stale info in fragments)
+    if isinstance(slide, dict):
+        slide[tracking_col_name] = updated_tracking_text
+        slide["final_definition_raw"] = updated_raw_def
+        # Optional: Sync actual segment data if needed for non-overridden displays
+        if original_url:
+            for seg in slide.get("segments", []):
+                if seg.get("segment_index") == seg_idx:
+                    for s_item in seg.get("steps", []):
+                        if s_item.get("step_index") == step_idx:
+                            s_item["asset"] = original_url
+
+    # 5. Force immediate card repaint in current fragment cycle.
+    # During fragment reruns, step args can be stale; pinning override to the
+    # restored original guarantees the visual updates instantly.
+    override_key = f"asset_override_{slide_idx}_{seg_idx}_{step_idx}"
+    if original_url:
+        st.session_state[override_key] = original_url
+    elif override_key in st.session_state:
+        del st.session_state[override_key]
+
+    st.toast(f"Undo revision applied for {visual_id}.", icon="↩️")
+    # No explicit st.rerun() needed: Streamlit automatically reruns after every
+    # on_click callback, and comparison/undo state is now freshly computed inside
+    # the fragment on each render pass.
+
+
+def _build_comparison_payload_for_visual(
+    slide,
+    visual_id,
+    current_round,
+    current_asset,
+    historical_action_by_visual,
+    historical_feedback_by_visual,
+):
+    """
+    Build comparison payload only when a visual was revised (before != after).
+
+    Scans tracking columns from current_round backwards. Entries whose revision
+    slots are all None (e.g. after an undo) are skipped so the comparison falls
+    through to the previous round's still-meaningful revision data.
+    """
+    REVISION_KEYS = ("after_regen_2", "after_regen_1", "after_revision", "manually_selected")
+
+    entry = None
+    for round_idx in range(int(current_round), -1, -1):
+        col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, round_idx)
+        tracking_text = safe_str(slide.get(col_name, "")).strip()
+        if not tracking_text or tracking_text.lower() == "nan":
+            continue
+        tracking_data = _parse_tracking_column(tracking_text)
+        if not isinstance(tracking_data, dict):
+            continue
+        candidate_entry = tracking_data.get(visual_id)
+        if not isinstance(candidate_entry, dict):
+            continue
+        # Skip entries where every revision key is None — they carry no comparison info
+        # (this happens after an undo resets the current round's entry)
+        has_any_revision = any(
+            safe_str(candidate_entry.get(k, "")).strip()
+            for k in REVISION_KEYS
+        )
+        if has_any_revision:
+            entry = candidate_entry
+            break
+
+    if not entry:
+        return None
+
+    original_asset = safe_str(entry.get("original", "")).strip()
+    revised_asset = ""
+    for field_name in REVISION_KEYS:
+        candidate = safe_str(entry.get(field_name, "")).strip()
+        if candidate:
+            revised_asset = candidate
+            break
+
+    if not revised_asset:
+        revised_asset = safe_str(current_asset).strip()
+
+    if not original_asset or not revised_asset:
+        return None
+    if _primary_asset_url(original_asset) == _primary_asset_url(revised_asset):
+        return None
+
+    prior_action = safe_str(historical_action_by_visual.get(visual_id, "")).strip()
+    is_ai_generated = prior_action == ACTION_REJECT_AI
+    prior_feedback = safe_str(historical_feedback_by_visual.get(visual_id, "")).strip()
+    if not prior_feedback and prior_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL):
+        prior_feedback = DEFAULT_REJECT_FEEDBACK
+
+    return {
+        "previous_asset": original_asset,
+        "revised_badge": "AI Generated" if is_ai_generated else "Revised",
+        "feedback": prior_feedback,
+    }
+
+
+def _render_single_asset_visual(asset, embed_key, drive, show_open_link=True):
+    """Render one visual (image or video) and a direct open link."""
+    asset = safe_str(asset).strip()
+    asset_type = detect_asset_type(asset)
+    display_url = normalize_drive_image_url(asset) if asset_type == "image" and is_drive_url(asset) else asset
+
     if asset_type == "image":
-        if not display_url:
-            display_url = normalize_drive_image_url(asset) if is_drive_url(asset) else asset
         image_bytes = _get_inspector_image_bytes(asset, drive)
         if image_bytes:
             try:
                 st.image(image_bytes, use_container_width=True)
             except UnidentifiedImageError:
-                # Image bytes were invalid; fall back to URL display below if available.
                 image_bytes = None
             except Exception:
-                # Any other image rendering issue: ignore bytes and try URL fallback.
                 image_bytes = None
         elif display_url:
             st.image(display_url, use_container_width=True)
         else:
             st.warning("Image URL missing.")
-        if display_url:
+        if display_url and show_open_link:
             st.markdown(f"[Open image]({display_url})")
-    elif asset_type == "video":
+        return
+
+    if asset_type == "video":
         if asset:
             html = _get_inspector_video_html(asset, embed_key)
             if html:
                 st.components.v1.html(html, height=360)
-            st.markdown(f"[Open video]({to_youtube_watch_url(asset)})")
+            if show_open_link:
+                st.markdown(f"[Open video]({to_youtube_watch_url(asset)})")
         else:
             st.warning("Video URL missing.")
+        return
+
+    st.warning("Asset URL missing or unsupported.")
+
+
+def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, drive, comparison=None):
+    """Image/video only — no widgets. Safe to run inside st.fragment."""
+    if comparison and comparison.get("previous_asset"):
+        left_col, right_col = st.columns(2, gap="large")
+        with left_col:
+            st.markdown("<h4 style='margin:0 0 0.5rem 0;'>Previous</h4>", unsafe_allow_html=True)
+            with st.container(height=420, border=True):
+                _render_single_asset_visual(
+                    comparison.get("previous_asset", ""),
+                    f"{embed_key}-prev",
+                    drive,
+                    show_open_link=False,
+                )
+            feedback = safe_str(comparison.get("feedback", "")).strip()
+            if feedback:
+                st.caption(f"Feedback that triggered revision: {feedback}")
+        with right_col:
+            badge_text = safe_str(comparison.get('revised_badge', 'Revised')).strip() or 'Revised'
+            st.markdown(f"<h4 style='margin:0 0 0.5rem 0;'>{badge_text}</h4>", unsafe_allow_html=True)
+            with st.container(height=420, border=True):
+                _render_single_asset_visual(
+                    asset,
+                    f"{embed_key}-curr",
+                    drive,
+                    show_open_link=False,
+                )
+        return
+
+    _render_single_asset_visual(asset, embed_key, drive)
 
 
 @st.cache_resource
@@ -2194,7 +2492,9 @@ def _render_inspector_step_review_controls(step_key_prefix):
 
 @_st_fragment
 def _render_single_segment_block(
-    slide_idx, seg_num, visible_steps, image_pool_text, video_pool_text, drive, slide_row_idx
+    slide_idx, seg_num, visible_steps, image_pool_text, video_pool_text, drive, slide_row_idx,
+    slide, current_round, historical_action_by_visual, historical_feedback_by_visual,
+    show_comparison=True
 ):
     """
     Isolated fragment for a single segment's selection pool and VO visuals.
@@ -2225,9 +2525,28 @@ def _render_single_segment_block(
         # Determine fixed embed key for consistency
         this_embed_key = f"{slide_idx}-{seg_num}-{s['step_index']}"
         
+        # ── Transient UI state computation (MUST be inside loop for fragments) ──
+        # Re-computing here ensures that after an Undo Revision (which triggers
+        # a fragment rerun), the comparison UI and Undo button disappear instantly.
+        comparison_payload = None
+        if show_comparison:
+            comparison_payload = _build_comparison_payload_for_visual(
+                slide=slide,
+                visual_id=v_id,
+                current_round=current_round,
+                current_asset=cur_asset,
+                historical_action_by_visual=historical_action_by_visual,
+                historical_feedback_by_visual=historical_feedback_by_visual,
+            )
+        undo_info = _compute_undo_info(
+            slide=slide,
+            visual_id=v_id,
+            current_round=current_round,
+        )
+
         # 1. Visual Assigned
         _render_inspector_step_visual(
-            cur_asset, cur_type, cur_display, this_embed_key, drive
+            cur_asset, cur_type, cur_display, this_embed_key, drive, comparison=comparison_payload
         )
         
         # 2. Toggles for candidate images and videos
@@ -2250,16 +2569,51 @@ def _render_single_segment_block(
             embed_key_prefix=step_cand_key,
         )
 
-        if is_ov:
-            st.button(
-                "↩️ Undo Re-assignment",
-                key=f"revert_{ov_key}",
-                on_click=_revert_asset_assignment,
-                args=(ov_key,),
-                type="secondary",
-                use_container_width=True
-            )
-        
+        # 3. Action buttons row (Undo Re-assignment | Undo Revision)
+        action_btn_cols = []
+        if is_ov or undo_info:
+            n_cols = sum([1 if is_ov else 0, 1 if undo_info else 0])
+            action_btn_cols = st.columns(n_cols, gap="small")
+            col_iter = iter(action_btn_cols)
+
+            if is_ov:
+                with next(col_iter):
+                    st.button(
+                        "↩️ Undo Re-assignment",
+                        key=f"revert_{ov_key}",
+                        on_click=_revert_asset_assignment,
+                        args=(ov_key,),
+                        type="secondary",
+                        use_container_width=True,
+                    )
+
+            if undo_info:
+                with next(col_iter):
+                    st.button(
+                        "⏪ Undo Revision",
+                        key=f"undo_rev_{slide_idx}_{seg_num}_{s['step_index']}",
+                        on_click=_do_undo_revision,
+                        args=(
+                            slide,                               # slide object
+                            slide_row_idx,                       # row_index
+                            slide_idx,                           # slide_idx
+                            v_id,                                # visual_id
+                            undo_info["seg_idx"],
+                            undo_info["step_idx"],
+                            undo_info["original_url"],
+                            undo_info["tracking_round_idx"],
+                            undo_info["current_tracking_text"],
+                            undo_info["raw_def"],
+                            undo_info["parsed_segments"],
+                        ),
+                        type="secondary",
+                        use_container_width=True,
+                        help=(
+                            f"Restore original visual for {v_id} and clear all "
+                            "revision history in this feedback round."
+                        ),
+                    )
+
         _render_inspector_step_review_controls(scope_key)
         
         sel_action = st.session_state.get(a_key, ACTION_NONE)
@@ -2267,7 +2621,7 @@ def _render_single_segment_block(
             st.success("Approved")
 
 
-def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False):
+def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False, show_comparison=True):
     if not slides:
         st.info("No slide data to display.")
         return
@@ -2327,6 +2681,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
 
         # Build latest non-none action per visual across all completed previous rounds.
         historical_action_by_visual = {}
+        historical_feedback_by_visual = {}
         if current_round > 0:
             for round_idx in range(current_round):
                 historical_actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, round_idx)
@@ -2335,6 +2690,9 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     historical_action = safe_str(historical_item.get("action", ACTION_NONE)).strip() or ACTION_NONE
                     if historical_action != ACTION_NONE:
                         historical_action_by_visual[historical_visual_id] = historical_action
+                        historical_feedback_by_visual[historical_visual_id] = safe_str(
+                            historical_item.get("feedback", "")
+                        ).strip()
 
         visible_segments = []
         for segment in segments:
@@ -2426,6 +2784,8 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 if not visible:
                     continue
 
+                # Transient UI state (undo_info, comparison_payload) is now
+                # computed inside the fragment to support instant post-undo refreshes.
                 visible_steps.append((step, action_scope_key, action_key, feedback_key, visual_id))
             if visible_steps:
                 visible_segments.append((segment, visible_steps))
@@ -2460,7 +2820,12 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     image_pool_text=img_pool_text,
                     video_pool_text=vid_pool_text,
                     drive=drive,
-                    slide_row_idx=row_index
+                    slide_row_idx=row_index,
+                    slide=slide,
+                    current_round=current_round,
+                    historical_action_by_visual=historical_action_by_visual,
+                    historical_feedback_by_visual=historical_feedback_by_visual,
+                    show_comparison=show_comparison
                 )
 
             if can_save:
@@ -3261,7 +3626,7 @@ def main():
             st.session_state["gdv2_visual_filter"] = "revised"
         else:
             st.session_state["gdv2_visual_filter"] = "all"
-    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+    filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns(5)
     with filter_col1:
         topic_filter = st.selectbox("Topic", options=["All"] + topic_values)
     with filter_col2:
@@ -3293,6 +3658,8 @@ def main():
             key="gdv2_visual_filter",
             format_func=lambda x: x.capitalize(),
         )
+    with filter_col5:
+        show_comparison = st.checkbox("Show Comparison", value=True, key="gdv2_show_comparison")
 
     filtered_df = df.copy()
     if topic_filter != "All" and column_map["topic"]:
@@ -3365,6 +3732,7 @@ def main():
         current_round=int(st.session_state.get("gdv2_round", 0)),
         action_filter=visual_filter,
         include_unreviewed_with_revised=int(st.session_state.get("gdv2_round", 0)) > 0,
+        show_comparison=show_comparison,
     )
 
 
