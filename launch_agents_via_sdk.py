@@ -2,10 +2,23 @@ import argparse
 import os
 import sys
 import base64
+import uuid
+import subprocess
 from lightning_sdk import Machine, Studio
 from dotenv import load_dotenv
 
 load_dotenv()
+
+AGENT_DISPLAY_NAMES = {
+    "course_outline": "Course Outline",
+    "research_notes": "Research Notes",
+    "slide_chunks": "Slide Chunks",
+    "graphics_definition": "Graphics Definition",
+    "graphics_definition_v2": "Graphics Definition V2",
+    "assessment": "Assessment",
+    "human_feedback_review_revise": "Human Feedback Review & Revise",
+    "web_image_regeneration_bg": "Web Images to AI Images Regeneration",
+}
 
 def main():
     parser = argparse.ArgumentParser(description="Launch a Lightning AI job for a single agent via SDK.")
@@ -27,11 +40,8 @@ def main():
     parser.add_argument('--regen_output_folder_name', default='', help='Drive output folder name for regen')
     parser.add_argument('--regen_write_final_graphics', default='', help='true/false for writing legacy final_graphics')
     parser.add_argument('--regen_skip_filled_rows', default='', help='true/false resume flag for regen')
-    parser.add_argument(
-        '--google_oauth_refresh_token_b64',
-        default='',
-        help='Base64-encoded UTF-8 Google OAuth refresh token (browser session) for human-feedback Drive uploads on the job',
-    )
+    parser.add_argument('--machine', default='CPU', help='Lightning machine type (e.g., CPU, CPU_X_8). Defaults to CPU.')
+    parser.add_argument('--google_oauth_refresh_token_b64', default='', help='Base64-encoded UTF-8 Google OAuth refresh token (browser session) for human-feedback Drive uploads on the job')
     args = parser.parse_args()
 
     # Use GDRIVE_SA_B64 directly if available, otherwise encode GDRIVE_SA_JSON
@@ -60,6 +70,8 @@ def main():
     jobs_plugin = studio.installed_plugins["jobs"]
 
     agent = args.agent_name
+    ui_agent_name = AGENT_DISPLAY_NAMES.get(agent, agent)
+    run_id = uuid.uuid4().hex[:12]
     
     # Export env vars for the job: GDRIVE_SA_B64 (required); VERTEX_AI_SA_B64 (for graphics_definition_v2); USER_EMAIL + SMTP (for notifications)
     def _shell_escape(s):
@@ -128,21 +140,65 @@ def main():
         f"--sheet_link '{args.sheet_link}' "
         f"--drive_folder_id '{args.drive_folder_id}' "
         f"--agent_name '{agent}'"
+        f" --run_id '{run_id}'"
         f"{toggles_arg}"
         f"{hf_args}"
     )
 
+    machine_name = (args.machine or "CPU").strip().upper()
+    machine = getattr(Machine, machine_name, None)
+    if machine is None:
+        print(f"[WARN] Unknown machine '{args.machine}'. Falling back to Machine.CPU.")
+        machine = Machine.CPU
+
+    gdv2_agent_markers = (
+        "graphics_definition_v2",
+        "human_feedback_review_revise",
+    )
+    is_gdv2_related_job = any(marker in (agent or "") for marker in gdv2_agent_markers)
+    interruptible = not is_gdv2_related_job
+
     print(f"\n[INFO] Submitting job for agent: {agent}")
+    print(f"[RUN_ID] {run_id}")
+    print(f"[INFO] interruptible={interruptible}")
     job = jobs_plugin.run(
         command,
         name = f"{agent}-job",
-        machine = Machine.CPU,
-        interruptible = True
+        machine = machine,
+        interruptible = interruptible
     )
 
 
     print(f"[INFO] Job '{job.name}' submitted.")
     job_link = getattr(job, "link", "") or ""
+
+    # Launch an external monitor process so terminal-status emails still send even if the job process is hard-killed and cannot run its own handlers.
+    try:
+        monitor_cmd = [
+            sys.executable,
+            "monitor_background_job.py",
+            "--job_name",
+            job.name,
+            "--teamspace",
+            teamspace,
+            "--user",
+            user,
+            "--run_id",
+            run_id,
+            "--user_email",
+            args.user_email or "",
+            "--agent_name",
+            ui_agent_name,
+            "--sheet_link",
+            args.sheet_link or "",
+            "--job_link",
+            job_link,
+        ]
+        subprocess.Popen(monitor_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        print("[INFO] Background monitor process started.")
+    except Exception as e:
+        print(f"[WARN] Could not start background monitor process: {e}")
+
     if job_link:
         print(f"[JOB_LINK] {job_link}")
     else:

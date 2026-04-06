@@ -482,7 +482,6 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=50):
                 if progress.should_save():
                     print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                     merge_and_save_columns(sheet, worksheet_name, df, ["video_pool"])
-                    format_worksheet(worksheet)
             except Exception as e:
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
