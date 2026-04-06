@@ -1863,6 +1863,7 @@ def _compute_undo_info(slide, visual_id, current_round):
 
 
 def _do_undo_revision(
+    slide,
     row_index,
     slide_idx,
     visual_id,
@@ -1937,13 +1938,25 @@ def _do_undo_revision(
         st.error(f"Failed to write undo revision to sheet: {e}")
         return
 
-    # 4. Sync in-memory df so the inspector reflects the undone state immediately
+    # 4. Sync in-memory df and slide object so the inspector reflects the undone state immediately
     df = st.session_state.get("gdv2_df")
     if df is not None and row_index in df.index:
         df.at[row_index, tracking_col_name] = updated_tracking_text
         if original_url and FINAL_GRAPHICS_COLUMN in df.columns:
             df.at[row_index, FINAL_GRAPHICS_COLUMN] = updated_raw_def
         st.session_state["gdv2_df"] = df
+    
+    # Sync the slide object fields if it's passed (avoids stale info in fragments)
+    if isinstance(slide, dict):
+        slide[tracking_col_name] = updated_tracking_text
+        slide["final_definition_raw"] = updated_raw_def
+        # Optional: Sync actual segment data if needed for non-overridden displays
+        if original_url:
+            for seg in slide.get("segments", []):
+                if seg.get("segment_index") == seg_idx:
+                    for s_item in seg.get("steps", []):
+                        if s_item.get("step_index") == step_idx:
+                            s_item["asset"] = original_url
 
     # 5. Force immediate card repaint in current fragment cycle.
     # During fragment reruns, step args can be stale; pinning override to the
@@ -1955,8 +1968,9 @@ def _do_undo_revision(
         del st.session_state[override_key]
 
     st.toast(f"Undo revision applied for {visual_id}.", icon="↩️")
-    # Trigger a full rerun so comparison_payload is rebuilt from the updated n-1 rounds.
-    st.rerun()
+    # No explicit st.rerun() needed: Streamlit automatically reruns after every
+    # on_click callback, and comparison/undo state is now freshly computed inside
+    # the fragment on each render pass.
 
 
 def _build_comparison_payload_for_visual(
@@ -2478,7 +2492,9 @@ def _render_inspector_step_review_controls(step_key_prefix):
 
 @_st_fragment
 def _render_single_segment_block(
-    slide_idx, seg_num, visible_steps, image_pool_text, video_pool_text, drive, slide_row_idx
+    slide_idx, seg_num, visible_steps, image_pool_text, video_pool_text, drive, slide_row_idx,
+    slide, current_round, historical_action_by_visual, historical_feedback_by_visual,
+    show_comparison=True
 ):
     """
     Isolated fragment for a single segment's selection pool and VO visuals.
@@ -2488,9 +2504,8 @@ def _render_single_segment_block(
     
     # VO Step Visuals & Controls
     for step_tuple in visible_steps:
-        # tuple: (step_dict, action_scope_key, action_key, feedback_key,
-        #         visual_id, comparison_payload, undo_info)
-        s, scope_key, a_key, f_key, v_id, comparison_payload, undo_info = step_tuple
+        # tuple: (step_dict, action_scope_key, action_key, feedback_key, visual_id)
+        s, scope_key, a_key, f_key, v_id = step_tuple
         
         st.markdown(f"**VO Part {s['step_index']}**")
         if s.get("voiceover"):
@@ -2510,6 +2525,25 @@ def _render_single_segment_block(
         # Determine fixed embed key for consistency
         this_embed_key = f"{slide_idx}-{seg_num}-{s['step_index']}"
         
+        # ── Transient UI state computation (MUST be inside loop for fragments) ──
+        # Re-computing here ensures that after an Undo Revision (which triggers
+        # a fragment rerun), the comparison UI and Undo button disappear instantly.
+        comparison_payload = None
+        if show_comparison:
+            comparison_payload = _build_comparison_payload_for_visual(
+                slide=slide,
+                visual_id=v_id,
+                current_round=current_round,
+                current_asset=cur_asset,
+                historical_action_by_visual=historical_action_by_visual,
+                historical_feedback_by_visual=historical_feedback_by_visual,
+            )
+        undo_info = _compute_undo_info(
+            slide=slide,
+            visual_id=v_id,
+            current_round=current_round,
+        )
+
         # 1. Visual Assigned
         _render_inspector_step_visual(
             cur_asset, cur_type, cur_display, this_embed_key, drive, comparison=comparison_payload
@@ -2560,6 +2594,7 @@ def _render_single_segment_block(
                         key=f"undo_rev_{slide_idx}_{seg_num}_{s['step_index']}",
                         on_click=_do_undo_revision,
                         args=(
+                            slide,                               # slide object
                             slide_row_idx,                       # row_index
                             slide_idx,                           # slide_idx
                             v_id,                                # visual_id
@@ -2749,23 +2784,9 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 if not visible:
                     continue
 
-                comparison_payload = None
-                if show_comparison:
-                    comparison_payload = _build_comparison_payload_for_visual(
-                        slide=slide,
-                        visual_id=visual_id,
-                        current_round=current_round,
-                        current_asset=step.get("asset", ""),
-                        historical_action_by_visual=historical_action_by_visual,
-                        historical_feedback_by_visual=historical_feedback_by_visual,
-                    )
-
-                undo_info = _compute_undo_info(
-                    slide=slide,
-                    visual_id=visual_id,
-                    current_round=current_round,
-                )
-                visible_steps.append((step, action_scope_key, action_key, feedback_key, visual_id, comparison_payload, undo_info))
+                # Transient UI state (undo_info, comparison_payload) is now
+                # computed inside the fragment to support instant post-undo refreshes.
+                visible_steps.append((step, action_scope_key, action_key, feedback_key, visual_id))
             if visible_steps:
                 visible_segments.append((segment, visible_steps))
 
@@ -2799,7 +2820,12 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     image_pool_text=img_pool_text,
                     video_pool_text=vid_pool_text,
                     drive=drive,
-                    slide_row_idx=row_index
+                    slide_row_idx=row_index,
+                    slide=slide,
+                    current_round=current_round,
+                    historical_action_by_visual=historical_action_by_visual,
+                    historical_feedback_by_visual=historical_feedback_by_visual,
+                    show_comparison=show_comparison
                 )
 
             if can_save:
