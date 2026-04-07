@@ -2667,6 +2667,7 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
     :param visual_assignment_strategy: Visual assignment strategy (default: "Flexible, let the agent decide")
     :return: Graphics definition XML with replacement visuals or None if revision fails
     """
+    
     print(f"Revising segment {segment_num} visuals...")
     print(f"Feedback: {feedback}...")
     images, videos, frame_videos = build_candidates_for_segment(

@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Tuple
 
 import streamlit as st
 from google.genai import types
@@ -298,20 +295,22 @@ PASS|FAIL
 
 
 
-def get_review_finalized_visuals_prompt(
-    course_name: str,
-    target_audience: str,
-    topic_name: str,
-    subtopic_name: str,
-    slide_id: str,
-    slide_title: str,
-    slide_chunk: str,
-    assigned_visuals: str,
-    prompt_template: str = REVIEW_FINALIZED_VISUALS_PROMPT,
-) -> str:
+def get_review_finalized_visuals_prompt(course_name, target_audience, topic_name, subtopic_name, slide_id, slide_title, slide_chunk, assigned_visuals, prompt_template=REVIEW_FINALIZED_VISUALS_PROMPT):
     """
     Build the review prompt for finalized visuals for a full slide.
+
+    :param course_name: Course name
+    :param target_audience: Target audience
+    :param topic_name: Topic name
+    :param subtopic_name: Subtopic name
+    :param slide_id: Slide ID
+    :param slide_title: Slide title
+    :param slide_chunk: Slide content
+    :param assigned_visuals: Assigned visuals text
+    :param prompt_template: Prompt template to format
+    :return: Formatted prompt text
     """
+    
     return prompt_template.format(
         course_name=course_name,
         target_audience=target_audience,
@@ -324,7 +323,15 @@ def get_review_finalized_visuals_prompt(
     )
 
 
-def _extract_tag(text: str, tag: str) -> str:
+def _extract_tag(text, tag):
+    """
+    Extract XML tag content from text.
+
+    :param text: Source text
+    :param tag: Tag name
+    :return: Tag content or empty string
+    """
+    
     if not text:
         return ""
     match = re.search(
@@ -335,9 +342,16 @@ def _extract_tag(text: str, tag: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def _parse_slide_review_response(text: str) -> Tuple[str, List[Dict[str, str]]]:
+def _parse_slide_review_response(text):
+    """
+    Parse slide review XML response into verdict and failures.
+
+    :param text: Model response text
+    :return: Tuple of (verdict, failures)
+    """
+    
     verdict = (_extract_tag(text, "verdict") or "FAIL").strip().upper()
-    failures: List[Dict[str, str]] = []
+    failures = []
 
     failures_block = _extract_tag(text, "failures")
     failure_blocks = re.findall(
@@ -361,11 +375,16 @@ def _parse_slide_review_response(text: str) -> Tuple[str, List[Dict[str, str]]]:
     return verdict, failures
 
 
-def _build_assigned_visuals_for_slide(
-    segments_map: Dict[int, Dict[str, Any]],
-    slide_id: str,
-) -> str:
-    lines: List[str] = []
+def _build_assigned_visuals_for_slide(segments_map, slide_id):
+    """
+    Build review target text listing assigned visuals for a slide.
+
+    :param segments_map: Parsed segment-to-visual map
+    :param slide_id: Slide ID
+    :return: Formatted assigned visuals text
+    """
+    
+    lines = []
     for segment_num in sorted(segments_map.keys()):
         segment = segments_map.get(segment_num, {})
         lines.append(f"{slide_id} SEGMENT {segment_num}")
@@ -386,12 +405,17 @@ def _build_assigned_visuals_for_slide(
     return "\n".join(lines).strip()
 
 
-def _format_slide_review_output(
-    segments_map: Dict[int, Dict[str, Any]],
-    slide_verdict: str,
-    failures: List[Dict[str, str]],
-) -> str:
-    parts: List[str] = []
+def _format_slide_review_output(segments_map, slide_verdict, failures):
+    """
+    Format visual-level PASS/FAIL output for final_visuals_review.
+
+    :param segments_map: Parsed segment-to-visual map
+    :param slide_verdict: Slide-level verdict from model
+    :param failures: Parsed failure blocks
+    :return: Human-readable final_visuals_review text
+    """
+    
+    parts = []
     slide_verdict = (slide_verdict or "FAIL").upper()
     failure_by_visual_id = {
         (f.get("failing_visual_id") or "").strip(): f for f in (failures or [])
@@ -443,14 +467,19 @@ def _format_slide_review_output(
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def process_review_finalized_visuals_row(
-    index: int,
-    row: Dict[str, Any],
-    course_name: str,
-    target_audience: str,
-    drive: Any,
-    llm: str = "gemini_3_flash_thinking",
-) -> Tuple[int, str]:
+def process_review_finalized_visuals_row(index, row, course_name, target_audience, drive, llm="gemini_3_flash_thinking"):
+    """
+    Process one row for finalized-visual review.
+
+    :param index: Row index
+    :param row: Row data
+    :param course_name: Course name
+    :param target_audience: Target audience
+    :param drive: Drive instance
+    :param llm: LLM model name
+    :return: Tuple of (row_index, review_text)
+    """
+    
     slide_chunk = str(row.get("Slide Chunk", "")).strip()
     voiceover_text = str(row.get("voiceover_segment", "")).strip()
     final_graphics_definition = str(row.get("final_graphics_definition", "")).strip()
@@ -503,11 +532,11 @@ def process_review_finalized_visuals_row(
         prompt_template=prompt_template,
     )
 
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED FINALIZED VISUAL REVIEW PROMPT ({slide_id}):")
-    print(f"{'='*80}")
-    print(prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED FINALIZED VISUAL REVIEW PROMPT ({slide_id}):")
+    # print(f"{'='*80}")
+    # print(prompt)
+    # print(f"{'='*80}\n")
 
     segment_nums = sorted(segments_map.keys())
     asset_parts = build_assets_for_segments(segments_map, segment_nums, drive)
@@ -540,13 +569,17 @@ def process_review_finalized_visuals_row(
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_review_finalized_visuals_for_all_rows(
-    sheet: Any,
-    llm: str = "gemini_3_flash_thinking",
-    max_workers: int = 50,
-) -> None:
-    worksheet_name = "Slide Chunks"
+def run_review_finalized_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+    """
+    Run finalized-visual review for all eligible rows.
 
+    :param sheet: gspread sheet object
+    :param llm: LLM model name
+    :param max_workers: Parallel workers
+    :return: None
+    """
+    
+    worksheet_name = "Slide Chunks"
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = str(course_info_df.loc[0, "Course Name"]).strip()
     target_audience = str(course_info_df.loc[0, "Target Audience"]).strip() if "Target Audience" in course_info_df.columns else ""
@@ -607,7 +640,14 @@ def run_review_finalized_visuals_for_all_rows(
     print("✅ Finalized visual review complete and saved to sheet.")
 
 
-def delete_final_visuals_review(sheet: Any) -> None:
+def delete_final_visuals_review(sheet):
+    """
+    Delete final_visuals_review column.
+
+    :param sheet: gspread sheet object
+    :return: None
+    """
+    
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     if "final_visuals_review" in df.columns:
@@ -628,11 +668,7 @@ def delete_final_visuals_review(sheet: Any) -> None:
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_generate_alternative_visuals_from_web_for_all_rows(
-    sheet: Any,
-    llm: str = "gemini_3_flash_thinking",
-    max_workers: int = 50,
-) -> None:
+def run_generate_alternative_visuals_from_web_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
     """
     Generate alternative visuals from web/other channels for FAILED visuals.
 
@@ -765,13 +801,18 @@ def run_generate_alternative_visuals_from_web_for_all_rows(
     print("✅ Generate alternative visuals from Web completed.")
 
 
-def _extract_failed_visuals_and_feedback(
-    final_visuals_review: str,
-) -> Tuple[List[int], Dict[int, str], List[str], Dict[int, List[str]]]:
-    failed_segments: List[int] = []
-    feedback_by_segment: Dict[int, List[str]] = {}
-    failed_visual_ids: List[str] = []
-    failed_visual_ids_by_segment: Dict[int, List[str]] = {}
+def _extract_failed_visuals_and_feedback(final_visuals_review):
+    """
+    Extract failed visual IDs and feedback grouped by segment.
+
+    :param final_visuals_review: final_visuals_review text
+    :return: Tuple of failed segments, feedback by segment, failed visual ids, failed ids by segment
+    """
+    
+    failed_segments = []
+    feedback_by_segment = {}
+    failed_visual_ids = []
+    failed_visual_ids_by_segment = {}
 
     current_segment = None
     for raw_line in final_visuals_review.splitlines():
@@ -816,10 +857,14 @@ def _extract_failed_visuals_and_feedback(
     return failed_segments, feedback_joined, failed_visual_ids, failed_visual_ids_by_segment
 
 
-def _has_unresolved_fail_lines(final_visuals_review: str) -> bool:
+def _has_unresolved_fail_lines(final_visuals_review):
     """
-    Return True if at least one FAIL line still lacks a replacement URL.
+    Return True if at least one FAIL line lacks a replacement URL.
+
+    :param final_visuals_review: final_visuals_review text
+    :return: True if unresolved FAIL exists, else False
     """
+    
     for raw_line in (final_visuals_review or "").splitlines():
         line = raw_line.strip()
         if not line:
@@ -831,8 +876,15 @@ def _has_unresolved_fail_lines(final_visuals_review: str) -> bool:
     return False
 
 
-def _get_visual_asset_map(segments_map: Dict[int, Dict[str, Any]]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _get_visual_asset_map(segments_map):
+    """
+    Build a visual_id to asset URL map.
+
+    :param segments_map: Parsed segment-to-visual map
+    :return: Mapping of visual_id to URL
+    """
+    
+    out = {}
     for _, segment in segments_map.items():
         for step in segment.get("visual_steps", []) or []:
             vid = _safe_str(step.get("visual_id", "")).strip()
@@ -842,11 +894,16 @@ def _get_visual_asset_map(segments_map: Dict[int, Dict[str, Any]]) -> Dict[str, 
     return out
 
 
-def _append_replacements_to_review_text(
-    review_text: str,
-    replacement_by_visual_id: Dict[str, str],
-) -> str:
-    lines: List[str] = []
+def _append_replacements_to_review_text(review_text, replacement_by_visual_id):
+    """
+    Append replacement URLs into FAIL lines in review text.
+
+    :param review_text: Existing final_visuals_review text
+    :param replacement_by_visual_id: Replacement URL mapping by visual ID
+    :return: Updated review text
+    """
+    
+    lines = []
     for raw_line in review_text.splitlines():
         line = raw_line.rstrip("\n")
         match = re.match(r"^(S\d+V\d+):\s*FAIL\b(.*)$", line, re.IGNORECASE)
@@ -868,10 +925,14 @@ def _append_replacements_to_review_text(
     return "\n".join(lines)
 
 
-def _normalize_replacement_visual_url(url: str) -> str:
+def _normalize_replacement_visual_url(url):
     """
-    Normalize replacement URL only for YouTube single-timestamp links by converting to 1-second embed clip.
+    Normalize replacement URL for YouTube single-timestamp links.
+
+    :param url: Candidate replacement URL
+    :return: Normalized URL
     """
+    
     clean = _safe_str(url).strip()
     if not clean:
         return clean
@@ -879,15 +940,20 @@ def _normalize_replacement_visual_url(url: str) -> str:
     return expanded or clean
 
 
-def _process_alternative_visuals_row(
-    row_index: int,
-    row: Dict[str, Any],
-    course_name: str,
-    target_audience: str,
-    llm: str,
-    sheet: Any = None,
-    worksheet_name: str = "Slide Chunks",
-) -> Tuple[int, Dict[str, str]]:
+def _process_alternative_visuals_row(row_index, row, course_name, target_audience, llm, sheet=None, worksheet_name="Slide Chunks"):
+    """
+    Process one row to generate fallback visuals from web/other channels.
+
+    :param row_index: Row index
+    :param row: Row data
+    :param course_name: Course name
+    :param target_audience: Target audience
+    :param llm: LLM model name
+    :param sheet: gspread sheet object
+    :param worksheet_name: Worksheet name
+    :return: Tuple of (row_index, updates)
+    """
+    
     final_review = _safe_str(row.get("final_visuals_review", ""))
     final_graphics_definition_original = _safe_str(row.get("final_graphics_definition", ""))
     voiceover_text = _safe_str(row.get("voiceover_segment", ""))
@@ -1014,12 +1080,12 @@ def _process_alternative_visuals_row(
                 )
 
     # 3) Use regeneration prompt, but constrain candidate inputs to web+other only.
-    replacement_by_visual_id: Dict[str, str] = {}
+    replacement_by_visual_id = {}
     for segment_num in failed_segments:
         segment = segments_map.get(segment_num, {})
         visual_steps = segment.get("visual_steps", []) or []
         target_visual_ids = set(failed_visual_ids_by_segment.get(segment_num, []))
-        current_visual_lines: List[str] = []
+        current_visual_lines = []
         for step in visual_steps:
             vid = _safe_str(step.get("visual_id", "")).strip()
             if vid and vid in target_visual_ids:
@@ -1071,7 +1137,7 @@ def _process_alternative_visuals_row(
     updated_review = _append_replacements_to_review_text(final_review, replacement_by_visual_id)
 
     # Keep final_graphics_definition unchanged as requested.
-    updates: Dict[str, str] = {
+    updates = {
         "final_visuals_review": updated_review,
         "final_graphics_definition": final_graphics_definition_original,
     }
@@ -1099,11 +1165,14 @@ def _process_alternative_visuals_row(
     return row_index, updates
 
 
-def delete_replacement_visuals_from_final_visuals_review(sheet: Any) -> None:
+def delete_replacement_visuals_from_final_visuals_review(sheet):
     """
-    Remove only appended 'Replacement visual' URLs from final_visuals_review.
-    Keep PASS/FAIL verdicts, reasons, and feedback unchanged.
+    Remove only appended replacement URLs from final_visuals_review.
+
+    :param sheet: gspread sheet object
+    :return: None
     """
+    
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
 

@@ -1,9 +1,6 @@
-from __future__ import annotations
-
 import html
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Tuple
 
 import streamlit as st
 from google.genai import types
@@ -24,6 +21,7 @@ from agents.graphics_definition_v2.review_agent.review_and_revise import (
 )
 from services.sheets_service import (
     format_worksheet,
+    clear_worksheet,
     get_sheet_data_and_df,
     merge_and_save_columns,
     save_to_sheet,
@@ -135,21 +133,26 @@ A|B
 """
 
 
-def get_decide_final_visuals_prompt(
-    course_name: str,
-    target_audience: str,
-    topic_name: str,
-    subtopic_name: str,
-    slide_id: str,
-    slide_title: str,
-    slide_chunk: str,
-    visual_id: str,
-    segment_num: int,
-    segment_vo_text: str,
-    visual_part_for_this_visual: str,
-    option_a_url: str,
-    option_b_url: str,
-) -> str:
+def get_decide_final_visuals_prompt(course_name, target_audience, topic_name, subtopic_name, slide_id, slide_title, slide_chunk, visual_id, segment_num, segment_vo_text, visual_part_for_this_visual, option_a_url, option_b_url):
+    """
+    Build final-visual decision prompt.
+
+    :param course_name: Course name
+    :param target_audience: Target audience
+    :param topic_name: Topic name
+    :param subtopic_name: Subtopic name
+    :param slide_id: Slide ID
+    :param slide_title: Slide title
+    :param slide_chunk: Full slide content
+    :param visual_id: Visual ID under decision
+    :param segment_num: Segment number
+    :param segment_vo_text: Segment voiceover text
+    :param visual_part_for_this_visual: Voiceover part tied to visual
+    :param option_a_url: Current assigned visual URL
+    :param option_b_url: Replacement visual URL
+    :return: Formatted prompt text
+    """
+    
     return DECIDE_FINAL_VISUALS_PROMPT.format(
         course_name=course_name,
         target_audience=target_audience,
@@ -167,7 +170,15 @@ def get_decide_final_visuals_prompt(
     )
 
 
-def _extract_tag(text: str, tag: str) -> str:
+def _extract_tag(text, tag):
+    """
+    Extract XML tag contents from text.
+
+    :param text: Source text
+    :param tag: XML tag name
+    :return: Tag content or empty string
+    """
+    
     if not text:
         return ""
     match = re.search(
@@ -178,7 +189,14 @@ def _extract_tag(text: str, tag: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def _parse_decision_response(text: str) -> Tuple[str, str]:
+def _parse_decision_response(text):
+    """
+    Parse decision response and map choice labels.
+
+    :param text: Model response text
+    :return: Tuple of (chosen_option, reason)
+    """
+    
     block = text or ""
     m = re.search(r"<decision>.*?</decision>", block, flags=re.IGNORECASE | re.DOTALL)
     if m:
@@ -197,9 +215,16 @@ def _parse_decision_response(text: str) -> Tuple[str, str]:
     return opt, justification
 
 
-def _parse_fallback_candidates_from_review(review_text: str) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    current_segment: Optional[int] = None
+def _parse_fallback_candidates_from_review(review_text):
+    """
+    Parse failed visuals and replacement URLs from final_visuals_review.
+
+    :param review_text: final_visuals_review text
+    :return: List of candidate dicts
+    """
+    
+    out = []
+    current_segment = None
     for raw_line in review_text.splitlines():
         line = raw_line.strip()
         if not line:
@@ -230,20 +255,39 @@ def _parse_fallback_candidates_from_review(review_text: str) -> List[Dict[str, A
     return out
 
 
-def _segment_num_from_visual_id(visual_id: str) -> Optional[int]:
+def _segment_num_from_visual_id(visual_id):
+    """
+    Extract segment number from visual ID.
+
+    :param visual_id: Visual ID like S1V2
+    :return: Segment number or None
+    """
+    
     m = re.match(r"^S(\d+)V\d+$", visual_id.strip(), re.IGNORECASE)
     return int(m.group(1)) if m else None
 
 
-def _escape_xml_text(s: str) -> str:
+def _escape_xml_text(s):
+    """
+    Escape XML text content.
+
+    :param s: Input string
+    :return: XML-escaped string
+    """
+    
     return html.escape(s or "", quote=False)
 
 
-def _build_replacement_xml_from_step(
-    visual_id: str,
-    step: Dict[str, Any],
-    new_asset_url: str,
-) -> str:
+def _build_replacement_xml_from_step(visual_id, step, new_asset_url):
+    """
+    Build replacement XML block for one visual.
+
+    :param visual_id: Visual ID
+    :param step: Existing parsed visual step dict
+    :param new_asset_url: URL to place as replacement
+    :return: replacement_visuals XML string
+    """
+    
     vo = _escape_xml_text(str(step.get("voiceover_part", "") or ""))
     vi = _escape_xml_text(str(step.get("visual_instruction", "") or ""))
     sj = _escape_xml_text(str(step.get("selection_justification", "") or ""))
@@ -261,8 +305,15 @@ def _build_replacement_xml_from_step(
     )
 
 
-def post_process_final_graphics_definition_after_edit(text: str, drive: Any) -> str:
-    """Match review-revise final row: normalize YouTube URLs, clip notes, then (snapshot) labels."""
+def post_process_final_graphics_definition_after_edit(text, drive):
+    """
+    Match review-revise final row post-processing.
+
+    :param text: final_graphics_definition text
+    :param drive: Google Drive instance
+    :return: Post-processed final_graphics_definition text
+    """
+    
     if not text or not str(text).strip():
         return text
     t = normalize_youtube_timestamp_urls(text)
@@ -281,14 +332,19 @@ def post_process_final_graphics_definition_after_edit(text: str, drive: Any) -> 
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def process_decide_final_visuals_row(
-    row_index: int,
-    row: Dict[str, Any],
-    course_name: str,
-    target_audience: str,
-    llm: str,
-    drive: Any,
-) -> Tuple[int, Dict[str, str]]:
+def process_decide_final_visuals_row(row_index, row, course_name, target_audience, llm, drive):
+    """
+    Process one row for final visual decision.
+
+    :param row_index: Row index
+    :param row: Row data
+    :param course_name: Course name
+    :param target_audience: Target audience
+    :param llm: LLM model name
+    :param drive: Google Drive instance
+    :return: Tuple of (row_index, updates_dict)
+    """
+    
     slide_chunk = _safe_str(row.get("Slide Chunk", ""))
     voiceover_text = _safe_str(row.get("voiceover_segment", ""))
     topic_name = _safe_str(row.get("Topic", ""))
@@ -316,8 +372,8 @@ def process_decide_final_visuals_row(
             "final_graphics_definition": fgd,
         }
 
-    log_lines: List[str] = []
-    decision_entries: List[Dict[str, str]] = []
+    log_lines = []
+    decision_entries = []
     current_fgd = fgd
 
     for cand in candidates:
@@ -416,11 +472,11 @@ def process_decide_final_visuals_row(
             option_a_url=primary_url,
             option_b_url=fallback_url,
         )
-        print(f"\n{'='*80}")
-        print(f"📝 FORMATTED FINAL VISUAL DECISION PROMPT ({slide_id} {visual_id}):")
-        print(f"{'='*80}")
-        print(prompt)
-        print(f"{'='*80}\n")
+        # print(f"\n{'='*80}")
+        # print(f"📝 FORMATTED FINAL VISUAL DECISION PROMPT ({slide_id} {visual_id}):")
+        # print(f"{'='*80}")
+        # print(prompt)
+        # print(f"{'='*80}\n")
 
         primary_parts = build_asset_parts(f"{visual_id} (visual 1 of 2)", primary_url, drive)
         fallback_parts = build_asset_parts(f"{visual_id} (visual 2 of 2)", fallback_url, drive)
@@ -486,20 +542,25 @@ def process_decide_final_visuals_row(
     }
 
 
-def _format_decisions_sheet_output(
-    candidates: List[Dict[str, Any]],
-    log_lines: List[str],
-) -> str:
+def _format_decisions_sheet_output(candidates, log_lines):
+    """
+    Format debug decision logs by segment.
+
+    :param candidates: Candidate list with segment mapping
+    :param log_lines: Per-visual decision log lines
+    :return: Formatted debug text
+    """
+    
     if not log_lines:
         return ""
     if len(candidates) != len(log_lines):
         return "\n".join(log_lines).strip()
 
-    by_seg: Dict[int, List[str]] = {}
+    by_seg = {}
     for cand, ln in zip(candidates, log_lines):
         by_seg.setdefault(cand["segment_num"], []).append(ln)
 
-    parts: List[str] = []
+    parts = []
     for seg in sorted(by_seg.keys()):
         parts.append(f"---SEGMENT_{seg}---")
         parts.append("")
@@ -508,10 +569,16 @@ def _format_decisions_sheet_output(
     return "\n".join(parts).strip()
 
 
-def _format_decision_tracking_output(entries: List[Dict[str, str]]) -> str:
+def _format_decision_tracking_output(entries):
+    """
+    Format tracking output for decision_of_final_visual column.
+
+    :param entries: Decision entry dicts
+    :return: Formatted tracking text
+    """
     if not entries:
         return ""
-    by_seg: Dict[int, List[Dict[str, str]]] = {}
+    by_seg = {}
     for entry in entries:
         try:
             seg = int(entry.get("segment_num") or 0)
@@ -519,7 +586,7 @@ def _format_decision_tracking_output(entries: List[Dict[str, str]]) -> str:
             seg = 0
         by_seg.setdefault(seg, []).append(entry)
 
-    parts: List[str] = []
+    parts = []
     for seg in sorted(by_seg.keys()):
         parts.append(f"---SEGMENT_{seg}---")
         parts.append("")
@@ -533,21 +600,18 @@ def _format_decision_tracking_output(entries: List[Dict[str, str]]) -> str:
     return "\n".join(parts).strip()
 
 
-def _parse_decision_tracking_output(text: str) -> List[Dict[str, str]]:
+def _parse_decision_tracking_output(text):
     """
-    Parse decision_of_final_visual text blocks into structured entries.
-    Expected block shape:
-      ---SEGMENT_N---
-      SxVy:
-      Original Visual: ...
-      Replacement Visual: ...
-      Selection: ...
-    """
-    entries: List[Dict[str, str]] = []
-    current_segment: Optional[int] = None
-    current_entry: Dict[str, str] = {}
+    Parse decision tracking text into structured entries.
 
-    def _flush_current() -> None:
+    :param text: decision_of_final_visual text
+    :return: Parsed decision entries
+    """
+    entries = []
+    current_segment = None
+    current_entry = {}
+
+    def _flush_current():
         nonlocal current_entry
         if current_segment is None:
             return
@@ -596,11 +660,16 @@ def _parse_decision_tracking_output(text: str) -> List[Dict[str, str]]:
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_decide_final_visuals_for_all_rows(
-    sheet: Any,
-    llm: str = "gemini_3_flash_thinking",
-    max_workers: int = 50,
-) -> None:
+def run_decide_final_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+    """
+    Run final-visual decision for all eligible rows.
+
+    :param sheet: gspread sheet object
+    :param llm: LLM model name
+    :param max_workers: Parallel workers
+    :return: None
+    """
+    
     worksheet_name = "Slide Chunks"
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = str(course_info_df.loc[0, "Course Name"]).strip()
@@ -689,8 +758,13 @@ def run_decide_final_visuals_for_all_rows(
     print("✅ Decide final visuals (primary vs fallback) completed.")
 
 
-def delete_final_visual_decisions(sheet: Any) -> None:
-    from services.sheets_service import clear_worksheet, save_to_sheet
+def delete_final_visual_decisions(sheet):
+    """
+    Revert selected replacements and delete decision tracking column.
+
+    :param sheet: gspread sheet object
+    :return: None
+    """
 
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
