@@ -65,6 +65,16 @@ from agents.graphics_definition_v2.review_agent.visual_columns_for_human_feedbac
     run_populate_human_feedback_visual_columns,
     delete_human_feedback_visual_columns,
 )
+from agents.graphics_definition_v2.review_agent.review_finalized_visuals import (
+    run_review_finalized_visuals_for_all_rows,
+    delete_final_visuals_review,
+    run_generate_alternative_visuals_from_web_for_all_rows,
+    delete_replacement_visuals_from_final_visuals_review,
+)
+from agents.graphics_definition_v2.review_agent.decide_final_visuals import (
+    run_decide_final_visuals_for_all_rows,
+    delete_final_visual_decisions,
+)
 from agents.graphics_definition_v2.download_assets.download_assets_for_sheet import (
     run_download_assets_for_sheet,
 )
@@ -229,6 +239,59 @@ pipeline_sections = [
                 "estimated_time": "30-90 minutes",
                 "description": "This step reviews assigned visuals against alignment, specificity, and redundancy criteria, revises using existing pools, and regenerates only when necessary.",
                 "delete_func": delete_review_and_revise_graphics_definition_v2,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 7: Review Finalized Visuals and do a Targeted Web Fallback and Selection.",
+        "steps": [
+            {
+                "name": "Review all the Finalized Visuals to decide if Web Search is needed for some visuals",
+                "func": run_review_finalized_visuals_for_all_rows,
+                "depends_on": ["Review and Revise Graphics Definitions"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "10-30 minutes",
+                "description": "Reviews all the finalized visuals and decides if Web Search is needed for some visuals",
+                "delete_func": delete_final_visuals_review,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+            {
+                "name": "Generate alternative visuals from Web",
+                "func": run_generate_alternative_visuals_from_web_for_all_rows,
+                "depends_on": ["Review all the Finalized Visuals to decide if Web Search is needed for some visuals"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "5-20 minutes",
+                "description": "Search and select the best visual from the web for the failed visuals",
+                "delete_func": delete_replacement_visuals_from_final_visuals_review,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+            {
+                "name": "Decide which visual to Use",
+                "func": run_decide_final_visuals_for_all_rows,
+                "depends_on": ["Generate alternative visuals from Web"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "5-25 minutes",
+                "description": "Decide which visual to use between the currently assigned visual and the newly retrieved visual from web",
+                "delete_func": delete_final_visual_decisions,
                 "delete_args": {
                     "sheet": "sheet"
                 }

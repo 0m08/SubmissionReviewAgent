@@ -122,14 +122,14 @@ Follow the below evaluation rules to guide your evaluation:
    - Use only the provided assets and voiceover text; do not assume missing context beyond what is present in the slide.
    - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
 
-2. What counts as PASS for a segment
+2) What counts as PASS for a segment
    - The assigned visual(s) clearly show what is described by its respective voiceover sentence.
    - The visual(s) match the specific meaning of the segment as spoken, not just the general topic of the slide.
    - For segments that are part of a split sentence (e.g., lists or continuations), the visual must correctly represent the specific item or clause being spoken in that segment.
    - If multiple visuals are assigned to a segment, together they must fully support the segment’s meaning without introducing confusion or contradiction.
    - A learner should be able to understand what the voiceover segment is referring to by looking at the assigned visual(s) at that moment.
 
-3. What counts as FAIL for a segment
+3) What counts as FAIL for a segment
    A segment FAILS if any one of the following is true:
    - The visual shows something different than what the voiceover segment describes.
    - The visual is generic, symbolic, or only loosely related, and does not clearly illustrate the specific meaning of the segment.
@@ -138,12 +138,12 @@ Follow the below evaluation rules to guide your evaluation:
    - The assigned visual(s) do not provide enough visual evidence for a learner to understand the segment at that moment.
    - The visual asset is unusable (missing, broken, or non-loadable).
 
-4. Slide-Level Verdict
+4) Slide-Level Verdict
    - The slide receives a PASS only if all voiceover segments PASS.
    - If any single segment FAILS, the entire slide verdict must be FAIL.
    - Be extremely strict and critical in your evaluation to ensure that the visuals are correctly aligned with the voiceover segments.
 
-5. Failure Reporting Requirements
+5) Failure Reporting Requirements
    For every failed visual, you MUST:
    - Identify the voiceover segment ID
    - Quote the exact voiceover text
@@ -304,7 +304,7 @@ Use this section as a structured reasoning and scratchpad space for you to evalu
 PASS|FAIL 
 </verdict>
 
-(If the slide verdict is FAIL, provide the details of the failed segment in the following format)
+(If the slide verdict is FAIL, provide the details of the failed visual in the following format)
 
 <failure>
 
@@ -782,7 +782,7 @@ These are the candidate images and videos from which to select the most appropri
 
 Instructions:
 
-1. Scope and Revision Responsibility
+1) Scope and Revision Responsibility
    - Your task is to revise the graphics definition for this single voiceover (VO) segment only.
    - Use the slide content and the specific voiceover segment to understand the context and the instructional intent.
    - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
@@ -791,7 +791,7 @@ Instructions:
    - Apply changes only to the specific visual(s) identified as failing in the provided feedback.
    - Select replacement visuals only from the provided candidate image and video pools.
 
-2. Candidate Evaluation and Visual Replacement
+2) Candidate Evaluation and Visual Replacement
    - Carefully review all provided image and video candidates for this voiceover segment.
    - Evaluate each candidate only against the specific visual requirement described in the feedback.
    - Select the candidate that most directly and clearly satisfies the feedback while remaining aligned with the voiceover segment.
@@ -799,7 +799,7 @@ Instructions:
    - If no candidate fully satisfies the feedback, select the closest acceptable alternative
    - Ensure the replacement visual(s) are instructionally clear and effective for the voiceover segment.
 
-3. Visual Form and Usage Constraints
+3) Visual Form and Usage Constraints
    - You may select images, video clips with timestamps, or still frames extracted from videos, using only the provided candidate visuals.
    - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the feedback while fitting within the narration timing of the relevant part(s) of the voiceover segment.
    - When you find both a video clip and a still image that equally satisfies the feedback for any part of the voiceover sentence, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration and addressing the feedback.
@@ -827,34 +827,34 @@ Always provide your output strictly in the following format:
 
 Use this section as a structured reasoning and scratchpad space for you to address the feedback and select the most appropriate visual(s) to replace the failed visual(s). Use it to document your observations, reasoning, and decision process. Provide the following sections:
 
-1. Voiceover Sentence Understanding
+1) Voiceover Sentence Understanding
    - Briefly explain, in your own words, what the voiceover sentence is communicating and what part of the sentence the feedback is addressing. Use the slide content to resolve any references, pronouns, or implied meaning if needed.
 
-2. Feedback Interpretation
+2) Feedback Interpretation
     - Briefly summarize what the feedback indicates is wrong with the current visual(s). 
     - Identify how many visual(s) are currently assigned to the voiceover segment and how many need to be replaced.
     - Clearly state the specific visual requirement that must be satisfied by the revision.
 
-3. Image Candidates Scan
+3) Image Candidates Scan
    - Create a numbered list of all provided image candidates and briefly describe what you see in each of the image candidate.
 
-4. Video Candidates Scan
+4) Video Candidates Scan
    - Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate. 
    - Focus on explaining the visual content of the video, and not what is being spoken in the video. Split the list into two sections: one for videos from which video clips (with timestamps) or still frames as images can be used, and one for videos from which ONLY still frames as images can be used (NOT playable video clips with timestamps).
 
-5. Candidate Fit Analysis
+5) Candidate Fit Analysis
    - Compare the candidates against the feedback requirement(s). 
    - Identify which candidate(s) most directly satisfy the requirement and why. 
    - If multiple candidates partially match, reason about which one is the closest acceptable match.
    - If no candidate fully satisfies the feedback, determine the closest acceptable alternative.
 
-6. Video Timestamp / Frame Selection Thinking (only if selecting video to replace any of the failed visual(s))
+6) Video Timestamp / Frame Selection Thinking (only if selecting video to replace any of the failed visual(s))
    - If selecting a playable video clip if you find a relevant one that best satisfies the feedback requirement:
    - Determine exactly which portion of the video is visually relevant and will satisfy the feedback.
    - Plan the correct start and end timestamps for that portion, ensuring the selected video clip can realistically fit within the narration timing of the specific part of the voiceover segment being addressed by the feedback.
    - If selecting a still frame from a video, determine the moment (single timestamp) that captures the required visual so that it can be used as a static image.
 
-7. Additional Analysis:
+7) Additional Analysis:
    - Note any additional observations, thoughts or analysis that can help you arrive at the correct output and decision that addresses all the given feedback for all the failed visual(s) of this voiceover segment.
 
 (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
@@ -953,7 +953,7 @@ These are the candidate images and videos from which to select the most appropri
 Instructions:
 Follow the below evaluation rules to guide your evaluation:
 
-1. Scope and Revision Responsibility
+1) Scope and Revision Responsibility
     - Your task is to revise the graphics definition for this slide.
     - Use the whole slide content to understand the intended meaning of the slide.
     - The assigned visual is displayed on screen as the entire slide content is narrated.
@@ -961,14 +961,14 @@ Follow the below evaluation rules to guide your evaluation:
     - Select replacement visual only from the provided candidate image and video pools.
     - IMPORTANT: Know that we have been allowed to assign only one visual asset for this particular slide. So keep that in mind as you select the replacement visual.
 
-2. Candidate Evaluation and Visual Replacement
+2) Candidate Evaluation and Visual Replacement
    - Carefully review all provided image and video candidates for this slide.
    - Evaluate each candidate against the specific visual requirement described in the feedback.
    - Select the candidate that most directly and clearly satisfies the feedback while remaining aligned with the slide content.
    - If no candidate fully satisfies the feedback, select the closest acceptable alternative.
    - Ensure the replacement visual is instructionally clear and effective for the slide.
 
-3. Visual Form and Usage Constraints
+3) Visual Form and Usage Constraints
    - You may select an image, video clip with timestamps, or a still frame extracted from video, using only the provided candidate visuals.
    - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the feedback while fitting within the narration timing of the slide content.
    - When you find both a video clip and a still image that equally satisfies the feedback, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration and addressing the feedback.
@@ -996,33 +996,33 @@ Always provide your output strictly in the following format:
 
 Use this section as a structured reasoning and scratchpad space for you to address the feedback and select the most appropriate visual to replace the failed visual. Use it to document your observations, reasoning, and decision process. Provide the following sections:
 
-1. Slide Understanding
+1) Slide Understanding
    - Briefly explain, in your own words, what the slide is about and what it is trying to convey.
 
-2. Feedback Interpretation
+2) Feedback Interpretation
    - Briefly summarize what the feedback indicates is wrong with the current visual.
    - Clearly state the specific visual requirement that must be satisfied by the revision.
 
-3. Image Candidates Scan
+3) Image Candidates Scan
    - Create a numbered list of all provided image candidates and briefly describe what you see in each of the image candidate.
 
-4. Video Candidates Scan
+4) Video Candidates Scan
    - Create a numbered list of all provided video candidates and briefly describe what you see in each of the video candidate.
    - Focus on explaining the visual content of the video, and not what is being spoken in the video. Split the list into two sections: one for videos from which video clips (with timestamps) or still frames as images can be used, and one for videos from which ONLY still frames as images can be used (NOT playable video clips with timestamps).
 
-5. Candidate Fit Analysis
+5) Candidate Fit Analysis
    - Compare the candidates against the feedback requirement. 
    - Identify which candidate most directly satisfy the requirement and why. 
    - If multiple candidates partially match, reason about which one is the closest acceptable match.
    - If no candidate fully satisfies the feedback, determine the closest acceptable alternative.
 
-6. Video Timestamp / Frame Selection Thinking (only if selecting video as replacement visual)
+6) Video Timestamp / Frame Selection Thinking (only if selecting video as replacement visual)
    - If selecting a playable video clip if you find a relevant one that best satisfies the feedback requirement:
    - Determine exactly which portion of the video is visually relevant and will satisfy the feedback.
    - Plan the correct start and end timestamps for that portion, ensuring the selected video clip can realistically fit within the narration timing of the slide content.
    - If selecting a still frame from a video, determine the moment (single timestamp) that captures the required visual so that it can be used as a static image.
 
-7. Additional Analysis:
+7) Additional Analysis:
    - Note any additional observations, thoughts or analysis that can help you arrive at the correct output and decision that addresses the given feedback for the slide.
 
 (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
