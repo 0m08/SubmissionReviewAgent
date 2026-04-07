@@ -1,7 +1,3 @@
-"""
-Pairwise visual selection: compare two candidates for a slot and merge the chosen URL into final_graphics_definition.
-"""
-
 from __future__ import annotations
 
 import html

@@ -1,7 +1,3 @@
-"""
-Review finalized visuals (one segment at a time) and write human-readable verdicts.
-"""
-
 from __future__ import annotations
 
 import re
