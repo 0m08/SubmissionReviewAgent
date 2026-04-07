@@ -988,9 +988,31 @@ def delete_steps(sheet, agent_name, step_names, pipeline_sections):
                             else:
                                 delete_kwargs[arg_name] = session_key
                     
-                    # Execute the delete function
+                    # Execute the delete function. Missing worksheets are skipped.
                     with st.spinner(text = f"Deleting {step_name}...", show_time = True):
-                        step["delete_func"](**delete_kwargs)
+                        try:
+                            step["delete_func"](**delete_kwargs)
+                        except Exception as e:
+                            def _is_missing_worksheet_error(exc: Exception) -> bool:
+                                seen = set()
+                                current = exc
+                                while current is not None and id(current) not in seen:
+                                    seen.add(id(current))
+                                    msg = str(current)
+                                    cls_name = current.__class__.__name__
+                                    if (
+                                        "WorksheetNotFound" in cls_name
+                                        or "WorksheetNotFound" in msg
+                                        or ("worksheet" in msg.lower() and "not found" in msg.lower())
+                                    ):
+                                        return True
+                                    current = current.__cause__ or current.__context__
+                                return False
+
+                            if _is_missing_worksheet_error(e):
+                                pass
+                            else:
+                                raise
                     # except Exception as e:
                     #     st.error(f"Error in delete function for {step_name}: {e}")
                     #     st.text(traceback.format_exc())
