@@ -168,7 +168,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "max_workers": 50,
-                    "use_only_drive_and_hvac": "use_only_drive_and_hvac",
+                    "use_only_drive_and_hvac": True,
                 },
                 "estimated_time": "10-20 minutes",
                 "description": "This step runs 4 parallel searches: Drive Search, Web Search, Video Search (HVAC channels), and Video Search (Other channels). Each writes to its respective column (drive_results, web_results, video_pool, video_pool_other_channels).",
@@ -234,7 +234,7 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
                     "max_workers": 50,
-                    "use_only_drive_and_hvac": "use_only_drive_and_hvac",
+                    "use_only_drive_and_hvac": True,
                 },
                 "estimated_time": "30-90 minutes",
                 "description": "This step reviews assigned visuals against alignment, specificity, and redundancy criteria, revises using existing pools, and regenerates only when necessary.",
@@ -391,12 +391,4 @@ llm_pricing = {
     },
 }
 
-TOP_TOGGLES = [
-    {
-        "key": "use_only_drive_and_hvac",
-        "label": "Use only Drive images and videos from 'HVAC School' and 'Love2HVAC with Ty' youtube channel",
-        "default": True,
-    },
-]
-
-agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing, top_instructions=TOP_INSTRUCTIONS, top_toggles=TOP_TOGGLES)
+agent_ui(step_name="Graphics Definition V2", pipeline_sections=pipeline_sections, llm_pricing=llm_pricing, top_instructions=TOP_INSTRUCTIONS)

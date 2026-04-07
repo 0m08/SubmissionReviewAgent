@@ -74,6 +74,12 @@ from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all
     parse_video_items_from_pool_other_channels,
 )
 
+from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
+        _get_youtube_api_key,
+        run_aggregation_agent_for_all_rows,
+        validate_youtube_clip_links_for_row,
+)
+
 load_dotenv()
 
 MAX_REVIEW_ATTEMPTS = 1
@@ -5124,6 +5130,56 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
     print("=" * 80)
     save_to_sheet(ws, df)
     format_worksheet(ws)
+
+    # Post review-revise validation: check YouTube clip timestamps and re-run aggregation for faulty rows.
+    youtube_api_key = _get_youtube_api_key()
+    if youtube_api_key:
+        print("\n🔍 Running post-review-revise YouTube clip validation.")
+        ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+        duration_cache = {}
+        faulty_rows = []
+        for index, row in df.iterrows():
+            clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
+                row, youtube_api_key, duration_cache
+            )
+            if not clip_valid:
+                print(f"⚠️ Faulty clip found in row {index + 2}: {clip_error_msg}")
+                faulty_rows.append(index)
+
+        if faulty_rows:
+            print(
+                f"⚠️ Found {len(faulty_rows)} row(s) with faulty YouTube clip links after review-revise. "
+                "Clearing final_graphics_definition and re-running aggregation for those rows."
+            )
+            for index in faulty_rows:
+                df.at[index, "final_graphics_definition"] = ""
+            save_to_sheet(ws, df)
+            format_worksheet(ws)
+
+            run_aggregation_agent_for_all_rows(sheet, llm=llm, max_workers=max_workers)
+
+            ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+            duration_cache = {}
+            remaining_faulty = []
+            for index, row in df.iterrows():
+                clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
+                    row, youtube_api_key, duration_cache
+                )
+                if not clip_valid:
+                    remaining_faulty.append((index, clip_error_msg))
+
+            if remaining_faulty:
+                print(
+                    f"⚠️ Post-retry validation: {len(remaining_faulty)} row(s) still have faulty YouTube clip links."
+                )
+                for index, err in remaining_faulty[:5]:
+                    print(f"  Row {index + 2}: {err}")
+            else:
+                print("✅ Post-review-revise YouTube clip validation completed successfully after re-aggregation.")
+        else:
+            print("✅ Post-review-revise YouTube clip validation completed: no faulty clip links found.")
+    else:
+        print("⚠️ Post-review-revise YouTube clip validation skipped: missing GCLOUD_YT_SEARCH_API_KEY_1/2/3.")
 
     # print("\n" + "=" * 80)
     # print("[STEP 3] Starting REDUNDANCY review across topic groups...")
