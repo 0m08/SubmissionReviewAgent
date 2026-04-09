@@ -171,7 +171,7 @@ pipeline_sections = [
                     "use_only_drive_and_hvac": True,
                 },
                 "estimated_time": "10-20 minutes",
-                "description": "This step runs 4 parallel searches: Drive Search, Web Search, Video Search (HVAC channels), and Video Search (Other channels). Each writes to its respective column (drive_results, web_results, video_pool, video_pool_other_channels).",
+                "description": "This step runs Drive Search and Video Search (HVAC channels). They write to drive_results and video_pool column.",
                 "delete_func": delete_all_candidate_results,
                 "delete_args": {
                     "sheet": "sheet"

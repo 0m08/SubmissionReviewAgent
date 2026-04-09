@@ -23,9 +23,11 @@ import subprocess
 import json
 import time
 import threading
+import random
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Tuple
+from collections import deque
 
 import pandas as pd
 import numpy as np
@@ -67,6 +69,11 @@ MAX_WORKERS = 15
 MAX_ENCODED_BYTES = 27_000_000
 SAFE_THRESHOLD = 24_000_000
 PRICE_PER_M_TOKEN = 0.30
+EMBEDDING_MAX_RETRIES = int(os.getenv("VIDEO_EMBEDDING_MAX_RETRIES", "6"))
+EMBEDDING_BASE_BACKOFF_SEC = float(os.getenv("VIDEO_EMBEDDING_BASE_BACKOFF_SEC", "2.0"))
+EMBEDDING_MAX_BACKOFF_SEC = float(os.getenv("VIDEO_EMBEDDING_MAX_BACKOFF_SEC", "60.0"))
+EMBEDDING_RPM_LIMIT = int(os.getenv("VIDEO_EMBEDDING_REQUESTS_PER_MINUTE", "20"))
+EMBEDDING_MAX_INFLIGHT_REQUESTS = int(os.getenv("VIDEO_EMBEDDING_MAX_INFLIGHT_REQUESTS", "2"))
 
 # Required columns
 REQUIRED_COLUMNS = ["video_id", "video_url"]
@@ -184,6 +191,48 @@ def check_vectorstore_exists_in_drive(drive, parent_folder_id):
 def calculate_cost(tokens_used):
     """Calculate estimated cost based on tokens used."""
     return round((tokens_used / 1_000_000) * PRICE_PER_M_TOKEN, 6)
+
+
+def is_quota_error(exc: Exception) -> bool:
+    """Return True if exception indicates API quota/rate limiting."""
+    msg = str(exc).lower()
+    quota_signals = [
+        "429",
+        "quota exceeded",
+        "online_prediction_requests_per_base_model",
+        "resourceexhausted",
+        "rate limit",
+        "too many requests",
+    ]
+    return any(signal in msg for signal in quota_signals)
+
+
+class RequestRateLimiter:
+    """Thread-safe fixed-window rate limiter."""
+    def __init__(self, max_calls: int, period_seconds: float):
+        self.max_calls = max(1, int(max_calls))
+        self.period_seconds = float(period_seconds)
+        self._timestamps = deque()
+        self._lock = threading.Lock()
+
+    def acquire(self):
+        """Block until one request token is available."""
+        while True:
+            now = time.monotonic()
+            wait_for = 0.0
+
+            with self._lock:
+                while self._timestamps and (now - self._timestamps[0]) >= self.period_seconds:
+                    self._timestamps.popleft()
+
+                if len(self._timestamps) < self.max_calls:
+                    self._timestamps.append(now)
+                    return
+
+                oldest = self._timestamps[0]
+                wait_for = max(0.01, self.period_seconds - (now - oldest))
+
+            time.sleep(wait_for)
 
 
 # ============================================================
@@ -334,7 +383,7 @@ def segment_video(video_path, output_dir, chunk_length=CHUNK_LENGTH_SEC):
     return segment_paths
 
 
-def generate_video_embedding(video_path, model):
+def generate_video_embedding(video_path, model, rate_limiter=None, request_semaphore=None):
     """
     Generate video embeddings using Vertex AI.
     
@@ -393,10 +442,44 @@ def generate_video_embedding(video_path, model):
         # Generate embeddings
         print(f"  🤖 Calling Vertex AI to generate embeddings...")
         video = Video.load_from_file(video_path)
-        result = model.get_embeddings(
-            video=video,
-            video_segment_config=VideoSegmentConfig(end_offset_sec=CHUNK_LENGTH_SEC)
-        )
+        result = None
+        last_error = None
+
+        for attempt in range(EMBEDDING_MAX_RETRIES + 1):
+            try:
+                if rate_limiter is not None:
+                    rate_limiter.acquire()
+                if request_semaphore is None:
+                    result = model.get_embeddings(
+                        video=video,
+                        video_segment_config=VideoSegmentConfig(end_offset_sec=CHUNK_LENGTH_SEC)
+                    )
+                else:
+                    with request_semaphore:
+                        result = model.get_embeddings(
+                            video=video,
+                            video_segment_config=VideoSegmentConfig(end_offset_sec=CHUNK_LENGTH_SEC)
+                        )
+                break
+            except Exception as req_err:
+                last_error = req_err
+                if not is_quota_error(req_err) or attempt >= EMBEDDING_MAX_RETRIES:
+                    raise
+
+                backoff = min(
+                    EMBEDDING_MAX_BACKOFF_SEC,
+                    EMBEDDING_BASE_BACKOFF_SEC * (2 ** attempt)
+                )
+                jitter = random.uniform(0, 0.5 * EMBEDDING_BASE_BACKOFF_SEC)
+                sleep_for = backoff + jitter
+                print(
+                    f"  ⏳ Quota hit (attempt {attempt + 1}/{EMBEDDING_MAX_RETRIES + 1}). "
+                    f"Retrying in {sleep_for:.1f}s..."
+                )
+                time.sleep(sleep_for)
+
+        if result is None and last_error is not None:
+            raise last_error
 
         print(f"  ✅ Received embeddings from Vertex AI")
         embeddings = []
@@ -677,6 +760,11 @@ def create_video_embeddings(
     total_tokens = 0
     total_cost = 0.0
     total_segments = 0
+    embedding_rate_limiter = RequestRateLimiter(
+        max_calls=EMBEDDING_RPM_LIMIT,
+        period_seconds=60.0
+    )
+    embedding_request_semaphore = threading.Semaphore(EMBEDDING_MAX_INFLIGHT_REQUESTS)
     
     # Use tqdm for console/log progress
     for video_idx, (idx, row) in enumerate(tqdm(videos_to_process.iterrows(), total=len(videos_to_process), desc="Processing videos")):
@@ -708,7 +796,13 @@ def create_video_embeddings(
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     # Submit all segments for processing with original timestamps
                     future_to_segment = {
-                        executor.submit(generate_video_embedding, seg_path, model): (j, seg_path, j * chunk_length)
+                        executor.submit(
+                            generate_video_embedding,
+                            seg_path,
+                            model,
+                            embedding_rate_limiter,
+                            embedding_request_semaphore
+                        ): (j, seg_path, j * chunk_length)
                         for j, seg_path in enumerate(segments)
                     }
                     

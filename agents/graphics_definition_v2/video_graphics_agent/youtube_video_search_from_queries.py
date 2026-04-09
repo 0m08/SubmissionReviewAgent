@@ -45,23 +45,29 @@ def get_drive_instance():
         return None
 
 
-def retrieve_video_docs_for_query(query, drive, k=search_k, use_reranking=use_reranking):
+def retrieve_video_docs_for_query(query, drive=None, video_embeddings_chroma=None, k=search_k, use_reranking=use_reranking):
     """
     Retrieve video documents from vectorstore for a single query.
     
     :param query: Search query string
     :param drive: Google Drive instance
+    :param video_embeddings_chroma: Preloaded video embeddings wrapper
     :param k: Number of results to retrieve
     :param use_reranking: Whether to use Cohere reranking
     :return: List of document objects with metadata
     """
-    if not drive:
+    if video_embeddings_chroma is None and not drive:
         print(f"⚠️  Drive instance not available for video search")
         return []
     
     try:
-        # Load video embeddings retriever from Google Drive
-        video_embeddings_chroma = load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video_embeddings_folder_name)
+        # Load video embeddings retriever from Google Drive once, then reuse it across row/query workers.
+        if video_embeddings_chroma is None:
+            video_embeddings_chroma = load_new_video_embeddings_chroma_db(
+                drive,
+                video_embeddings_folder_id,
+                video_embeddings_folder_name
+            )
         video_embeddings_retriever = video_embeddings_chroma.as_retriever(
             search_kwargs={"k": k * 2 if use_reranking else k}  # Get more if reranking
         )
@@ -97,12 +103,13 @@ def retrieve_video_docs_for_query(query, drive, k=search_k, use_reranking=use_re
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def execute_video_search_for_query(query, drive, k=search_k):
+def execute_video_search_for_query(query, drive=None, video_embeddings_chroma=None, k=search_k):
     """
     Execute video search for a single query and return video URLs.
     
     :param query: Search query string
     :param drive: Google Drive instance
+    :param video_embeddings_chroma: Preloaded video embeddings wrapper
     :param k: Number of results to retrieve
     :return: List of YouTube embed URLs with timestamps
     """
@@ -110,7 +117,13 @@ def execute_video_search_for_query(query, drive, k=search_k):
     
     # Execute search
     try:
-        docs = retrieve_video_docs_for_query(query, drive, k, use_reranking)
+        docs = retrieve_video_docs_for_query(
+            query,
+            drive=drive,
+            video_embeddings_chroma=video_embeddings_chroma,
+            k=k,
+            use_reranking=use_reranking
+        )
         print(f"Raw results: {len(docs)} video segments")
     except Exception as e:
         print(f"❌ Search error: {str(e)}")
@@ -194,13 +207,14 @@ def parse_search_queries_column(search_queries_text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_video_search_segment(segment_num, queries, drive, k=search_k):
+def process_video_search_segment(segment_num, queries, drive=None, video_embeddings_chroma=None, k=search_k):
     """
     Process a single segment: execute queries in parallel, deduplicate, format output.
     
     :param segment_num: Segment number
     :param queries: List of search queries for this segment
     :param drive: Google Drive instance
+    :param video_embeddings_chroma: Preloaded video embeddings wrapper
     :param k: Number of results per query
     :return: Tuple of (segment_num, segment_output_string) or (segment_num, None) if no results
     """
@@ -217,6 +231,8 @@ def process_video_search_segment(segment_num, queries, drive, k=search_k):
     
     if not valid_queries:
         return segment_num, None
+
+    print(f"🚀 SEGMENT_{segment_num}: submitting {len(valid_queries)} video query search task(s) in parallel")
     
     # Execute queries in parallel
     with ThreadPoolExecutor(max_workers=len(valid_queries)) as executor:
@@ -226,6 +242,7 @@ def process_video_search_segment(segment_num, queries, drive, k=search_k):
                 execute_video_search_for_query,
                 query,
                 drive,
+                video_embeddings_chroma,
                 k
             ): (query_idx, query)
             for query_idx, query in valid_queries
@@ -273,13 +290,14 @@ def process_video_search_segment(segment_num, queries, drive, k=search_k):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_video_search_row(index, row, drive, k=search_k):
+def process_video_search_row(index, row, drive=None, video_embeddings_chroma=None, k=search_k):
     """
     Process a single row: parse video search queries, execute searches for each segment, deduplicate, format output.
     
     :param index: Row index
     :param row: Pandas Series with row data
     :param drive: Google Drive instance
+    :param video_embeddings_chroma: Preloaded video embeddings wrapper
     :param k: Number of results per query
     :return: Tuple of (index, video_pool_text)
     """
@@ -295,12 +313,21 @@ def process_video_search_row(index, row, drive, k=search_k):
         
         if not segments:
             return index, ""
+
+        print(f"🚀 Row {index + 1}: submitting {len(segments)} video segment task(s) in parallel")
         
         # Execute all segments in parallel
         with ThreadPoolExecutor(max_workers=len(segments)) as executor:
             # Submit all segments
             futures = {
-                executor.submit(process_video_search_segment, segment_num, queries, drive, k): segment_num
+                executor.submit(
+                    process_video_search_segment,
+                    segment_num,
+                    queries,
+                    drive,
+                    video_embeddings_chroma,
+                    k
+                ): segment_num
                 for segment_num, queries in segments
             }
             
@@ -420,6 +447,18 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=50):
     if not drive:
         print("❌ Drive instance not available. Cannot execute video search.")
         return
+
+    print("🚀 Preloading HVAC video embeddings vectorstore before submitting row workers...")
+    try:
+        video_embeddings_chroma = load_new_video_embeddings_chroma_db(
+            drive,
+            video_embeddings_folder_id,
+            video_embeddings_folder_name
+        )
+    except Exception as e:
+        print(f"❌ Failed to preload HVAC video embeddings vectorstore: {e}")
+        return
+    print("✅ HVAC video embeddings vectorstore is warm and ready for parallel row processing")
     
     # Load the worksheet and DataFrame
     worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
@@ -450,7 +489,7 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=50):
                 continue
             
             # Submit task for processing
-            future = executor.submit(process_video_search_row, index, row, drive, k)
+            future = executor.submit(process_video_search_row, index, row, drive, video_embeddings_chroma, k)
             futures_map[future] = index
         
         # If no rows to process, return early
@@ -460,6 +499,7 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=50):
         
         # Initialize progress tracker
         total_tasks = len(futures_map)
+        print(f"🚀 Submitted {total_tasks} row-level HVAC video search task(s) with max_workers={max_workers}")
         progress = SmartProgressBar(
             total_tasks=total_tasks,
             description="Executing YouTube video search",
@@ -527,7 +567,7 @@ def run_youtube_video_search_for_all_rows(sheet, k=search_k, max_workers=50):
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, error_msg in invalid_rows:
-                future = executor.submit(process_video_search_row, index, row, drive, k)
+                future = executor.submit(process_video_search_row, index, row, drive, video_embeddings_chroma, k)
                 futures_map[future] = index
             
             # Collect results
