@@ -56,8 +56,11 @@ def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_driv
         save_interval=0,
     )
     
-    # Run all 4 in parallel
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    print(f"🚀 Submitting {len(search_functions)} candidate search in parallel")
+    for name, _, _ in search_functions:
+        print(f"   - {name}")
+
+    with ThreadPoolExecutor(max_workers=len(search_functions)) as executor:
         # Submit all tasks
         futures_map = {}
         for name, func, kwargs in search_functions:

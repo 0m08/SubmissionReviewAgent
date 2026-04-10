@@ -150,6 +150,24 @@ def merge_and_save_columns(sheet, worksheet_name: str, df_with_updates: pd.DataF
         save_to_sheet(worksheet, latest_df)
 
 
+@try_n_times(n=5, wait=2, backoff="exponential")
+def merge_and_save_row_cells(sheet, worksheet_name: str, row_index, cell_updates: dict):
+    """
+    Patch specific cells on one row and save, without copying whole columns from a stale dataframe.
+
+    Uses the same lock as merge_and_save_columns so concurrent row workers do not affect each other.
+    """
+    if not cell_updates:
+        return
+    with _MERGE_SAVE_LOCK:
+        worksheet, latest_df = get_sheet_data_and_df(sheet, worksheet_name)
+        for col, val in cell_updates.items():
+            if col not in latest_df.columns:
+                latest_df[col] = ""
+            latest_df.at[row_index, col] = str(val) if val is not None else ""
+        save_to_sheet(worksheet, latest_df)
+
+
 @try_n_times(n = 5, wait = 2, backoff = 'exponential')
 def clear_worksheet(worksheet):
     """

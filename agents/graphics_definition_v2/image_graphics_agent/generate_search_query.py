@@ -97,7 +97,7 @@ Always provide your output strictly in the following format:
 # Prompt to use when we want only one visual for the entire slide 
 generate_search_query_prompt_for_entire_slide = """You are a Search Query Generator agent specializing in the field of HVAC. Your task is to generate concise, high-quality image search queries that can be used to retrieve relevant images from a vector store of image embeddings and web-based image search engines. The retrieved images will then be used as on-screen visuals in an educational e-learning slide as it is being narrated.
 
-You will be given a educational slide, along with its course information for context. First, reason internally about what visual elements would need to be shown on screen for the entire slide to be clearly understood. Then, based on that reasoning, generate 5 image search queries that would retrieve the most relevant visuals.
+You will be given a educational slide, along with its course information for context. First, reason internally about what visual elements would need to be shown on screen for the entire slide to be clearly understood. Then, based on that reasoning, generate 4 image search queries that would retrieve the most relevant visuals.
  
 These are the inputs:
 
