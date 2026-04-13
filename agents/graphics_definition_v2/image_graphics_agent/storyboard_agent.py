@@ -420,6 +420,14 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
         if not visual_assignment_strategy or visual_assignment_strategy == "nan":
             visual_assignment_strategy = "Flexible, let the agent decide"
         
+        # If this row has a Reference Image, force single-visual strategy.
+        # This ensures the storyboard is never split into multiple segments for reference rows,
+        # regardless of whether the Segment Slide step was re-run.
+        ref_image = str(row.get("Reference Image", "")).strip()
+        if ref_image and ref_image != "nan":
+            visual_assignment_strategy = "1 Visual for the whole Slide"
+            print(f"Row {index + 1}: Reference image present → forcing '1 Visual for the whole Slide' strategy.")
+        
         # Skip if slide_content is empty
         if not slide_content or slide_content == "nan":
             return index, ""
@@ -488,7 +496,6 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
             if not slide_content or slide_content == "nan":
                 continue
             
-            # Skip if storyboard_planning is already filled
             if storyboard_planning and storyboard_planning != "nan":
                 continue
             

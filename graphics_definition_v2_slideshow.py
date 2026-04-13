@@ -1,4 +1,5 @@
 import base64
+import datetime
 import hashlib
 import imghdr
 import json
@@ -243,6 +244,12 @@ def _build_row_review_payload(slide, row_actions, current_round):
             fb_text = safe_str(item.get("feedback", "")).strip()
             visual_id = f"S{segment['segment_index']}V{step['step_index']}"
             vo = (step.get("voiceover") or "").strip()
+            reference_asset = safe_str(step.get("asset_reference", "")).strip()
+            choice_key = (
+                f"choice_{slide.get('slide_idx_1based', slide.get('row_index', 0))}_"
+                f"{segment['segment_index']}_{step['step_index']}_r{current_round}"
+            )
+            selected_visual_option = safe_str(st.session_state.get(choice_key, "")).strip().lower()
             # ── Check for manual asset overrides from the image/video pool ──
             # Key must match _assign_candidate_to_step which uses slide_idx_1based
             override_key = f"asset_override_{slide.get('slide_idx_1based', slide.get('row_index', 0))}_{segment['segment_index']}_{step['step_index']}"
@@ -257,6 +264,8 @@ def _build_row_review_payload(slide, row_actions, current_round):
                 "vo": vo,
                 "segment": segment["segment_index"],
                 "assigned_asset": assigned_asset, # Include the manual selection
+                "reference_asset": reference_asset,
+                "selected_visual_option": selected_visual_option,
             }
 
             if action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
@@ -365,7 +374,7 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
     if "<" in raw_text and ">" in raw_text:
         result = _xml_surgical_asset_replace(raw_text, parsed_segments, override_map)
         if result is not None:
-            return result
+            return _remove_reference_key_for_overrides(result, parsed_segments, override_map)
 
     # ── Strategy 2: JSON column (from prior save) ────────────────────────────
     stripped = raw_text.strip()
@@ -379,7 +388,17 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
                     step_idx = step.get("step_index", 1)
                     if (seg_idx, step_idx) in override_map:
                         step["asset"] = override_map[(seg_idx, step_idx)]
-            return json.dumps(segments_list, ensure_ascii=False)
+                        # Normalize after selection: keep only primary asset key.
+                        for ref_key in (
+                            "asset_reference",
+                            "reference_asset",
+                            "graphics_to_use_reference",
+                            "graphics_reference",
+                        ):
+                            if ref_key in step:
+                                step.pop(ref_key, None)
+            updated_json = json.dumps(segments_list, ensure_ascii=False)
+            return _remove_reference_key_for_overrides(updated_json, parsed_segments, override_map)
         except Exception:
             pass
 
@@ -396,7 +415,85 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
                         break
         if old_url and old_url in updated:
             updated = updated.replace(old_url, new_url, 1)
-    return updated
+    return _remove_reference_key_for_overrides(updated, parsed_segments, override_map)
+
+
+def _remove_reference_key_for_overrides(raw_text, parsed_segments, override_map):
+    """
+    After a user selection is saved for a step, remove its reference key/value block
+    so the chosen URL exists only as the primary asset ("graphics to use"/"asset").
+    """
+    if not raw_text or not override_map:
+        return raw_text
+
+    # Steps in document order that currently contain a reference asset.
+    steps_with_reference = []
+    reference_values = []
+    for seg in parsed_segments or []:
+        for step in seg.get("steps", []):
+            ref_val = safe_str(step.get("asset_reference", "")).strip()
+            if ref_val:
+                key = (seg.get("segment_index"), step.get("step_index"))
+                steps_with_reference.append(key)
+                reference_values.append(ref_val)
+
+    if not steps_with_reference:
+        return raw_text
+
+    remove_indices = {
+        idx for idx, key in enumerate(steps_with_reference) if key in override_map
+    }
+    if not remove_indices:
+        return raw_text
+
+    result = raw_text
+
+    # Remove XML reference tags for overridden steps.
+    xml_ref_pattern = re.compile(
+        r"(<(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)\\b[^>]*>)(.*?)(</(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)>)",
+        re.DOTALL | re.IGNORECASE,
+    )
+    xml_matches = list(xml_ref_pattern.finditer(result))
+    if xml_matches and len(xml_matches) == len(steps_with_reference):
+        for idx in sorted(remove_indices, reverse=True):
+            m = xml_matches[idx]
+            result = result[:m.start()] + result[m.end():]
+    elif xml_matches:
+        # Fallback: remove first matching tag containing the known reference URL.
+        for idx in sorted(remove_indices, reverse=True):
+            ref_val = reference_values[idx]
+            if not ref_val:
+                continue
+            tag_with_ref = re.compile(
+                r"<(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)\\b[^>]*>\\s*"
+                + re.escape(ref_val)
+                + r"\\s*</(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)>",
+                re.DOTALL | re.IGNORECASE,
+            )
+            result = tag_with_ref.sub("", result, count=1)
+
+    # Remove formatted-text reference blocks for overridden steps.
+    text_ref_pattern = re.compile(
+        r"(?im)^[ \t]*(?:graphics to use \(reference\)|\(reference\)\s*graphics to use)\s*:[^\n]*(?:\n(?![ \t]*(?:when vo|visual instructions|graphics to use(?: \(reference\))?|\(reference\)\s*graphics to use|selection justification|-{2,}|segment\\b)).*)*",
+    )
+    text_matches = list(text_ref_pattern.finditer(result))
+    if text_matches and len(text_matches) == len(steps_with_reference):
+        for idx in sorted(remove_indices, reverse=True):
+            m = text_matches[idx]
+            result = result[:m.start()] + result[m.end():]
+    elif text_matches:
+        for idx in sorted(remove_indices, reverse=True):
+            ref_val = reference_values[idx]
+            if not ref_val:
+                continue
+            line_with_ref = re.compile(
+                r"(?im)^.*(?:graphics to use \(reference\)|\(reference\)\s*graphics to use)\s*:\s*"
+                + re.escape(ref_val)
+                + r"\s*$\n?",
+            )
+            result = line_with_ref.sub("", result, count=1)
+
+    return result
 
 
 def _xml_surgical_asset_replace(raw_text, parsed_segments, override_map):
@@ -717,6 +814,16 @@ def _extract_visual_steps(element):
         voiceover = extract_text_from_tag(step_el, {"voiceover_part", "voiceover", "vo_text"})
         instruction = extract_text_from_tag(step_el, {"visual_instruction", "instruction"})
         asset = extract_text_from_tag(step_el, {"asset", "graphics_to_use", "graphic"})
+        asset_reference = extract_text_from_tag(
+            step_el,
+            {
+                "asset_reference",
+                "graphics_to_use_reference",
+                "graphics_to_use_ref",
+                "reference_asset",
+                "graphics_reference",
+            },
+        )
         justification = extract_text_from_tag(step_el, {"selection_justification", "justification"})
         steps.append(
             {
@@ -724,6 +831,7 @@ def _extract_visual_steps(element):
                 "voiceover": voiceover,
                 "instruction": instruction,
                 "asset": asset,
+                "asset_reference": asset_reference,
                 "justification": justification,
             }
         )
@@ -764,10 +872,11 @@ def _parse_formatted_block(block):
     labels = {
         "when vo": "voiceover",
         "visual instructions": "instruction",
+        "graphics to use (reference)": "asset_reference",
         "graphics to use": "asset",
         "selection justification": "justification",
     }
-    data = {"voiceover": "", "instruction": "", "asset": "", "justification": ""}
+    data = {"voiceover": "", "instruction": "", "asset_reference": "", "asset": "", "justification": ""}
     current_key = None
     for raw_line in block.splitlines():
         line = raw_line.strip()
@@ -788,9 +897,10 @@ def _parse_formatted_block(block):
         if matched:
             continue
         if current_key:
-            if current_key == "asset" and re.match(
+            if current_key in ("asset", "asset_reference") and re.match(
                 r"^\(\s*use the image at\b", line, re.IGNORECASE
             ):
+                data[current_key] = f"{data[current_key]} {line}".strip()
                 continue
             data[current_key] = f"{data[current_key]} {line}".strip()
     if any(data.values()):
@@ -799,6 +909,7 @@ def _parse_formatted_block(block):
             "voiceover": data["voiceover"],
             "instruction": data["instruction"],
             "asset": data["asset"],
+            "asset_reference": data["asset_reference"],
             "justification": data["justification"],
         }
     return None
@@ -873,6 +984,20 @@ if _st_fragment is None:
 def _clear_inspector_image_cache():
     """Clear cached inspector images when sheet/worksheet/data changes."""
     st.session_state.pop(INSPECTOR_IMAGE_CACHE_KEY, None)
+
+
+def _clear_visual_selection_state():
+    """Drop transient UI overrides so refreshed sheet data is rendered as source-of-truth."""
+    prefixes = (
+        "asset_override_",
+        "choice_",
+    )
+    keys_to_delete = [
+        k for k in list(st.session_state.keys())
+        if any(str(k).startswith(p) for p in prefixes)
+    ]
+    for key in keys_to_delete:
+        st.session_state.pop(key, None)
 
 
 def _get_inspector_image_bytes(asset, drive):
@@ -1011,6 +1136,7 @@ def flatten_steps(slides):
             steps = segment.get("steps", [])
             for step_idx, step in enumerate(steps, start=1):
                 asset = safe_str(step.get("asset", "")).strip()
+                asset_ref = safe_str(step.get("asset_reference", "")).strip()
                 asset_type = detect_asset_type(asset)
                 flat_steps.append(
                     {
@@ -1025,6 +1151,7 @@ def flatten_steps(slides):
                         "instruction": safe_str(step.get("instruction", "")),
                         "justification": safe_str(step.get("justification", "")),
                         "asset": asset,
+                        "asset_reference": asset_ref,
                         "asset_type": asset_type,
                     }
                 )
@@ -2191,6 +2318,22 @@ def _revert_asset_assignment(key):
     st.toast("Reverted to original asset", icon="↩️")
 
 
+def _set_visual_choice(choice_key, choice_value, ov_key, asset_url):
+    """Set the choice between Option 1 and Option 2 and update asset_override."""
+    st.session_state[choice_key] = choice_value
+    st.session_state[ov_key] = asset_url
+    st.toast(f"Selected {'Option 1 (Graphics definition)' if choice_value == 'option1' else 'Option 2 (Reference)'}", icon="✅")
+
+
+def _undo_visual_choice(choice_key, ov_key):
+    """Undo the dual-visual choice."""
+    if choice_key in st.session_state:
+        st.session_state[choice_key] = None
+    if ov_key in st.session_state:
+        del st.session_state[ov_key]
+    st.toast("Choice undone", icon="↩️")
+
+
 def _fragment_candidate_images_expander(image_pool_text, segment_num, slide_idx, target_step_index, drive, embed_key_prefix):
     """
     Paginated UI for alternative images: shows 3 at a time, slides by 2 on click.
@@ -2418,7 +2561,7 @@ def _fragment_candidate_videos_expander(video_pool_text, segment_num, slide_idx,
                     st.markdown(f'<div style="text-align:center; font-size:0.8rem; margin-top: -12px; margin-bottom: 12px;"><a href="{to_youtube_watch_url(v_url)}" target="_blank">Open on YouTube</a></div>', unsafe_allow_html=True)
 
 
-def _render_inspector_step_review_controls(step_key_prefix):
+def _render_inspector_step_review_controls(step_key_prefix, allowed_actions=None):
     action_key = f"{step_key_prefix}_action"
     feedback_key = f"{step_key_prefix}_feedback"
 
@@ -2430,47 +2573,35 @@ def _render_inspector_step_review_controls(step_key_prefix):
     st.markdown("**Review action**")
     current_action = st.session_state.get(action_key, ACTION_NONE)
 
-    btn_cols = st.columns(4, gap="small")
-    with btn_cols[0]:
-        approve_label = "🟢 Approve" if current_action == ACTION_APPROVE else "Approve"
-        st.button(
-            approve_label,
-            key=f"{step_key_prefix}_btn_approve",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_APPROVE),
-            use_container_width=True,
-        )
-    with btn_cols[1]:
-        reject_dh_label = "🔴 Reject (Drive + HVAC School Videos)" if current_action == ACTION_REJECT_DRIVE_HVAC else "Reject (Drive + HVAC School Videos)"
-        st.button(
-            reject_dh_label,
-            key=f"{step_key_prefix}_btn_reject_drive_hvac",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_REJECT_DRIVE_HVAC),
-            use_container_width=True,
-        )
-    with btn_cols[2]:
-        reject_all_label = "🔴 Reject (Search all)" if current_action == ACTION_REJECT_ALL else "Reject (Search all)"
-        st.button(
-            reject_all_label,
-            key=f"{step_key_prefix}_btn_reject_all",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_REJECT_ALL),
-            use_container_width=True,
-        )
-    with btn_cols[3]:
-        reject_ai_label = "🔵 Reject (Generate with AI)" if current_action == ACTION_REJECT_AI else "Reject (Generate with AI)"
-        st.button(
-            reject_ai_label,
-            key=f"{step_key_prefix}_btn_reject_ai",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_REJECT_AI),
-            use_container_width=True,
-        )
+    # Standard actions: 
+    # Option 1 (GDv2) allows [Approve, Reject Drive, Reject All, Reject AI]
+    # Option 2 (Ref) allows [Approve, Reject AI]
+    
+    _actions = [
+        (ACTION_APPROVE, "🟢 Approve" if current_action == ACTION_APPROVE else "Approve", "secondary", btn_cols_idx := 0),
+        (ACTION_REJECT_DRIVE_HVAC, "🔴 Reject (Drive + HVAC School Videos)" if current_action == ACTION_REJECT_DRIVE_HVAC else "Reject (Drive + HVAC School Videos)", "secondary", 1),
+        (ACTION_REJECT_ALL, "🔴 Reject (Search all)" if current_action == ACTION_REJECT_ALL else "Reject (Search all)", "secondary", 2),
+        (ACTION_REJECT_AI, "🔵 Reject (Generate with AI)" if current_action == ACTION_REJECT_AI else "Reject (Generate with AI)", "secondary", 3),
+    ]
+
+    if allowed_actions:
+        _actions = [a for a in _actions if a[0] in allowed_actions]
+
+    num_cols = len(_actions)
+    if num_cols == 0:
+        return
+
+    btn_cols = st.columns(num_cols, gap="small")
+    for i, (act, label, btype, _) in enumerate(_actions):
+        with btn_cols[i]:
+            st.button(
+                label,
+                key=f"{step_key_prefix}_btn_{act}",
+                type=btype,
+                on_click=_set_review_action,
+                args=(action_key, act),
+                use_container_width=True,
+            )
 
     current_action = st.session_state.get(action_key, ACTION_NONE)
     if current_action == ACTION_APPROVE:
@@ -2544,12 +2675,70 @@ def _render_single_segment_block(
             current_round=current_round,
         )
 
-        # 1. Visual Assigned
+        # 3. Handle Dual-Visual Selection (GDv2 vs Reference)
+        asset_ref = s.get("asset_reference", "").strip()
+        has_dual = bool(asset_ref)
+        choice_key = f"choice_{slide_idx}_{seg_num}_{s['step_index']}_r{current_round}"
+        if has_dual and choice_key not in st.session_state:
+            st.session_state[choice_key] = None
+        
+        current_choice = st.session_state.get(choice_key) if has_dual else "option1"
+
+        if has_dual and current_choice is None:
+            # Selection UI: Side-by-side images
+            st.info("💡 Multiple visuals found. Please choose an option to proceed.")
+            opt_cols = st.columns(2, gap="large")
+            
+            with opt_cols[0]:
+                st.markdown("#### Option 1 (Graphics definition)")
+                asset1 = s.get("asset", "")
+                _render_single_asset_visual(asset1, f"{this_embed_key}-opt1", drive)
+            
+            with opt_cols[1]:
+                st.markdown("#### Option 2 (Reference)")
+                asset2 = asset_ref
+                _render_single_asset_visual(asset2, f"{this_embed_key}-opt2", drive)
+
+            # Draw selection buttons in a separate row so they are always side-by-side vertically
+            btn_cols = st.columns(2, gap="large")
+            with btn_cols[0]:
+                st.button(
+                    "Choose Option 1",
+                    key=f"choose_opt1_{this_embed_key}",
+                    on_click=_set_visual_choice,
+                    args=(choice_key, "option1", ov_key, s.get("asset", "")),
+                    use_container_width=True,
+                )
+            
+            with btn_cols[1]:
+                st.button(
+                    "Choose Option 2",
+                    key=f"choose_opt2_{this_embed_key}",
+                    on_click=_set_visual_choice,
+                    args=(choice_key, "option2", ov_key, asset2),
+                    use_container_width=True,
+                )
+            
+            # Don't show feedback controls until chosen
+            continue
+
+        # 1. Visual Assigned (Now that we have a choice or only one option)
         _render_inspector_step_visual(
             cur_asset, cur_type, cur_display, this_embed_key, drive, comparison=comparison_payload
         )
         
-        # 2. Toggles for candidate images and videos
+        # 3.5 Selection info and Undo for Dual
+        if has_dual:
+            st.info(f"Visual Selected: {'Option 1 (Graphics definition)' if current_choice == 'option1' else 'Option 2 (Processed reference image)'}")
+            st.button(
+                "↩️ Undo Choice",
+                key=f"undo_choice_{this_embed_key}",
+                on_click=_undo_visual_choice,
+                args=(choice_key, ov_key),
+                type="secondary",
+            )
+        
+        # 2. Toggles for candidate images and videos (Standard path only for candidate pool)
         step_cand_key = f"{this_embed_key}-cand"
         
         _fragment_candidate_images_expander(
@@ -2569,52 +2758,58 @@ def _render_single_segment_block(
             embed_key_prefix=step_cand_key,
         )
 
-        # 3. Action buttons row (Undo Re-assignment | Undo Revision)
+        # 4. Action buttons row (Undo Re-assignment | Undo Revision)
         action_btn_cols = []
-        if is_ov or undo_info:
-            n_cols = sum([1 if is_ov else 0, 1 if undo_info else 0])
-            action_btn_cols = st.columns(n_cols, gap="small")
-            col_iter = iter(action_btn_cols)
+        if (is_ov and not has_dual) or undo_info:
+            n_cols = sum([1 if (is_ov and not has_dual) else 0, 1 if undo_info else 0])
+            if n_cols > 0:
+                action_btn_cols = st.columns(n_cols, gap="small")
+                col_iter = iter(action_btn_cols)
 
-            if is_ov:
-                with next(col_iter):
-                    st.button(
-                        "↩️ Undo Re-assignment",
-                        key=f"revert_{ov_key}",
-                        on_click=_revert_asset_assignment,
-                        args=(ov_key,),
-                        type="secondary",
-                        use_container_width=True,
-                    )
+                if is_ov and not has_dual:
+                    with next(col_iter):
+                        st.button(
+                            "↩️ Undo Re-assignment",
+                            key=f"revert_{ov_key}",
+                            on_click=_revert_asset_assignment,
+                            args=(ov_key,),
+                            type="secondary",
+                            use_container_width=True,
+                        )
 
-            if undo_info:
-                with next(col_iter):
-                    st.button(
-                        "⏪ Undo Revision",
-                        key=f"undo_rev_{slide_idx}_{seg_num}_{s['step_index']}",
-                        on_click=_do_undo_revision,
-                        args=(
-                            slide,                               # slide object
-                            slide_row_idx,                       # row_index
-                            slide_idx,                           # slide_idx
-                            v_id,                                # visual_id
-                            undo_info["seg_idx"],
-                            undo_info["step_idx"],
-                            undo_info["original_url"],
-                            undo_info["tracking_round_idx"],
-                            undo_info["current_tracking_text"],
-                            undo_info["raw_def"],
-                            undo_info["parsed_segments"],
-                        ),
-                        type="secondary",
-                        use_container_width=True,
-                        help=(
-                            f"Restore original visual for {v_id} and clear all "
-                            "revision history in this feedback round."
-                        ),
-                    )
+                if undo_info:
+                    with next(col_iter):
+                        st.button(
+                            "⏪ Undo Revision",
+                            key=f"undo_rev_{slide_idx}_{seg_num}_{s['step_index']}",
+                            on_click=_do_undo_revision,
+                            args=(
+                                slide,                               # slide object
+                                slide_row_idx,                       # row_index
+                                slide_idx,                           # slide_idx
+                                v_id,                                # visual_id
+                                undo_info["seg_idx"],
+                                undo_info["step_idx"],
+                                undo_info["original_url"],
+                                undo_info["tracking_round_idx"],
+                                undo_info["current_tracking_text"],
+                                undo_info["raw_def"],
+                                undo_info["parsed_segments"],
+                            ),
+                            type="secondary",
+                            use_container_width=True,
+                            help=(
+                                f"Restore original visual for {v_id} and clear all "
+                                "revision history in this feedback round."
+                            ),
+                        )
 
-        _render_inspector_step_review_controls(scope_key)
+        # Determine allowed actions
+        allowed = None
+        if has_dual and current_choice == "option2":
+            allowed = [ACTION_APPROVE, ACTION_REJECT_AI]
+        
+        _render_inspector_step_review_controls(scope_key, allowed_actions=allowed)
         
         sel_action = st.session_state.get(a_key, ACTION_NONE)
         if sel_action == ACTION_APPROVE:
@@ -3189,6 +3384,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             st.info("No rejected visuals found; skipped review-revise run.")
 
                         _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
+                        _clear_visual_selection_state()
                         st.session_state["gdv2_df"] = refreshed_df
                         st.rerun()
                     except Exception as e:
@@ -3414,6 +3610,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
 
                     # Refresh inspector state so regenerated links are visible immediately.
                     _clear_inspector_image_cache()
+                    _clear_visual_selection_state()
                     st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
                     _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
                     st.session_state["gdv2_df"] = refreshed_df
@@ -3485,6 +3682,7 @@ def main():
             st.session_state.pop("gdv2_revision_notice", None)
             st.session_state.pop("gdv2_regen_notice", None)
             _clear_inspector_image_cache()
+            _clear_visual_selection_state()
             st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
         except Exception as e:
             st.error(f"Failed to open sheet: {e}")
@@ -3507,6 +3705,7 @@ def main():
     ):
         try:
             _clear_inspector_image_cache()
+            _clear_visual_selection_state()
             st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
             _, df = get_sheet_data_and_df(sheet, worksheet_name)
             st.session_state["gdv2_df"] = df

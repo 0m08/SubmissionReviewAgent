@@ -119,7 +119,7 @@ pipeline_sections = [
                     "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
-                "description": "This function generates a storyboard for each slide and saves them to the storyboard column",
+                "description": "This function generates a storyboard for each slide and saves them to the storyboard_planning column",
                 "delete_func": delete_storyboard_planning,
                 "delete_args": {
                     "sheet": "sheet"
