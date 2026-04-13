@@ -42,6 +42,8 @@ Slide Title: {slide_title}
 Slide Content: {slide_chunk}
 </whole_slide_context>
 
+Total image candidates size: {num_images} images
+
 Instructions:
 
 1) Relevance-Based Selection
@@ -64,9 +66,6 @@ Instructions:
 4) Visual Grounding
 - Base all decisions on what is actually visible in each image.
 - Do not rely on image titles or filenames.
-
-The following are the complete set of available images that you need to select from:
-AVAILABLE IMAGES ({num_images} images in total):
 
 OUTPUT FORMAT:
 
@@ -121,6 +120,8 @@ Slide Title: {slide_title}
 Slide Content: {slide_chunk}
 </slide_content>
 
+Total image candidates size: {num_images} images
+
 Instructions:
 
 1) Relevance-Based Selection
@@ -142,9 +143,6 @@ Instructions:
 4) Visual Grounding
    - Base all decisions on what is actually visible in each image.
    - Do not rely on image titles or filenames.
-
-The following are the complete set of available images that you need to select from:
-AVAILABLE IMAGES ({num_images} images in total):
 
 OUTPUT FORMAT:
 
@@ -208,6 +206,8 @@ Slide Content: {slide_chunk}
 {feedback}
 </feedback>
 
+Total image candidates size: {num_images} images
+
 Instructions:
 
 1) Feedback-Driven Relevance Selection
@@ -234,9 +234,6 @@ Instructions:
 5) Visual Grounding
    - Base all decisions on what is actually visible in each image.
    - Do not rely on image titles or filenames.
-
-The following are the complete set of available images that you need to select from:
-AVAILABLE IMAGES ({num_images} images in total):
 
 OUTPUT FORMAT:
 
@@ -299,6 +296,8 @@ Slide Content: {slide_chunk}
 {feedback}
 </feedback>
 
+Total image candidates size: {num_images} images
+
 Instructions:
 
 1) Feedback-Driven Relevance Selection
@@ -324,9 +323,6 @@ Instructions:
 5) Visual Grounding
    - Base all decisions on what is actually visible in each image.
    - Do not rely on image titles or filenames.
-
-The following are the complete set of available images that you need to select from:
-AVAILABLE IMAGES ({num_images} images in total):
 
 OUTPUT FORMAT:
 
@@ -1098,6 +1094,7 @@ def validate_image_pool_row(row):
     :param row: Pandas Series with row data
     :return: Tuple (is_valid, error_message)
     """
+    
     vo_segments_text = str(row.get("voiceover_segment", "")).strip()
     image_pool_text = str(row.get("image_pool", "")).strip()
     

@@ -131,6 +131,7 @@ Follow the below evaluation rules to guide your evaluation:
 2) What counts as PASS for a segment
    - The assigned visual(s) clearly show what is described by its respective voiceover sentence.
    - The visual(s) match the specific meaning of the segment as spoken, not just the general topic of the slide.
+   - The visual should be specific and clear enough that the exact object/action/detail in the segment is easy to identify without guesswork.
    - For segments that are part of a split sentence (e.g., lists or continuations), the visual must correctly represent the specific item or clause being spoken in that segment.
    - If multiple visuals are assigned to a segment, together they must fully support the segment’s meaning without introducing confusion or contradiction.
    - A learner should be able to understand what the voiceover segment is referring to by looking at the assigned visual(s) at that moment.
@@ -139,6 +140,7 @@ Follow the below evaluation rules to guide your evaluation:
    A segment FAILS if any one of the following is true:
    - The visual shows something different than what the voiceover segment describes.
    - The visual is generic, symbolic, or only loosely related, and does not clearly illustrate the specific meaning of the segment.
+   - The visual is too vague, distant, cluttered, or unclear to confidently identify the exact detail being referenced.
    - The visual represents the general topic but not the specific clause or item being spoken in that segment.
    - The visual contradicts the voiceover or implies a different instructional idea.
    - The assigned visual(s) do not provide enough visual evidence for a learner to understand the segment at that moment.
@@ -262,6 +264,7 @@ Follow the below evaluation rules to guide your evaluation:
 2) What counts as PASS for the slide
    - The assigned visual clearly shows what is described by the slide content.
    - The visual matches the specific meaning of the slide as spoken, not just the general topic of the slide.
+   - The visual should be specific and clear enough that the exact object/action/detail in the slide is identifiable without guesswork.
    - The visual does not contradict the slide content or implies a different instructional idea.
    - The assigned visual provides enough visual evidence for a learner to understand the intended meaning of the slide.
    - The visual asset is usable (not missing, broken, or non-loadable).
@@ -270,6 +273,7 @@ Follow the below evaluation rules to guide your evaluation:
    The slide FAILS if any one of the following is true:
    - The visual shows something different than what the slide content describes.
    - The visual is generic, symbolic, or only loosely related, and does not clearly illustrate the main intended meaning for the slide.
+   - The visual is too vague, distant, cluttered, or unclear to confidently identify the key detail being referenced.
    - The visual contradicts the slide content or implies a different instructional idea.
    - The assigned visual does not provide enough visual evidence for a learner to understand the slide.
    - The visual asset is unusable (missing, broken, or non-loadable).
@@ -342,400 +346,400 @@ PASS|FAIL
 """
 
 
-# Specificity review prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
-SPECIFICITY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
+# # Specificity review prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
+# SPECIFICITY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
 
-Criterion: Visual Specificity and Clarity
+# Criterion: Visual Specificity and Clarity
 
-Definition:
-For the given slide, verify that the assigned visual(s) for the given voiceover segment(s) show the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the voiceover is referring to at that moment.
+# Definition:
+# For the given slide, verify that the assigned visual(s) for the given voiceover segment(s) show the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the voiceover is referring to at that moment.
 
-Inputs:
-These are the inputs for your evaluation:
+# Inputs:
+# These are the inputs for your evaluation:
 
-<course_information>
-Course name: {course_name}
-Target audience: {target_audience}
-Topic name: {topic_name}
-Subtopic name: {subtopic_name}
-</course_information>
+# <course_information>
+# Course name: {course_name}
+# Target audience: {target_audience}
+# Topic name: {topic_name}
+# Subtopic name: {subtopic_name}
+# </course_information>
 
-<slide_information>
-Slide ID: {slide_id}
-Slide title: {slide_title}
-Slide content: "{slide_chunk}"
-</slide_information>
+# <slide_information>
+# Slide ID: {slide_id}
+# Slide title: {slide_title}
+# Slide content: "{slide_chunk}"
+# </slide_information>
 
-These are the voiceover segments of this slide and the assigned visuals for each segment:
-<review_targets>
-{review_targets}
-</review_targets>
+# These are the voiceover segments of this slide and the assigned visuals for each segment:
+# <review_targets>
+# {review_targets}
+# </review_targets>
 
-Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
+# Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
 
-Instructions:
-Follow the below evaluation rules to guide your evaluation:
+# Instructions:
+# Follow the below evaluation rules to guide your evaluation:
 
-1) Scope
-   - Review each voiceover segment independently as the primary evaluation unit.
-   - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
-   - You may use the full slide content and the sequence of voiceover segments to understand the intended meaning of a segment.
-   - When interpreting any part of the voiceover sentences, you must use the surrounding text in the slide content to understand the context and the instructional intent. Do not interpret a sentence, phrase or a clause literally in isolation. Always derive the meaning of a sentence, phrase or a clause from the surrounding text in the slide content.
-   - Judge specificity and clarity only between that segment's intended meaning and the visuals explicitly assigned to it.
-   - Use only the provided assets and voiceover text; do not assume missing context beyond what is present in the slide.
-   - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
+# 1) Scope
+#    - Review each voiceover segment independently as the primary evaluation unit.
+#    - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
+#    - You may use the full slide content and the sequence of voiceover segments to understand the intended meaning of a segment.
+#    - When interpreting any part of the voiceover sentences, you must use the surrounding text in the slide content to understand the context and the instructional intent. Do not interpret a sentence, phrase or a clause literally in isolation. Always derive the meaning of a sentence, phrase or a clause from the surrounding text in the slide content.
+#    - Judge specificity and clarity only between that segment's intended meaning and the visuals explicitly assigned to it.
+#    - Use only the provided assets and voiceover text; do not assume missing context beyond what is present in the slide.
+#    - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
 
-2) What counts as PASS for a segment
-   - The visual clearly shows the exact component, part, action, condition, or detail referenced in the voiceover segment.
-   - The visual removes ambiguity and does not require guesswork from the learner.
-   - If multiple visuals are assigned, together they provide sufficient clarity to identify the exact thing being described for the voiceover segment.
-   - A learner should be able to confidently point to the relevant detail in the visual while the voiceover is playing.
+# 2) What counts as PASS for a segment
+#    - The visual clearly shows the exact component, part, action, condition, or detail referenced in the voiceover segment.
+#    - The visual removes ambiguity and does not require guesswork from the learner.
+#    - If multiple visuals are assigned, together they provide sufficient clarity to identify the exact thing being described for the voiceover segment.
+#    - A learner should be able to confidently point to the relevant detail in the visual while the voiceover is playing.
 
-3) What counts as FAIL for a segment
-   A segment FAILS if any one of the following is true:
-   - The visual is too generic or vague.
-   - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the segment.
-   - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
-   - The visual asset is unusable (missing, broken, or non-loadable).
+# 3) What counts as FAIL for a segment
+#    A segment FAILS if any one of the following is true:
+#    - The visual is too generic or vague.
+#    - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the segment.
+#    - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
+#    - The visual asset is unusable (missing, broken, or non-loadable).
 
-4) Slide-Level Verdict
-   - The slide receives a PASS only if all voiceover segments PASS.
-   - If any single segment FAILS, the entire slide verdict must be FAIL.
-   - Be extremely strict and critical in your evaluation to ensure that the visuals are correctly specific and clear.
+# 4) Slide-Level Verdict
+#    - The slide receives a PASS only if all voiceover segments PASS.
+#    - If any single segment FAILS, the entire slide verdict must be FAIL.
+#    - Be extremely strict and critical in your evaluation to ensure that the visuals are correctly specific and clear.
    
-5) Failure Reporting Requirements
-   For every failed visual, you MUST:
-   - Identify the voiceover segment ID
-   - Quote the exact voiceover text
-   - List the failing Visual ID
-   - Clearly state why the visual lacks sufficient specificity or clarity for the voiceover
-   - Describe the specific visual requirements that would be required for the segment to PASS
+# 5) Failure Reporting Requirements
+#    For every failed visual, you MUST:
+#    - Identify the voiceover segment ID
+#    - Quote the exact voiceover text
+#    - List the failing Visual ID
+#    - Clearly state why the visual lacks sufficient specificity or clarity for the voiceover
+#    - Describe the specific visual requirements that would be required for the segment to PASS
 
-Output Format:
-Always provide your output strictly in the following format:
+# Output Format:
+# Always provide your output strictly in the following format:
 
-<evaluation_breakdown>
+# <evaluation_breakdown>
 
-Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
+# Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
 
-- Slide Understanding: State in your own words what the slide is about and what the voiceover segments are trying to convey.
-- Review of the assigned visuals: For each segment, list the assigned Visual IDs and briefly describe what is visibly shown in each visual (image or video).
-- Visual Specificity Analysis: For each segment, analyze whether the assigned visuals show the required specific detail clearly and unambiguously. Consider whether a learner can easily identify the exact thing being referenced without guessing, inference, or prior knowledge.
-- Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
+# - Slide Understanding: State in your own words what the slide is about and what the voiceover segments are trying to convey.
+# - Review of the assigned visuals: For each segment, list the assigned Visual IDs and briefly describe what is visibly shown in each visual (image or video).
+# - Visual Specificity Analysis: For each segment, analyze whether the assigned visuals show the required specific detail clearly and unambiguously. Consider whether a learner can easily identify the exact thing being referenced without guessing, inference, or prior knowledge.
+# - Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
 
-(It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+# (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
 
-</evaluation_breakdown>
+# </evaluation_breakdown>
 
-(Based on your above evaluation, provide your output in the following format)
+# (Based on your above evaluation, provide your output in the following format)
 
-<review>
+# <review>
 
-<verdict>
-PASS|FAIL
-</verdict> 
+# <verdict>
+# PASS|FAIL
+# </verdict> 
 
-(If the slide verdict is FAIL, provide the details of the failed segments in the following format)
-<failures>
+# (If the slide verdict is FAIL, provide the details of the failed segments in the following format)
+# <failures>
 
-<failure>
-<segment_id>
-(Provide the segment number of the failed segment. e.g. SEGMENT 1)
-</segment_id>
+# <failure>
+# <segment_id>
+# (Provide the segment number of the failed segment. e.g. SEGMENT 1)
+# </segment_id>
 
-<vo_text>
-(Provide the exact portion of voiceover text that is not clearly or specifically supported by this visual.)
-</vo_text>
+# <vo_text>
+# (Provide the exact portion of voiceover text that is not clearly or specifically supported by this visual.)
+# </vo_text>
 
-<failing_visual_id>
-(Provide the Visual ID of the assigned visual that lacks sufficient specificity or clarity. e.g. S1V3)
-</failing_visual_id>
+# <failing_visual_id>
+# (Provide the Visual ID of the assigned visual that lacks sufficient specificity or clarity. e.g. S1V3)
+# </failing_visual_id>
 
-<reason>
-(Provide the reason why the assigned visual lacks sufficient specificity or clarity for the voiceover segment.)
-</reason>
+# <reason>
+# (Provide the reason why the assigned visual lacks sufficient specificity or clarity for the voiceover segment.)
+# </reason>
 
-<needed_visual>
-(Describe the visual requirements that is needed to correctly support the failed voiceover segment for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
-</needed_visual>
+# <needed_visual>
+# (Describe the visual requirements that is needed to correctly support the failed voiceover segment for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
+# </needed_visual>
 
-</failure>
+# </failure>
 
-Repeat the <failure> block for each failed segment and its corresponding visual id. (Even if multiple visuals within the same segment fail, repeat the <failure> block separately for each failing visual.)
+# Repeat the <failure> block for each failed segment and its corresponding visual id. (Even if multiple visuals within the same segment fail, repeat the <failure> block separately for each failing visual.)
 
-</failures>
+# </failures>
 
-</review>
+# </review>
 
-(Use this exact XML format given above while providing your output)
-"""
+# (Use this exact XML format given above while providing your output)
+# """
 
 
-# Specificity review prompt to use when we have 1 visual for the whole slide visual assingment strategy
-SPECIFICITY_REVIEW_PROMPT_FOR_ONE_VISUAL_PER_SLIDE = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
+# # Specificity review prompt to use when we have 1 visual for the whole slide visual assingment strategy
+# SPECIFICITY_REVIEW_PROMPT_FOR_ONE_VISUAL_PER_SLIDE = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
 
-Criterion: Visual Specificity and Clarity
+# Criterion: Visual Specificity and Clarity
 
-Definition:
-For the given slide, verify that the assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
+# Definition:
+# For the given slide, verify that the assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
 
-Inputs:
-These are the inputs for your evaluation:
+# Inputs:
+# These are the inputs for your evaluation:
 
-<course_information>
-Course name: {course_name}
-Target audience: {target_audience}
-Topic name: {topic_name}
-Subtopic name: {subtopic_name}
-</course_information>
+# <course_information>
+# Course name: {course_name}
+# Target audience: {target_audience}
+# Topic name: {topic_name}
+# Subtopic name: {subtopic_name}
+# </course_information>
 
-<slide_information>
-Slide ID: {slide_id}
-Slide title: {slide_title}
-Slide content: "{slide_chunk}"
-</slide_information>
+# <slide_information>
+# Slide ID: {slide_id}
+# Slide title: {slide_title}
+# Slide content: "{slide_chunk}"
+# </slide_information>
 
-This is the assigned visual for this whole slide:
-<review_targets>
-{review_targets}
-</review_targets>
+# This is the assigned visual for this whole slide:
+# <review_targets>
+# {review_targets}
+# </review_targets>
 
-Note: Visual IDs follow the format "S(segment_number)V(visual_number)".
+# Note: Visual IDs follow the format "S(segment_number)V(visual_number)".
 
-Instructions:
-Follow the below evaluation rules to guide your evaluation:
+# Instructions:
+# Follow the below evaluation rules to guide your evaluation:
 
-1) Scope
-   - Review the assigned visual for the whole slide.
-   - The assigned visual is displayed on screen as the entire slide content is narrated.
-   - Use the full slide content to understand the intended meaning of the slide.
-   - Judge specificity and clarity only between that slide's intended meaning and the visual explicitly assigned to it.
-   - Use only the provided slide content and the assigned visual; do not assume missing context beyond what is present in the slide.
-   - The visual asset has a Visual ID assigned (for example, S1V1). Use this ID when listing any failures.
-   - IMPORTANT: Know that we have been allowed to assign only one visual asset for this particular slide. So keep that in mind as you evaluate the specificity and clarity of the visual to the slide.
+# 1) Scope
+#    - Review the assigned visual for the whole slide.
+#    - The assigned visual is displayed on screen as the entire slide content is narrated.
+#    - Use the full slide content to understand the intended meaning of the slide.
+#    - Judge specificity and clarity only between that slide's intended meaning and the visual explicitly assigned to it.
+#    - Use only the provided slide content and the assigned visual; do not assume missing context beyond what is present in the slide.
+#    - The visual asset has a Visual ID assigned (for example, S1V1). Use this ID when listing any failures.
+#    - IMPORTANT: Know that we have been allowed to assign only one visual asset for this particular slide. So keep that in mind as you evaluate the specificity and clarity of the visual to the slide.
 
-2) What counts as PASS for the slide
-  - The assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
-  - The visual removes ambiguity and does not require guesswork from the learner.
-  - The assigned visual provides enough visual evidence for a learner to understand the intended meaning of the slide.
-  - The visual asset is usable (not missing, broken, or non-loadable).
+# 2) What counts as PASS for the slide
+#   - The assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
+#   - The visual removes ambiguity and does not require guesswork from the learner.
+#   - The assigned visual provides enough visual evidence for a learner to understand the intended meaning of the slide.
+#   - The visual asset is usable (not missing, broken, or non-loadable).
 
-3) What counts as FAIL for the slide
-   The slide FAILS if any one of the following is true:
-   - The visual is too generic or vague.
-   - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
-   - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
-   - The visual asset is unusable (missing, broken, or non-loadable).
+# 3) What counts as FAIL for the slide
+#    The slide FAILS if any one of the following is true:
+#    - The visual is too generic or vague.
+#    - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
+#    - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
+#    - The visual asset is unusable (missing, broken, or non-loadable).
    
-4) Slide-Level Verdict
-   - The slide receives a PASS only if the assigned visual is PASS for this criteria.
-   - If the assigned visual FAILS, then you must assign a FAIL verdict to the slide.
+# 4) Slide-Level Verdict
+#    - The slide receives a PASS only if the assigned visual is PASS for this criteria.
+#    - If the assigned visual FAILS, then you must assign a FAIL verdict to the slide.
 
-5) Failure Reporting Requirements
-   If your verdict for the slide is FAIL, you MUST:
-   - List the Segment ID
-   - List the failing Visual ID
-   - Clearly state why the visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
-   - Describe the specific visual requirement that will be required for the slide to PASS.
+# 5) Failure Reporting Requirements
+#    If your verdict for the slide is FAIL, you MUST:
+#    - List the Segment ID
+#    - List the failing Visual ID
+#    - Clearly state why the visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
+#    - Describe the specific visual requirement that will be required for the slide to PASS.
 
-Output Format:
-Always provide your output strictly in the following format:
+# Output Format:
+# Always provide your output strictly in the following format:
 
-<evaluation_breakdown>
+# <evaluation_breakdown>
 
-Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
+# Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
 
-- Slide Understanding: State in your own words what the slide is about and what it is trying to convey.
-- Review of the assigned visual: Briefly describe what is visibly shown in the assigned visual.
-- Visual Specificity Analysis: Analyze whether the assigned visual correctly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
-- Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
+# - Slide Understanding: State in your own words what the slide is about and what it is trying to convey.
+# - Review of the assigned visual: Briefly describe what is visibly shown in the assigned visual.
+# - Visual Specificity Analysis: Analyze whether the assigned visual correctly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
+# - Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
 
-(It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+# (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
 
-</evaluation_breakdown>
+# </evaluation_breakdown>
 
-(Based on your above evaluation, provide your output in the following format)
+# (Based on your above evaluation, provide your output in the following format)
 
-<review>
+# <review>
 
-<verdict>
-PASS|FAIL
-</verdict>
+# <verdict>
+# PASS|FAIL
+# </verdict>
 
-(If the slide verdict is FAIL, provide the details of the failed segment in the following format)
+# (If the slide verdict is FAIL, provide the details of the failed segment in the following format)
 
-<failure>
+# <failure>
 
-<segment_id>
-(Provide the segment number of the failed segment. e.g. SEGMENT 1)
-</segment_id>
+# <segment_id>
+# (Provide the segment number of the failed segment. e.g. SEGMENT 1)
+# </segment_id>
 
-<vo_text>
-(Provide the entire slide content text as it is.)
-</vo_text>
+# <vo_text>
+# (Provide the entire slide content text as it is.)
+# </vo_text>
 
-<failing_visual_id>
-(Provide the Visual ID of the assigned visual. e.g. S1V1)
-</failing_visual_id>
+# <failing_visual_id>
+# (Provide the Visual ID of the assigned visual. e.g. S1V1)
+# </failing_visual_id>
 
-<reason>
-(Provide the reason why the assigned visual lacks sufficient specificity or clarity for the slide content.)
-</reason>
+# <reason>
+# (Provide the reason why the assigned visual lacks sufficient specificity or clarity for the slide content.)
+# </reason>
 
-<needed_visual>
-(Describe the visual requirements that is needed to correctly support the slide content for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
-</needed_visual>
+# <needed_visual>
+# (Describe the visual requirements that is needed to correctly support the slide content for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
+# </needed_visual>
 
-</failure>
+# </failure>
 
-</review>
+# </review>
 
-(Use this exact XML format given above while providing your output)
-"""
+# (Use this exact XML format given above while providing your output)
+# """
 
 
-REDUNDANCY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
+# REDUNDANCY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
 
-Criterion: Visual Redundancy and Variety
+# Criterion: Visual Redundancy and Variety
 
-Definition:
-For the given set of slides, verify that a specific visual asset (identified by its URL) is not overly repetitive across voiceover segments and slides without clear instructional reason. Visual reuse is allowed when it supports continuity or learning, but unnecessary or excessive repetition that reduces instructional value or visual engagement should be flagged.
+# Definition:
+# For the given set of slides, verify that a specific visual asset (identified by its URL) is not overly repetitive across voiceover segments and slides without clear instructional reason. Visual reuse is allowed when it supports continuity or learning, but unnecessary or excessive repetition that reduces instructional value or visual engagement should be flagged.
 
-Inputs:
-These are the inputs for your evaluation:
+# Inputs:
+# These are the inputs for your evaluation:
 
-<course_information>
-Course name: {course_name}
-Target audience: {target_audience}
-Topic name: {topic_name}
-</course_information>
+# <course_information>
+# Course name: {course_name}
+# Target audience: {target_audience}
+# Topic name: {topic_name}
+# </course_information>
 
-This is the visual that has been repeated multiple times:
-<repeated_visual_url>
-{repeated_visual_url}
-</repeated_visual_url>
+# This is the visual that has been repeated multiple times:
+# <repeated_visual_url>
+# {repeated_visual_url}
+# </repeated_visual_url>
 
-IMPORTANT: The URL above has been identified as appearing more than 3 times across the slides in this topic. Your task is to evaluate whether this specific visual asset is being used redundantly and whether it should be replaced in some or all of its occurrences.
+# IMPORTANT: The URL above has been identified as appearing more than 3 times across the slides in this topic. Your task is to evaluate whether this specific visual asset is being used redundantly and whether it should be replaced in some or all of its occurrences.
 
-These are the voiceover segments and assigned visuals across the topic slide group being reviewed.
-<review_targets>
-{review_targets}
-</review_targets>
+# These are the voiceover segments and assigned visuals across the topic slide group being reviewed.
+# <review_targets>
+# {review_targets}
+# </review_targets>
 
-Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
+# Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
 
-Instructions:
-Follow the below evaluation rules to guide your evaluation:
+# Instructions:
+# Follow the below evaluation rules to guide your evaluation:
 
-1) Scope
-   - Review all voiceover segments listed in <review_targets> together as a group.
-   - Identify all the Visual IDs where the repeated visual URL appears. Examine the respective voiceover texts to which the same repeated visuals are assigned.
-   - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
-   - The scope of review is across multiple slides within a topic and its segments.
-   - You may consider slide order and proximity when judging redundancy (for example, repetition across consecutive or nearby slides).
-   - Use only the provided voiceover text and assigned visuals; do not assume missing context beyond what is provided.
-   - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
-   - Your evaluation should focus specifically on whether the repeated visual URL is being used redundantly and whether it should be replaced in some or all occurrences.
+# 1) Scope
+#    - Review all voiceover segments listed in <review_targets> together as a group.
+#    - Identify all the Visual IDs where the repeated visual URL appears. Examine the respective voiceover texts to which the same repeated visuals are assigned.
+#    - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
+#    - The scope of review is across multiple slides within a topic and its segments.
+#    - You may consider slide order and proximity when judging redundancy (for example, repetition across consecutive or nearby slides).
+#    - Use only the provided voiceover text and assigned visuals; do not assume missing context beyond what is provided.
+#    - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
+#    - Your evaluation should focus specifically on whether the repeated visual URL is being used redundantly and whether it should be replaced in some or all occurrences.
 
-2) What counts as ACCEPTABLE reuse (PASS)
-   The repeated visual asset identified in <repeated_visual_url> is acceptable when:
-   - The same component or object must be shown again for instructional continuity across the segments where it appears.
-   - Reuse reinforces understanding of a key concept that remains the focus across slides.
-   - Reuse clearly serves a learning purpose and does not make the slides feel visually repetitive or lazy.
-   - The repetition is instructionally justified and adds value to the learning experience.
+# 2) What counts as ACCEPTABLE reuse (PASS)
+#    The repeated visual asset identified in <repeated_visual_url> is acceptable when:
+#    - The same component or object must be shown again for instructional continuity across the segments where it appears.
+#    - Reuse reinforces understanding of a key concept that remains the focus across slides.
+#    - Reuse clearly serves a learning purpose and does not make the slides feel visually repetitive or lazy.
+#    - The repetition is instructionally justified and adds value to the learning experience.
 
-3) What counts as REDUNDANCY (FAIL)
-   The repeated visual asset identified in <repeated_visual_url> FAILS and must be flagged for replacement in some or all occurrences if any one of the following is true:
-   - The same visual asset is reused across multiple slides or segments without clear instructional need.
-   - Consecutive or nearby slides feel visually identical when a different example or view would reasonably improve clarity or engagement.
-   - The repetition does not add new instructional value and could confuse, bore, or disengage the learner.
-   - A different example, view, visual or variation would reasonably improve clarity, engagement, or instructional quality, but the same visual is reused instead.
-   - The visual appears in contexts where different visuals would be more appropriate, even if the repetition serves some instructional purpose.
+# 3) What counts as REDUNDANCY (FAIL)
+#    The repeated visual asset identified in <repeated_visual_url> FAILS and must be flagged for replacement in some or all occurrences if any one of the following is true:
+#    - The same visual asset is reused across multiple slides or segments without clear instructional need.
+#    - Consecutive or nearby slides feel visually identical when a different example or view would reasonably improve clarity or engagement.
+#    - The repetition does not add new instructional value and could confuse, bore, or disengage the learner.
+#    - A different example, view, visual or variation would reasonably improve clarity, engagement, or instructional quality, but the same visual is reused instead.
+#    - The visual appears in contexts where different visuals would be more appropriate, even if the repetition serves some instructional purpose.
 
-4) Group-Level Verdict
-   - The group receives a PASS only if no visuals are flagged as needing replacement due to unnecessary or excessive repetition.
-   - If one or more visuals are identified as redundant and requiring replacement, the overall verdict must be FAIL.
+# 4) Group-Level Verdict
+#    - The group receives a PASS only if no visuals are flagged as needing replacement due to unnecessary or excessive repetition.
+#    - If one or more visuals are identified as redundant and requiring replacement, the overall verdict must be FAIL.
 
-4) When to FAIL
-- One or more voiceover part(s) uses a visual that is clearly repetitive with no instructional need.
-- The repetition reduces clarity or engagement when a different visual example should be used.
+# 4) When to FAIL
+# - One or more voiceover part(s) uses a visual that is clearly repetitive with no instructional need.
+# - The repetition reduces clarity or engagement when a different visual example should be used.
 
-5) Failure Reporting Requirements
-  For every occurrence of the repeated visual asset (identified in <repeated_visual_url>) that is identified as unnecessarily repetitive and should be replaced, you MUST:
-   - Create a separate <failure> block
-   - Identify the slide and segment where this specific visual asset appears
-   - Quote the exact voiceover text where the visual is used
-   - List the Visual ID that needs replacement (this Visual ID must correspond to the repeated visual URL)
-   - Identify where else the same visual asset (the repeated URL) is being reused and needs to be replaced as well
-   - Clearly explain why the repetition of this specific visual asset is not instructionally justified
-   - Describe what kind of alternative or varied visual should be used instead
-   - Note: You should evaluate each occurrence of the repeated visual individually. Some occurrences may be instructionally justified and acceptable, while others may be redundant and need replacement. However, the overall verdict will be FAIL if ANY occurrence needs replacement, and PASS only if ALL occurrences are acceptable.
+# 5) Failure Reporting Requirements
+#   For every occurrence of the repeated visual asset (identified in <repeated_visual_url>) that is identified as unnecessarily repetitive and should be replaced, you MUST:
+#    - Create a separate <failure> block
+#    - Identify the slide and segment where this specific visual asset appears
+#    - Quote the exact voiceover text where the visual is used
+#    - List the Visual ID that needs replacement (this Visual ID must correspond to the repeated visual URL)
+#    - Identify where else the same visual asset (the repeated URL) is being reused and needs to be replaced as well
+#    - Clearly explain why the repetition of this specific visual asset is not instructionally justified
+#    - Describe what kind of alternative or varied visual should be used instead
+#    - Note: You should evaluate each occurrence of the repeated visual individually. Some occurrences may be instructionally justified and acceptable, while others may be redundant and need replacement. However, the overall verdict will be FAIL if ANY occurrence needs replacement, and PASS only if ALL occurrences are acceptable.
 
-Output Format:
-Always provide your output strictly in the following format:
+# Output Format:
+# Always provide your output strictly in the following format:
 
-<evaluation_breakdown>
+# <evaluation_breakdown>
 
-Use this section as a structured reasoning and scratchpad space for you to evaluate visual redundancy and variety for the specific repeated visual asset across all its occurrences.
+# Use this section as a structured reasoning and scratchpad space for you to evaluate visual redundancy and variety for the specific repeated visual asset across all its occurrences.
 
-- Repeated Visual Asset: Confirm the visual asset URL you are evaluating (from <repeated_visual_url>) and describe what is shown in this visual.
-- Slide Group Understanding: Briefly explain what the group of slides and all its voiceover segments is covering instructionally, and then note down what visuals are assigned for each of the voiceover segments by looking at the assigned visuals for each of the voiceover segments.
-- Occurrence Mapping: List all locations (Slide/segment/Visual ID) where the repeated visual asset appears. For each occurrence, note the assigned voiceover text and context.
-- Reuse Analysis: Analyze whether the repetition of this specific visual asset across these locations is instructionally justified or unnecessarily repetitive. Consider:
-  * Whether the same visual is needed for continuity or learning reinforcement
-  * Whether different visuals would improve clarity, engagement, or instructional quality
-  * Whether the repetition makes slides feel visually identical or lazy
-  * The proximity and order of slides where the visual appears
-- Redundancy Judgment: For each occurrence of the repeated visual asset, determine whether it is acceptable (instructionally justified) or needs replacement (redundant). Explain your judgment clearly for each occurrence. Based on these individual judgments, determine the overall verdict: PASS if ALL occurrences are acceptable, FAIL if ANY of the occurrence(s) needs replacement.
-- Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
+# - Repeated Visual Asset: Confirm the visual asset URL you are evaluating (from <repeated_visual_url>) and describe what is shown in this visual.
+# - Slide Group Understanding: Briefly explain what the group of slides and all its voiceover segments is covering instructionally, and then note down what visuals are assigned for each of the voiceover segments by looking at the assigned visuals for each of the voiceover segments.
+# - Occurrence Mapping: List all locations (Slide/segment/Visual ID) where the repeated visual asset appears. For each occurrence, note the assigned voiceover text and context.
+# - Reuse Analysis: Analyze whether the repetition of this specific visual asset across these locations is instructionally justified or unnecessarily repetitive. Consider:
+#   * Whether the same visual is needed for continuity or learning reinforcement
+#   * Whether different visuals would improve clarity, engagement, or instructional quality
+#   * Whether the repetition makes slides feel visually identical or lazy
+#   * The proximity and order of slides where the visual appears
+# - Redundancy Judgment: For each occurrence of the repeated visual asset, determine whether it is acceptable (instructionally justified) or needs replacement (redundant). Explain your judgment clearly for each occurrence. Based on these individual judgments, determine the overall verdict: PASS if ALL occurrences are acceptable, FAIL if ANY of the occurrence(s) needs replacement.
+# - Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
 
-(It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+# (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
 
-</evaluation_breakdown>
+# </evaluation_breakdown>
 
-(Based on your above evaluation, provide your output in the following format)
+# (Based on your above evaluation, provide your output in the following format)
 
-<review>
+# <review>
 
-<verdict>
-PASS|FAIL
-</verdict>
+# <verdict>
+# PASS|FAIL
+# </verdict>
 
-(If the slide group verdict is FAIL, provide the details of the failed visuals in the following format)
+# (If the slide group verdict is FAIL, provide the details of the failed visuals in the following format)
 
-<failures>
+# <failures>
 
-<failure>
+# <failure>
 
-<slide_segment_id>
-(Provide the slide and segment identifier where this visual appears, e.g. SLIDE_2_SEGMENT_1)
-</slide_segment_id>
+# <slide_segment_id>
+# (Provide the slide and segment identifier where this visual appears, e.g. SLIDE_2_SEGMENT_1)
+# </slide_segment_id>
 
-<vo_text>
-(Provide the exact portion of the voiceover text where this visual is used.)
-</vo_text>
+# <vo_text>
+# (Provide the exact portion of the voiceover text where this visual is used.)
+# </vo_text>
 
-<failing_visual_id>
-(Provide the Visual ID that needs to be replaced, e.g. S2V3)
-</failing_visual_id>
+# <failing_visual_id>
+# (Provide the Visual ID that needs to be replaced, e.g. S2V3)
+# </failing_visual_id>
 
-<reason>
-Explain why this specific occurrence of the repeated visual asset is unnecessarily repetitive or lacks sufficient variety. Explicitly mention where else this same visual asset appears (for example: another slide ID, segment, or nearby visual) along with the Voiceover text to which it is assigned, and explain why replacing this occurrence is instructionally appropriate. 
-</reason>
+# <reason>
+# Explain why this specific occurrence of the repeated visual asset is unnecessarily repetitive or lacks sufficient variety. Explicitly mention where else this same visual asset appears (for example: another slide ID, segment, or nearby visual) along with the Voiceover text to which it is assigned, and explain why replacing this occurrence is instructionally appropriate. 
+# </reason>
 
-<needed_visual>
-(Describe what kind of alternative or varied visual should be used instead. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
-</needed_visual>
+# <needed_visual>
+# (Describe what kind of alternative or varied visual should be used instead. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
+# </needed_visual>
 
-</failure>
+# </failure>
 
-Repeat one <failure> block per visual that needs to be replaced.
+# Repeat one <failure> block per visual that needs to be replaced.
 
-</failures>
+# </failures>
 
-</review>
-(Use this exact XML format given above while providing your output)
-"""
+# </review>
+# (Use this exact XML format given above while providing your output)
+# """
 
 
 # Revision prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -1664,32 +1668,27 @@ def format_revision_tracking(tracking):
         
         lines.append("")
         
-        # Specificity section
-        lines.append("Specificity")
-        specificity_data = tracking[visual_id].get("specificity", {})
-        
-        # Original for specificity is the last alignment URL (or original if no alignment replacements)
-        specificity_original = original_url
-        if alignment_data:
-            # Find the last alignment replacement (highest loop number with a non-None URL)
-            alignment_loops = [k for k in alignment_data.keys() if k > 0 and alignment_data[k] is not None]
-            if alignment_loops:
-                last_alignment_loop = max(alignment_loops)
-                specificity_original = alignment_data[last_alignment_loop]
-        
-        if specificity_original:
-            lines.append(f"Original - {specificity_original}")
-        else:
-            lines.append("Original - (not found)")
-        
-        # Loops 1 to total_loops
-        for loop_num in range(1, total_loops + 1):
-            url = specificity_data.get(loop_num)
-            if url:
-                lines.append(f"Visual after loop {loop_num} - {url}")
-            else:
-                lines.append(f"Visual after loop {loop_num} - No replacement")
-        
+        # Specificity section intentionally hidden from sheet output because
+        # specificity loop execution is currently disabled.
+        # lines.append("Specificity")
+        # specificity_data = tracking[visual_id].get("specificity", {})
+        # specificity_original = original_url
+        # if alignment_data:
+        #     alignment_loops = [k for k in alignment_data.keys() if k > 0 and alignment_data[k] is not None]
+        #     if alignment_loops:
+        #         last_alignment_loop = max(alignment_loops)
+        #         specificity_original = alignment_data[last_alignment_loop]
+        # if specificity_original:
+        #     lines.append(f"Original - {specificity_original}")
+        # else:
+        #     lines.append("Original - (not found)")
+        # for loop_num in range(1, total_loops + 1):
+        #     url = specificity_data.get(loop_num)
+        #     if url:
+        #         lines.append(f"Visual after loop {loop_num} - {url}")
+        #     else:
+        #         lines.append(f"Visual after loop {loop_num} - No replacement")
+        # lines.append("")
         lines.append("")
     
     return "\n".join(lines)
@@ -4924,37 +4923,39 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
         )
 
         row = df.loc[row_index]
-        # Update segments_map after alignment for specificity tracking
+        # Update segments_map after alignment (kept for compatibility/debug parity with prior flow)
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
         segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
-        
-        print("\n[STEP 2] Reviewing SPECIFICITY criterion...")
-        specificity_status, revision_tracking = run_review_loop_for_slide(
-            criterion_name="specificity",
-            prompt_template=SPECIFICITY_REVIEW_PROMPT,
-            row_index=row_index,
-            row=row,
-            df=df,
-            course_name=course_name,
-            target_audience=target_audience,
-            drive=drive,
-            llm=llm,
-            ws=ws,
-            revision_tracking=revision_tracking,
-            use_only_drive_and_hvac=use_only_drive_and_hvac,
-        )
+
+        # Specificity review loop intentionally disabled.
+        # Rationale: alignment prompt now includes a light specificity/clarity check to avoid
+        # a second revision pass that can overwrite good alignment replacements.
+        specificity_status = "SKIPPED"
+        # print("\n[STEP 2] Reviewing SPECIFICITY criterion...")
+        # specificity_status, revision_tracking = run_review_loop_for_slide(
+        #     criterion_name="specificity",
+        #     prompt_template=SPECIFICITY_REVIEW_PROMPT,
+        #     row_index=row_index,
+        #     row=row,
+        #     df=df,
+        #     course_name=course_name,
+        #     target_audience=target_audience,
+        #     drive=drive,
+        #     llm=llm,
+        #     ws=ws,
+        #     revision_tracking=revision_tracking,
+        #     use_only_drive_and_hvac=use_only_drive_and_hvac,
+        # )
         
         # Format and save revision tracking
         tracking_text = format_revision_tracking(revision_tracking)
         df.at[row_index, "revision_tracking"] = tracking_text
         print(f"  Saved revision tracking for {len(revision_tracking)} visual(s)")
 
-        df.at[row_index, "graphics_review_v2_notes"] = (
-            f"alignment={alignment_status}; specificity={specificity_status}"
-        )
-        # Mark review as complete after alignment and specificity reviews are done
+        df.at[row_index, "graphics_review_v2_notes"] = f"alignment={alignment_status}"
+        # Mark review as complete after alignment review is done.
         df.at[row_index, "review_complete"] = "TRUE"
-        print(f"\nRow {row_index + 1} completed (alignment={alignment_status}, specificity={specificity_status})")
+        print(f"\nRow {row_index + 1} completed (alignment={alignment_status})")
         print(f"  Marked review_complete=TRUE for row {row_index + 1}")
         
         # Final check: Normalize YouTube URLs and convert video frames to Drive images
@@ -5070,7 +5071,7 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
     print(f"Starting Graphics Definition V2 Review & Revise")
     print(f"{'='*80}\n")
 
-    progress = SmartProgressBar(total_tasks=len(rows_to_process), description="Graphics review (alignment/specificity)")
+    progress = SmartProgressBar(total_tasks=len(rows_to_process), description="Graphics review (alignment)")
 
     # Process rows in parallel if max_workers > 1, otherwise sequential
     if max_workers > 1:
@@ -5126,7 +5127,7 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
                 progress.update()
 
     print("\n" + "=" * 80)
-    print("Saving alignment/specificity review results...")
+    print("Saving alignment review results...")
     print("=" * 80)
     save_to_sheet(ws, df)
     format_worksheet(ws)

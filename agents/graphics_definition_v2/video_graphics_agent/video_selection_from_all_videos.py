@@ -77,9 +77,6 @@ Instructions:
    - When it is unclear whether any of the provided video candidates relates to the content, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
 
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
-
 OUTPUT FORMAT:
 
 Provide your output strictly in the following format:
@@ -163,9 +160,6 @@ Instructions:
    - If you are uncertain or doubtful about whether any of the provided video candidates is relevant to any part of the slide content, err on the side of inclusion rather than exclusion.
    - When it is unclear whether any of the provided video candidates relates to the content, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
-
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
 
 OUTPUT FORMAT:
 
@@ -267,9 +261,6 @@ Instructions:
    - When it is unclear whether any of the provided video candidates relates to the content or addresses the feedback, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
 
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
-
 OUTPUT FORMAT:
 
 Provide your output strictly in the following format:
@@ -366,9 +357,6 @@ Instructions:
    - If you are uncertain or doubtful about whether any of the provided video candidates is relevant to any part of the slide content or addresses any of the feedback requirements, err on the side of inclusion rather than exclusion.
    - When it is unclear whether any of the provided video candidates relates to the content or addresses the feedback, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
-
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
 
 OUTPUT FORMAT:
 
