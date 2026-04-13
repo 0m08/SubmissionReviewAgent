@@ -49,7 +49,7 @@ st.info(
 )
 
 # --- Step 1: Input for Course Folder ID ---
-course_folder_id = st.text_input("Enter Course Folder ID")
+course_folder_id = "1aokFJXBP3Ez34DwJjvolRh6M6I1sgjKb"
 
 # --- Step 2: Input for Google Spreadsheet URL ---
 spreadsheet_url = st.text_input("Enter Google Spreadsheet URL")
