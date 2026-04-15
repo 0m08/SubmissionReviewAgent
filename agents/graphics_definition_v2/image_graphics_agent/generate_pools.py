@@ -3,14 +3,75 @@ from queue import Queue, Empty
 import time
 from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
     run_image_selection_from_all_images_for_all_rows,
+    run_image_scoring_for_all_rows,
 )
 from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
     run_video_selection_from_all_videos_for_all_rows,
+    run_video_scoring_for_all_rows,
 )
 import streamlit as st
 from langsmith import traceable
 from services.smart_progress_bar import SmartProgressBar
 from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save_to_sheet
+
+
+def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_events, emit_progress, completed, errors, label_a, fn_a, llm_a, label_b, fn_b, llm_b):
+    """
+    Run two row-parallel pipeline functions concurrently and stream progress events.
+
+    :param sheet: gspread sheet object
+    :param max_workers: Row-level workers passed to both functions
+    :param progress: SmartProgressBar instance
+    :param progress_events: Queue receiving progress increments
+    :param emit_progress: Callback passed into child functions
+    :param completed: Mutable list to collect completed labels
+    :param errors: Mutable list to collect (label, error) tuples
+    :param label_a: Display label for function A
+    :param fn_a: Function A
+    :param llm_a: Model for function A
+    :param label_b: Display label for function B
+    :param fn_b: Function B
+    :param llm_b: Model for function B
+    :return: None
+    """
+    
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures_map = {
+            executor.submit(
+                fn_a,
+                sheet=sheet,
+                llm=llm_a,
+                max_workers=max_workers,
+                progress_callback=emit_progress,
+                show_progress=False,
+            ): label_a,
+            executor.submit(
+                fn_b,
+                sheet=sheet,
+                llm=llm_b,
+                max_workers=max_workers,
+                progress_callback=emit_progress,
+                show_progress=False,
+            ): label_b,
+        }
+        while True:
+            try:
+                inc = progress_events.get(timeout=0.2)
+                progress.update(increment=inc)
+            except Empty:
+                pass
+            all_done = all(f.done() for f in futures_map.keys())
+            if all_done and progress_events.empty():
+                break
+        for future in as_completed(futures_map):
+            name = futures_map[future]
+            try:
+                future.result()
+                completed.append(name)
+                print(f"✅ {name} completed successfully")
+            except Exception as e:
+                errors.append((name, str(e)))
+                print(f"❌ {name} failed: {e}")
 
 
 @traceable(
@@ -24,14 +85,14 @@ from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save
 )
 def run_generate_image_and_video_pools(
     sheet,
-    image_pool_llm="gemini_2_5_flash_lite",
+    image_pool_llm="gemini_3_flash_thinking",
     video_pool_llm="gemini_3_flash_thinking",
     max_workers=50,
 ):
     """
-    Run both Image Pool and Video Pool generation steps in parallel:
-    1. Image Pool - selects relevant images from drive_results and web_results
-    2. Video Pool - selects relevant videos from video_pool and video_pool_other_channels
+    Run both Image and Video scoring/filtering with two phases:
+    1) Score candidates into image_score and video_score
+    2) Filter shortlisted candidates into image_pool and video_pool_filtered
     
     Each step writes to its own column independently (image_pool, video_pool_filtered),
     so they can run in parallel.
@@ -43,12 +104,12 @@ def run_generate_image_and_video_pools(
     :return: None
     """
     print("\n" + "="*80)
-    print(f"🚀 Starting parallel pool generation (Image Pool, Video Pool)")
+    print(f"🚀 Starting parallel scoring + pool generation")
     print(f"🤖 Image Pool LLM: {image_pool_llm}")
     print(f"🤖 Video Pool LLM: {video_pool_llm}")
     print("="*80 + "\n")
     
-    # Compute how many rows each pool will process
+    # Compute how many rows each phase will process
     worksheet_name = "Slide Chunks"
     _, df = get_sheet_data_and_df(sheet, worksheet_name)
 
@@ -80,15 +141,15 @@ def run_generate_image_and_video_pools(
     image_tasks = _count_image_tasks(df)
     video_tasks = _count_video_tasks(df)
 
-    total_ticks = image_tasks + video_tasks
+    total_ticks = (image_tasks + video_tasks) * 2
     if image_tasks > 0:
-        total_ticks += 1
+        total_ticks += 2
     if video_tasks > 0:
-        total_ticks += 1
+        total_ticks += 2
 
     progress = SmartProgressBar(
         total_tasks=total_ticks,
-        description="Generate Image & Video Pools (row-level)",
+        description="Generate Image & Video Scores/Pools (row-level)",
         save_interval=0,
     )
 
@@ -101,55 +162,47 @@ def run_generate_image_and_video_pools(
         except Exception:
             pass
     
-    # Run both in parallel, but disable internal Streamlit progress bars in the sub-steps (not thread-safe).
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures_map = {
-            executor.submit(
-                run_image_selection_from_all_images_for_all_rows,
-                sheet=sheet,
-                llm=image_pool_llm,
-                max_workers=max_workers,
-                progress_callback=_emit_progress,
-                show_progress=False,
-            ): "Image Pool",
-            executor.submit(
-                run_video_selection_from_all_videos_for_all_rows,
-                sheet=sheet,
-                llm=video_pool_llm,
-                max_workers=max_workers,
-                progress_callback=_emit_progress,
-                show_progress=False,
-            ): "Video Pool",
-        }
+    completed = []
+    errors = []
 
-        completed = []
-        errors = []
+    print("🔹 Phase 1: scoring candidates (image_score + video_score)")
+    run_parallel_pair_with_progress(
+        sheet=sheet,
+        max_workers=max_workers,
+        progress=progress,
+        progress_events=progress_events,
+        emit_progress=_emit_progress,
+        completed=completed,
+        errors=errors,
+        label_a="Image Scoring",
+        fn_a=run_image_scoring_for_all_rows,
+        llm_a=image_pool_llm,
+        label_b="Video Scoring",
+        fn_b=run_video_scoring_for_all_rows,
+        llm_b=video_pool_llm,
+    )
 
-        while True:
-            try:
-                inc = progress_events.get(timeout=0.2)
-                progress.update(increment=inc)
-            except Empty:
-                pass
-
-            all_done = all(f.done() for f in futures_map.keys())
-            if all_done and progress_events.empty():
-                break
-
-        for future in as_completed(futures_map):
-            name = futures_map[future]
-            try:
-                future.result()
-                completed.append(name)
-                print(f"✅ {name} completed successfully")
-            except Exception as e:
-                errors.append((name, str(e)))
-                print(f"❌ {name} failed: {e}")
+    print("🔹 Phase 2: filtering shortlisted candidates (image_pool + video_pool_filtered)")
+    run_parallel_pair_with_progress(
+        sheet=sheet,
+        max_workers=max_workers,
+        progress=progress,
+        progress_events=progress_events,
+        emit_progress=_emit_progress,
+        completed=completed,
+        errors=errors,
+        label_a="Image Pool",
+        fn_a=run_image_selection_from_all_images_for_all_rows,
+        llm_a=image_pool_llm,
+        label_b="Video Pool",
+        fn_b=run_video_selection_from_all_videos_for_all_rows,
+        llm_b=video_pool_llm,
+    )
     
     # Summary
     print("\n" + "="*80)
     print("📊 Parallel Pool Generation Summary:")
-    print(f"✅ Completed: {len(completed)}/2")
+    print(f"✅ Completed: {len(completed)}/4")
     if completed:
         for name in completed:
             print(f"   - {name}")
@@ -168,7 +221,7 @@ def delete_all_pool_results(sheet):
     :return: None
     """
     worksheet_name = "Slide Chunks"
-    columns_to_delete = ["image_pool", "video_pool_filtered"]
+    columns_to_delete = ["image_score", "video_score", "image_pool", "video_pool_filtered"]
     print("🗑️ Deleting all pool generation results...")
     try:
         ws, df = get_sheet_data_and_df(sheet, worksheet_name)

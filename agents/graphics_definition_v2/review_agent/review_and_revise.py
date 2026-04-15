@@ -23,6 +23,7 @@ from services.sheets_service import (
     save_to_sheet,
     format_worksheet,
     clear_worksheet,
+    hide_columns_by_name,
 )
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import build_video_part
@@ -84,6 +85,8 @@ load_dotenv()
 
 MAX_REVIEW_ATTEMPTS = 1
 MAX_REGEN_ATTEMPTS = 2
+REGEN_IMAGE_SEARCH_K = 4
+REGEN_VIDEO_SEARCH_K = 3
 
 
 # Alingment prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -1132,7 +1135,7 @@ Instructions:
    - Ensure each query adds value.
    - Queries should not be near-duplicates of each other.
    - Each query should represent a slightly different but relevant visual angle.
-   - Generate 1-4 search queries and ensure that collectively, all the queries cover all distinct visual requirements implied by all the given feedback.
+   - Generate exactly 3 search queries and ensure that collectively, all the queries cover all distinct visual requirements implied by all the given feedback.
 
 Output Format:
 
@@ -1160,7 +1163,7 @@ Always provide your output strictly in the following format:
 - Query 1
 - Query 2
 ...
-(Provide 1-4 search queries to address all the given feedback)
+(Provide exactly 3 search queries to address all the given feedback)
 </queries>
 
 </output>
@@ -2170,11 +2173,11 @@ def review_slide_segments(prompt_template, course_name, target_audience, topic_n
         review_targets=review_targets,
     )
     strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED {criterion_name.upper()} REVIEW PROMPT ({slide_id}){strategy_label}:")
-    print(f"{'='*80}")
-    print(prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED {criterion_name.upper()} REVIEW PROMPT ({slide_id}){strategy_label}:")
+    # print(f"{'='*80}")
+    # print(prompt)
+    # print(f"{'='*80}\n")
     print(f"Starting {criterion_name} review for {slide_id}...")
     print(f"Multimodal parts to be sent:")
     for idx, part in enumerate(asset_parts, 1):
@@ -2293,11 +2296,11 @@ Be very strict in your evaluation. Do not give a PASS verdict if any visual stil
 Remember: Striclty use the same output format as before while reviewing the NEW REPLACEMENT visuals and providing your output. Do not provide any additional text or commentary."""
     
     strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED {criterion_name.upper()} FOLLOW-UP REVIEW PROMPT ({slide_id}){strategy_label}:")
-    print(f"{'='*80}")
-    print(followup_prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED {criterion_name.upper()} FOLLOW-UP REVIEW PROMPT ({slide_id}){strategy_label}:")
+    # print(f"{'='*80}")
+    # print(followup_prompt)
+    # print(f"{'='*80}\n")
     print(f"Starting {criterion_name} follow-up review for {slide_id}...")
     print(f"Multimodal parts to be sent:")
     for idx, part in enumerate(asset_parts, 1):
@@ -2380,11 +2383,11 @@ def review_topic_segments(course_name, target_audience, topic_name, subtopic_nam
     )
     print(f"Starting redundancy review for {topic_name}...")
     # print(f"\n{'='*80}")
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
-    print(f"{'='*80}")
-    print(prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
+    # print(f"{'='*80}")
+    # print(prompt)
+    # print(f"{'='*80}\n")
     print(f"Multimodal parts to be sent:")
     for idx, part in enumerate(asset_parts, 1):
         if hasattr(part, 'text') and part.text:
@@ -2481,11 +2484,11 @@ Be very strict in your evaluation. Do not give a PASS verdict if any visual stil
 
 Remember: Only review the segments listed above. Focus on the repeated visual asset (URL: {repeated_visual_url}). If all revised visuals now meet the criteria, output PASS. If any visual still fails, provide detailed feedback in the same format as before."""
     
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED FOLLOW-UP REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
-    print(f"{'='*80}")
-    print(followup_prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED FOLLOW-UP REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
+    # print(f"{'='*80}")
+    # print(followup_prompt)
+    # print(f"{'='*80}\n")
     print(f"Invoking Gemini multimodal follow-up redundancy review (model: {llm})...")
     response_text, updated_history = invoke_gemini_multimodal(
         asset_parts + [types.Part(text=followup_prompt)], 
@@ -2800,6 +2803,7 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
     split3 = remaining.split("</video_candidates>", 1)
     if len(split3) == 2:
         parts.append(types.Part(text=split3[0] + "</video_candidates>"))
+        total_video_candidates = len(videos) + len(frame_videos)
         
         # Insert video candidates as multimodal
         # Handle embed videos (can use clips or frames)
@@ -2811,7 +2815,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                 # Embed URL with timestamps - can be used as clips or frames
                 clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
                 if clip_url:
-                    label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                    label_text = (
+                        f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                        f"ID: {candidate['id']}\n"
+                        f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                        f"URL: {video_url}\n"
+                    )
                     parts.append(types.Part(text=label_text))
                     video_part = build_video_part(clip_url, start_seconds, end_seconds)
                     if video_part:
@@ -2821,7 +2830,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                     print(f"WARNING: Failed to parse embed video URL: {video_url}")
             else:
                 # Fallback: treat as regular video
-                label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 visual_part = build_visual_part_only(video_url, drive)
                 if visual_part:
@@ -2837,7 +2851,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                 # Full video - frames only
                 embed_url = convert_watch_url_to_embed_url(video_url)
                 if embed_url:
-                    label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                    label_text = (
+                        f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                        f"ID: {candidate['id']}\n"
+                        f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps)\n"
+                        f"URL: {video_url}\n"
+                    )
                     parts.append(types.Part(text=label_text))
                     # Add video part without timestamps (full video)
                     video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
@@ -2848,7 +2867,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                     print(f"WARNING: Failed to convert video URL: {video_url}")
             else:
                 # Fallback: treat as regular video
-                label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 visual_part = build_visual_part_only(video_url, drive)
                 if visual_part:
@@ -3010,8 +3034,48 @@ def generate_search_queries_with_feedback(course_name, target_audience, topic_na
             cleaned = cleaned[1:].strip()
         if cleaned:
             queries.append(cleaned)
-    print(f"Generated {len(queries)} search query/queries")
-    return queries
+
+    # Enforce fixed query count for regeneration:
+    # - 3 for Flexible/1 Visual per Sentence
+    # - 4 for 1 Visual for the whole Slide
+    target_query_count = 4 if visual_assignment_strategy == "1 Visual for the whole Slide" else 3
+
+    # Deduplicate while preserving order
+    deduped_queries = []
+    seen_queries = set()
+    for q in queries:
+        key = q.strip().lower()
+        if key and key not in seen_queries:
+            seen_queries.add(key)
+            deduped_queries.append(q.strip())
+
+    # If model under-produces, backfill with deterministic context queries.
+    if len(deduped_queries) < target_query_count:
+        fallback_candidates = [
+            _safe_str(vo_text),
+            _safe_str(slide_title),
+            f"{_safe_str(topic_name)} {_safe_str(subtopic_name)}".strip(),
+            _safe_str(slide_chunk),
+        ]
+        for candidate in fallback_candidates:
+            cleaned = " ".join(candidate.split()).strip()
+            if not cleaned:
+                continue
+            cleaned = cleaned[:120]
+            key = cleaned.lower()
+            if key in seen_queries:
+                continue
+            deduped_queries.append(cleaned)
+            seen_queries.add(key)
+            if len(deduped_queries) >= target_query_count:
+                break
+
+    final_queries = deduped_queries[:target_query_count]
+    print(
+        f"Generated {len(queries)} raw query/queries; using {len(final_queries)} "
+        f"query/queries (target={target_query_count})"
+    )
+    return final_queries
 
 
 def merge_replacements_into_segment(existing_segment_text, replacement_visuals_xml, segment_num):
@@ -3275,7 +3339,12 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
 
         try:
             print(f"Segment {segment_num}: Searching drive...")
-            seg_num, drive_results = process_drive_search_segment(segment_num, queries, drive)
+            seg_num, drive_results = process_drive_search_segment(
+                segment_num,
+                queries,
+                drive,
+                k=REGEN_IMAGE_SEARCH_K,
+            )
             if drive_results:
                 lines = [line.strip() for line in drive_results.splitlines() if line.strip()]
                 df.at[row_index, "drive_results"] = replace_segment_block(
@@ -3297,7 +3366,11 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         elif "web_results" in df.columns:
             try:
                 print(f"    Segment {segment_num}: Searching web...")
-                seg_num, web_results = process_web_search_segment(segment_num, queries)
+                seg_num, web_results = process_web_search_segment(
+                    segment_num,
+                    queries,
+                    k=REGEN_IMAGE_SEARCH_K,
+                )
                 if web_results:
                     lines = [line.strip() for line in web_results.splitlines() if line.strip()]
                     df.at[row_index, "web_results"] = replace_segment_block(
@@ -3319,7 +3392,12 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         if not skip_video_candidates:
             try:
                 print(f"    Segment {segment_num}: Searching video pool...")
-                seg_num, video_pool = process_video_search_segment(segment_num, queries, drive)
+                seg_num, video_pool = process_video_search_segment(
+                    segment_num,
+                    queries,
+                    drive,
+                    k=REGEN_VIDEO_SEARCH_K,
+                )
                 if video_pool:
                     lines = [line.strip() for line in video_pool.splitlines() if line.strip()]
                     df.at[row_index, "video_pool"] = replace_segment_block(
@@ -3346,7 +3424,12 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                         break
                 try:
                     print(f"    Segment {segment_num}: Searching other channels...")
-                    seg_num, video_other = process_segment_other_channels(segment_num, queries, segment_sentence)
+                    seg_num, video_other = process_segment_other_channels(
+                        segment_num,
+                        queries,
+                        segment_sentence,
+                        k=REGEN_VIDEO_SEARCH_K,
+                    )
                     if video_other:
                         lines = [line.strip() for line in video_other.splitlines() if line.strip()]
                         df.at[row_index, "video_pool_other_channels"] = replace_segment_block(
@@ -5219,6 +5302,11 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
     print("=" * 80)
     save_to_sheet(ws, df)
     format_worksheet(ws)
+
+    try:
+        hide_columns_by_name(ws, review_cols, df)
+    except Exception as e:
+        print(f"⚠️ Could not hide review columns: {e}")
     print("\n" + "=" * 80)
     print("✓ Graphics Definition V2 review/revise complete.")
     print("=" * 80)
