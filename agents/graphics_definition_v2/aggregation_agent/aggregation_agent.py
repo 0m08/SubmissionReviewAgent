@@ -1639,6 +1639,87 @@ def _build_asset_parts_for_failed_visual(asset_url, drive):
     return parts
 
 
+def _parse_final_visual_choice(response_text):
+    """Parse the A/B decision from the final comparison response."""
+    if not response_text:
+        return "A", ""
+    chosen_match = re.search(
+        r"<chosen_option>\s*([AB])\s*</chosen_option>",
+        response_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    reason_match = re.search(
+        r"<reason>\s*(.*?)\s*</reason>",
+        response_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return (
+        (chosen_match.group(1).strip().upper() if chosen_match else "A"),
+        (reason_match.group(1).strip() if reason_match else ""),
+    )
+
+
+def _compare_final_visuals(
+    gdv2_url,
+    reference_url,
+    vo_text,
+    slide_title,
+    slide_chunk,
+    course_name,
+    topic_name,
+    subtopic_name,
+    drive,
+    llm="gemini_3_flash_thinking",
+):
+    """Pick the better final image between the GDv2 result and the reference-image pipeline result."""
+    from agents.graphics_definition_v2.review_agent.review_and_revise import build_asset_parts
+
+    if not gdv2_url or not reference_url:
+        return gdv2_url or reference_url, "", ""
+    if gdv2_url.strip() == reference_url.strip():
+        return gdv2_url, "A", "Both final image URLs are identical."
+
+    prompt = (
+        "You are comparing two final visuals for the same voiceover segment. "
+        "Use the actual image/video content, not the URL string, and choose the visual that best supports the narration and slide context.\n\n"
+        f"Course name: {course_name or '(none)'}\n"
+        f"Topic name: {topic_name or '(none)'}\n"
+        f"Subtopic name: {subtopic_name or '(none)'}\n"
+        f"Slide title: {slide_title or '(none)'}\n\n"
+        f"Voiceover segment: {vo_text or '(none)'}\n"
+        f"Slide chunk: {slide_chunk or '(none)'}\n\n"
+        f"Option A URL: {gdv2_url}\n"
+        f"Option B URL: {reference_url}\n\n"
+        "Evaluate these criteria carefully:\n"
+        "- Direct relevance to the narration moment\n"
+        "- Specificity and instructional clarity\n"
+        "- Whether the visual is loadable and visually coherent\n"
+        "- Whether it better matches the slide context and avoids distractions\n\n"
+        "Provide a brief structured comparison, then choose exactly one option. Return only this format:\n"
+        "<decision>\n"
+        "<evaluation_breakdown>\n"
+        "- Segment Understanding: brief summary of what the narration needs\n"
+        "- Option A Scan: what the GDv2 visual shows\n"
+        "- Option B Scan: what the reference visual shows\n"
+        "- Comparative Analysis: why one is better for this moment\n"
+        "- Additional Analysis: any useful edge-case observations\n"
+        "</evaluation_breakdown>\n"
+        "<chosen_option>A|B</chosen_option>\n"
+        "<reason>short reason</reason>\n"
+        "</decision>"
+    )
+
+    parts = (
+        build_asset_parts("A", gdv2_url, drive)
+        + build_asset_parts("B", reference_url, drive)
+        + [types.Part(text=prompt)]
+    )
+    response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
+    chosen_option, reason = _parse_final_visual_choice(response_text)
+    selected_url = gdv2_url if chosen_option == "A" else reference_url
+    return selected_url, chosen_option, reason
+
+
 def parse_video_url_timestamps(video_url):
     """
     Parse start and end timestamps from YouTube embed URL.
@@ -3534,7 +3615,7 @@ def _inject_reference_link(gdv2_text: str, ref_link) -> str:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=50, ref_drive_client=None, ref_output_folder_id=None, ref_drive_lock=None, df=None):
+def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=50, ref_drive_client=None, ref_output_folder_id=None, ref_drive_lock=None, df=None, precomputed_ref_link=None):
     """
     Process a single row: aggregate graphics for all segments and combine into final definition.
     
@@ -3544,11 +3625,14 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
     :param drive: Google Drive instance (GenAI)
     :param llm: Language model to use
     :param max_workers: Max parallel workers for segment processing
-    :param ref_drive_client: GoogleDrive client for reference pipeline
+    :param ref_drive_client: GoogleDrive client for reference pipeline (fallback if no precomputed result)
     :param ref_output_folder_id: Folder ID for reference pipeline output
     :param ref_drive_lock: Lock for reference pipeline thread safety
     :param df: Full dataframe for context
-    :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text) or (index, empty string, empty string) if no segments found
+    :param precomputed_ref_link: Pre-computed reference image Drive URL (from early-start thread launched
+        right after Step 1). When provided, the inline background thread is skipped entirely.
+    :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text, ref_link)
+        where ref_link is the processed reference image URL (or None) to store separately.
     """
     try:
         final_graphics_definition_text = ""
@@ -3582,15 +3666,25 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         if slide_type == "nan":
             slide_type = ""
 
-        # ── START REFERENCE PIPELINE IN BACKGROUND THREAD ──────────────────────
-        # For rows that have a reference image, kick off process_reference_image_path
-        # immediately so it runs in parallel with the normal GDv2 visual-selection path.
-        # The result is merged into final_graphics_definition after GDv2 completes.
+        # ── REFERENCE PIPELINE: USE PRE-COMPUTED RESULT OR START INLINE THREAD ──
+        # Priority:
+        #   1. precomputed_ref_link — provided when the caller (run_aggregation_agent_for_all_rows)
+        #      pre-launched the thread right after Step 1 so it ran in parallel with Steps 2-4.
+        #   2. Inline background thread — fallback when called without a pre-computed result
+        #      (e.g. during retry passes or standalone calls).
         _has_ref_image = ref_image_url and ref_image_url.lower() != "nan"
-        ref_result_box = {}  # shared container: {"result": (is_relevant, final_def, metadata)}
+        ref_result_box = {}  # shared container used only for the inline fallback thread
         ref_thread = None
 
-        if _has_ref_image and ref_drive_client and ref_output_folder_id and df is not None:
+        if _has_ref_image and precomputed_ref_link is not None:
+            # Fast path: the early-start thread already finished; use its result directly.
+            if re.match(r"^https?://", str(precomputed_ref_link).strip(), flags=re.IGNORECASE):
+                ref_result_box["link"] = precomputed_ref_link
+            else:
+                ref_result_box["link"] = None
+            print(f"🔗 Row {index + 1}: Using pre-computed reference link: {precomputed_ref_link or '(none)'}")
+        elif _has_ref_image and ref_drive_client and ref_output_folder_id and df is not None:
+            # Fallback inline thread (retry path or standalone call)
             _ref_slide_chunk = slide_chunk  # capture for closure
             _ref_idx = index
 
@@ -3613,7 +3707,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
 
             ref_thread = threading.Thread(target=_reference_pipeline_task, daemon=True)
             ref_thread.start()
-            print(f"🔗 Row {index + 1}: Reference pipeline started in background (parallel with GDv2).") 
+            print(f"🔗 Row {index + 1}: Reference pipeline started inline (parallel with GDv2 aggregation).") 
 
         # Handle "1 Visual for the whole Slide" case differently
         if visual_assignment_strategy == "1 Visual for the whole Slide":
@@ -3807,16 +3901,21 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                 ]
                 evaluation_breakdown_text = '\n\n'.join(all_eval_breakdowns)
 
-        # ── MERGE REFERENCE PATH OUTPUT ──────────────────────────────────────────
-        # Wait for the background reference pipeline thread (started above) and
-        # inject its result into the GDv2 output using the canonical key names:
-        #   • Normal GDv2 image  → "Graphics to use: <url>"          (already present)
-        #   • Reference image    → "Graphics to use (Reference): <url>"  (injected here)
-        # If the reference pipeline failed, write 'None' so the cell is always
-        # explicit about what happened.
+        # ── COLLECT REFERENCE PATH RESULT ────────────────────────────────────────
+        # Resolve the processed reference image URL from whichever path ran:
+        #   • Pre-computed path  → already in ref_result_box["link"]
+        #   • Inline thread path → join thread, parse result into ref_result_box["link"]
+        # The URL is NOT injected into final_graphics_definition here; instead it is
+        # returned separately so run_aggregation_agent_for_all_rows can store it in
+        # the 'reference_image_processed_url' column.  The Decide Final Visuals step
+        # will compare the GDv2 image against this reference image and choose the best one.
+        resolved_ref_link = ref_result_box.get("link")  # set by pre-computed path
+        reference_eligible_for_compare = bool(
+            resolved_ref_link and re.match(r"^https?://", str(resolved_ref_link).strip(), flags=re.IGNORECASE)
+        )
+
         if ref_thread is not None:
             ref_thread.join()
-            ref_link = None
             ref_result = ref_result_box.get("result")
 
             if ref_result is None:
@@ -3832,24 +3931,46 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                         r'Graphics to use:\s*(https?://[^\s\n]+)', ref_final_def
                     )
                     if graphics_match:
-                        ref_link = graphics_match.group(1).strip()
-                        print(f"✅ [REF-PIPELINE] Row {index + 1}: Parsed ref_link = {ref_link}")
+                        resolved_ref_link = graphics_match.group(1).strip()
+                        reference_eligible_for_compare = True
+                        print(f"✅ [REF-PIPELINE] Row {index + 1}: Parsed ref_link = {resolved_ref_link}")
                     else:
                         print(f"⚠️ [REF-PIPELINE] Row {index + 1}: Could not parse URL from ref_final_def. Full text: {ref_final_def!r}")
                 elif not is_relevant:
-                    print(f"ℹ️ [REF-PIPELINE] Row {index + 1}: Reference image marked NOT relevant — no link injected.")
+                    print(f"ℹ️ [REF-PIPELINE] Row {index + 1}: Reference image marked NOT relevant — skipping.")
+                    resolved_ref_link = None
+                    reference_eligible_for_compare = False
 
-            status = "✅ succeeded" if ref_link else "⚠️ failed — writing None"
-            print(f"[REF-PIPELINE] Row {index + 1}: {status}. Injecting into final_graphics_definition.")
-            print(f"   GDv2 text before inject (first 300 chars): {final_graphics_definition_text[:300]!r}")
+            status = "✅ succeeded" if resolved_ref_link else "⚠️ failed or not relevant"
+            print(f"[REF-PIPELINE] Row {index + 1}: {status}. Storing in reference_image_processed_url column.")
 
-            final_graphics_definition_text = _inject_reference_link(
-                final_graphics_definition_text, ref_link
-            )
+        if reference_eligible_for_compare and final_graphics_definition_text:
+            gdv2_urls = _extract_graphics_to_use_urls(final_graphics_definition_text)
+            gdv2_url = gdv2_urls[0] if gdv2_urls else ""
+            if gdv2_url and gdv2_url != resolved_ref_link:
+                chosen_url, chosen_option, chosen_reason = _compare_final_visuals(
+                    gdv2_url=gdv2_url,
+                    reference_url=resolved_ref_link,
+                    vo_text=voiceover_text,
+                    slide_title=slide_title,
+                    slide_chunk=slide_chunk,
+                    course_name=course_name,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    drive=drive,
+                    llm=llm,
+                )
+                if chosen_url and chosen_url != gdv2_url:
+                    final_graphics_definition_text = final_graphics_definition_text.replace(gdv2_url, chosen_url, 1)
+                    print(
+                        f"[FINAL-COMPARE] Row {index + 1}: chose reference visual ({chosen_option}) - {chosen_reason or 'no reason provided'}"
+                    )
+                else:
+                    print(
+                        f"[FINAL-COMPARE] Row {index + 1}: kept GDv2 visual ({chosen_option}) - {chosen_reason or 'no reason provided'}"
+                    )
 
-            print(f"   GDv2 text after inject (first 400 chars): {final_graphics_definition_text[:400]!r}")
-
-        return index, final_graphics_definition_text, evaluation_breakdown_text
+        return index, final_graphics_definition_text, evaluation_breakdown_text, resolved_ref_link
         
     except Exception as e:
         print(f"Error processing row {index}: {e}")
@@ -4124,9 +4245,11 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
 
     print(f"🔗 [REF-PIPELINE] Drive ready: {'yes' if ref_drive_client and ref_output_folder_id else 'no (reference images will be skipped)'}")
     
-    # Ensure final_graphics_definition column exists
+    # Ensure output columns exist
     if "final_graphics_definition" not in df.columns:
         df["final_graphics_definition"] = ""
+    if "reference_image_processed_url" not in df.columns:
+        df["reference_image_processed_url"] = ""
     
     # Filter rows that have voiceover_segment but missing final_graphics_definition
     rows_to_process = []
@@ -4149,6 +4272,50 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         return
     
     print(f"📝 Processing {len(rows_to_process)} row(s) with missing final_graphics_definition\n")
+
+    # Precompute reference-image outputs first so the final comparison step can
+    # reuse the saved URL from the sheet instead of re-running the reference path.
+    ref_rows_to_process = []
+    for index, row in rows_to_process:
+        ref_image_url = str(row.get("Reference Image", "")).strip()
+        if ref_image_url and ref_image_url.lower() != "nan":
+            ref_rows_to_process.append((index, row, ref_image_url))
+
+    if ref_rows_to_process and ref_drive_client and ref_output_folder_id:
+        print(f"🧪 Precomputing {len(ref_rows_to_process)} reference-image row(s) in parallel before GDv2 aggregation...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            ref_futures = {
+                executor.submit(
+                    process_reference_image_path,
+                    df,
+                    index,
+                    ref_image_url,
+                    ref_drive_client,
+                    ref_output_folder_id,
+                    ref_drive_lock,
+                    llm,
+                    str(row.get("voiceover_segment", "")).strip(),
+                ): index
+                for index, row, ref_image_url in ref_rows_to_process
+            }
+
+            for future in as_completed(ref_futures):
+                index = ref_futures[future]
+                try:
+                    is_relevant, ref_final_def, _ = future.result()
+                    ref_link = ""
+                    if is_relevant and ref_final_def:
+                        graphics_match = re.search(r'Graphics to use:\s*(https?://[^\s\n]+)', ref_final_def)
+                        if graphics_match:
+                            ref_link = graphics_match.group(1).strip()
+                    df.at[index, "reference_image_processed_url"] = ref_link
+                    print(f"[REF-PRECOMPUTE] Row {index + 1}: {'stored' if ref_link else 'empty'} reference_image_processed_url")
+                except Exception as e:
+                    print(f"[REF-PRECOMPUTE] Row {index + 1}: error while precomputing reference image: {e}")
+                    df.at[index, "reference_image_processed_url"] = ""
+
+        save_to_sheet(ws, df)
+        format_worksheet(ws)
     
     # Initialize progress bar
     total_tasks = len(rows_to_process)
@@ -4170,6 +4337,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 ref_output_folder_id,
                 ref_drive_lock,
                 df,
+                str(df.at[index, "reference_image_processed_url"]).strip(),
             ): index
             for index, row in rows_to_process
         }
@@ -4178,10 +4346,11 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         for future in as_completed(futures):
             index = futures[future]
             try:
-                row_index, final_graphics_def_text, _ = future.result()
+                row_index, final_graphics_def_text, _, ref_link = future.result()
                 
                 # Update dataframe
                 df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
+                df.at[row_index, "reference_image_processed_url"] = ref_link or ""
                 
                 # Update progress
                 progress.update()
@@ -4193,6 +4362,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
+                df.at[index, "reference_image_processed_url"] = ""
                 progress.update()
                 # Save immediately even on error
                 print(f'Saving row {index + 2} (with error) to sheet immediately.')
@@ -4268,6 +4438,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                     ref_output_folder_id,
                     ref_drive_lock,
                     df,
+                    str(df.at[index, "reference_image_processed_url"]).strip(),
                 )
                 futures[future] = index
             
@@ -4275,14 +4446,16 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
             for future in as_completed(futures):
                 index = futures[future]
                 try:
-                    row_index, final_graphics_def_text, _ = future.result()
+                    row_index, final_graphics_def_text, _, ref_link = future.result()
                     df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
+                    df.at[row_index, "reference_image_processed_url"] = ref_link or ""
                     # Save immediately after each row completes in retry
                     print(f'Saving row {row_index + 2} (retry) to sheet immediately.')
                     save_to_sheet(ws, df)
                 except Exception as e:
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
+                    df.at[index, "reference_image_processed_url"] = ""
                     # Save immediately even on error in retry
                     print(f'Saving row {index + 2} (retry, with error) to sheet immediately.')
                     save_to_sheet(ws, df)

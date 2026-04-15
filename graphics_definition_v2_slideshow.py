@@ -16,6 +16,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from openai import OpenAI
+from google.genai import types
 from PIL import UnidentifiedImageError
 
 from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
@@ -24,6 +25,11 @@ from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_
     run_human_feedback_review_revise_for_all_rows,
     _format_human_feedback_revision_tracking,
     _parse_tracking_column,
+)
+from agents.graphics_definition_v2.review_agent.decide_final_visuals import (
+    build_asset_parts,
+    invoke_gemini_multimodal,
+    _parse_decision_response,
 )
 from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import run_automation
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
@@ -227,6 +233,84 @@ def _col_to_a1(col_index: int) -> str:
 def _chunked(seq, size):
     for i in range(0, len(seq), size):
         yield seq[i : i + size]
+
+
+def _auto_decide_visual_choice(slide, segment_num, step, drive):
+    """
+    Pick the best visual for a step when both a primary asset and a reference asset exist.
+
+    The result is cached so the LLM is only called once per slide/segment/step/version.
+    """
+    primary_url = safe_str(step.get("asset", "")).strip()
+    reference_url = safe_str(step.get("asset_reference", "")).strip()
+    if not primary_url or not reference_url:
+        return primary_url, "option1", ""
+    if _primary_asset_url(primary_url) == _primary_asset_url(reference_url):
+        return primary_url, "option1", "Primary and reference URLs are identical."
+
+    cache = st.session_state.setdefault(AUTO_VISUAL_DECISION_CACHE_KEY, {})
+    cache_key = hashlib.md5(
+        json.dumps(
+            {
+                "slide_idx": slide.get("slide_idx_1based", slide.get("row_index", 0)),
+                "segment_num": segment_num,
+                "step_index": step.get("step_index", 0),
+                "primary_url": primary_url,
+                "reference_url": reference_url,
+                "voiceover": safe_str(step.get("voiceover", "")).strip(),
+                "instruction": safe_str(step.get("instruction", "")).strip(),
+                "slide_title": safe_str(slide.get("slide_title", "")).strip(),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    if cache_key in cache:
+        return cache[cache_key]
+
+    slide_title = safe_str(slide.get("slide_title", "")).strip() or "Untitled slide"
+    topic = safe_str(slide.get("topic", "")).strip()
+    subtopic = safe_str(slide.get("subtopic", "")).strip()
+    slide_chunk = safe_str(slide.get("slide_chunk", "")).strip()
+    voiceover = safe_str(step.get("voiceover", "")).strip()
+    instruction = safe_str(step.get("instruction", "")).strip()
+    visual_id = f"S{segment_num}V{step.get('step_index', 0)}"
+
+    prompt = (
+        "You are selecting the single best visual for a slide narration moment. "
+        "Compare the two images and choose the one that best supports the voiceover and instruction.\n\n"
+        f"Slide title: {slide_title}\n"
+        f"Topic: {topic or '(none)'}\n"
+        f"Subtopic: {subtopic or '(none)'}\n\n"
+        f"Voiceover: {voiceover or '(none)'}\n"
+        f"Visual instruction: {instruction or '(none)'}\n"
+        f"Slide chunk: {slide_chunk or '(none)'}\n\n"
+        f"Visual ID: {visual_id}\n"
+        "Option A is the graphics-definition image. Option B is the reference-image pipeline result.\n"
+        "Choose exactly one option and explain why in one short reason.\n\n"
+        "Output format:\n"
+        "<decision>\n"
+        "<chosen_option>A|B</chosen_option>\n"
+        "<reason>short reason</reason>\n"
+        "</decision>"
+    )
+
+    parts = (
+        build_asset_parts(f"{visual_id} option A", primary_url, drive)
+        + build_asset_parts(f"{visual_id} option B", reference_url, drive)
+        + [types.Part(text=prompt)]
+    )
+    response_text, _ = invoke_gemini_multimodal(
+        parts,
+        llm="gemini_3_flash_thinking",
+        conversation_history=None,
+    )
+    chosen, reason = _parse_decision_response(response_text)
+    selected_choice = "option2" if chosen in ("SECOND", "B", "OPTION2") else "option1"
+    selected_url = reference_url if selected_choice == "option2" else primary_url
+
+    result = (selected_url, selected_choice, reason)
+    cache[cache_key] = result
+    return result
 
 
 def _build_row_review_payload(slide, row_actions, current_round):
@@ -968,6 +1052,7 @@ def _build_segment(segment_index, steps):
 
 INSPECTOR_IMAGE_CACHE_KEY = "gdv2_inspector_image_cache"
 INSPECTOR_VIDEO_HTML_CACHE_KEY = "gdv2_inspector_video_html_cache"
+AUTO_VISUAL_DECISION_CACHE_KEY = "gdv2_auto_visual_decision_cache"
 
 # Streamlit >=1.33: fragment isolates reruns so feedback text_areas don't remount video iframes
 try:
@@ -991,6 +1076,7 @@ def _clear_visual_selection_state():
     prefixes = (
         "asset_override_",
         "choice_",
+        "auto_choice_",
     )
     keys_to_delete = [
         k for k in list(st.session_state.keys())
@@ -2675,68 +2761,40 @@ def _render_single_segment_block(
             current_round=current_round,
         )
 
-        # 3. Handle Dual-Visual Selection (GDv2 vs Reference)
+        # 3. Auto-select between GDv2 and reference visuals when both are present.
         asset_ref = s.get("asset_reference", "").strip()
-        has_dual = bool(asset_ref)
+        has_reference_candidate = bool(asset_ref)
         choice_key = f"choice_{slide_idx}_{seg_num}_{s['step_index']}_r{current_round}"
-        if has_dual and choice_key not in st.session_state:
+        if has_reference_candidate and choice_key not in st.session_state:
             st.session_state[choice_key] = None
-        
-        current_choice = st.session_state.get(choice_key) if has_dual else "option1"
 
-        if has_dual and current_choice is None:
-            # Selection UI: Side-by-side images
-            st.info("💡 Multiple visuals found. Please choose an option to proceed.")
-            opt_cols = st.columns(2, gap="large")
-            
-            with opt_cols[0]:
-                st.markdown("#### Option 1 (Graphics definition)")
-                asset1 = s.get("asset", "")
-                _render_single_asset_visual(asset1, f"{this_embed_key}-opt1", drive)
-            
-            with opt_cols[1]:
-                st.markdown("#### Option 2 (Reference)")
-                asset2 = asset_ref
-                _render_single_asset_visual(asset2, f"{this_embed_key}-opt2", drive)
+        if has_reference_candidate:
+            selected_asset, selected_choice, selected_reason = _auto_decide_visual_choice(
+                slide=slide,
+                segment_num=seg_num,
+                step=s,
+                drive=drive,
+            )
+            st.session_state[choice_key] = selected_choice
+            st.session_state[ov_key] = selected_asset
+            cur_asset = selected_asset
+            is_ov = True
+            cur_type = detect_asset_type(cur_asset)
+            cur_display = (
+                normalize_drive_image_url(cur_asset) if is_drive_url(cur_asset) else cur_asset
+            ) if cur_type == "image" else ""
+            if selected_reason:
+                st.caption(f"Auto-selected visual: {selected_reason}")
+        else:
+            st.session_state.pop(choice_key, None)
+            current_choice = "option1"
 
-            # Draw selection buttons in a separate row so they are always side-by-side vertically
-            btn_cols = st.columns(2, gap="large")
-            with btn_cols[0]:
-                st.button(
-                    "Choose Option 1",
-                    key=f"choose_opt1_{this_embed_key}",
-                    on_click=_set_visual_choice,
-                    args=(choice_key, "option1", ov_key, s.get("asset", "")),
-                    use_container_width=True,
-                )
-            
-            with btn_cols[1]:
-                st.button(
-                    "Choose Option 2",
-                    key=f"choose_opt2_{this_embed_key}",
-                    on_click=_set_visual_choice,
-                    args=(choice_key, "option2", ov_key, asset2),
-                    use_container_width=True,
-                )
-            
-            # Don't show feedback controls until chosen
-            continue
+        current_choice = st.session_state.get(choice_key, "option1") if has_reference_candidate else "option1"
 
         # 1. Visual Assigned (Now that we have a choice or only one option)
         _render_inspector_step_visual(
             cur_asset, cur_type, cur_display, this_embed_key, drive, comparison=comparison_payload
         )
-        
-        # 3.5 Selection info and Undo for Dual
-        if has_dual:
-            st.info(f"Visual Selected: {'Option 1 (Graphics definition)' if current_choice == 'option1' else 'Option 2 (Processed reference image)'}")
-            st.button(
-                "↩️ Undo Choice",
-                key=f"undo_choice_{this_embed_key}",
-                on_click=_undo_visual_choice,
-                args=(choice_key, ov_key),
-                type="secondary",
-            )
         
         # 2. Toggles for candidate images and videos (Standard path only for candidate pool)
         step_cand_key = f"{this_embed_key}-cand"
@@ -2760,13 +2818,13 @@ def _render_single_segment_block(
 
         # 4. Action buttons row (Undo Re-assignment | Undo Revision)
         action_btn_cols = []
-        if (is_ov and not has_dual) or undo_info:
-            n_cols = sum([1 if (is_ov and not has_dual) else 0, 1 if undo_info else 0])
+        if (is_ov and not has_reference_candidate) or undo_info:
+            n_cols = sum([1 if (is_ov and not has_reference_candidate) else 0, 1 if undo_info else 0])
             if n_cols > 0:
                 action_btn_cols = st.columns(n_cols, gap="small")
                 col_iter = iter(action_btn_cols)
 
-                if is_ov and not has_dual:
+                if is_ov and not has_reference_candidate:
                     with next(col_iter):
                         st.button(
                             "↩️ Undo Re-assignment",
@@ -2806,7 +2864,7 @@ def _render_single_segment_block(
 
         # Determine allowed actions
         allowed = None
-        if has_dual and current_choice == "option2":
+        if has_reference_candidate and current_choice == "option2":
             allowed = [ACTION_APPROVE, ACTION_REJECT_AI]
         
         _render_inspector_step_review_controls(scope_key, allowed_actions=allowed)
