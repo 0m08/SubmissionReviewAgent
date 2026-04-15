@@ -169,17 +169,19 @@ def download_image_from_drive(drive, file_id):
     
     """
     Download an image from Google Drive by file ID and return it as a PIL Image.
+    
     :param drive: Google Drive instance.
     :param file_id: ID of the file to download.
     :return: PIL Image object or None if download fails.
     """
+    
     temp_path = None
     try:
         file = drive.CreateFile({'id': file_id})
-        file.FetchMetadata(fields='title, mimeType')
 
         # Download content to a temporary file
-        temp_path = f"/tmp/{file_id}.jpg"
+        fd, temp_path = tempfile.mkstemp(prefix=f"drive_{file_id}_", suffix=".jpg")
+        os.close(fd)
         file.GetContentFile(temp_path)
 
         # Open with PIL and convert to RGB

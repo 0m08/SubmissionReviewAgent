@@ -75,6 +75,7 @@ def execute_drive_search_for_query(query, drive, k=search_k, filters=None, root_
             drive=drive,
             k=k,
             filters=filters,
+            load_images=False,
             root_folder_id=root_folder_id
         )
         print(f"Raw results: {len(results)} items")

@@ -3939,6 +3939,126 @@ def validate_final_graphics_definition_row(row):
     return True, None
 
 
+def _parse_iso8601_duration_to_seconds(duration):
+    """Parse YouTube ISO8601 duration like PT1H2M3S to seconds."""
+    if not duration:
+        return None
+    match = re.match(
+        r"^P(?:(?P<days>\d+)D)?T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?$",
+        duration.strip(),
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    days = int(match.group("days") or 0)
+    hours = int(match.group("hours") or 0)
+    minutes = int(match.group("minutes") or 0)
+    seconds = int(match.group("seconds") or 0)
+    return days * 86400 + hours * 3600 + minutes * 60 + seconds
+
+
+def _get_youtube_api_key():
+    return (
+        os.getenv("GCLOUD_YT_SEARCH_API_KEY_1")
+        or os.getenv("GCLOUD_YT_SEARCH_API_KEY_2")
+        or os.getenv("GCLOUD_YT_SEARCH_API_KEY_3")
+    )
+
+
+def _fetch_youtube_duration_seconds(video_id, api_key, timeout_sec = 12):
+    """
+    Fetch the duration of a YouTube video in seconds.
+    """
+    if not video_id or not api_key:
+        return None
+    try:
+        resp = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={"part": "contentDetails", "id": video_id, "key": api_key},
+            timeout=timeout_sec,
+        )
+        resp.raise_for_status()
+        payload = resp.json() if resp.content else {}
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+        if not items:
+            return None
+        iso = items[0].get("contentDetails", {}).get("duration")
+        return _parse_iso8601_duration_to_seconds(iso)
+    except Exception:
+        return None
+
+
+def _extract_graphics_to_use_urls(text):
+    urls = []
+    if not text:
+        return urls
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.lower().startswith("graphics to use:"):
+            url = line.split(":", 1)[1].strip()
+            if url:
+                urls.append(url)
+    return urls
+
+
+def validate_youtube_clip_links_for_row(row, api_key, duration_cache = None):
+    """
+    Validate YouTube clip timestamps in final_graphics_definition against actual video duration.
+    """
+    
+    if not api_key:
+        return True, None
+    final_graphics_def_text = str(row.get("final_graphics_definition", "")).strip()
+    if not final_graphics_def_text or final_graphics_def_text == "nan":
+        return True, None
+
+    urls = _extract_graphics_to_use_urls(final_graphics_def_text)
+    if not urls:
+        return True, None
+
+    if duration_cache is None:
+        duration_cache = {}
+
+    faulty_messages: List[str] = []
+    for url in urls:
+        if "youtube.com" not in url and "youtu.be" not in url:
+            continue
+        _, start_seconds, end_seconds = parse_video_url_timestamps(url)
+        if start_seconds is None and end_seconds is None:
+            continue
+
+        video_id = extract_video_id_from_url(url)
+        if not video_id:
+            faulty_messages.append(f"could not parse video id for URL: {url}")
+            continue
+
+        if video_id in duration_cache:
+            duration_seconds = duration_cache[video_id]
+        else:
+            duration_seconds = _fetch_youtube_duration_seconds(video_id, api_key)
+            duration_cache[video_id] = duration_seconds
+
+        if duration_seconds is None:
+            faulty_messages.append(f"could not fetch duration for video_id={video_id}")
+            continue
+        if start_seconds is not None and start_seconds >= duration_seconds:
+            faulty_messages.append(
+                f"start={start_seconds}s is outside video duration={duration_seconds}s for {url}"
+            )
+            continue
+        if end_seconds is not None and end_seconds > duration_seconds:
+            faulty_messages.append(
+                f"end={end_seconds}s is outside video duration={duration_seconds}s for {url}"
+            )
+            continue
+        if start_seconds is not None and end_seconds is not None and end_seconds <= start_seconds:
+            faulty_messages.append(f"invalid range start={start_seconds}s end={end_seconds}s for {url}")
+
+    if faulty_messages:
+        return False, " | ".join(faulty_messages[:3])
+    return True, None
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -4083,6 +4203,12 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
     format_worksheet(ws)
 
     # Validation and retry logic
+    youtube_api_key = _get_youtube_api_key()
+    if youtube_api_key:
+        print("🔍 Running post-aggregation YouTube clip validation.")
+    else:
+        print("⚠️ YouTube clip validation skipped: missing GCLOUD_YT_SEARCH_API_KEY_1/2/3.")
+
     max_retries = 3
     retry_count = 0
     
@@ -4091,19 +4217,31 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         ws, df = get_sheet_data_and_df(sheet, worksheet_name)
         
         # Validate all rows and find invalid ones
+        duration_cache: Dict[str, Optional[int]] = {}
         invalid_rows = []
         for index, row in df.iterrows():
             is_valid, error_msg = validate_final_graphics_definition_row(row)
-            if not is_valid:
-                invalid_rows.append((index, row, error_msg))
+            clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
+                row, youtube_api_key, duration_cache
+            )
+            if not is_valid or not clip_valid:
+                reasons: List[str] = []
+                if not is_valid and error_msg:
+                    reasons.append(error_msg)
+                if not clip_valid and clip_error_msg:
+                    reasons.append(f"YouTube clip validation failed: {clip_error_msg}")
+                    print(f"⚠️ Faulty clip found in row {index + 2}: {clip_error_msg}")
+                invalid_rows.append((index, row, " || ".join(reasons)))
         
         if not invalid_rows:
+            if youtube_api_key:
+                print("✅ YouTube clip validation completed: no faulty clip links found.")
             break
         
         retry_count += 1
         print(f"\n⚠️ Found {len(invalid_rows)} rows with invalid final_graphics_definition. Retrying (attempt {retry_count}/{max_retries})...")
         for idx, row, error in invalid_rows[:3]:  # Show first 3 errors
-            print(f"  Row {idx}: {error}")
+            print(f"  Row {idx + 2}: {error}")
         
         # Clear final_graphics_definition for invalid rows
         for index, row, error_msg in invalid_rows:
@@ -4117,6 +4255,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         futures = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, error_msg in invalid_rows:
+                print(f"🔁 Re-aggregating row {index + 2} after validation failure.")
                 future = executor.submit(
                     process_aggregation_row,
                     index,
@@ -4151,19 +4290,29 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
     if retry_count > 0:
         # Check final state
         ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+        duration_cache: Dict[str, Optional[int]] = {}
         final_invalid = []
         for index, row in df.iterrows():
             is_valid, error_msg = validate_final_graphics_definition_row(row)
-            if not is_valid:
-                final_invalid.append((index, error_msg))
+            clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
+                row, youtube_api_key, duration_cache
+            )
+            if not is_valid or not clip_valid:
+                reasons: List[str] = []
+                if not is_valid and error_msg:
+                    reasons.append(error_msg)
+                if not clip_valid and clip_error_msg:
+                    reasons.append(f"YouTube clip validation failed: {clip_error_msg}")
+                final_invalid.append((index, " || ".join(reasons)))
         
         if final_invalid:
             print(f"⚠️ After {retry_count} retry attempt(s), {len(final_invalid)} rows still have invalid final_graphics_definition.")
             for idx, error in final_invalid[:5]:  # Show first 5
-                print(f"  Row {idx}: {error}")
+                print(f"  Row {idx + 2}: {error}")
         else:
             print(f"✅ All rows validated after {retry_count} retry attempt(s).")
-    
+            if youtube_api_key:
+                print("✅ YouTube clip validation completed successfully after retries (no faulty clip links remain).")    
     # Final save to sheet
     print('All aggregation agent tasks completed. Saving final DataFrame to sheet.')
     save_to_sheet(ws, df)
@@ -4178,6 +4327,7 @@ def delete_final_graphics_definition(sheet):
     :param sheet: The gspread sheet object.
     :return: None
     """
+    
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     if "final_graphics_definition" in df.columns:

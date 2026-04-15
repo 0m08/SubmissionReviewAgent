@@ -141,6 +141,7 @@ def _safe_iter_clip_results(clip_results):
 
 def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.Image] = None,
                        drive=None, k: int = 5, filters=None,
+                       load_images: bool = True,
                        root_folder_id: str = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH') -> List[Dict[str, any]]:
     assert query or query_image, "Please provide a query or an image."
 
@@ -333,57 +334,67 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
         #     seen_topics.add(topic_name)
         
         try:
-            if not image_id:
-                continue
-        
-            pil_image = download_image_from_drive(drive, image_id)
-            if not pil_image:
-                continue
-        
             phash_value = existing_phash
-            if not phash_value:
-                try:
-                    phash_value = str(imagehash.phash(pil_image))
-                except Exception as hash_error:
-                    print(f"Failed to compute pHash for {image_id}: {hash_error}")
-                    phash_value = None
-        
-            if phash_value:
+            pil_image = None
+
+            if load_images:
+                if not image_id:
+                    continue
+
+                pil_image = download_image_from_drive(drive, image_id)
+                if not pil_image:
+                    continue
+
+                if not phash_value:
+                    try:
+                        phash_value = str(imagehash.phash(pil_image))
+                    except Exception as hash_error:
+                        print(f"Failed to compute pHash for {image_id}: {hash_error}")
+                        phash_value = None
+
+                if phash_value:
+                    if phash_value in seen_phashes:
+                        continue
+                    seen_phashes.add(phash_value)
+                    metadata.setdefault('phash', phash_value)
+                else:
+                    try:
+                        content_signature = hashlib.md5(pil_image.tobytes()).hexdigest()
+                    except Exception as digest_error:
+                        print(f"Failed to fingerprint image {image_id}: {digest_error}")
+                        content_signature = None
+
+                    if content_signature:
+                        if content_signature in seen_content_hashes:
+                            continue
+                        seen_content_hashes.add(content_signature)
+            elif phash_value:
                 if phash_value in seen_phashes:
                     continue
                 seen_phashes.add(phash_value)
-                metadata.setdefault('phash', phash_value)
-            else:
-                try:
-                    content_signature = hashlib.md5(pil_image.tobytes()).hexdigest()
-                except Exception as digest_error:
-                    print(f"Failed to fingerprint image {image_id}: {digest_error}")
-                    content_signature = None
-        
-                if content_signature:
-                    if content_signature in seen_content_hashes:
-                        continue
-                    seen_content_hashes.add(content_signature)
-        
-            results.append({
+
+            result_payload = {
                 "similarity": result["similarity"],
-                "image": pil_image,
                 "metadata": {
                     **metadata,
                     "source": result["source"]
                 }
-            })
-        
+            }
+            if pil_image is not None:
+                result_payload["image"] = pil_image
+
+            results.append(result_payload)
+
             if image_id:
                 seen_image_ids.add(image_id)
             if drive_url:
                 seen_drive_urls.add(drive_url)
             if filename:
                 seen_filenames.add(filename)
-        
+
             if len(results) >= k:
                 break
-        
+
         except Exception as e:
             print(f"Failed to load image {metadata.get('image_id')}: {e}")
             continue
