@@ -1,6 +1,7 @@
 from agent_ui_template import agent_ui
 import streamlit as st
 import pandas as pd
+import re
 from services.sheets_service import get_sheet_data_and_df
 from services.helper_functions import create_final_outline_sheet
 
@@ -97,11 +98,54 @@ from agents.course_outline.video_reference_validation.validate_video_references 
 from agents.research_notes.load_references import load_references
 from agents.research_notes.retriever_agent import run_retriever_agent_for_all_rows
 
-llm_model = st.session_state.get("llm_model", "gemini_2_flash") or "gemini_2_flash" # Or is set incase llm_model is None
+llm_model = st.session_state.get("llm_model", "gemini_3_flash") or "gemini_3_flash" # Or is set incase llm_model is None
 
 # Read value from Course Info sheet
-topic_deep_research_enabled = False 
+topic_deep_research_enabled = False
 outline_finalized = False
+video_research_enabled = True
+web_research_enabled = True
+deep_research_enabled = True
+
+
+RESEARCH_SOURCE_ALIASES = {
+    "video": "video",
+    "video research": "video",
+    "videos": "video",
+    "web": "web",
+    "web research": "web",
+    "deep": "deep",
+    "deep research": "deep",
+}
+
+
+def _parse_research_sources(df, col="Research Sources"):
+    """
+    Read the `Research Sources` cell from Course info and return a set of enabled
+    research-type tokens (subset of {'video', 'web', 'deep'}).
+
+    - Cell is split on newlines and commas (tolerant of either).
+    - Each token is matched case-insensitively against RESEARCH_SOURCE_ALIASES.
+    - If the cell is blank / NaN, or contains no valid tokens, NO research
+      sections run (returns an empty set). Users must explicitly list the
+      sources they want.
+    - If the column is entirely missing (older sheet without it), all three
+      default to enabled for backward compatibility.
+    """
+    if col not in df.columns:
+        return {"video", "web", "deep"}
+    raw = df.loc[0, col]
+    if pd.isna(raw) or not str(raw).strip():
+        return set()
+
+    tokens = re.split(r"[\n,]", str(raw))
+    enabled = set()
+    for tok in tokens:
+        key = tok.strip().lower()
+        if key in RESEARCH_SOURCE_ALIASES:
+            enabled.add(RESEARCH_SOURCE_ALIASES[key])
+    return enabled
+
 
 if "sheet" in st.session_state:
     _, course_info_df = get_sheet_data_and_df(st.session_state["sheet"], "Course info")
@@ -112,6 +156,12 @@ if "sheet" in st.session_state:
         else True
     )
 
+    # Research-type toggles driven by the "Research Sources" column in Course info.
+    _enabled_sources = _parse_research_sources(course_info_df)
+    video_research_enabled = "video" in _enabled_sources
+    web_research_enabled = "web" in _enabled_sources
+    deep_research_enabled = "deep" in _enabled_sources
+
     # Check the status of the oultine
     if "Outline Stage" in course_info_df.columns:
         status = course_info_df.loc[0, "Outline Stage"]
@@ -119,7 +169,7 @@ if "sheet" in st.session_state:
 
 # --- 1) Define pipeline as sections, each with its own steps ---
 pipeline_sections = [
-    {
+    *([{
         "section_name": "Section 1: Videos Research",
         "steps": [
             {
@@ -385,7 +435,7 @@ pipeline_sections = [
                 }
             },
         ],
-    },
+    }] if video_research_enabled else []),
     # {
     #     "section_name": "Section 2: Client References",
     #     "steps": [
@@ -459,7 +509,7 @@ pipeline_sections = [
     #         },
     #     ],
     # },
-    {
+    *([{
         "section_name": "Section 3: Web Research",
         "steps": [
             {
@@ -618,8 +668,8 @@ pipeline_sections = [
                 }
             },
         ],
-    },
-    {
+    }] if web_research_enabled else []),
+    *([{
         "section_name": "Section 4: Deep Research",
         "steps": [
             {
@@ -662,7 +712,7 @@ pipeline_sections = [
                 }
             },
         ],
-    },
+    }] if deep_research_enabled else []),
     {
         "section_name": "Section 5: Outline Consolidation",
         "steps": [
@@ -1107,5 +1157,19 @@ pipeline_sections.append({
         },
     ]
 })
+
+# Strip out dependencies that point to steps which were skipped (because their
+# section is disabled via Research Sources). Otherwise downstream steps block
+# forever waiting on a dependency that will never be marked done.
+_all_step_names = {
+    step["name"]
+    for section in pipeline_sections
+    for step in section["steps"]
+}
+for _section in pipeline_sections:
+    for _step in _section["steps"]:
+        _step["depends_on"] = [
+            dep for dep in _step.get("depends_on", []) if dep in _all_step_names
+        ]
 
 agent_ui(step_name="Course Outline", pipeline_sections=pipeline_sections, outline_finalized=outline_finalized)

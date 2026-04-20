@@ -92,6 +92,83 @@ def extract_image_links_from_markdown(markdown_text):
 
     return image_links
 
+DRIVE_FILE_LINK_RE = re.compile(r"(?:drive|docs)\.google\.com/(?:file/d/|open\?id=|uc\?(?:.*&)?id=)([a-zA-Z0-9_-]+)")
+
+
+def _extract_drive_file_id(url):
+    """Return the Google Drive file ID if url is a Drive file link, else None."""
+    m = DRIVE_FILE_LINK_RE.search(url)
+    return m.group(1) if m else None
+
+
+def _get_drive_client():
+    """Return an authenticated PyDrive client from Streamlit session state, else None."""
+    try:
+        import streamlit as st
+        return st.session_state.get("drive")
+    except Exception:
+        return None
+
+
+@traceable
+def download_drive_file_as_pdf(url, timeout=60):
+    """
+    If the URL is a Google Drive file link, download it and return a local temp path
+    if the bytes are a PDF, else None. Returns None for non-Drive URLs or non-PDF files.
+
+    Prefers PyDrive (authenticated, handles private files and large-file confirm tokens);
+    falls back to an anonymous `requests` download when no PyDrive client is available.
+    """
+    file_id = _extract_drive_file_id(url)
+    if not file_id:
+        return None
+
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    tmp.close()
+    tmp_path = tmp.name
+
+    drive = _get_drive_client()
+    if drive is not None:
+        try:
+            f = drive.CreateFile({"id": file_id})
+            f.GetContentFile(tmp_path)
+        except Exception as e:
+            print(f"PyDrive download failed for {file_id}: {e}. Falling back to requests.")
+            drive = None
+
+    if drive is None:
+        download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+        try:
+            r = requests.get(download_url, allow_redirects=True, timeout=timeout)
+            r.raise_for_status()
+            with open(tmp_path, "wb") as out:
+                out.write(r.content)
+        except Exception as e:
+            print(f"Failed to download Drive file {file_id}: {e}")
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            return None
+
+    try:
+        with open(tmp_path, "rb") as fh:
+            head = fh.read(8)
+    except OSError:
+        return None
+
+    if not head.startswith(b"%PDF"):
+        print(f"Drive file {file_id} is not a PDF (first bytes: {head!r}). Skipping.")
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return None
+
+    return tmp_path
+
+
 @traceable
 def is_pdf_url(url):
     """
@@ -229,8 +306,23 @@ def get_docs_from_url(url: str, query: str):
         docs (list): A list of Document object containing the page content and metadata
     """
     print("---GET PAGE CONTENT FROM URL---")
+    # If url is a Google Drive file link that resolves to a PDF, download and load it.
+    drive_pdf_path = download_drive_file_as_pdf(url)
+    if drive_pdf_path:
+        try:
+            loader = PyPDFLoader(drive_pdf_path)
+            pages = loader.load()
+            doc = pages[0]
+            doc.page_content = '\n\n'.join([page.page_content for page in pages])
+            doc.metadata['source'] = url
+            doc.metadata['query'] = query
+        finally:
+            try:
+                os.unlink(drive_pdf_path)
+            except OSError:
+                pass
     # If url is a pdf
-    if is_pdf_url(url):
+    elif is_pdf_url(url):
         loader = PyPDFLoader(url)
         pages = loader.load()
         doc = pages[0]
