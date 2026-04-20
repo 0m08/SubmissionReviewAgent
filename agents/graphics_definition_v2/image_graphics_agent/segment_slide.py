@@ -139,7 +139,7 @@ Segment 1: "First, connect the blue hose to the low-pressure port."
 Segment 2: "Then, open the valve slowly."
 Segment 3: "Finally, read the pressure gauge."
 
-STICT INSTRUCTION: While doing the segmentation, only include content inside the Slide Content that is given as input. Do not add or remove any content from the Slide Content no matter how big or small the content is.
+STRICT INSTRUCTION: While doing the segmentation, only include content inside the Slide Content that is given as input. Do not add or remove any content from the Slide Content no matter how big or small the content is.
 
 
 OUTPUT FORMAT:
