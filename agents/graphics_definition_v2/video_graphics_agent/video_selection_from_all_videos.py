@@ -22,6 +22,229 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
 
 load_dotenv()
 
+MIN_BATCH_SIZE = 3
+MAX_BATCH_SIZE = 5
+SAVE_INTERVAL_ROWS = 5
+SCORE_COLUMN_NAME = "video_score"
+
+
+# Video scoring prompt to use when we want the visual assignment to be flexible or 1 visual per sentence
+video_scoring_prompt = """You are an expert educational video evaluator specializing in the field of HVAC.
+
+Your task is to review a provided set of video candidates and assign a relevance score to each video based on how well it visually supports a single voiceover sentence from an educational e-learning slide. This scoring will be used to shortlist the strongest candidate videos for further filtering and final visual selection in downstream steps.
+
+A video’s score should reflect how clearly, directly, and instructionally it helps a learner understand the meaning and intent of the voiceover sentence. A video may support the full sentence or only a part of it; however, videos that support more important or central parts of the sentence, or provide clearer instructional value, should receive higher scores.
+
+A video should be considered relevant even if any visually meaningful portion of the video can support the voiceover sentence. The entire video does not need to be relevant, as only a short segment or frame from the video can be used later.
+
+These are the inputs:
+
+<course_information>
+Course name: {course_name}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<voiceover_sentence_for_which_to_assign_score_to_videos>
+{vo_text}
+</voiceover_sentence_for_which_to_assign_score_to_videos>
+
+<whole_slide_context>
+Slide Title: {slide_title}
+Slide Content: "{slide_chunk}"
+</whole_slide_context>
+
+These are the video candidates for the voiceover sentence:
+
+<video_candidates>
+{video_candidates}
+</video_candidates>
+
+Instructions:
+
+1) Core Scoring Objective
+- Review all provided video candidates.
+- Assign a score from 0 to 10 to each video based on how well it visually supports the voiceover sentence.
+- Higher scores should be given to videos that clearly and directly help a learner understand the sentence, either fully or by strongly supporting an important part of it.
+
+2) Meaning-Based Evaluation
+- Judge each video based on the meaning and instructional intent of the voiceover sentence.
+- Use the slide content to understand the full context and resolve references, pronouns, or implied meaning if needed.
+- Do not assign scores based on general topic relevance alone.
+
+3) Visual Grounding 
+- Base all scoring decisions on what is visually shown in the video, not on what is being spoken in the video.
+- Evaluate whether any portion of the video contains clear, usable visual content that supports the voiceover sentence.
+- Do not rely on video titles, URLs, or metadata alone.
+
+4) Instructional Clarity and Usefulness
+- Prioritize videos that:
+  - clearly show the key component, object, or concept being described
+  - visually demonstrate the process, condition, or outcome mentioned in the sentence
+  - contain visually clear segment(s) that can be directly used as clip(s) or still frame(s)
+  - would make the explanation easier to understand for a learner
+- Penalize videos that:
+  - contain unclear, or hard-to-identify relevant segment(s)
+  - are vague, generic, or only loosely related
+  - require interpretation beyond what is visually shown
+  - do not add meaningful instructional value
+  - are completely irrelevant
+
+5) Relative Ranking Within the Batch
+- Treat the provided videos as a comparative set.
+- Use a ranking mindset: some videos should clearly score higher than others.
+- Avoid assigning identical scores unless two videos are truly indistinguishable in relevance and usefulness.
+- Ensure that the scoring meaningfully differentiates stronger candidates from weaker ones.
+
+6) Scoring Guidance
+- 9–10: Highly relevant, contains clear and strong visual segment(s) that directly support the core idea or a key part of the sentence
+- 7–8: Clearly relevant and useful, but the visual support may be less direct
+- 5–6: Partially relevant or contains limited useful visual segment(s)
+- 3–4: Weakly related or unclear visual connection to the sentence
+- 0–2: Not relevant or does not meaningfully support the sentence
+
+OUTPUT FORMAT:
+
+Always provide your output strictly in the following format:
+
+<output>
+
+<evaluation_breakdown>
+
+<voiceover_sentence_understanding>
+Briefly explain what the voiceover sentence is communicating, using slide context to resolve any references or implied meaning if needed.
+</voiceover_sentence_understanding>
+
+<video_candidate_scan>
+Create a numbered list of all provided video candidates and briefly describe what you see in each of the videos. Focus only on the visual content, not what is being spoken in the videos.
+</video_candidate_scan>
+
+<scoring_rationale>
+Explain how you plan to apply the scoring criteria across the video candidates. Provide a detailed rationale for your scoring decision for each of the video candidate.
+</scoring_rationale>
+
+</evaluation_breakdown>
+
+<final_scores>
+(List of all video candidates with their scores in this exact format. Include the exact URL as provided, including timestamps if present.)
+1. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
+2. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
+...
+</final_scores>
+
+</output>
+
+(Ensure that you follow this exact XML format and do not add any extra text or comments outside the <output>, <evaluation_breakdown> and <final_scores> tags)
+"""
+
+
+# Video scoring prompt to use when we want 1 visual for the whole slide
+video_scoring_prompt_for_entire_slide = """You are an expert educational video evaluator specializing in the field of HVAC.
+
+Your task is to review a provided set of video candidates and assign a relevance score to each video based on how well it visually represents the overall meaning and instructional intent of an educational e-learning slide. This scoring will be used to shortlist the strongest candidate videos for further filtering and final visual selection in downstream steps.
+
+A video’s score should reflect how clearly, directly, and instructionally it helps a learner understand the overall meaning of the slide. Videos that clearly represent the central concept, key takeaway, or most important visual idea of the slide should receive higher scores.
+
+A video should be considered relevant even if any visually meaningful portion of the video can support the slide content. The entire video does not need to be relevant, as only a short segment or frame from the video can be used later. However, videos that contain clearer and more instructionally useful visual segment(s) representing the central concept of the slide should receive higher scores than videos that support only minor or secondary details.
+
+These are the inputs:
+
+<course_information>
+Course name: {course_name}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<slide_content>
+Slide Title: {slide_title}
+Slide Content: "{slide_chunk}"
+</slide_content>
+
+These are the video candidates for the slide:
+
+<video_candidates>
+{video_candidates}
+</video_candidates>
+
+Instructions:
+
+1) Core Scoring Objective
+- Review all provided video candidates.
+- Assign a score from 0 to 10 to each video based on how well it visually represents the overall meaning of the slide.
+- Higher scores should be given to videos that clearly and directly capture the central idea, key takeaway, or most important concept of the slide.
+
+2) Meaning-Based Evaluation
+- Judge each video based on the overall meaning and instructional intent of the entire slide.
+- Identify the primary concept, key takeaway, or dominant idea that the learner should understand from the slide.
+- Do not assign scores based on general topic relevance alone.
+
+3) Visual Grounding
+- Base all scoring decisions on what is visually shown in the video, not on what is being spoken in the video.
+- Evaluate whether any portion of the video contains clear, usable visual content that supports the slide content.
+- Do not rely on video titles, URLs, or metadata alone.
+
+4) Instructional Clarity and Representativeness
+- Prioritize videos that:
+  - clearly represent the central concept or main idea of the slide
+  - provide a strong and direct visual summary of the slide content
+  - contain visually clear segment(s) that can be directly used as clip(s) or still frame(s)
+  - would make the overall explanation easier to understand for a learner at a glance
+- Penalize videos that:
+  - represent only minor or secondary details of the slide
+  - contain unclear, or hard-to-identify relevant segment(s)
+  - are too narrow, fragmented, or incomplete relative to the overall slide meaning
+  - are vague, generic, or only loosely related
+  - require interpretation beyond what is visually shown
+  - do not add meaningful instructional value
+  - are completely irrelevant
+
+5) Relative Ranking Within the Batch
+- Treat the provided videos as a comparative set.
+- Use a ranking mindset: some videos should clearly score higher than others.
+- Avoid assigning identical scores unless two videos are truly indistinguishable in relevance and usefulness.
+- Ensure that the scoring meaningfully differentiates stronger candidates from weaker ones.
+
+6) Scoring Guidance
+- 9–10: Highly relevant, contains clear and strong visual segment(s) that directly represent the central idea or key takeaway of the slide
+- 7–8: Clearly relevant and useful, but may not fully capture the most important concept of the slide
+- 5–6: Partially relevant or represents only a limited aspect of the slide
+- 3–4: Weakly related or unclear visual connection to the main idea of the slide
+- 0–2: Not relevant or does not meaningfully represent the slide
+
+OUTPUT FORMAT:
+
+Always provide your output strictly in the following format:
+
+<output>
+
+<evaluation_breakdown>
+
+<slide_content_understanding>
+Briefly explain what the slide content is communicating and identify the central idea or key takeaway of the slide.
+</slide_content_understanding>
+
+<video_candidate_scan>
+Create a numbered list of all provided video candidates and briefly describe what you see in each of the videos. Focus only on the visual content, not what is being spoken in the videos.
+</video_candidate_scan>
+
+<scoring_rationale>
+Explain how you plan to apply the scoring criteria across the video candidates. Provide a detailed rationale for your scoring decision for each of the video candidate.
+</scoring_rationale>
+
+</evaluation_breakdown>
+
+<final_scores>
+(List of all video candidates with their scores in this exact format. Include the exact URL as provided, including timestamps if present.)
+1. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
+2. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
+...
+</final_scores>
+
+</output>
+
+(Ensure that you follow this exact XML format and do not add any extra text or comments outside the <output>, <evaluation_breakdown> and <final_scores> tags)
+"""
+
 
 # Prompt to use when we want the visual assignment to be flexible or 1 visual per sentence
 video_selection_from_all_videos_prompt = """You are an expert educational video curator specializing in the field of HVAC.
@@ -46,8 +269,11 @@ Slide Title: {slide_title}
 Slide Content: {slide_chunk}
 </whole_slide_context>
 
-These are the links of all the video candidates:
+These are the video candidates for the voiceover sentence:
+
+<video_candidates>
 {video_candidates}
+</video_candidates>
 
 Instructions:
 
@@ -76,9 +302,6 @@ Instructions:
    - If you are uncertain or doubtful about whether any of the provided video candidates is relevant to the voiceover sentence, err on the side of inclusion rather than exclusion.
    - When it is unclear whether any of the provided video candidates relates to the content, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
-
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
 
 OUTPUT FORMAT:
 
@@ -134,8 +357,11 @@ Slide Title: {slide_title}
 Slide Content: {slide_chunk}
 </slide_content>
 
-These are the links of all the video candidates:
+These are the video candidates for the slide:
+
+<video_candidates>
 {video_candidates}
+</video_candidates>
 
 Instructions:
 
@@ -163,9 +389,6 @@ Instructions:
    - If you are uncertain or doubtful about whether any of the provided video candidates is relevant to any part of the slide content, err on the side of inclusion rather than exclusion.
    - When it is unclear whether any of the provided video candidates relates to the content, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
-
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
 
 OUTPUT FORMAT:
 
@@ -231,8 +454,11 @@ Slide Content: {slide_chunk}
 {feedback}
 </feedback>
 
-These are the links of all the video candidates:
+These are the video candidates:
+
+<video_candidates>
 {video_candidates}
+</video_candidates>
 
 Instructions:
 
@@ -266,9 +492,6 @@ Instructions:
    - If you are uncertain or doubtful about whether any of the provided video candidates is relevant to the voiceover sentence or addresses any of the feedback requirements, err on the side of inclusion rather than exclusion.
    - When it is unclear whether any of the provided video candidates relates to the content or addresses the feedback, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
-
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
 
 OUTPUT FORMAT:
 
@@ -332,8 +555,11 @@ Slide Content: {slide_chunk}
 {feedback}
 </feedback>
 
-These are the links of all the video candidates:
+These are the video candidates:
+
+<video_candidates>
 {video_candidates}
+</video_candidates>
 
 Instructions:
 
@@ -366,9 +592,6 @@ Instructions:
    - If you are uncertain or doubtful about whether any of the provided video candidates is relevant to any part of the slide content or addresses any of the feedback requirements, err on the side of inclusion rather than exclusion.
    - When it is unclear whether any of the provided video candidates relates to the content or addresses the feedback, it is better to select it than to reject it.
    - Prioritize selection when relevance is ambiguous, as having more candidate videos provides more options for later visual planning stages.
-
-The following are the complete set of available videos that you need to select from:
-AVAILABLE VIDEOS ({num_videos} videos in total):
 
 OUTPUT FORMAT:
 
@@ -485,6 +708,249 @@ def parse_video_items_from_pool_other_channels(video_pool_other_channels_text, s
     return items
 
 
+def build_dynamic_batches(items, min_size=MIN_BATCH_SIZE, max_size=MAX_BATCH_SIZE):
+    """
+    Build balanced dynamic batches with size in [min_size, max_size] when possible.
+
+    :param items: Input candidate list
+    :param min_size: Minimum batch size target
+    :param max_size: Maximum batch size target
+    :return: List of candidate batches
+    """
+    n = len(items)
+    if n <= 0:
+        return []
+    if n <= max_size:
+        return [items]
+    k_min = (n + max_size - 1) // max_size
+    k_max = n // min_size
+    if k_min > k_max:
+        return [items]
+    k = k_min
+    base = n // k
+    rem = n % k
+    out, start = [], 0
+    for i in range(k):
+        size = base + (1 if i < rem else 0)
+        out.append(items[start:start + size])
+        start += size
+    return out
+
+
+def _extract_score_value(score_text):
+    """
+    Extract numeric score value from text containing X/10.
+
+    :param score_text: Raw score text
+    :return: Float score in [0, 10] or None
+    """
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*/\s*10", score_text or "")
+    if not match:
+        return None
+    try:
+        return max(0.0, min(10.0, float(match.group(1))))
+    except Exception:
+        return None
+
+
+def parse_scored_videos_text(final_scores_text):
+    """
+    Parse <final_scores> into (url, score) tuples.
+
+    :param final_scores_text: Raw text from <final_scores> tag
+    :return: List of tuples (video_url, score)
+    """
+    out = []
+    for line in (final_scores_text or "").splitlines():
+        raw = re.sub(r"^\d+\.\s*", "", line.strip())
+        if not raw:
+            continue
+        url_match = re.search(r"https?://[^\s|]+", raw)
+        score_val = _extract_score_value(raw)
+        if url_match and score_val is not None:
+            out.append((url_match.group(0).strip(), score_val))
+    return out
+
+
+def format_video_score_segment(segment_num, set_scored_items):
+    """
+    Format one segment's scored sets for video_score column.
+
+    :param segment_num: Segment number
+    :param set_scored_items: List of set outputs; each set is [(url, score), ...]
+    :return: Formatted segment block text
+    """
+    lines = [f"---SEGMENT_{segment_num}---"]
+    for set_idx, scored_items in enumerate(set_scored_items, 1):
+        lines.append(f"Set {set_idx}:")
+        for url, score in scored_items:
+            try:
+                score_num = float(score)
+                score_text = str(int(score_num)) if score_num.is_integer() else f"{score_num}".rstrip("0").rstrip(".")
+            except Exception:
+                score_text = str(score)
+            lines.append(f"Video Url: {url} | Score: {score_text}/10")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _shortlist_urls_from_segment_score_block(segment_block, top_n=2, min_score=4.0):
+    """
+    From one segment score block, shortlist URLs per set with score gating.
+
+    :param segment_block: Segment block text with Set sections
+    :param top_n: Base top-N to keep before tie expansion
+    :param min_score: Minimum score cutoff for candidates during tie expansion
+    :return: Deduplicated shortlisted URLs
+    """
+    
+    shortlisted = []
+    set_blocks = re.findall(r"Set\s+\d+\s*:\s*(.*?)(?=\nSet\s+\d+\s*:|\Z)", segment_block or "", flags=re.IGNORECASE | re.DOTALL)
+    for set_block in set_blocks:
+        scored = []
+        for line in set_block.splitlines():
+            raw = line.strip()
+            if not raw:
+                continue
+            url_match = re.search(r"https?://[^\s|]+", raw)
+            score_val = _extract_score_value(raw)
+            if url_match and score_val is not None:
+                scored.append((url_match.group(0).strip(), score_val))
+        if not scored:
+            continue
+        scored.sort(key=lambda x: -x[1])
+        if len(scored) <= top_n:
+            chosen = scored
+        else:
+            cutoff = scored[top_n - 1][1]
+            chosen = [x for x in scored if x[1] >= cutoff]
+        # Drop low-score tie-expanded candidates; if none survive, force one best candidate.
+        chosen = [x for x in chosen if x[1] >= min_score]
+        if not chosen:
+            chosen = [scored[0]]
+        for url, _ in chosen:
+            if url not in shortlisted:
+                shortlisted.append(url)
+    return shortlisted
+
+
+def shortlist_video_urls_from_score_text(video_score_text, segment_num, top_n=2, min_score=4.0):
+    """
+    Parse video_score text and return shortlisted URLs for a segment.
+
+    :param video_score_text: Full video_score column text
+    :param segment_num: Segment number
+    :param top_n: Base top-N to keep before tie expansion
+    :param min_score: Minimum score cutoff for candidates during tie expansion
+    :return: Deduplicated shortlisted URLs for the segment
+    """
+    
+    if not video_score_text:
+        return []
+    segment_pattern = rf"---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)"
+    match = re.search(segment_pattern, video_score_text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return []
+    return _shortlist_urls_from_segment_score_block(match.group(1), top_n=top_n, min_score=min_score)
+
+
+def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", entire_slide=False):
+    """
+    Score one batch of video candidates and return parsed (url, score) tuples.
+
+    :param vo_text: Voiceover sentence (segment mode)
+    :param slide_title: Slide title
+    :param slide_chunk: Slide content
+    :param video_urls_pool: Candidate URLs from video_pool
+    :param video_items_other_channels: Candidate metadata items from other channels
+    :param course_name: Course name
+    :param topic_name: Topic name
+    :param subtopic_name: Subtopic name
+    :param drive: Drive instance (reserved for parity/signature consistency)
+    :param llm: Model name
+    :param entire_slide: If True, use whole-slide scoring prompt
+    :return: List of tuples (video_url, score)
+    """
+    
+    total_videos = len(video_urls_pool) + len(video_items_other_channels)
+    if total_videos == 0:
+        return []
+    video_candidates_list = []
+    video_candidates_list.extend(video_urls_pool)
+    for video_item in video_items_other_channels:
+        url = video_item.get("url", "")
+        if url:
+            video_candidates_list.append(url)
+    video_candidates_text = "\n".join([f"{i+1}. {url}" for i, url in enumerate(video_candidates_list)])
+    parts: List[types.Part] = []
+
+    if entire_slide:
+        prompt_text = video_scoring_prompt_for_entire_slide.format(
+            course_name=course_name,
+            topic_name=topic_name,
+            subtopic_name=subtopic_name,
+            slide_title=slide_title,
+            slide_chunk=slide_chunk,
+            video_candidates=video_candidates_text,
+        )
+        # print(f"\n{'='*80}")
+        # print(f"📝 FORMATTED VIDEO SCORING PROMPT (Entire Slide):")
+        # print(f"{'='*80}")
+        # print(prompt_text)
+        # print(f"{'='*80}\n")
+    else:
+        prompt_text = video_scoring_prompt.format(
+            course_name=course_name,
+            topic_name=topic_name,
+            subtopic_name=subtopic_name,
+            vo_text=vo_text,
+            slide_title=slide_title,
+            slide_chunk=slide_chunk,
+            video_candidates=video_candidates_text,
+        )
+        # print(f"\n{'='*80}")
+        # print(f"📝 FORMATTED VIDEO SCORING PROMPT (Segment):")
+        # print(f"{'='*80}")
+        # print(prompt_text)
+        # print(f"{'='*80}\n")
+
+    idx = 1
+    for video_url in video_urls_pool:
+        clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+        if clip_url:
+            parts.append(
+                types.Part(
+                    text=f"\n--- Video {idx} of {total_videos} ---\nURL: {video_url}\n"
+                )
+            )
+            parts.append(build_video_part(clip_url, start_seconds, end_seconds))
+        idx += 1
+    for video_item in video_items_other_channels:
+        video_url = video_item.get("url", "")
+        embed_url = convert_watch_url_to_embed_url(video_url)
+        if embed_url:
+            parts.append(
+                types.Part(
+                    text=f"\n--- Video {idx} of {total_videos} ---\nURL: {video_url}\n"
+                )
+            )
+            parts.append(build_video_part(embed_url, start_seconds=None, end_seconds=None))
+        idx += 1
+
+    parts.append(types.Part(text=prompt_text))
+    raw_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.1)
+    
+    print(f"\n{'='*80}")
+    print(f"📤 VIDEO SCORING RESPONSE ({'Entire Slide' if entire_slide else 'Segment'}):")
+    print(f"{'='*80}")
+    print(raw_text)
+    print(f"{'='*80}\n")
+    parser_chain = Chain(llm=llm, tags=["final_scores"])
+    parsed = parser_chain.extract_text_in_tags(raw_text)
+    final_scores_text = parsed.get("final_scores", "")
+    return parse_scored_videos_text(final_scores_text)
+
+
 
 
 @traceable(
@@ -561,11 +1027,11 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
             num_videos=total_videos
         )
         # Print the formatted feedback prompt
-        print(f"\n{'='*80}")
-        print(f"📝 FORMATTED VIDEO SELECTION PROMPT WITH FEEDBACK (Segment):")
-        print(f"{'='*80}")
-        print(prompt_text)
-        print(f"{'='*80}\n")
+        # print(f"\n{'='*80}")
+        # print(f"📝 FORMATTED VIDEO SELECTION PROMPT WITH FEEDBACK (Segment):")
+        # print(f"{'='*80}")
+        # print(prompt_text)
+        # print(f"{'='*80}\n")
     else:
         # Use standard prompt for initial selection
         prompt_text = video_selection_from_all_videos_prompt.format(
@@ -579,11 +1045,11 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
             num_videos=total_videos
         )
         # Print the formatted standard prompt
-        print(f"\n{'='*80}")
-        print(f"📝 FORMATTED VIDEO SELECTION PROMPT (Segment):")
-        print(f"{'='*80}")
-        print(prompt_text)
-        print(f"{'='*80}\n")
+        # print(f"\n{'='*80}")
+        # print(f"📝 FORMATTED VIDEO SELECTION PROMPT (Segment):")
+        # print(f"{'='*80}")
+        # print(prompt_text)
+        # print(f"{'='*80}\n")
     
     # Add videos from video_pool (with timestamps) - pass only the segment
     video_index = 1
@@ -596,9 +1062,10 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         
         if clip_url:
             # Add label text with URL and timestamps
-            label_text = f"Video {video_index} of {total_videos} (from video_pool): URL: {video_url}"
+            label_text = f"\n--- Video {video_index} of {total_videos} ---\nURL: {video_url}"
             if start_seconds is not None and end_seconds is not None:
                 label_text += f" | Timestamps: {start_seconds}s - {end_seconds}s"
+            label_text += "\n"
             parts.append(types.Part(text=label_text))
             
             # Add video part with timestamps (only this segment)
@@ -606,7 +1073,11 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
             parts.append(video_part)
             print(f"✅ Added video {video_index} (with timestamps): start={start_seconds}s, end={end_seconds}s")
         else:
-            parts.append(types.Part(text=f"Video {video_index} of {total_videos} (from video_pool): URL: {video_url} | [Failed to parse video URL]"))
+            parts.append(
+                types.Part(
+                    text=f"\n--- Video {video_index} of {total_videos} ---\nURL: {video_url}\n[Failed to parse video URL]\n"
+                )
+            )
             print(f"⚠️ Failed to parse video URL: {video_url}")
         
         video_index += 1
@@ -623,12 +1094,12 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         
         if embed_url:
             # Add label text with metadata
-            label_text = f"Video {video_index} of {total_videos} (from video_pool_other_channels): Title: {video_title}"
+            label_text = f"\n--- Video {video_index} of {total_videos} ---\nTitle: {video_title}"
             if video_item.get("duration"):
                 label_text += f" | Duration: {video_item.get('duration')}"
             if video_item.get("channel"):
                 label_text += f" | Channel: {video_item.get('channel')}"
-            label_text += f" | URL: {video_url}"
+            label_text += f"\nURL: {video_url}\n"
             parts.append(types.Part(text=label_text))
             
             # Add video part without timestamps (full video)
@@ -636,7 +1107,11 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
             parts.append(video_part)
             print(f"✅ Added video {video_index} (full video, no timestamps): {embed_url}")
         else:
-            parts.append(types.Part(text=f"Video {video_index} of {total_videos} (from video_pool_other_channels): Title: {video_title} | URL: {video_url} | [Failed to convert video URL]"))
+            parts.append(
+                types.Part(
+                    text=f"\n--- Video {video_index} of {total_videos} ---\nTitle: {video_title}\nURL: {video_url}\n[Failed to convert video URL]\n"
+                )
+            )
             print(f"⚠️ Failed to convert video URL: {video_url}")
         
         video_index += 1
@@ -740,11 +1215,11 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
             num_videos=total_videos
         )
         # Print the formatted feedback prompt
-        print(f"\n{'='*80}")
-        print(f"📝 FORMATTED VIDEO SELECTION PROMPT WITH FEEDBACK (Entire Slide):")
-        print(f"{'='*80}")
-        print(prompt_text)
-        print(f"{'='*80}\n")
+        # print(f"\n{'='*80}")
+        # print(f"📝 FORMATTED VIDEO SELECTION PROMPT WITH FEEDBACK (Entire Slide):")
+        # print(f"{'='*80}")
+        # print(prompt_text)
+        # print(f"{'='*80}\n")
     else:
         # Use standard prompt for initial selection
         prompt_text = video_selection_from_all_videos_prompt_for_entire_slide.format(
@@ -757,11 +1232,11 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
             num_videos=total_videos
         )
         # Print the formatted standard prompt
-        print(f"\n{'='*80}")
-        print(f"📝 FORMATTED VIDEO SELECTION PROMPT (Entire Slide):")
-        print(f"{'='*80}")
-        print(prompt_text)
-        print(f"{'='*80}\n")
+        # print(f"\n{'='*80}")
+        # print(f"📝 FORMATTED VIDEO SELECTION PROMPT (Entire Slide):")
+        # print(f"{'='*80}")
+        # print(prompt_text)
+        # print(f"{'='*80}\n")
     
     # Add videos from video_pool (with timestamps) - pass only the segment
     video_index = 1
@@ -774,9 +1249,10 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
         
         if clip_url:
             # Add label text with URL and timestamps
-            label_text = f"Video {video_index} of {total_videos} (from video_pool): URL: {video_url}"
+            label_text = f"\n--- Video {video_index} of {total_videos} ---\nURL: {video_url}"
             if start_seconds is not None and end_seconds is not None:
                 label_text += f" | Timestamps: {start_seconds}s - {end_seconds}s"
+            label_text += "\n"
             parts.append(types.Part(text=label_text))
             
             # Add video part with timestamps (only this segment)
@@ -784,7 +1260,11 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
             parts.append(video_part)
             print(f"✅ Added video {video_index} (with timestamps): start={start_seconds}s, end={end_seconds}s")
         else:
-            parts.append(types.Part(text=f"Video {video_index} of {total_videos} (from video_pool): URL: {video_url} | [Failed to parse video URL]"))
+            parts.append(
+                types.Part(
+                    text=f"\n--- Video {video_index} of {total_videos} ---\nURL: {video_url}\n[Failed to parse video URL]\n"
+                )
+            )
             print(f"⚠️ Failed to parse video URL: {video_url}")
         
         video_index += 1
@@ -801,12 +1281,12 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
         
         if embed_url:
             # Add label text with metadata
-            label_text = f"Video {video_index} of {total_videos} (from video_pool_other_channels): Title: {video_title}"
+            label_text = f"\n--- Video {video_index} of {total_videos} ---\nTitle: {video_title}"
             if video_item.get("duration"):
                 label_text += f" | Duration: {video_item.get('duration')}"
             if video_item.get("channel"):
                 label_text += f" | Channel: {video_item.get('channel')}"
-            label_text += f" | URL: {video_url}"
+            label_text += f"\nURL: {video_url}\n"
             parts.append(types.Part(text=label_text))
             
             # Add video part without timestamps (full video)
@@ -814,7 +1294,11 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
             parts.append(video_part)
             print(f"✅ Added video {video_index} (full video, no timestamps): {embed_url}")
         else:
-            parts.append(types.Part(text=f"Video {video_index} of {total_videos} (from video_pool_other_channels): Title: {video_title} | URL: {video_url} | [Failed to convert video URL]"))
+            parts.append(
+                types.Part(
+                    text=f"\n--- Video {video_index} of {total_videos} ---\nTitle: {video_title}\nURL: {video_url}\n[Failed to convert video URL]\n"
+                )
+            )
             print(f"⚠️ Failed to convert video URL: {video_url}")
         
         video_index += 1
@@ -907,7 +1391,7 @@ def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, vi
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chunk, video_pool, video_pool_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking"):
+def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chunk, video_pool, video_pool_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", shortlisted_urls=None):
     """
     Process a single segment: select relevant videos from all available videos.
     
@@ -929,6 +1413,11 @@ def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chu
     # Get video URLs for this segment from both pools
     video_urls_pool = parse_urls_from_video_pool(video_pool, segment_idx)
     video_items_other_channels = parse_video_items_from_pool_other_channels(video_pool_other_channels, segment_idx)
+
+    if shortlisted_urls:
+        shortlist = set(shortlisted_urls)
+        video_urls_pool = [u for u in video_urls_pool if u in shortlist]
+        video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
     
     print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} videos from video_pool_other_channels")
     print(f"📎 Total unique videos: {len(video_urls_pool) + len(video_items_other_channels)}")
@@ -986,6 +1475,7 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
         voiceover_segments = str(row.get("voiceover_segment", "")).strip()
         video_pool = str(row.get("video_pool", "")).strip()
         video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
+        video_score_text = str(row.get(SCORE_COLUMN_NAME, "")).strip()
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
         slide_title = str(row.get("Slide Chunk Title", "")).strip()
         topic_name = str(row.get("Topic", "")).strip()
@@ -1012,6 +1502,12 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
             
             print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} videos from video_pool_other_channels")
             print(f"📎 Total unique videos: {len(video_urls_pool) + len(video_items_other_channels)}")
+
+            shortlisted_urls = shortlist_video_urls_from_score_text(video_score_text, 1, top_n=2)
+            if shortlisted_urls:
+                shortlist = set(shortlisted_urls)
+                video_urls_pool = [u for u in video_urls_pool if u in shortlist]
+                video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
             
             if not video_urls_pool and not video_items_other_channels:
                 print(f"⚠️ No videos available for entire slide, skipping")
@@ -1072,7 +1568,8 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
                     topic_name,
                     subtopic_name,
                     drive,
-                    llm
+                    llm,
+                    shortlist_video_urls_from_score_text(video_score_text, segment_idx, top_n=2),
                 ): segment_idx
                 for segment_idx, vo_text in segments
             }
@@ -1107,6 +1604,148 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
         import traceback
         traceback.print_exc()
         return index, ""
+
+
+def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flash_thinking"):
+    """
+    Score video candidates per set and return formatted video_score text.
+
+    :param index: Row index
+    :param row: Row data
+    :param course_name: Course name
+    :param drive: Drive instance
+    :param llm: Model name
+    :return: Tuple (row_index, video_score_text)
+    """
+    try:
+        voiceover_segments = str(row.get("voiceover_segment", "")).strip()
+        video_pool = str(row.get("video_pool", "")).strip()
+        video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
+        slide_chunk = str(row.get("Slide Chunk", "")).strip()
+        slide_title = str(row.get("Slide Chunk Title", "")).strip()
+        topic_name = str(row.get("Topic", "")).strip()
+        subtopic_name = str(row.get("Subtopic", "")).strip()
+        visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+        if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+            visual_assignment_strategy = "Flexible, let the agent decide"
+        if not slide_chunk or slide_chunk == "nan":
+            return index, ""
+
+        def _collect_sources(segment_num):
+            return (
+                parse_urls_from_video_pool(video_pool, segment_num),
+                parse_video_items_from_pool_other_channels(video_pool_other_channels, segment_num),
+            )
+
+        segment_blocks = []
+        if visual_assignment_strategy == "1 Visual for the whole Slide":
+            pool_urls, other_items = _collect_sources(1)
+            combined = [{"type": "pool", "url": u} for u in pool_urls] + [{"type": "other", "url": v.get("url", ""), "meta": v} for v in other_items if v.get("url", "")]
+            batches = build_dynamic_batches(combined)
+            set_results = []
+            if batches:
+                with ThreadPoolExecutor(max_workers=len(batches)) as executor:
+                    futures = []
+                    for batch in batches:
+                        b_pool = [x["url"] for x in batch if x["type"] == "pool"]
+                        b_other = [x["meta"] for x in batch if x["type"] == "other"]
+                        futures.append(executor.submit(score_videos_batch, "", slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, True))
+                    for future in futures:
+                        set_results.append(future.result() or [])
+            segment_blocks.append(format_video_score_segment(1, set_results))
+        else:
+            segments = parse_segments_from_voiceover(voiceover_segments)
+            for segment_idx, vo_text in segments:
+                pool_urls, other_items = _collect_sources(segment_idx)
+                combined = [{"type": "pool", "url": u} for u in pool_urls] + [{"type": "other", "url": v.get("url", ""), "meta": v} for v in other_items if v.get("url", "")]
+                batches = build_dynamic_batches(combined)
+                set_results = []
+                if batches:
+                    with ThreadPoolExecutor(max_workers=len(batches)) as executor:
+                        futures = []
+                        for batch in batches:
+                            b_pool = [x["url"] for x in batch if x["type"] == "pool"]
+                            b_other = [x["meta"] for x in batch if x["type"] == "other"]
+                            futures.append(executor.submit(score_videos_batch, vo_text, slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, False))
+                        for future in futures:
+                            set_results.append(future.result() or [])
+                segment_blocks.append(format_video_score_segment(segment_idx, set_results))
+        return index, "\n\n".join([b for b in segment_blocks if b.strip()])
+    except Exception as e:
+        print(f"Error processing video scoring row {index}: {e}")
+        return index, ""
+
+
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition_v2",
+        "step_name": "Video Scoring",
+        "function_name": "run_video_scoring_for_all_rows",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
+def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True):
+    """
+    Run video scoring for all eligible rows and write results to video_score.
+
+    :param sheet: gspread sheet object
+    :param llm: LLM model name
+    :param max_workers: Row-level parallel workers
+    :param progress_callback: Optional callback for external progress
+    :param show_progress: Toggle internal Streamlit progress bar
+    :return: None
+    """
+    
+    worksheet_name = "Slide Chunks"
+    drive = get_drive_instance()
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    course_name = course_info_df.loc[0, "Course Name"]
+    _, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if SCORE_COLUMN_NAME not in df.columns:
+        df[SCORE_COLUMN_NAME] = ""
+
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for index, row in df.iterrows():
+            voiceover_segments = str(row.get("voiceover_segment", "")).strip()
+            slide_chunk = str(row.get("Slide Chunk", "")).strip()
+            existing_score = str(row.get(SCORE_COLUMN_NAME, "")).strip()
+            video_pool = str(row.get("video_pool", "")).strip()
+            video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
+            if not voiceover_segments or voiceover_segments == "nan" or not slide_chunk or slide_chunk == "nan":
+                continue
+            if (not video_pool or video_pool == "nan") and (not video_pool_other_channels or video_pool_other_channels == "nan"):
+                continue
+            if existing_score and existing_score != "nan" and not existing_score.startswith("ERROR:"):
+                continue
+            futures_map[executor.submit(process_video_scoring_row, index, row, course_name, drive, llm)] = index
+
+        if not futures_map:
+            print("All rows already scored for video_score or no valid rows found.")
+            return
+
+        total_tasks = len(futures_map)
+        progress = SmartProgressBar(total_tasks=total_tasks, description="Scoring videos", save_interval=SAVE_INTERVAL_ROWS) if show_progress else None
+        completed_count = 0
+        for future in as_completed(futures_map):
+            index = futures_map[future]
+            try:
+                row_index, score_text = future.result()
+                df.at[row_index, SCORE_COLUMN_NAME] = score_text
+            except Exception as e:
+                df.at[index, SCORE_COLUMN_NAME] = f"ERROR: {str(e)}"
+            if progress is not None:
+                progress.update()
+                if progress.should_save():
+                    merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
+            else:
+                completed_count += 1
+                if progress_callback:
+                    progress_callback(1)
+                if completed_count % SAVE_INTERVAL_ROWS == 0:
+                    merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
+    merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
 
 
 def validate_video_pool_filtered_row(row):
@@ -1248,6 +1887,7 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             # Skip if video_pool_filtered is already filled
             # Rows marked with "ERROR:" should be retried on reruns.
             if video_pool_filtered and video_pool_filtered != "nan" and not str(video_pool_filtered).startswith("ERROR:"):
+                print(f"⏭️ Skipping row {index + 2}: video_pool_filtered already filled.")
                 continue
             
             # Submit task for processing

@@ -2929,6 +2929,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             else:
                 print(f"⚠️ Failed to load image {idx}: {image_title}")
     
+    total_videos = len(video_items_filtered)
     # Add videos from video_pool_filtered - process based on type
     for video_item in video_items_filtered:
         video_type = video_item.get("type")
@@ -2944,7 +2945,12 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
             if clip_url:
                 # Add text label
-                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                    f"ID: {video_id}\n"
+                    f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 # Add video part with timestamps
                 video_part = build_video_part(clip_url, start_seconds, end_seconds)
@@ -2958,7 +2964,12 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             # Convert watch URL to embed URL
             embed_url = convert_watch_url_to_embed_url(video_url)
             if embed_url:
-                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                    f"ID: {video_id}\n"
+                    f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 # Add video part without timestamps (full video)
                 video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
@@ -2974,7 +2985,6 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     # Call LLM
     embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
     full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
-    total_videos = len(video_items_filtered)
     try:
         print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} with timestamps, {full_video_count} full videos)...")
         response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
@@ -3155,6 +3165,7 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
             else:
                 print(f"⚠️ Failed to load image {image_title}")
     
+    total_videos = len(video_items_filtered)
     # Add videos from video_pool_filtered - process based on type
     for video_item in video_items_filtered:
         video_type = video_item.get("type")
@@ -3170,7 +3181,12 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
             clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
             if clip_url:
                 # Add text label
-                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                    f"ID: {video_id}\n"
+                    f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 # Add video part with timestamps
                 video_part = build_video_part(clip_url, start_seconds, end_seconds)
@@ -3184,7 +3200,12 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
             # Convert watch URL to embed URL
             embed_url = convert_watch_url_to_embed_url(video_url)
             if embed_url:
-                label_text = f"Video Candidate {candidate_num} ({video_id}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                    f"ID: {video_id}\n"
+                    f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 # Add video part without timestamps (full video)
                 video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
@@ -3200,7 +3221,6 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     # Call LLM
     embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
     full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
-    total_videos = len(video_items_filtered)
     try:
         print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} with timestamps, {full_video_count} full videos)...")
         response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
