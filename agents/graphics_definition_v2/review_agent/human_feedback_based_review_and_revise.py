@@ -1603,16 +1603,41 @@ def process_human_feedback_row(
                 if action_value == "reject_ai":
                     raw_feedback = _safe_str(fb_text).strip()
                     effective_feedback = "" if raw_feedback == AI_NO_FEEDBACK_MARKER else raw_feedback
-                    ai_url, ai_err = _generate_ai_visual_replacement(
-                        slide_title=slide_title,
-                        slide_chunk=slide_chunk,
-                        vo_part=_safe_str(matched_step.get("voiceover_part", "")),
-                        feedback_text=effective_feedback,
-                        visual_id=visual_id,
-                        segment_num=segment_num,
-                        round_index=round_index,
-                        drive=drive,
-                    )
+                    ai_url = None
+                    ai_err = None
+                    is_option2_regen = _safe_str(action_entry.get("selected_visual_option", "")).strip().lower() == "option2"
+                    reference_asset_for_ai = _infer_reference_asset_for_ai(action_entry, matched_step)
+
+                    if reference_asset_for_ai:
+                        ai_url, ai_err = _generate_ai_visual_replacement_from_reference(
+                            slide_title=slide_title,
+                            slide_chunk=slide_chunk,
+                            vo_part=_safe_str(matched_step.get("voiceover_part", "")),
+                            feedback_text=effective_feedback,
+                            visual_id=visual_id,
+                            segment_num=segment_num,
+                            round_index=round_index,
+                            reference_url=reference_asset_for_ai,
+                            drive=drive,
+                            skip_accuracy_validation=is_option2_regen,
+                        )
+                        if ai_err:
+                            print(
+                                f"  WARNING: Reference pipeline failed for {visual_id}; "
+                                "falling back to standard AI generation."
+                            )
+
+                    if not ai_url:
+                        ai_url, ai_err = _generate_ai_visual_replacement(
+                            slide_title=slide_title,
+                            slide_chunk=slide_chunk,
+                            vo_part=_safe_str(matched_step.get("voiceover_part", "")),
+                            feedback_text=effective_feedback,
+                            visual_id=visual_id,
+                            segment_num=segment_num,
+                            round_index=round_index,
+                            drive=drive,
+                        )
                     if ai_err:
                         print(f"  WARNING: {ai_err}")
                         ai_generation_errors.append(ai_err)
@@ -2170,6 +2195,107 @@ def _generate_ai_visual_replacement(
         return drive_url, None
     except Exception as e:
         return None, f"AI image upload failed for {visual_id}: {e}"
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+def _infer_reference_asset_for_ai(action_entry: Dict[str, object], matched_step: Dict[str, object]) -> str:
+    """Infer the best reference URL for AI regeneration when available."""
+    action_entry = action_entry or {}
+    matched_step = matched_step or {}
+
+    reference_asset = _safe_str(action_entry.get("reference_asset", "")).strip()
+    if not reference_asset:
+        reference_asset = _safe_str(matched_step.get("asset_reference", "")).strip()
+
+    selected_option = _safe_str(action_entry.get("selected_visual_option", "")).strip().lower()
+    assigned_asset = _safe_str(action_entry.get("assigned_asset", "")).strip()
+    current_asset = _safe_str(matched_step.get("asset", "")).strip()
+
+    if reference_asset:
+        if selected_option == "option2":
+            return reference_asset
+        if assigned_asset and assigned_asset == reference_asset:
+            return reference_asset
+        if current_asset and current_asset == reference_asset:
+            return reference_asset
+
+    if selected_option == "option2":
+        return assigned_asset or current_asset
+
+    return ""
+
+
+def _generate_ai_visual_replacement_from_reference(
+    slide_title: str,
+    slide_chunk: str,
+    vo_part: str,
+    feedback_text: str,
+    visual_id: str,
+    segment_num: int,
+    round_index: int,
+    reference_url: str,
+    drive,
+    skip_accuracy_validation: bool = False,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Generate replacement by editing the provided reference image, then upload to Drive.
+    Returns (url, error_message).
+    """
+    reference_url = _safe_str(reference_url).strip()
+    if not reference_url:
+        return None, f"Reference image URL missing for {visual_id}"
+
+    try:
+        from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import (
+            _download_drive_image,
+            review_and_edit_image,
+        )
+    except Exception as e:
+        return None, f"Reference pipeline import failed for {visual_id}: {e}"
+
+    try:
+        reference_image = _download_drive_image(reference_url, drive=drive)
+    except Exception as e:
+        return None, f"Reference image download failed for {visual_id}: {e}"
+
+    try:
+        _, final_image, _ = review_and_edit_image(
+            reference_image=reference_image,
+            slide_title=slide_title,
+            slide_content=slide_chunk,
+            voiceover=_safe_str(vo_part).strip() or slide_chunk,
+            visual_instruction=_safe_str(feedback_text).strip(),
+            image_size="1K",
+            target_stage="full",
+            skip_accuracy_validation=bool(skip_accuracy_validation),
+        )
+    except Exception as e:
+        return None, f"Reference pipeline generation failed for {visual_id}: {e}"
+
+    if final_image is None:
+        return None, f"Reference pipeline produced no image for {visual_id}"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{visual_id}_seg{segment_num}_ai_ref_round{round_index}_{timestamp}.jpg"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = tmp.name
+        final_image.convert("RGB").save(tmp_path, format="JPEG", quality=92)
+        drive_url, upload_err = upload_image_to_drive(
+            tmp_path, filename, AI_GENERATED_IMAGES_FOLDER_ID, drive
+        )
+        if not drive_url:
+            detail = upload_err or "unknown error"
+            return None, f"Drive upload failed for {visual_id}: {detail}"
+        return drive_url, None
+    except Exception as e:
+        return None, f"Reference pipeline upload failed for {visual_id}: {e}"
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:
