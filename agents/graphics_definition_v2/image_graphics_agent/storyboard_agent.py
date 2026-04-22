@@ -454,7 +454,7 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None):
     """
     Generate storyboard for all rows in the Slide Chunks sheet.
 
@@ -481,6 +481,9 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             slide_content = str(row.get("Slide Chunk", "")).strip()
             storyboard_planning = str(row.get("storyboard_planning", "")).strip()
             
@@ -544,6 +547,9 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
         # Find rows that need processing (have Slide Chunk but empty storyboard_planning)
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             slide_content = str(row.get("Slide Chunk", "")).strip()
             storyboard_planning = str(row.get("storyboard_planning", "")).strip()
             
@@ -569,6 +575,9 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row in invalid_rows:
+                topic_name = str(row.get("Topic", "")).strip()
+                if selected_topics and topic_name not in selected_topics:
+                    continue
                 future = executor.submit(process_storyboard_row, index, row, course_name, llm)
                 futures_map[future] = index
             
@@ -590,6 +599,9 @@ def run_storyboard_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_
         worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
         final_invalid = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             slide_content = str(row.get("Slide Chunk", "")).strip()
             storyboard_planning = str(row.get("storyboard_planning", "")).strip()
             if (slide_content and slide_content != "nan" and 

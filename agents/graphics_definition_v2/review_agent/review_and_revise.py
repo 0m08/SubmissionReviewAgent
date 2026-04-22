@@ -5805,7 +5805,7 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, use_only_drive_and_hvac=False):
+def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, use_only_drive_and_hvac=False, selected_topics=None):
     """
     Entry point: run alignment and specificity review-revise for all rows with voiceover and graphics definition.
 
@@ -5841,6 +5841,9 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
 
     rows_to_process = []
     for index, row in df.iterrows():
+        topic_name = _safe_str(row.get("Topic", ""))
+        if selected_topics and topic_name not in selected_topics:
+            continue
         voiceover_text = _safe_str(row.get("voiceover_segment", ""))
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
         review_complete = _safe_str(row.get("review_complete", "")).strip().upper()

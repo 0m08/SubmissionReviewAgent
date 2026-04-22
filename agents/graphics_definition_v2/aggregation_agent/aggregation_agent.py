@@ -3929,7 +3929,7 @@ def validate_youtube_clip_links_for_row(row, api_key, duration_cache = None):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None):
     """
     Run aggregation agent for all rows in the Slide Chunks sheet.
 
@@ -3964,6 +3964,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
     # Filter rows that have voiceover_segment but missing final_graphics_definition
     rows_to_process = []
     for index, row in df.iterrows():
+        topic_name = str(row.get("Topic", "")).strip()
+        if selected_topics and topic_name not in selected_topics:
+            continue
         voiceover_segment = str(row.get("voiceover_segment", "")).strip()
         final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
         
@@ -4048,6 +4051,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         duration_cache: Dict[str, Optional[int]] = {}
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_final_graphics_definition_row(row)
             clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
                 row, youtube_api_key, duration_cache
@@ -4116,6 +4122,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         duration_cache: Dict[str, Optional[int]] = {}
         final_invalid = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_final_graphics_definition_row(row)
             clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
                 row, youtube_api_key, duration_cache

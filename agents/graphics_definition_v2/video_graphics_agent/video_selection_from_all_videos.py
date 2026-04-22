@@ -1685,7 +1685,7 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True):
+def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None):
     """
     Run video scoring for all eligible rows and write results to video_score.
 
@@ -1708,6 +1708,9 @@ def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             existing_score = str(row.get(SCORE_COLUMN_NAME, "")).strip()
@@ -1833,7 +1836,7 @@ def validate_video_pool_filtered_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True):
+def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None):
     """
     Select relevant videos from all available videos for all rows in the Slide Chunks sheet.
     
@@ -1870,6 +1873,9 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
             video_pool = str(row.get("video_pool", "")).strip()
             video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
@@ -1963,6 +1969,9 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
         # Validate all rows and find invalid ones
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_video_pool_filtered_row(row)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
@@ -1986,6 +1995,9 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, error_msg in invalid_rows:
+                topic_name = str(row.get("Topic", "")).strip()
+                if selected_topics and topic_name not in selected_topics:
+                    continue
                 future = executor.submit(process_video_selection_row, index, row, course_name, drive, llm)
                 futures_map[future] = index
             
@@ -2007,6 +2019,9 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
         worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
         final_invalid = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_video_pool_filtered_row(row)
             if not is_valid:
                 final_invalid.append((index, error_msg))

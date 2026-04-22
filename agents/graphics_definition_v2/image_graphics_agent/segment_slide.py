@@ -244,7 +244,7 @@ def process_segment_row(index, slide_chunk, llm="gemini_2_5_flash_lite"):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash_lite", max_workers=50):
+def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash_lite", max_workers=50, selected_topics=None):
     """
     Segment slide content into VO segments for all rows in the Slide Chunks sheet.
 
@@ -265,6 +265,9 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             vo_segment = str(row.get("voiceover_segment", "")).strip()
             
@@ -330,6 +333,9 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
         # Find rows that need processing (have Slide Chunk but empty voiceover_segment)
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             vo_segment = str(row.get("voiceover_segment", "")).strip()
             
@@ -359,6 +365,9 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row in invalid_rows:
+                topic_name = str(row.get("Topic", "")).strip()
+                if selected_topics and topic_name not in selected_topics:
+                    continue
                 slide_chunk = str(row.get("Slide Chunk", "")).strip()
                 future = executor.submit(process_segment_row, index, slide_chunk, llm)
                 futures_map[future] = index
@@ -382,6 +391,9 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
         worksheet, df = get_sheet_data_and_df(sheet, "Slide Chunks")
         final_invalid = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             vo_segment = str(row.get("voiceover_segment", "")).strip()
             if (slide_chunk and slide_chunk != "nan" and 
