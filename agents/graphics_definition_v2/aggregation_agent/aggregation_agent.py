@@ -1194,6 +1194,7 @@ def load_image_from_url(url, drive, title=""):
     :param title: Image title (for logging)
     :return: PIL Image object or None if load fails
     """
+    
     if is_drive_url(url):
         return load_image_from_drive_url(url, drive, title)
     else:
