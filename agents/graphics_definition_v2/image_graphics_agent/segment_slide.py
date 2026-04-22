@@ -283,17 +283,6 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
     if "voiceover_segment" not in df.columns:
         df["voiceover_segment"] = ""
 
-    # Ensure all potential columns exist for clearing
-    cols_to_clear = [
-        "voiceover_segment", "storyboard_planning", "search_queries",
-        "drive_results", "web_results", "video_pool",
-        "video_pool_other_channels", "image_pool", "video_pool_filtered",
-        "final_graphics_definition"
-    ]
-    for col in cols_to_clear:
-        if col not in df.columns:
-            df[col] = ""
-
     # Prepare for parallel processing - only process rows that need processing
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
