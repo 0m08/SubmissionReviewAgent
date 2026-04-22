@@ -1562,6 +1562,8 @@ def parse_visual_steps(segment_text):
                 data["visual_instruction"] = line.split("Visual Instructions:", 1)[1].strip()
             elif line.startswith("Graphics to use:"):
                 data["asset"] = line.split("Graphics to use:", 1)[1].strip()
+            elif line.startswith("Graphics to use (Reference):"):
+                data["asset_reference"] = line.split("Graphics to use (Reference):", 1)[1].strip()
             elif line.startswith("Selection Justification:"):
                 data["selection_justification"] = line.split("Selection Justification:", 1)[1].strip()
         if data:
@@ -3832,6 +3834,9 @@ def merge_replacements_into_segment(existing_segment_text, replacement_visuals_x
             step["asset"] = replacement["replacement_visual_url"]
             step["visual_instruction"] = replacement["visual_instruction"]
             step["selection_justification"] = replacement["selection_justification"]
+            # Preserve any existing reference key/value across replacements.
+            if "asset_reference" not in step:
+                step["asset_reference"] = ""
     
     # Rebuild segment text from merged steps
     formatted_parts = []
@@ -3855,6 +3860,10 @@ def merge_replacements_into_segment(existing_segment_text, replacement_visuals_x
         
         if step.get("asset"):
             formatted_parts.append(f"Graphics to use: {step['asset']}")
+            formatted_parts.append("")
+
+        if step.get("asset_reference"):
+            formatted_parts.append(f"Graphics to use (Reference): {step['asset_reference']}")
             formatted_parts.append("")
         
         if step.get("selection_justification"):

@@ -399,10 +399,10 @@ def render_hvac_visual_search(drive):
     Render the HVAC School / Love2HVAC visual search UI (text, image, or video query).
     Can be used standalone (video_search_hvac_channels.py) or inside run_video_search_tool tabs.
     """
-    st.markdown(
-        "Search for relevant videos using **text**, **image**, or **video** as input query. "
-    )
-    st.markdown("---")
+    # st.markdown(
+    #     "Search for relevant videos using **text**, **image**, or **video** as input query. "
+    # )
+    # st.markdown("---")
 
     query_type = st.radio(
         "Query type",
@@ -438,10 +438,20 @@ def render_hvac_visual_search(drive):
             "Upload a video clip to search by visual content",
             type=["mp4", "webm"],
             key="hvac_tab_video_upload",
+            help="Max file size: 27 MB (~2 minutes of video).",
         )
+        st.caption("Videos must be under 27 MB (~2 minutes). Longer videos will be rejected.")
         if uploaded:
             query_value = uploaded.read()
-            st.video(query_value)
+            max_video_bytes = 27_000_000  # Vertex AI embedding API limit
+            if len(query_value) > max_video_bytes:
+                st.error(
+                    f"Video is too large ({len(query_value) / 1_000_000:.1f} MB). "
+                    "Please upload a shorter video (under ~2 minutes / 27 MB)."
+                )
+                query_value = None
+            else:
+                st.video(query_value)
 
     num_results = st.number_input(
         "Number of videos to retrieve",

@@ -16,14 +16,18 @@ from dotenv import load_dotenv
 import os
 import base64
 from services.drive_service import login_with_service_account
+from agents.graphics_asset_creation.gac_utils import get_or_create_drive_folder
 from pydrive2.drive import GoogleDrive
 from google import genai
 from google.genai import types
 from typing import List, Dict, Optional, Tuple, Any
 import tempfile
+import threading
 import subprocess
 import urllib.parse
 import traceback
+
+from agents.graphics_definition_v2.image_graphics_agent.reference_image_processor import process_reference_image_path
 
 load_dotenv()
 
@@ -1635,6 +1639,87 @@ def _build_asset_parts_for_failed_visual(asset_url, drive):
     return parts
 
 
+def _parse_final_visual_choice(response_text):
+    """Parse the A/B decision from the final comparison response."""
+    if not response_text:
+        return "A", ""
+    chosen_match = re.search(
+        r"<chosen_option>\s*([AB])\s*</chosen_option>",
+        response_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    reason_match = re.search(
+        r"<reason>\s*(.*?)\s*</reason>",
+        response_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return (
+        (chosen_match.group(1).strip().upper() if chosen_match else "A"),
+        (reason_match.group(1).strip() if reason_match else ""),
+    )
+
+
+def _compare_final_visuals(
+    gdv2_url,
+    reference_url,
+    vo_text,
+    slide_title,
+    slide_chunk,
+    course_name,
+    topic_name,
+    subtopic_name,
+    drive,
+    llm="gemini_3_flash_thinking",
+):
+    """Pick the better final image between the GDv2 result and the reference-image pipeline result."""
+    from agents.graphics_definition_v2.review_agent.review_and_revise import build_asset_parts
+
+    if not gdv2_url or not reference_url:
+        return gdv2_url or reference_url, "", ""
+    if gdv2_url.strip() == reference_url.strip():
+        return gdv2_url, "A", "Both final image URLs are identical."
+
+    prompt = (
+        "You are comparing two final visuals for the same voiceover segment. "
+        "Use the actual image/video content, not the URL string, and choose the visual that best supports the narration and slide context.\n\n"
+        f"Course name: {course_name or '(none)'}\n"
+        f"Topic name: {topic_name or '(none)'}\n"
+        f"Subtopic name: {subtopic_name or '(none)'}\n"
+        f"Slide title: {slide_title or '(none)'}\n\n"
+        f"Voiceover segment: {vo_text or '(none)'}\n"
+        f"Slide chunk: {slide_chunk or '(none)'}\n\n"
+        f"Option A URL: {gdv2_url}\n"
+        f"Option B URL: {reference_url}\n\n"
+        "Evaluate these criteria carefully:\n"
+        "- Direct relevance to the narration moment\n"
+        "- Specificity and instructional clarity\n"
+        "- Whether the visual is loadable and visually coherent\n"
+        "- Whether it better matches the slide context and avoids distractions\n\n"
+        "Provide a brief structured comparison, then choose exactly one option. Return only this format:\n"
+        "<decision>\n"
+        "<evaluation_breakdown>\n"
+        "- Segment Understanding: brief summary of what the narration needs\n"
+        "- Option A Scan: what the GDv2 visual shows\n"
+        "- Option B Scan: what the reference visual shows\n"
+        "- Comparative Analysis: why one is better for this moment\n"
+        "- Additional Analysis: any useful edge-case observations\n"
+        "</evaluation_breakdown>\n"
+        "<chosen_option>A|B</chosen_option>\n"
+        "<reason>short reason</reason>\n"
+        "</decision>"
+    )
+
+    parts = (
+        build_asset_parts("A", gdv2_url, drive)
+        + build_asset_parts("B", reference_url, drive)
+        + [types.Part(text=prompt)]
+    )
+    response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
+    chosen_option, reason = _parse_final_visual_choice(response_text)
+    selected_url = gdv2_url if chosen_option == "A" else reference_url
+    return selected_url, chosen_option, reason
+
+
 def parse_video_url_timestamps(video_url):
     """
     Parse start and end timestamps from YouTube embed URL.
@@ -3205,7 +3290,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         if visual_blocks:
             formatted_parts = []
             
-            # Segment header (always include if segment_num is provided)
+            # Segment header 
             if segment_num:
                 formatted_parts.append("=" * 80)
                 formatted_parts.append(f"SEGMENT {segment_num}")
@@ -3334,7 +3419,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         
         formatted_parts = []
         
-        # Segment header (always include if segment_num is provided)
+        # Segment header
         if segment_num:
             formatted_parts.append("=" * 80)
             formatted_parts.append(f"SEGMENT {segment_num}")
@@ -3491,6 +3576,55 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     
     return segment_idx, None, formatted_eval_breakdown
 
+def _inject_reference_link(gdv2_text: str, ref_link) -> str:
+    """
+    Inject 'Graphics to use (Reference): <url>' after the first 'Graphics to use: ...' 
+    block (including any following notes like '(use the image at ...)') 
+    found in gdv2_text.
+
+    :param gdv2_text: The normal GDv2 formatted output text.
+    :param ref_link: The processed reference image Drive URL, or None if pipeline failed.
+    :return: Updated text with the reference key injected.
+    """
+    ref_value = ref_link if ref_link else "None"
+    ref_line = f"Graphics to use (Reference): {ref_value}"
+
+    lines = gdv2_text.split('\n')
+    result_lines = []
+    injected = False
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        result_lines.append(line)
+        
+        # Check if this is the start of a main Graphics block (exclude the reference line itself)
+        if not injected and line.strip().startswith("Graphics to use:") and "(Reference)" not in line:
+            # Look ahead for notes belonging to this block (starting with '(')
+            next_idx = i + 1
+            while next_idx < len(lines) and lines[next_idx].strip().startswith("("):
+                result_lines.append(lines[next_idx])
+                next_idx += 1
+            
+            # Inject the reference line after the block and all its corresponding notes
+            result_lines.append(ref_line)
+            injected = True
+            i = next_idx # Advance to the line after the notes we just consumed
+        else:
+            i += 1
+
+    if not injected:
+        # GDv2 produced no output — append the ref line at the end so the cell
+        # is non-empty only if gdv2_text itself is non-empty.
+        if gdv2_text.strip():
+            result_lines.append(ref_line)
+        else:
+            # Both GDv2 and ref results are missing — return empty so the outer
+            # retry loop picks this row up.
+            return ""
+
+    return '\n'.join(result_lines)
+
 
 @traceable(
     metadata={
@@ -3501,19 +3635,28 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=50):
+def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=50, ref_drive_client=None, ref_output_folder_id=None, ref_drive_lock=None, df=None, precomputed_ref_link=None):
     """
     Process a single row: aggregate graphics for all segments and combine into final definition.
     
     :param index: Row index
     :param row: Pandas Series with row data
     :param course_name: Course name
-    :param drive: Google Drive instance
+    :param drive: Google Drive instance (GenAI)
     :param llm: Language model to use
     :param max_workers: Max parallel workers for segment processing
-    :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text) or (index, empty string, empty string) if no segments found
+    :param ref_drive_client: GoogleDrive client for reference pipeline (fallback if no precomputed result)
+    :param ref_output_folder_id: Folder ID for reference pipeline output
+    :param ref_drive_lock: Lock for reference pipeline thread safety
+    :param df: Full dataframe for context
+    :param precomputed_ref_link: Pre-computed reference image Drive URL (from early-start thread launched
+        right after Step 1). When provided, the inline background thread is skipped entirely.
+    :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text, ref_link)
+        where ref_link is the processed reference image URL (or None) to store separately.
     """
     try:
+        final_graphics_definition_text = ""
+        evaluation_breakdown_text = ""
         voiceover_text = str(row.get("voiceover_segment", "")).strip()
         image_pool_text = str(row.get("image_pool", "")).strip()
         video_pool_filtered_text = str(row.get("video_pool_filtered", "")).strip()
@@ -3527,6 +3670,12 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
         if not visual_assignment_strategy or visual_assignment_strategy == "nan":
             visual_assignment_strategy = "Flexible, let the agent decide"
+            
+        # Force "1 Visual for the whole Slide" if a Reference Image is present
+        # This ensures consistency even if previous steps didn't update the sheet column correctly
+        ref_image_url = str(row.get("Reference Image", "")).strip()
+        if ref_image_url and ref_image_url.lower() != "nan":
+            visual_assignment_strategy = "1 Visual for the whole Slide"
         
         # Get row data
         topic_name = str(row.get("Topic", "")).strip()
@@ -3536,7 +3685,50 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         slide_type = str(row.get("Slide Type", "")).strip()
         if slide_type == "nan":
             slide_type = ""
-        
+
+        # ── REFERENCE PIPELINE: USE PRE-COMPUTED RESULT OR START INLINE THREAD ──
+        # Priority:
+        #   1. precomputed_ref_link — provided when the caller (run_aggregation_agent_for_all_rows)
+        #      pre-launched the thread right after Step 1 so it ran in parallel with Steps 2-4.
+        #   2. Inline background thread — fallback when called without a pre-computed result
+        #      (e.g. during retry passes or standalone calls).
+        _has_ref_image = ref_image_url and ref_image_url.lower() != "nan"
+        ref_result_box = {}  # shared container used only for the inline fallback thread
+        ref_thread = None
+
+        if _has_ref_image and precomputed_ref_link is not None:
+            # Fast path: the early-start thread already finished; use its result directly.
+            if re.match(r"^https?://", str(precomputed_ref_link).strip(), flags=re.IGNORECASE):
+                ref_result_box["link"] = precomputed_ref_link
+            else:
+                ref_result_box["link"] = None
+            print(f"🔗 Row {index + 1}: Using pre-computed reference link: {precomputed_ref_link or '(none)'}")
+        elif _has_ref_image and ref_drive_client and ref_output_folder_id and df is not None:
+            # Fallback inline thread (retry path or standalone call)
+            _ref_slide_chunk = slide_chunk  # capture for closure
+            _ref_idx = index
+
+            def _reference_pipeline_task():
+                try:
+                    result = process_reference_image_path(
+                        df=df,
+                        df_idx=_ref_idx,
+                        ref_image_url=ref_image_url,
+                        drive=ref_drive_client,
+                        output_folder_id=ref_output_folder_id,
+                        drive_lock=ref_drive_lock,
+                        llm=llm,
+                        voiceover_override=_ref_slide_chunk,
+                    )
+                    ref_result_box["result"] = result
+                except Exception as _e:
+                    print(f"⚠️ Row {_ref_idx + 1}: Reference pipeline thread error: {_e}")
+                    ref_result_box["result"] = (False, None, None)
+
+            ref_thread = threading.Thread(target=_reference_pipeline_task, daemon=True)
+            ref_thread.start()
+            print(f"🔗 Row {index + 1}: Reference pipeline started inline (parallel with GDv2 aggregation).") 
+
         # Handle "1 Visual for the whole Slide" case differently
         if visual_assignment_strategy == "1 Visual for the whole Slide":
             print(f"\n{'='*80}")
@@ -3546,6 +3738,11 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             # Parse image items from image_pool
             # For "entire slide" case, all candidates are under SEGMENT_1
             image_items = parse_urls_from_image_pool(image_pool_text, segment_num=1)  # Get all images from SEGMENT_1
+            
+            # Inject reference image as a primary candidate if present
+            if ref_image_url and ref_image_url.lower() != "nan":
+                if not any(item.get("url") == ref_image_url for item in image_items):
+                    image_items.insert(0, {"title": "Reference Image from Storyboard", "url": ref_image_url})
             used_fallback = False
             
             # Fallback: if no images in image_pool, check drive_results and web_results
@@ -3630,97 +3827,170 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                 formatted_eval_breakdown = evaluation_breakdown if evaluation_breakdown else ""
                 
                 if formatted_segment:
-                    return index, formatted_segment, formatted_eval_breakdown
+                    final_graphics_definition_text = formatted_segment
+                    evaluation_breakdown_text = formatted_eval_breakdown
+                else:
+                    final_graphics_definition_text = ""
+                    evaluation_breakdown_text = formatted_eval_breakdown
+            else:
+                final_graphics_definition_text = ""
+                evaluation_breakdown_text = evaluation_breakdown if evaluation_breakdown else ""
+        
+        else:
+            # For "Flexible" and "1 Visual per Sentence" cases, process segments
+            # Skip if voiceover_segment is empty
+            if not voiceover_text or voiceover_text == "nan":
+                return index, "", ""
             
-            # Return evaluation breakdown even if graphics definition failed
-            formatted_eval_breakdown = evaluation_breakdown if evaluation_breakdown else ""
-            return index, "", formatted_eval_breakdown
-        
-        # For "Flexible" and "1 Visual per Sentence" cases, process segments
-        # Skip if voiceover_segment is empty
-        if not voiceover_text or voiceover_text == "nan":
-            return index, "", ""
-        
-        # Parse segments
-        segments = parse_segments_from_voiceover(voiceover_text)
-        if not segments:
-            return index, "", ""
-        
-        print(f"\n{'='*80}")
-        print(f"📋 Row {index + 2}: Processing {len(segments)} segment(s) (Strategy: {visual_assignment_strategy})")
-        print(f"{'='*80}")
-        
-        # Process all segments in parallel
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Parse segments
+            segments = parse_segments_from_voiceover(voiceover_text)
+            if not segments:
+                return index, "", ""
             
-            # Submit all segments
-            futures = {
-                executor.submit(
-                    process_aggregation_segment,
-                    segment_idx,
-                    vo_text,
-                    slide_title,
-                    slide_chunk,
-                    image_pool_text,
-                    video_pool_filtered_text,
-                    drive_results_text,
-                    web_results_text,
-                    storyboard_text,
-                    course_name,
-                    topic_name,
-                    subtopic_name,
-                    drive,
-                    llm,
-                    None,  # feedback
-                    visual_assignment_strategy,
-                    video_pool_text,
-                    video_pool_other_channels_text,
-                    slide_type,
-                ): (segment_idx, vo_text)
-                for segment_idx, vo_text in segments
-            }
+            print(f"\n{'='*80}")
+            print(f"📋 Row {index + 2}: Processing {len(segments)} segment(s) (Strategy: {visual_assignment_strategy})")
+            print(f"{'='*80}")
+        
+            # Process all segments in parallel
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                
+                # Submit all segments
+                futures = {
+                    executor.submit(
+                        process_aggregation_segment,
+                        segment_idx,
+                        vo_text,
+                        slide_title,
+                        slide_chunk,
+                        image_pool_text,
+                        video_pool_filtered_text,
+                        drive_results_text,
+                        web_results_text,
+                        storyboard_text,
+                        course_name,
+                        topic_name,
+                        subtopic_name,
+                        drive,
+                        llm,
+                        None,  # feedback
+                        visual_assignment_strategy,
+                        video_pool_text,
+                        video_pool_other_channels_text,
+                        slide_type,
+                    ): (segment_idx, vo_text)
+                    for segment_idx, vo_text in segments
+                }
+                
+                # Collect results as they complete
+                segment_results = {}
+                eval_breakdown_results = {}
+                for future in as_completed(futures):
+                    segment_idx, vo_text = futures[future]
+                    try:
+                        result_idx, formatted_segment, formatted_eval_breakdown = future.result()
+                        if formatted_segment:
+                            segment_results[result_idx] = formatted_segment
+                        if formatted_eval_breakdown:
+                            eval_breakdown_results[result_idx] = formatted_eval_breakdown
+                    except Exception as e:
+                        print(f"❌ Error processing segment {segment_idx} (\"{vo_text[:50]}...\"): {e}")
             
-            # Collect results as they complete
-            segment_results = {}
-            eval_breakdown_results = {}
-            for future in as_completed(futures):
-                segment_idx, vo_text = futures[future]
+            # Combine all segments in order
+            final_graphics_definition_text = ""
+            if segment_results:
+                all_segment_results = [
+                    segment_results[seg_idx]
+                    for seg_idx in sorted(segment_results.keys())
+                ]
+                final_graphics_definition_text = '\n\n'.join(all_segment_results)
+                
                 try:
-                    result_idx, formatted_segment, formatted_eval_breakdown = future.result()
-                    if formatted_segment:
-                        segment_results[result_idx] = formatted_segment
-                    if formatted_eval_breakdown:
-                        eval_breakdown_results[result_idx] = formatted_eval_breakdown
+                    normalized = normalize_youtube_timestamp_urls(final_graphics_definition_text)
+                    processed = process_video_frames_in_text_format(normalized, drive)
+                    labeled = add_snapshot_label_to_drive_links(processed, drive)
+                    final_graphics_definition_text = labeled
                 except Exception as e:
-                    print(f"❌ Error processing segment {segment_idx} (\"{vo_text[:50]}...\"): {e}")
-        
-        # Combine all segments in order
-        final_graphics_definition_text = ""
-        if segment_results:
-            all_segment_results = [
-                segment_results[seg_idx]
-                for seg_idx in sorted(segment_results.keys())
-            ]
-            final_graphics_definition_text = '\n\n'.join(all_segment_results)
+                    print(f"⚠️ Error during text-level post-processing for aggregation (per-segment): {e}")
             
-            try:
-                normalized = normalize_youtube_timestamp_urls(final_graphics_definition_text)
-                processed = process_video_frames_in_text_format(normalized, drive)
-                labeled = add_snapshot_label_to_drive_links(processed, drive)
-                final_graphics_definition_text = labeled
-            except Exception as e:
-                print(f"⚠️ Error during text-level post-processing for aggregation (per-segment): {e}")
-        
-        # Combine evaluation breakdowns in order
-        evaluation_breakdown_text = ""
-        if eval_breakdown_results:
-            all_eval_breakdowns = [
-                eval_breakdown_results[seg_idx]
-                for seg_idx in sorted(eval_breakdown_results.keys())
-            ]
-            evaluation_breakdown_text = '\n\n'.join(all_eval_breakdowns)
-        
-        return index, final_graphics_definition_text, evaluation_breakdown_text
+            # Combine evaluation breakdowns in order
+            evaluation_breakdown_text = ""
+            if eval_breakdown_results:
+                all_eval_breakdowns = [
+                    eval_breakdown_results[seg_idx]
+                    for seg_idx in sorted(eval_breakdown_results.keys())
+                ]
+                evaluation_breakdown_text = '\n\n'.join(all_eval_breakdowns)
+
+        # ── COLLECT REFERENCE PATH RESULT ────────────────────────────────────────
+        # Resolve the processed reference image URL from whichever path ran:
+        #   • Pre-computed path  → already in ref_result_box["link"]
+        #   • Inline thread path → join thread, parse result into ref_result_box["link"]
+        # The URL is NOT injected into final_graphics_definition here; instead it is
+        # returned separately so run_aggregation_agent_for_all_rows can store it in
+        # the 'reference_image_processed_url' column.  The Decide Final Visuals step
+        # will compare the GDv2 image against this reference image and choose the best one.
+        resolved_ref_link = ref_result_box.get("link")  # set by pre-computed path
+        reference_eligible_for_compare = bool(
+            resolved_ref_link and re.match(r"^https?://", str(resolved_ref_link).strip(), flags=re.IGNORECASE)
+        )
+
+        if ref_thread is not None:
+            ref_thread.join()
+            ref_result = ref_result_box.get("result")
+
+            if ref_result is None:
+                print(f"❌ [REF-PIPELINE] Row {index + 1}: ref_result is None — thread may have crashed silently.")
+            else:
+                is_relevant, ref_final_def, _ = ref_result
+                print(f"🔍 [REF-PIPELINE] Row {index + 1}: is_relevant={is_relevant}, ref_final_def is {'SET' if ref_final_def else 'EMPTY/NONE'}")
+                if ref_final_def:
+                    print(f"   ref_final_def preview: {ref_final_def[:200]!r}")
+
+                if is_relevant and ref_final_def:
+                    graphics_match = re.search(
+                        r'Graphics to use:\s*(https?://[^\s\n]+)', ref_final_def
+                    )
+                    if graphics_match:
+                        resolved_ref_link = graphics_match.group(1).strip()
+                        reference_eligible_for_compare = True
+                        print(f"✅ [REF-PIPELINE] Row {index + 1}: Parsed ref_link = {resolved_ref_link}")
+                    else:
+                        print(f"⚠️ [REF-PIPELINE] Row {index + 1}: Could not parse URL from ref_final_def. Full text: {ref_final_def!r}")
+                elif not is_relevant:
+                    print(f"ℹ️ [REF-PIPELINE] Row {index + 1}: Reference image marked NOT relevant — skipping.")
+                    resolved_ref_link = None
+                    reference_eligible_for_compare = False
+
+            status = "✅ succeeded" if resolved_ref_link else "⚠️ failed or not relevant"
+            print(f"[REF-PIPELINE] Row {index + 1}: {status}. Storing in reference_image_processed_url column.")
+
+        if reference_eligible_for_compare and final_graphics_definition_text:
+            gdv2_urls = _extract_graphics_to_use_urls(final_graphics_definition_text)
+            gdv2_url = gdv2_urls[0] if gdv2_urls else ""
+            if gdv2_url and gdv2_url != resolved_ref_link:
+                chosen_url, chosen_option, chosen_reason = _compare_final_visuals(
+                    gdv2_url=gdv2_url,
+                    reference_url=resolved_ref_link,
+                    vo_text=voiceover_text,
+                    slide_title=slide_title,
+                    slide_chunk=slide_chunk,
+                    course_name=course_name,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    drive=drive,
+                    llm=llm,
+                )
+                if chosen_url and chosen_url != gdv2_url:
+                    final_graphics_definition_text = final_graphics_definition_text.replace(gdv2_url, chosen_url, 1)
+                    print(
+                        f"[FINAL-COMPARE] Row {index + 1}: chose reference visual ({chosen_option}) - {chosen_reason or 'no reason provided'}"
+                    )
+                else:
+                    print(
+                        f"[FINAL-COMPARE] Row {index + 1}: kept GDv2 visual ({chosen_option}) - {chosen_reason or 'no reason provided'}"
+                    )
+
+        return index, final_graphics_definition_text, evaluation_breakdown_text, resolved_ref_link
         
     except Exception as e:
         print(f"Error processing row {index}: {e}")
@@ -3755,15 +4025,25 @@ def validate_final_graphics_definition_row(row):
     segment_pattern = r'SEGMENT\s+(\d+)'
     segment_numbers = [int(match) for match in re.findall(segment_pattern, final_graphics_def_text, re.IGNORECASE)]
     
-    # For "1 Visual for the whole Slide" strategy, expect exactly 1 segment (SEGMENT 1)
-    if visual_assignment_strategy == "1 Visual for the whole Slide":
-        if not segment_numbers:
-            return False, "No segment markers found in final_graphics_definition (expected SEGMENT 1)"
-        
-        # Should have exactly 1 segment (SEGMENT 1)
-        if len(segment_numbers) != 1 or segment_numbers[0] != 1:
-            return False, f"Expected exactly SEGMENT 1 for '1 Visual for the whole Slide', found: {segment_numbers}"
-        
+    # Check if this should be treated as a single-visual slide
+    ref_image = str(row.get("Reference Image", "")).strip()
+    is_forced_single = (visual_assignment_strategy == "1 Visual for the whole Slide") or (ref_image and ref_image != "nan")
+
+    # For single-visual strategy, segment markers are optional
+    if is_forced_single:
+        # For reference rows: verify that the normal GDv2 result is present.
+        # 'Graphics to use:' (the standard key) must exist so GDv2 failures are
+        # caught by the outer retry loop even when the reference key is written.
+        if ref_image and ref_image != "nan":
+            gdv2_key_present = bool(
+                re.search(r'^Graphics to use:\s*\S', final_graphics_def_text, re.MULTILINE)
+            )
+            if not gdv2_key_present:
+                return False, "Reference row is missing 'Graphics to use:' (GDv2 path failed or produced no result)"
+
+        if segment_numbers and (len(segment_numbers) != 1 or segment_numbers[0] != 1):
+             return False, f"Expected either no segment markers or exactly SEGMENT 1 for '1 Visual for the whole Slide', found: {segment_numbers}"
+
         return True, None
     
     # For other strategies, validate against voiceover_segment
@@ -3945,21 +4225,51 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = course_info_df.loc[0, "Course Name"]
     
+    # Setup Drive client for the Reference Image Pipeline.
+    # Priority: (1) dedicated service-account from env var, (2) reuse the existing session drive.
+    ref_drive_client = None
+    ref_output_folder_id = None
+    ref_drive_lock = threading.Lock()
+
+    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if service_account_json:
+        try:
+            from services.drive_service import login_with_service_account
+            from agents.graphics_asset_creation.gac_utils import get_or_create_drive_folder
+            gauth = login_with_service_account(json_str=service_account_json)
+            ref_drive_client = GoogleDrive(gauth)
+            ref_output_folder_id = get_or_create_drive_folder(ref_drive_client, "Reference Image Pipeline GDv2")
+        except Exception as auth_err:
+            print(f"⚠️ [REF-PIPELINE] Service-account auth failed: {auth_err}")
+
     print(f"\n{'='*80}")
     print(f"🚀 Starting Aggregation Agent")
     print(f"📚 Course: {course_name}")
     print(f"📊 Processing {len(df)} row(s)")
     print(f"{'='*80}\n")
-    
-    # Get Drive instance
+
+    # Get Drive instance (session-based)
     drive = get_drive_instance()
     if not drive:
         print("❌ Could not initialize Google Drive. Aborting.")
         return
+
+    # Fallback: reuse the session drive client if dedicated auth above was unavailable
+    if ref_drive_client is None and drive is not None:
+        try:
+            from agents.graphics_asset_creation.gac_utils import get_or_create_drive_folder
+            ref_drive_client = drive
+            ref_output_folder_id = get_or_create_drive_folder(ref_drive_client, "Reference Image Pipeline GDv2")
+        except Exception as folder_err:
+            print(f"⚠️ [REF-PIPELINE] Could not resolve output folder (reference pipeline disabled): {folder_err}")
+
+    print(f"🔗 [REF-PIPELINE] Drive ready: {'yes' if ref_drive_client and ref_output_folder_id else 'no (reference images will be skipped)'}")
     
-    # Ensure final_graphics_definition column exists
+    # Ensure output columns exist
     if "final_graphics_definition" not in df.columns:
         df["final_graphics_definition"] = ""
+    if "reference_image_processed_url" not in df.columns:
+        df["reference_image_processed_url"] = ""
     
     # Filter rows that have voiceover_segment but missing final_graphics_definition
     rows_to_process = []
@@ -3985,6 +4295,50 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         return
     
     print(f"📝 Processing {len(rows_to_process)} row(s) with missing final_graphics_definition\n")
+
+    # Precompute reference-image outputs first so the final comparison step can
+    # reuse the saved URL from the sheet instead of re-running the reference path.
+    ref_rows_to_process = []
+    for index, row in rows_to_process:
+        ref_image_url = str(row.get("Reference Image", "")).strip()
+        if ref_image_url and ref_image_url.lower() != "nan":
+            ref_rows_to_process.append((index, row, ref_image_url))
+
+    if ref_rows_to_process and ref_drive_client and ref_output_folder_id:
+        print(f"🧪 Precomputing {len(ref_rows_to_process)} reference-image row(s) in parallel before GDv2 aggregation...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            ref_futures = {
+                executor.submit(
+                    process_reference_image_path,
+                    df,
+                    index,
+                    ref_image_url,
+                    ref_drive_client,
+                    ref_output_folder_id,
+                    ref_drive_lock,
+                    llm,
+                    str(row.get("voiceover_segment", "")).strip(),
+                ): index
+                for index, row, ref_image_url in ref_rows_to_process
+            }
+
+            for future in as_completed(ref_futures):
+                index = ref_futures[future]
+                try:
+                    is_relevant, ref_final_def, _ = future.result()
+                    ref_link = ""
+                    if is_relevant and ref_final_def:
+                        graphics_match = re.search(r'Graphics to use:\s*(https?://[^\s\n]+)', ref_final_def)
+                        if graphics_match:
+                            ref_link = graphics_match.group(1).strip()
+                    df.at[index, "reference_image_processed_url"] = ref_link
+                    print(f"[REF-PRECOMPUTE] Row {index + 1}: {'stored' if ref_link else 'empty'} reference_image_processed_url")
+                except Exception as e:
+                    print(f"[REF-PRECOMPUTE] Row {index + 1}: error while precomputing reference image: {e}")
+                    df.at[index, "reference_image_processed_url"] = ""
+
+        save_to_sheet(ws, df)
+        format_worksheet(ws)
     
     # Initialize progress bar
     total_tasks = len(rows_to_process)
@@ -4000,7 +4354,13 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 row,
                 course_name,
                 drive,
-                llm
+                llm,
+                max_workers,
+                ref_drive_client,
+                ref_output_folder_id,
+                ref_drive_lock,
+                df,
+                str(df.at[index, "reference_image_processed_url"]).strip(),
             ): index
             for index, row in rows_to_process
         }
@@ -4009,10 +4369,11 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         for future in as_completed(futures):
             index = futures[future]
             try:
-                row_index, final_graphics_def_text, _ = future.result()
+                row_index, final_graphics_def_text, _, ref_link = future.result()
                 
                 # Update dataframe
                 df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
+                df.at[row_index, "reference_image_processed_url"] = ref_link or ""
                 
                 # Update progress
                 progress.update()
@@ -4024,6 +4385,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 print(f"Error getting result for row {index}: {e}")
                 # Update dataframe with error marker so row is marked as processed
                 df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
+                df.at[index, "reference_image_processed_url"] = ""
                 progress.update()
                 # Save immediately even on error
                 print(f'Saving row {index + 2} (with error) to sheet immediately.')
@@ -4096,7 +4458,13 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                     row,
                     course_name,
                     drive,
-                    llm
+                    llm,
+                    max_workers,
+                    ref_drive_client,
+                    ref_output_folder_id,
+                    ref_drive_lock,
+                    df,
+                    str(df.at[index, "reference_image_processed_url"]).strip(),
                 )
                 futures[future] = index
             
@@ -4104,14 +4472,16 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
             for future in as_completed(futures):
                 index = futures[future]
                 try:
-                    row_index, final_graphics_def_text, _ = future.result()
+                    row_index, final_graphics_def_text, _, ref_link = future.result()
                     df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
+                    df.at[row_index, "reference_image_processed_url"] = ref_link or ""
                     # Save immediately after each row completes in retry
                     print(f'Saving row {row_index + 2} (retry) to sheet immediately.')
                     save_to_sheet(ws, df)
                 except Exception as e:
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "final_graphics_definition"] = f"ERROR: {str(e)}"
+                    df.at[index, "reference_image_processed_url"] = ""
                     # Save immediately even on error in retry
                     print(f'Saving row {index + 2} (retry, with error) to sheet immediately.')
                     save_to_sheet(ws, df)

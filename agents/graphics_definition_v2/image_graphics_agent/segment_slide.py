@@ -6,6 +6,8 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import re
+import os
+import json
 
 load_dotenv()
 
@@ -209,30 +211,51 @@ def segment_slide_from_slide_chunk(slide_chunk, llm="gemini_2_5_flash_lite"):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_segment_row(index, slide_chunk, llm="gemini_2_5_flash_lite"):
+def process_segment_row(
+    index,
+    row,
+    df,
+    llm="gemini_2_5_flash_lite",
+):
     """
-    Process a single row and return the segmented output.
+    Process a single row for Step 1 (voiceover segmentation).
 
-    :param index: The row index.
-    :param slide_chunk: The slide content to segment.
-    :param llm: The language model to use.
-    :return: Tuple of (index, vo_segments_text) where vo_segments_text is newline-separated segments.
+    - If a Reference Image URL is present: skip LLM segmentation entirely and set
+      voiceover_segment to the full slide chunk text. The reference image pipeline
+      will run later in Step 5 (Aggregation Agent) in parallel with normal GDv2 path.
+    - Otherwise: run the normal LLM-based sentence-level segmentation.
     """
     try:
-        # Get the XML segments output
-        segments_xml = segment_slide_from_slide_chunk(slide_chunk, llm=llm)
-        
-        # Extract segment text content (without XML tags)
-        segment_matches = re.findall(r'<segment>(.*?)</segment>', segments_xml, re.DOTALL)
-        segment_texts = [seg.strip() for seg in segment_matches if seg.strip()]
-        
-        # Join segments with newlines
-        vo_segments_text = '\n'.join(segment_texts)
-        
-        return index, vo_segments_text
+        slide_chunk = str(row.get("Slide Chunk", "")).strip()
+        ref_image_url = str(row.get("Reference Image", "")).strip()
+
+        result_payload = {
+            "mode": "combined",
+            "voiceover_segment": "",
+        }
+
+        has_ref_image = ref_image_url and ref_image_url.lower() != "nan"
+
+        if has_ref_image:
+            # Reference image detected — skip LLM segmentation.
+            # voiceover_segment = full slide chunk so all downstream steps
+            # (storyboard, search, pools) run with the complete slide text.
+            # The reference image itself is processed in Step 5 (Aggregation).
+            print(f"🔗 Row {index + 1}: Reference image detected — setting voiceover_segment to full slide chunk.")
+            result_payload["voiceover_segment"] = slide_chunk
+            result_payload["Visual Assignment Strategy"] = "1 Visual for the whole Slide"
+        else:
+            # Normal GDv2 path: LLM-based sentence segmentation
+            segments_xml = segment_slide_from_slide_chunk(slide_chunk, llm=llm)
+            segment_matches = re.findall(r'<segment>(.*?)</segment>', segments_xml, re.DOTALL)
+            segment_texts = [seg.strip() for seg in segment_matches if seg.strip()]
+            result_payload["voiceover_segment"] = '\n'.join(segment_texts)
+
+        return index, result_payload
+
     except Exception as e:
         print(f"Error processing row {index}: {e}")
-        return index, ""
+        return index, {"mode": "error", "message": f"ERROR: {str(e)}"}
 
 
 @traceable(
@@ -260,6 +283,17 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
     if "voiceover_segment" not in df.columns:
         df["voiceover_segment"] = ""
 
+    # Ensure all potential columns exist for clearing
+    cols_to_clear = [
+        "voiceover_segment", "storyboard_planning", "search_queries",
+        "drive_results", "web_results", "video_pool",
+        "video_pool_other_channels", "image_pool", "video_pool_filtered",
+        "final_graphics_definition"
+    ]
+    for col in cols_to_clear:
+        if col not in df.columns:
+            df[col] = ""
+
     # Prepare for parallel processing - only process rows that need processing
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -270,17 +304,23 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
                 continue
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             vo_segment = str(row.get("voiceover_segment", "")).strip()
-            
+
             # Skip if slide_chunk is empty
             if not slide_chunk or slide_chunk == "nan":
                 continue
-            
+
             # Skip if voiceover_segment is already filled
             if vo_segment and vo_segment != "nan":
                 continue
-            
+
             # Submit task for processing
-            future = executor.submit(process_segment_row, index, slide_chunk, llm)
+            future = executor.submit(
+                process_segment_row,
+                index,
+                row,
+                df,
+                llm,
+            )
             futures_map[future] = index
 
         # If no rows to process, return early
@@ -300,14 +340,20 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
         for future in as_completed(futures_map):
             index = futures_map[future]
             try:
-                row_index, vo_segments_text = future.result()
-                
-                # Update dataframe
-                df.at[row_index, "voiceover_segment"] = vo_segments_text
-                
+                row_index, result_data = future.result()
+
+                if result_data.get("mode") == "combined":
+                    df.at[row_index, "voiceover_segment"] = result_data["voiceover_segment"]
+                    # Persist Visual Assignment Strategy override for reference rows
+                    if "Visual Assignment Strategy" in result_data:
+                        df.at[row_index, "Visual Assignment Strategy"] = result_data["Visual Assignment Strategy"]
+
+                elif result_data.get("mode") == "error":
+                    df.at[row_index, "voiceover_segment"] = result_data["message"]
+
                 # Update progress
                 progress.update()
-                
+
                 # Save every 5 rows
                 if progress.should_save():
                     print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
@@ -368,16 +414,24 @@ def run_segment_slide_from_slide_chunk_for_all_rows(sheet, llm="gemini_2_5_flash
                 topic_name = str(row.get("Topic", "")).strip()
                 if selected_topics and topic_name not in selected_topics:
                     continue
-                slide_chunk = str(row.get("Slide Chunk", "")).strip()
-                future = executor.submit(process_segment_row, index, slide_chunk, llm)
+                future = executor.submit(
+                    process_segment_row,
+                    index,
+                    row,
+                    df,
+                    llm,
+                )
                 futures_map[future] = index
-            
+
             # Collect results
             for future in as_completed(futures_map):
                 index = futures_map[future]
                 try:
-                    row_index, vo_segments_text = future.result()
-                    df.at[row_index, "voiceover_segment"] = vo_segments_text
+                    row_index, result_data = future.result()
+                    df.at[row_index, "voiceover_segment"] = result_data.get("voiceover_segment", "")
+                    # Persist Visual Assignment Strategy override for reference rows
+                    if "Visual Assignment Strategy" in result_data:
+                        df.at[row_index, "Visual Assignment Strategy"] = result_data["Visual Assignment Strategy"]
                 except Exception as e:
                     print(f"Error getting result for row {index} on retry: {e}")
                     df.at[index, "voiceover_segment"] = f"ERROR: {str(e)}"
@@ -427,4 +481,3 @@ def delete_segment_slide(sheet):
         print(f"🗑️ Deleted 'voiceover_segment' column from 'Slide Chunks' worksheet")
     else:
         print(f"ℹ️ 'voiceover_segment' column does not exist in 'Slide Chunks' worksheet")
-

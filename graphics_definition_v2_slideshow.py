@@ -1,4 +1,5 @@
 import base64
+import datetime
 import hashlib
 import imghdr
 import json
@@ -15,14 +16,25 @@ import pandas as pd
 import requests
 import streamlit as st
 from openai import OpenAI
+from google.genai import types
 from PIL import UnidentifiedImageError
 
 from services.sheets_service import get_sheet_data_and_df, get_worksheet_names
 from services.sheets_service import hide_columns_by_name
 from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
     run_human_feedback_review_revise_for_all_rows,
+    _format_human_feedback_revision_tracking,
+    _parse_tracking_column,
+)
+from agents.graphics_definition_v2.review_agent.decide_final_visuals import (
+    build_asset_parts,
+    invoke_gemini_multimodal,
+    _parse_decision_response,
 )
 from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import run_automation
+from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
+    parse_urls_from_image_pool,
+)
 
 
 DEFAULT_SHEET_NAME = "Slide Chunks"
@@ -43,6 +55,8 @@ ACTION_REJECT_DRIVE_HVAC = "reject_drive_hvac"
 ACTION_REJECT_ALL = "reject_all"
 ACTION_REJECT_AI = "reject_ai"
 AI_NO_FEEDBACK_MARKER = "No Feedback"
+VIDEO_POOL_COLUMN = "video_pool_filtered"
+IMAGE_POOL_COLUMN = "image_pool"
 
 ACTION_LABELS = {
     ACTION_APPROVE: "Approve",
@@ -221,6 +235,84 @@ def _chunked(seq, size):
         yield seq[i : i + size]
 
 
+def _auto_decide_visual_choice(slide, segment_num, step, drive):
+    """
+    Pick the best visual for a step when both a primary asset and a reference asset exist.
+
+    The result is cached so the LLM is only called once per slide/segment/step/version.
+    """
+    primary_url = safe_str(step.get("asset", "")).strip()
+    reference_url = safe_str(step.get("asset_reference", "")).strip()
+    if not primary_url or not reference_url:
+        return primary_url, "option1", ""
+    if _primary_asset_url(primary_url) == _primary_asset_url(reference_url):
+        return primary_url, "option1", "Primary and reference URLs are identical."
+
+    cache = st.session_state.setdefault(AUTO_VISUAL_DECISION_CACHE_KEY, {})
+    cache_key = hashlib.md5(
+        json.dumps(
+            {
+                "slide_idx": slide.get("slide_idx_1based", slide.get("row_index", 0)),
+                "segment_num": segment_num,
+                "step_index": step.get("step_index", 0),
+                "primary_url": primary_url,
+                "reference_url": reference_url,
+                "voiceover": safe_str(step.get("voiceover", "")).strip(),
+                "instruction": safe_str(step.get("instruction", "")).strip(),
+                "slide_title": safe_str(slide.get("slide_title", "")).strip(),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    if cache_key in cache:
+        return cache[cache_key]
+
+    slide_title = safe_str(slide.get("slide_title", "")).strip() or "Untitled slide"
+    topic = safe_str(slide.get("topic", "")).strip()
+    subtopic = safe_str(slide.get("subtopic", "")).strip()
+    slide_chunk = safe_str(slide.get("slide_chunk", "")).strip()
+    voiceover = safe_str(step.get("voiceover", "")).strip()
+    instruction = safe_str(step.get("instruction", "")).strip()
+    visual_id = f"S{segment_num}V{step.get('step_index', 0)}"
+
+    prompt = (
+        "You are selecting the single best visual for a slide narration moment. "
+        "Compare the two images and choose the one that best supports the voiceover and instruction.\n\n"
+        f"Slide title: {slide_title}\n"
+        f"Topic: {topic or '(none)'}\n"
+        f"Subtopic: {subtopic or '(none)'}\n\n"
+        f"Voiceover: {voiceover or '(none)'}\n"
+        f"Visual instruction: {instruction or '(none)'}\n"
+        f"Slide chunk: {slide_chunk or '(none)'}\n\n"
+        f"Visual ID: {visual_id}\n"
+        "Option A is the graphics-definition image. Option B is the reference-image pipeline result.\n"
+        "Choose exactly one option and explain why in one short reason.\n\n"
+        "Output format:\n"
+        "<decision>\n"
+        "<chosen_option>A|B</chosen_option>\n"
+        "<reason>short reason</reason>\n"
+        "</decision>"
+    )
+
+    parts = (
+        build_asset_parts(f"{visual_id} option A", primary_url, drive)
+        + build_asset_parts(f"{visual_id} option B", reference_url, drive)
+        + [types.Part(text=prompt)]
+    )
+    response_text, _ = invoke_gemini_multimodal(
+        parts,
+        llm="gemini_3_flash_thinking",
+        conversation_history=None,
+    )
+    chosen, reason = _parse_decision_response(response_text)
+    selected_choice = "option2" if chosen in ("SECOND", "B", "OPTION2") else "option1"
+    selected_url = reference_url if selected_choice == "option2" else primary_url
+
+    result = (selected_url, selected_choice, reason)
+    cache[cache_key] = result
+    return result
+
+
 def _build_row_review_payload(slide, row_actions, current_round):
     segments = slide.get("segments", [])
     parts = []
@@ -236,11 +328,28 @@ def _build_row_review_payload(slide, row_actions, current_round):
             fb_text = safe_str(item.get("feedback", "")).strip()
             visual_id = f"S{segment['segment_index']}V{step['step_index']}"
             vo = (step.get("voiceover") or "").strip()
+            reference_asset = safe_str(step.get("asset_reference", "")).strip()
+            choice_key = (
+                f"choice_{slide.get('slide_idx_1based', slide.get('row_index', 0))}_"
+                f"{segment['segment_index']}_{step['step_index']}_r{current_round}"
+            )
+            selected_visual_option = safe_str(st.session_state.get(choice_key, "")).strip().lower()
+            # ── Check for manual asset overrides from the image/video pool ──
+            # Key must match _assign_candidate_to_step which uses slide_idx_1based
+            override_key = f"asset_override_{slide.get('slide_idx_1based', slide.get('row_index', 0))}_{segment['segment_index']}_{step['step_index']}"
+            if override_key in st.session_state:
+                assigned_asset = st.session_state[override_key]
+            else:
+                assigned_asset = None
+                
             row_action_map_by_visual_id[visual_id] = {
                 "action": action,
                 "feedback": fb_text,
                 "vo": vo,
                 "segment": segment["segment_index"],
+                "assigned_asset": assigned_asset, # Include the manual selection
+                "reference_asset": reference_asset,
+                "selected_visual_option": selected_visual_option,
             }
 
             if action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
@@ -259,6 +368,55 @@ def _build_row_review_payload(slide, row_actions, current_round):
                 else:
                     segment_mode_map[str(segment["segment_index"])] = "drive_hvac"
 
+    # ── Build override map: (seg_index, step_index) -> new_asset_url ────────
+    slide_key_prefix = slide.get("slide_idx_1based", slide.get("row_index", 0))
+    override_map = {}  # {(seg_idx, step_idx): new_url}
+    for seg in segments:
+        for st_obj in seg.get("steps", []):
+            ov_key = f"asset_override_{slide_key_prefix}_{seg['segment_index']}_{st_obj['step_index']}"
+            if ov_key in st.session_state:
+                override_map[(seg["segment_index"], st_obj["step_index"])] = st.session_state[ov_key]
+
+    # ── Map manual overrides for tracking ───────────────────────────────────
+    # If a manual override is present, we update the tracking history.
+    # Seed from current round first; if empty, fall back to latest previous
+    # round so n-1 history still drives current UI behavior.
+    current_tracking_col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
+    tracking_text = safe_str(slide.get(current_tracking_col_name, "")).strip()
+    if (
+        (not tracking_text or tracking_text.lower() == "nan")
+        and override_map
+        and int(current_round) > 0
+    ):
+        for prev_round_idx in range(int(current_round) - 1, -1, -1):
+            prev_col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, prev_round_idx)
+            prev_tracking_text = safe_str(slide.get(prev_col_name, "")).strip()
+            if prev_tracking_text and prev_tracking_text.lower() != "nan":
+                tracking_text = prev_tracking_text
+                break
+    tracking_data = _parse_tracking_column(tracking_text)
+    
+    for (seg_idx, step_idx), new_url in override_map.items():
+        vid = f"S{seg_idx}V{step_idx}"
+        if vid not in tracking_data:
+            # Initialize with original if not already tracked
+            original_url = ""
+            for seg in segments:
+                if seg.get("segment_index") == seg_idx:
+                    for step in seg.get("steps", []):
+                        if step.get("step_index") == step_idx:
+                            original_url = (step.get("asset") or "").strip()
+                            break
+            tracking_data[vid] = {
+                "original": original_url or None,
+                "manually_selected": None,
+                "after_revision": None,
+                "after_regen_1": None,
+                "after_regen_2": None,
+            }
+        tracking_data[vid]["manually_selected"] = new_url
+
+    updated_tracking_text = _format_human_feedback_revision_tracking(tracking_data) if tracking_data else ""
     feedback_value = "\n\n".join(parts) if parts else ""
     actions_payload = json.dumps(
         {
@@ -268,7 +426,204 @@ def _build_row_review_payload(slide, row_actions, current_round):
         },
         ensure_ascii=True,
     )
-    return feedback_value, actions_payload, reject_count, row_action_map_by_visual_id
+
+    # ── Surgically update only overridden asset URLs in the raw source text ──
+    # This preserves the original XML/JSON/text formatting of the column.
+    raw_def = safe_str(slide.get("final_definition_raw", "")).strip()
+    updated_graphics_text = _apply_asset_overrides_to_raw(raw_def, segments, override_map)
+
+    return feedback_value, actions_payload, reject_count, row_action_map_by_visual_id, updated_graphics_text, updated_tracking_text
+
+
+def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
+    """
+    Surgically update asset URLs in the original raw column text WITHOUT
+    reformatting or changing the overall structure.
+
+    Strategy (tried in order):
+    1. XML  — replace the <asset> tag content within the N-th <visual_step>
+               of the M-th <segment> (or top-level visual_steps for single-segment).
+    2. JSON — already-JSON column (from a previous save): parse, update, re-dump.
+    3. Fallback — plain URL swap in the raw text (best-effort).
+
+    :param raw_text: original column value (XML, JSON, or free-text)
+    :param parsed_segments: list of segment dicts (already parsed) — used for step ordering
+    :param override_map: dict of {(segment_index, step_index): new_url}
+    :returns: updated raw text, or original if nothing to change
+    """
+    if not override_map:
+        return raw_text  # Nothing changed
+
+    # ── Strategy 1: XML surgical replacement ─────────────────────────────────
+    if "<" in raw_text and ">" in raw_text:
+        result = _xml_surgical_asset_replace(raw_text, parsed_segments, override_map)
+        if result is not None:
+            return _remove_reference_key_for_overrides(result, parsed_segments, override_map)
+
+    # ── Strategy 2: JSON column (from prior save) ────────────────────────────
+    stripped = raw_text.strip()
+    if stripped.startswith("[") or stripped.startswith("{"):
+        try:
+            data = json.loads(stripped)
+            segments_list = data if isinstance(data, list) else [data]
+            for seg in segments_list:
+                seg_idx = seg.get("segment_index", 1)
+                for step in seg.get("steps", []):
+                    step_idx = step.get("step_index", 1)
+                    if (seg_idx, step_idx) in override_map:
+                        step["asset"] = override_map[(seg_idx, step_idx)]
+                        # Normalize after selection: keep only primary asset key.
+                        for ref_key in (
+                            "asset_reference",
+                            "reference_asset",
+                            "graphics_to_use_reference",
+                            "graphics_reference",
+                        ):
+                            if ref_key in step:
+                                step.pop(ref_key, None)
+            updated_json = json.dumps(segments_list, ensure_ascii=False)
+            return _remove_reference_key_for_overrides(updated_json, parsed_segments, override_map)
+        except Exception:
+            pass
+
+    # ── Strategy 3: Plain URL swap (best-effort, last resort) ────────────────
+    updated = raw_text
+    for (seg_idx, step_idx), new_url in override_map.items():
+        # Find the original asset URL from parsed segments and swap it
+        old_url = ""
+        for seg in parsed_segments:
+            if seg.get("segment_index") == seg_idx:
+                for step in seg.get("steps", []):
+                    if step.get("step_index") == step_idx:
+                        old_url = (step.get("asset") or "").strip()
+                        break
+        if old_url and old_url in updated:
+            updated = updated.replace(old_url, new_url, 1)
+    return _remove_reference_key_for_overrides(updated, parsed_segments, override_map)
+
+
+def _remove_reference_key_for_overrides(raw_text, parsed_segments, override_map):
+    """
+    After a user selection is saved for a step, remove its reference key/value block
+    so the chosen URL exists only as the primary asset ("graphics to use"/"asset").
+    """
+    if not raw_text or not override_map:
+        return raw_text
+
+    # Steps in document order that currently contain a reference asset.
+    steps_with_reference = []
+    reference_values = []
+    for seg in parsed_segments or []:
+        for step in seg.get("steps", []):
+            ref_val = safe_str(step.get("asset_reference", "")).strip()
+            if ref_val:
+                key = (seg.get("segment_index"), step.get("step_index"))
+                steps_with_reference.append(key)
+                reference_values.append(ref_val)
+
+    if not steps_with_reference:
+        return raw_text
+
+    remove_indices = {
+        idx for idx, key in enumerate(steps_with_reference) if key in override_map
+    }
+    if not remove_indices:
+        return raw_text
+
+    result = raw_text
+
+    # Remove XML reference tags for overridden steps.
+    xml_ref_pattern = re.compile(
+        r"(<(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)\\b[^>]*>)(.*?)(</(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)>)",
+        re.DOTALL | re.IGNORECASE,
+    )
+    xml_matches = list(xml_ref_pattern.finditer(result))
+    if xml_matches and len(xml_matches) == len(steps_with_reference):
+        for idx in sorted(remove_indices, reverse=True):
+            m = xml_matches[idx]
+            result = result[:m.start()] + result[m.end():]
+    elif xml_matches:
+        # Fallback: remove first matching tag containing the known reference URL.
+        for idx in sorted(remove_indices, reverse=True):
+            ref_val = reference_values[idx]
+            if not ref_val:
+                continue
+            tag_with_ref = re.compile(
+                r"<(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)\\b[^>]*>\\s*"
+                + re.escape(ref_val)
+                + r"\\s*</(?:asset_reference|graphics_to_use_reference|graphics_to_use_ref|reference_asset|graphics_reference)>",
+                re.DOTALL | re.IGNORECASE,
+            )
+            result = tag_with_ref.sub("", result, count=1)
+
+    # Remove formatted-text reference blocks for overridden steps.
+    text_ref_pattern = re.compile(
+        r"(?im)^[ \t]*(?:graphics to use \(reference\)|\(reference\)\s*graphics to use)\s*:[^\n]*(?:\n(?![ \t]*(?:when vo|visual instructions|graphics to use(?: \(reference\))?|\(reference\)\s*graphics to use|selection justification|-{2,}|segment\\b)).*)*",
+    )
+    text_matches = list(text_ref_pattern.finditer(result))
+    if text_matches and len(text_matches) == len(steps_with_reference):
+        for idx in sorted(remove_indices, reverse=True):
+            m = text_matches[idx]
+            result = result[:m.start()] + result[m.end():]
+    elif text_matches:
+        for idx in sorted(remove_indices, reverse=True):
+            ref_val = reference_values[idx]
+            if not ref_val:
+                continue
+            line_with_ref = re.compile(
+                r"(?im)^.*(?:graphics to use \(reference\)|\(reference\)\s*graphics to use)\s*:\s*"
+                + re.escape(ref_val)
+                + r"\s*$\n?",
+            )
+            result = line_with_ref.sub("", result, count=1)
+
+    return result
+
+
+def _xml_surgical_asset_replace(raw_text, parsed_segments, override_map):
+    """
+    Find and replace <asset>...</asset> content for specific visual_steps within
+    the XML structure, returning the modified string or None on failure.
+    """
+    import xml.etree.ElementTree as ET
+
+    # Build a flat list of (seg_idx, step_idx, old_asset) in document order
+    # so we know the Nth visual_step globally and per-segment.
+    ordered = []  # [(seg_idx, step_idx, old_asset)]
+    for seg in parsed_segments:
+        for step in seg.get("steps", []):
+            ordered.append((seg["segment_index"], step["step_index"], (step.get("asset") or "").strip()))
+
+    # Use regex to find all <asset>...</asset> occurrences in document order
+    asset_pattern = re.compile(
+        r"(<(?:asset|graphics_to_use|graphic)\b[^>]*>)(.*?)(</(?:asset|graphics_to_use|graphic)>)",
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    matches = list(asset_pattern.finditer(raw_text))
+    if len(matches) != len(ordered):
+        # Count mismatch — can't reliably map positions to steps. Give up.
+        return None
+
+    # Build replacement map: match index -> new content
+    replacements = {}  # match_index -> new_url
+    for i, (seg_idx, step_idx, _old) in enumerate(ordered):
+        if (seg_idx, step_idx) in override_map:
+            replacements[i] = override_map[(seg_idx, step_idx)]
+
+    if not replacements:
+        return raw_text  # Nothing to replace
+
+    # Apply replacements from right to left to preserve string offsets
+    result = raw_text
+    for i in sorted(replacements.keys(), reverse=True):
+        m = matches[i]
+        new_url = replacements[i]
+        open_tag = m.group(1)
+        close_tag = m.group(3)
+        result = result[:m.start()] + f"{open_tag}{new_url}{close_tag}" + result[m.end():]
+
+    return result
 
 
 def _write_single_row_review(
@@ -280,27 +635,54 @@ def _write_single_row_review(
     round_status_col_idx,
     round_tracking_col_idx,
     round_actions_col_idx,
+    updated_graphics_json=None,
+    graphics_col_idx=None,
+    updated_tracking_text=None,
 ):
+    """
+    Batch update multiple columns for a single row.
+    """
     sheet_row = int(row_index) + 2
     feedback_col = _col_to_a1(round_feedback_col_idx)
     status_col = _col_to_a1(round_status_col_idx)
     tracking_col = _col_to_a1(round_tracking_col_idx)
     actions_col = _col_to_a1(round_actions_col_idx)
-    worksheet.batch_update(
-        [
-            {"range": f"{feedback_col}{sheet_row}", "values": [[feedback_value]]},
-            {"range": f"{status_col}{sheet_row}", "values": [[""]]},
-            {"range": f"{tracking_col}{sheet_row}", "values": [[""]]},
-            {"range": f"{actions_col}{sheet_row}", "values": [[actions_payload]]},
-        ],
-        value_input_option="RAW",
-    )
+    
+    data = [
+        {"range": f"{feedback_col}{sheet_row}", "values": [[feedback_value]]},
+        {"range": f"{status_col}{sheet_row}", "values": [[""]]},
+        {"range": f"{tracking_col}{sheet_row}", "values": [[updated_tracking_text if updated_tracking_text else ""]]},
+        {"range": f"{actions_col}{sheet_row}", "values": [[actions_payload]]},
+    ]
+    if updated_graphics_json and graphics_col_idx:
+        g_col = _col_to_a1(graphics_col_idx)
+        data.append({"range": f"{g_col}{sheet_row}", "values": [[updated_graphics_json]]})
+    
+    worksheet.batch_update(data, value_input_option="RAW")
 
 
 def _inject_review_button_layout_css():
     st.markdown(
         """
         <style>
+        /* Force image containment in the 3x10 grid cards */
+        /* Targets the specific containers used for previews to prevent scrollbars */
+        [data-testid="stVerticalBlockBorderWrapper"] > div[style*="height: 260px"] {
+            overflow: hidden !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background-color: #f8f9fa;
+        }
+        
+        /* Ensure st.image inside these containers behaves like 'object-fit: contain' */
+        [data-testid="stVerticalBlockBorderWrapper"] > div[style*="height: 260px"] img {
+            max-height: 260px !important;
+            width: auto !important;
+            object-fit: contain !important;
+            margin: auto !important;
+        }
+
         button[aria-label*="Approve"],
         button[aria-label*="Reject (Drive + HVAC School Videos)"],
         button[aria-label*="Reject (Search all)"],
@@ -516,6 +898,16 @@ def _extract_visual_steps(element):
         voiceover = extract_text_from_tag(step_el, {"voiceover_part", "voiceover", "vo_text"})
         instruction = extract_text_from_tag(step_el, {"visual_instruction", "instruction"})
         asset = extract_text_from_tag(step_el, {"asset", "graphics_to_use", "graphic"})
+        asset_reference = extract_text_from_tag(
+            step_el,
+            {
+                "asset_reference",
+                "graphics_to_use_reference",
+                "graphics_to_use_ref",
+                "reference_asset",
+                "graphics_reference",
+            },
+        )
         justification = extract_text_from_tag(step_el, {"selection_justification", "justification"})
         steps.append(
             {
@@ -523,6 +915,7 @@ def _extract_visual_steps(element):
                 "voiceover": voiceover,
                 "instruction": instruction,
                 "asset": asset,
+                "asset_reference": asset_reference,
                 "justification": justification,
             }
         )
@@ -563,10 +956,11 @@ def _parse_formatted_block(block):
     labels = {
         "when vo": "voiceover",
         "visual instructions": "instruction",
+        "graphics to use (reference)": "asset_reference",
         "graphics to use": "asset",
         "selection justification": "justification",
     }
-    data = {"voiceover": "", "instruction": "", "asset": "", "justification": ""}
+    data = {"voiceover": "", "instruction": "", "asset_reference": "", "asset": "", "justification": ""}
     current_key = None
     for raw_line in block.splitlines():
         line = raw_line.strip()
@@ -587,9 +981,10 @@ def _parse_formatted_block(block):
         if matched:
             continue
         if current_key:
-            if current_key == "asset" and re.match(
+            if current_key in ("asset", "asset_reference") and re.match(
                 r"^\(\s*use the image at\b", line, re.IGNORECASE
             ):
+                data[current_key] = f"{data[current_key]} {line}".strip()
                 continue
             data[current_key] = f"{data[current_key]} {line}".strip()
     if any(data.values()):
@@ -598,6 +993,7 @@ def _parse_formatted_block(block):
             "voiceover": data["voiceover"],
             "instruction": data["instruction"],
             "asset": data["asset"],
+            "asset_reference": data["asset_reference"],
             "justification": data["justification"],
         }
     return None
@@ -656,19 +1052,38 @@ def _build_segment(segment_index, steps):
 
 INSPECTOR_IMAGE_CACHE_KEY = "gdv2_inspector_image_cache"
 INSPECTOR_VIDEO_HTML_CACHE_KEY = "gdv2_inspector_video_html_cache"
+AUTO_VISUAL_DECISION_CACHE_KEY = "gdv2_auto_visual_decision_cache"
 
 # Streamlit >=1.33: fragment isolates reruns so feedback text_areas don't remount video iframes
 try:
     _st_fragment = getattr(st, "fragment", None)
-    if _st_fragment is None:
-        from streamlit.runtime.fragment import fragment as _st_fragment  # type: ignore
 except Exception:
     _st_fragment = None
+
+# If streamlit version is old and doesn't have fragment, make it a no-op decorator
+if _st_fragment is None:
+    def _st_fragment(func):
+        return func
 
 
 def _clear_inspector_image_cache():
     """Clear cached inspector images when sheet/worksheet/data changes."""
     st.session_state.pop(INSPECTOR_IMAGE_CACHE_KEY, None)
+
+
+def _clear_visual_selection_state():
+    """Drop transient UI overrides so refreshed sheet data is rendered as source-of-truth."""
+    prefixes = (
+        "asset_override_",
+        "choice_",
+        "auto_choice_",
+    )
+    keys_to_delete = [
+        k for k in list(st.session_state.keys())
+        if any(str(k).startswith(p) for p in prefixes)
+    ]
+    for key in keys_to_delete:
+        st.session_state.pop(key, None)
 
 
 def _get_inspector_image_bytes(asset, drive):
@@ -735,6 +1150,24 @@ def image_bytes_to_data_uri(image_bytes):
     return f"data:{mime};base64,{encoded}"
 
 
+def _get_cached_data_uri(url, cache):
+    """
+    Get or create a data URI for a URL in the cache. 
+    Caches the string itself to avoid re-encoding on every render.
+    """
+    uri_key = f"data_uri_{url}"
+    if uri_key in cache:
+        return cache[uri_key]
+    
+    img_bytes = cache.get(url)
+    if img_bytes:
+        uri = image_bytes_to_data_uri(img_bytes)
+        cache[uri_key] = uri
+        return uri
+    return None
+
+
+
 @st.cache_resource
 def get_openai_client():
     return OpenAI()
@@ -789,6 +1222,7 @@ def flatten_steps(slides):
             steps = segment.get("steps", [])
             for step_idx, step in enumerate(steps, start=1):
                 asset = safe_str(step.get("asset", "")).strip()
+                asset_ref = safe_str(step.get("asset_reference", "")).strip()
                 asset_type = detect_asset_type(asset)
                 flat_steps.append(
                     {
@@ -803,6 +1237,7 @@ def flatten_steps(slides):
                         "instruction": safe_str(step.get("instruction", "")),
                         "justification": safe_str(step.get("justification", "")),
                         "asset": asset,
+                        "asset_reference": asset_ref,
                         "asset_type": asset_type,
                     }
                 )
@@ -1488,19 +1923,21 @@ def build_slideshow_html(prepared_steps):
 def render_looping_youtube_embed(url, key, height=320):
     meta = parse_youtube_embed(url)
     if not meta:
-        return ""
+        return "<div>Unsupported video URL</div>"
+    
     video_id = meta["video_id"]
     start = meta.get("start") or 0
     end = meta.get("end")
+    
+    # Robust script that works with multiple players on the same page
     html = f"""
-    <div id="yt-container-{key}">
+    <div id="yt-container-{key}" style="width:100%; height:{height}px; background:#000; overflow:hidden; border-radius:4px;">
       <div id="yt-player-{key}"></div>
     </div>
     <script>
       (function() {{
-        let player;
-        window.onYouTubeIframeAPIReady = function() {{
-          player = new YT.Player("yt-player-{key}", {{
+        function initPlayer() {{
+          new YT.Player("yt-player-{key}", {{
             height: "{height}",
             width: "100%",
             videoId: "{video_id}",
@@ -1515,26 +1952,40 @@ def render_looping_youtube_embed(url, key, height=320):
             }},
             events: {{
               onReady: function(event) {{
-                try {{
-                  event.target.playVideo();
-                }} catch (e) {{}}
+                try {{ event.target.playVideo(); }} catch (e) {{}}
+              }},
+              onStateChange: function(event) {{
+                 // Backup check if the loop missed the end
+                 const endT = {int(end) if end is not None else "null"};
+                 if (event.data === YT.PlayerState.ENDED || (endT && event.target.getCurrentTime() >= endT - 0.2)) {{
+                    event.target.seekTo({int(start)}, true);
+                    event.target.playVideo();
+                 }}
               }}
             }}
           }});
-          setInterval(function() {{
-            if (!player || !player.getCurrentTime) {{
-              return;
+        }}
+
+        // Independent polling instead of relying on a single global callback
+        let retryCount = 0;
+        function tryInit() {{
+          if (window.YT && window.YT.Player) {{
+            initPlayer();
+          }} else if (retryCount < 50) {{
+            retryCount++;
+            setTimeout(tryInit, 200);
+            
+            // If we are the first to run, kick off the API load
+            if (!document.getElementById("yt-iframe-api-script")) {{
+               const tag = document.createElement("script");
+               tag.id = "yt-iframe-api-script";
+               tag.src = "https://www.youtube.com/iframe_api";
+               document.body.appendChild(tag);
             }}
-            const current = player.getCurrentTime();
-            const endTime = {int(end) if end is not None else "null"};
-            if (endTime !== null && current >= endTime - 0.1) {{
-              player.seekTo({int(start)}, true);
-            }}
-          }}, 500);
-        }};
-        const tag = document.createElement("script");
-        tag.src = "https://www.youtube.com/iframe_api";
-        document.body.appendChild(tag);
+          }}
+        }}
+
+        tryInit();
       }})();
     </script>
     """
@@ -1559,38 +2010,644 @@ def _get_inspector_video_html(asset, embed_key):
     return html
 
 
-def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, drive):
-    """Image/video only — no widgets. Safe to run inside st.fragment."""
+def _find_latest_tracking_entry(slide, visual_id, current_round):
+    """Return the latest tracking entry for a visual up to current round."""
+    for round_idx in range(int(current_round), -1, -1):
+        col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, round_idx)
+        tracking_text = safe_str(slide.get(col_name, "")).strip()
+        if not tracking_text or tracking_text.lower() == "nan":
+            continue
+        tracking_data = _parse_tracking_column(tracking_text)
+        if not isinstance(tracking_data, dict):
+            continue
+        entry = tracking_data.get(visual_id)
+        if isinstance(entry, dict):
+            return entry
+    return {}
+
+
+def _compute_undo_info(slide, visual_id, current_round):
+    """
+    Scan tracking columns (latest round first) to find the newest one that has
+    an actual revision recorded for this visual_id (after_revision, after_regen_1,
+    or after_regen_2 is non-None).
+
+    Returns a dict of all args needed by _do_undo_revision, or None if nothing
+    to undo.
+    """
+    seg_match = re.match(r"S(\d+)V(\d+)", visual_id)
+    if not seg_match:
+        return None
+    seg_idx = int(seg_match.group(1))
+    step_idx = int(seg_match.group(2))
+
+    for round_idx in range(int(current_round), -1, -1):
+        col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, round_idx)
+        tracking_text = safe_str(slide.get(col_name, "")).strip()
+        if not tracking_text or tracking_text.lower() == "nan":
+            continue
+        tracking_data = _parse_tracking_column(tracking_text)
+        if not isinstance(tracking_data, dict):
+            continue
+        entry = tracking_data.get(visual_id)
+        if not isinstance(entry, dict):
+            continue
+        # Only allow undo when at least one revision key is filled
+        has_revision = any(
+            entry.get(k) is not None
+            for k in ("after_revision", "after_regen_1", "after_regen_2")
+        )
+        if not has_revision:
+            continue
+        original_url = safe_str(entry.get("original", "")).strip()
+        if not original_url:
+            continue
+        return {
+            "tracking_round_idx": round_idx,
+            "tracking_col_name": col_name,
+            "current_tracking_text": tracking_text,
+            "original_url": original_url,
+            "seg_idx": seg_idx,
+            "step_idx": step_idx,
+            "raw_def": safe_str(slide.get("final_definition_raw", "")).strip(),
+            "parsed_segments": slide.get("segments", []),
+        }
+    return None
+
+
+def _do_undo_revision(
+    slide,
+    row_index,
+    slide_idx,
+    visual_id,
+    seg_idx,
+    step_idx,
+    original_url,
+    tracking_round_idx,
+    current_tracking_text,
+    raw_def,
+    parsed_segments,
+    worksheet_name="Slide Chunks",
+):
+    """
+    Callback for the 'Undo Revision' button.
+    1. Resets after_revision / after_regen_1 / after_regen_2 to None in the
+       tracking column (keeps 'original' and 'manually_selected' unchanged).
+    2. Restores the original URL in final_graphics_definition.
+    3. Writes both to the Google Sheet.
+    4. Syncs the in-memory df so the UI reflects the change without a full
+       page reload.
+    """
+    sheet = st.session_state.get("gdv2_sheet")
+    if not sheet:
+        st.error("Sheet not found in session. Please reload the sheet.")
+        return
+    try:
+        worksheet = sheet.worksheet(worksheet_name)
+    except Exception as e:
+        st.error(f"Failed to access worksheet: {e}")
+        return
+
+    # 1. Reset revision keys in the tracking column
+    tracking_data = _parse_tracking_column(current_tracking_text)
+    updated_tracking_text = current_tracking_text  # fallback to unchanged
+    if visual_id in tracking_data:
+        entry = tracking_data[visual_id]
+        entry["after_revision"] = None
+        entry["after_regen_1"] = None
+        entry["after_regen_2"] = None
+        updated_tracking_text = _format_human_feedback_revision_tracking(tracking_data)
+
+    # 2. Restore original URL in final_graphics_definition
+    override_map = {(seg_idx, step_idx): original_url} if original_url else {}
+    updated_raw_def = _apply_asset_overrides_to_raw(raw_def, parsed_segments, override_map)
+
+    # 3. Find column indices and write to sheet
+    tracking_col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, tracking_round_idx)
+    tracking_col_idx = get_or_create_column(worksheet, tracking_col_name)
+    graphics_col_idx = get_or_create_column(worksheet, FINAL_GRAPHICS_COLUMN)
+
+    if not tracking_col_idx:
+        st.error(f"Could not find tracking column '{tracking_col_name}' in the sheet.")
+        return
+
+    sheet_row = int(row_index) + 2
+    batch_ranges = [
+        {
+            "range": f"{_col_to_a1(tracking_col_idx)}{sheet_row}",
+            "values": [[updated_tracking_text]],
+        }
+    ]
+    if original_url and graphics_col_idx:
+        batch_ranges.append(
+            {
+                "range": f"{_col_to_a1(graphics_col_idx)}{sheet_row}",
+                "values": [[updated_raw_def]],
+            }
+        )
+    try:
+        worksheet.batch_update(batch_ranges, value_input_option="RAW")
+    except Exception as e:
+        st.error(f"Failed to write undo revision to sheet: {e}")
+        return
+
+    # 4. Sync in-memory df and slide object so the inspector reflects the undone state immediately
+    df = st.session_state.get("gdv2_df")
+    if df is not None and row_index in df.index:
+        df.at[row_index, tracking_col_name] = updated_tracking_text
+        if original_url and FINAL_GRAPHICS_COLUMN in df.columns:
+            df.at[row_index, FINAL_GRAPHICS_COLUMN] = updated_raw_def
+        st.session_state["gdv2_df"] = df
+    
+    # Sync the slide object fields if it's passed (avoids stale info in fragments)
+    if isinstance(slide, dict):
+        slide[tracking_col_name] = updated_tracking_text
+        slide["final_definition_raw"] = updated_raw_def
+        # Optional: Sync actual segment data if needed for non-overridden displays
+        if original_url:
+            for seg in slide.get("segments", []):
+                if seg.get("segment_index") == seg_idx:
+                    for s_item in seg.get("steps", []):
+                        if s_item.get("step_index") == step_idx:
+                            s_item["asset"] = original_url
+
+    # 5. Force immediate card repaint in current fragment cycle.
+    # During fragment reruns, step args can be stale; pinning override to the
+    # restored original guarantees the visual updates instantly.
+    override_key = f"asset_override_{slide_idx}_{seg_idx}_{step_idx}"
+    if original_url:
+        st.session_state[override_key] = original_url
+    elif override_key in st.session_state:
+        del st.session_state[override_key]
+
+    st.toast(f"Undo revision applied for {visual_id}.", icon="↩️")
+    # No explicit st.rerun() needed: Streamlit automatically reruns after every
+    # on_click callback, and comparison/undo state is now freshly computed inside
+    # the fragment on each render pass.
+
+
+def _build_comparison_payload_for_visual(
+    slide,
+    visual_id,
+    current_round,
+    current_asset,
+    historical_action_by_visual,
+    historical_feedback_by_visual,
+):
+    """
+    Build comparison payload only when a visual was revised (before != after).
+
+    Scans tracking columns from current_round backwards. Entries whose revision
+    slots are all None (e.g. after an undo) are skipped so the comparison falls
+    through to the previous round's still-meaningful revision data.
+    """
+    REVISION_KEYS = ("after_regen_2", "after_regen_1", "after_revision", "manually_selected")
+
+    entry = None
+    for round_idx in range(int(current_round), -1, -1):
+        col_name = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, round_idx)
+        tracking_text = safe_str(slide.get(col_name, "")).strip()
+        if not tracking_text or tracking_text.lower() == "nan":
+            continue
+        tracking_data = _parse_tracking_column(tracking_text)
+        if not isinstance(tracking_data, dict):
+            continue
+        candidate_entry = tracking_data.get(visual_id)
+        if not isinstance(candidate_entry, dict):
+            continue
+        # Skip entries where every revision key is None — they carry no comparison info
+        # (this happens after an undo resets the current round's entry)
+        has_any_revision = any(
+            safe_str(candidate_entry.get(k, "")).strip()
+            for k in REVISION_KEYS
+        )
+        if has_any_revision:
+            entry = candidate_entry
+            break
+
+    if not entry:
+        return None
+
+    original_asset = safe_str(entry.get("original", "")).strip()
+    revised_asset = ""
+    for field_name in REVISION_KEYS:
+        candidate = safe_str(entry.get(field_name, "")).strip()
+        if candidate:
+            revised_asset = candidate
+            break
+
+    if not revised_asset:
+        revised_asset = safe_str(current_asset).strip()
+
+    if not original_asset or not revised_asset:
+        return None
+    if _primary_asset_url(original_asset) == _primary_asset_url(revised_asset):
+        return None
+
+    prior_action = safe_str(historical_action_by_visual.get(visual_id, "")).strip()
+    is_ai_generated = prior_action == ACTION_REJECT_AI
+    prior_feedback = safe_str(historical_feedback_by_visual.get(visual_id, "")).strip()
+    if not prior_feedback and prior_action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL):
+        prior_feedback = DEFAULT_REJECT_FEEDBACK
+
+    return {
+        "previous_asset": original_asset,
+        "revised_badge": "AI Generated" if is_ai_generated else "Revised",
+        "feedback": prior_feedback,
+    }
+
+
+def _render_single_asset_visual(asset, embed_key, drive, show_open_link=True):
+    """Render one visual (image or video) and a direct open link."""
+    asset = safe_str(asset).strip()
+    asset_type = detect_asset_type(asset)
+    display_url = normalize_drive_image_url(asset) if asset_type == "image" and is_drive_url(asset) else asset
+
     if asset_type == "image":
-        if not display_url:
-            display_url = normalize_drive_image_url(asset) if is_drive_url(asset) else asset
         image_bytes = _get_inspector_image_bytes(asset, drive)
         if image_bytes:
             try:
                 st.image(image_bytes, use_container_width=True)
             except UnidentifiedImageError:
-                # Image bytes were invalid; fall back to URL display below if available.
                 image_bytes = None
             except Exception:
-                # Any other image rendering issue: ignore bytes and try URL fallback.
                 image_bytes = None
         elif display_url:
             st.image(display_url, use_container_width=True)
         else:
             st.warning("Image URL missing.")
-        if display_url:
+        if display_url and show_open_link:
             st.markdown(f"[Open image]({display_url})")
-    elif asset_type == "video":
+        return
+
+    if asset_type == "video":
         if asset:
             html = _get_inspector_video_html(asset, embed_key)
             if html:
                 st.components.v1.html(html, height=360)
-            st.markdown(f"[Open video]({to_youtube_watch_url(asset)})")
+            if show_open_link:
+                st.markdown(f"[Open video]({to_youtube_watch_url(asset)})")
         else:
             st.warning("Video URL missing.")
+        return
+
+    st.warning("Asset URL missing or unsupported.")
 
 
-def _render_inspector_step_review_controls(step_key_prefix):
+def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, drive, comparison=None):
+    """Image/video only — no widgets. Safe to run inside st.fragment."""
+    if comparison and comparison.get("previous_asset"):
+        left_col, right_col = st.columns(2, gap="large")
+        with left_col:
+            st.markdown("<h4 style='margin:0 0 0.5rem 0;'>Previous</h4>", unsafe_allow_html=True)
+            with st.container(height=420, border=True):
+                _render_single_asset_visual(
+                    comparison.get("previous_asset", ""),
+                    f"{embed_key}-prev",
+                    drive,
+                    show_open_link=False,
+                )
+            feedback = safe_str(comparison.get("feedback", "")).strip()
+            if feedback:
+                st.caption(f"Feedback that triggered revision: {feedback}")
+        with right_col:
+            badge_text = safe_str(comparison.get('revised_badge', 'Revised')).strip() or 'Revised'
+            st.markdown(f"<h4 style='margin:0 0 0.5rem 0;'>{badge_text}</h4>", unsafe_allow_html=True)
+            with st.container(height=420, border=True):
+                _render_single_asset_visual(
+                    asset,
+                    f"{embed_key}-curr",
+                    drive,
+                    show_open_link=False,
+                )
+        return
+
+    _render_single_asset_visual(asset, embed_key, drive)
+
+
+@st.cache_resource
+def _get_background_executor():
+    """Shared executor for background tasks (e.g. preloading alternatives)."""
+    return ThreadPoolExecutor(max_workers=5)
+
+
+def _background_download_task(url, drive, cache):
+    """Worker task to download image and put into cache."""
+    try:
+        img_bytes = download_image_bytes(url, drive)
+        if img_bytes:
+            cache[url] = img_bytes
+            # Pre-generate data URI to save CPU cycles during swiping
+            _get_cached_data_uri(url, cache)
+    except Exception:
+        pass
+
+
+def _preload_candidate_images(slides, drive):
+    """
+    Asynchronously pre-warm the shared image cache for all candidate images.
+    Submits tasks to a background executor and returns IMMEDIATELY to avoid blocking the UI.
+    """
+    if not slides or drive is None:
+        return
+        
+    # Throttling: only scan for new candidates every 30 seconds to save CPU
+    now = time.time()
+    last_scan = st.session_state.get("last_alt_preload_time", 0)
+    if now - last_scan < 30:
+        return
+    st.session_state["last_alt_preload_time"] = now
+
+    cache = st.session_state.setdefault(INSPECTOR_IMAGE_CACHE_KEY, {})
+    executor = _get_background_executor()
+    seen_urls = set()
+    tasks_count = 0
+    
+    # Identify unique Drive URLs that aren't already cached
+    for slide in slides:
+        image_pool_text = safe_str(slide.get("image_pool", "")).strip()
+        if not image_pool_text or image_pool_text == "nan":
+            continue
+        segments = slide.get("segments", [])
+        for segment in segments:
+            seg_num = segment.get("segment_index", 1)
+            try:
+                candidates = parse_urls_from_image_pool(image_pool_text, seg_num)
+            except Exception:
+                continue
+            for c in candidates:
+                url = (c.get("url") or "").strip()
+                if url and is_drive_url(url) and url not in cache and url not in seen_urls:
+                    seen_urls.add(url)
+                    # Use the shared executor to download in background - STAYS NON-BLOCKING
+                    executor.submit(_background_download_task, url, drive, cache)
+                    tasks_count += 1
+    
+    # We don't wait for completion. The main script continues and finishes quickly.
+
+
+
+def _set_alt_start_index(key, new_val):
+    st.session_state[key] = new_val
+
+def _assign_candidate_to_step(slide_idx, seg_idx, step_idx, new_url):
+    """Persist an asset override chosen from the candidate pool."""
+    key = f"asset_override_{slide_idx}_{seg_idx}_{step_idx}"
+    st.session_state[key] = new_url
+    st.toast(f"Assigned to VO Step {step_idx}!", icon="🎯")
+
+
+def _revert_asset_assignment(key):
+    """Clear an asset override to return to the original."""
+    if key in st.session_state:
+        del st.session_state[key]
+    st.toast("Reverted to original asset", icon="↩️")
+
+
+def _set_visual_choice(choice_key, choice_value, ov_key, asset_url):
+    """Set the choice between Option 1 and Option 2 and update asset_override."""
+    st.session_state[choice_key] = choice_value
+    st.session_state[ov_key] = asset_url
+    st.toast(f"Selected {'Option 1 (Graphics definition)' if choice_value == 'option1' else 'Option 2 (Reference)'}", icon="✅")
+
+
+def _undo_visual_choice(choice_key, ov_key):
+    """Undo the dual-visual choice."""
+    if choice_key in st.session_state:
+        st.session_state[choice_key] = None
+    if ov_key in st.session_state:
+        del st.session_state[ov_key]
+    st.toast("Choice undone", icon="↩️")
+
+
+def _fragment_candidate_images_expander(image_pool_text, segment_num, slide_idx, target_step_index, drive, embed_key_prefix):
+    """
+    Paginated UI for alternative images: shows 3 at a time, slides by 2 on click.
+    Deduplicates URLs within the segment.
+    """
+    # ── Cache parsed candidates ──────────────────────────────────────────────
+    cand_cache_key = f"cand_pool_{embed_key_prefix}"
+    if cand_cache_key not in st.session_state:
+        try:
+            candidates = parse_urls_from_image_pool(image_pool_text, segment_num)
+        except Exception:
+            candidates = []
+        st.session_state[cand_cache_key] = candidates
+    else:
+        candidates = st.session_state[cand_cache_key]
+
+    if not candidates:
+        return
+
+    # ── Deduplicate by URL, preserving order (also cached) ─────────────────────
+    unique_cache_key = f"cand_unique_{embed_key_prefix}"
+    if unique_cache_key not in st.session_state:
+        seen = set()
+        unique = []
+        for c in candidates:
+            url = (c.get("url") or "").strip()
+            if url and url not in seen:
+                seen.add(url)
+                unique.append(c)
+        st.session_state[unique_cache_key] = unique
+    unique = st.session_state[unique_cache_key]
+    
+    if not unique:
+        return
+
+    n = len(unique)
+    state_key = f"alt_start_{embed_key_prefix}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = 0
+    start_idx = st.session_state[state_key]
+
+    # ── Bounds check and pagination logic (3x10 grid = 30 items) ────────────
+    max_visible = 30
+    if start_idx >= n:
+        start_idx = max(0, n - max_visible)
+        st.session_state[state_key] = start_idx
+
+    show_candidates_key = f"show_img_candidates_{embed_key_prefix}"
+    if show_candidates_key not in st.session_state:
+        st.session_state[show_candidates_key] = False
+    st.toggle(
+        f"🖼️ Alternative Images — {n} candidate{'s' if n != 1 else ''} considered",
+        key=show_candidates_key,
+    )
+    if st.session_state.get(show_candidates_key):
+        visible_indices = list(range(start_idx, min(start_idx + max_visible, n)))
+        cache = st.session_state.get(INSPECTOR_IMAGE_CACHE_KEY, {})
+        
+        # Simple navigation row above the images to keep them clean
+        nav_cols = st.columns([0.1, 0.8, 0.1])
+        with nav_cols[0]:
+            if start_idx > 0:
+                if st.button("◀ Previous 30", key=f"{state_key}_prev", use_container_width=True):
+                    st.session_state[state_key] = max(0, start_idx - max_visible)
+                    st.rerun(scope="fragment")
+        with nav_cols[2]:
+            if start_idx + max_visible < n:
+                if st.button("Next 30 ▶", key=f"{state_key}_next", use_container_width=True):
+                    st.session_state[state_key] = min(n - 1, start_idx + max_visible)
+                    st.rerun(scope="fragment")
+
+        # ── Render 3x10 Grid ──────────────────────────────────────────────────
+        for i, idx_in_list in enumerate(visible_indices):
+            # Create a new row of columns for every 3 items
+            if i % 3 == 0:
+                grid_cols = st.columns(3, gap="small", vertical_alignment="top")
+            
+            curr_col = grid_cols[i % 3]
+            
+            cand = unique[idx_in_list]
+            url = (cand.get("url") or "").strip()
+            title = cand.get("title") or f"Candidate {idx_in_list + 1}"
+            
+            # (Fetching logic omitted for brevity in match, but included in replacement)
+            img_src = _get_cached_data_uri(url, cache)
+            if not img_src and is_drive_url(url):
+                file_id = extract_drive_file_id(url)
+                img_src = f"https://drive.google.com/thumbnail?id={file_id}&sz=w300" if file_id else ""
+            
+            with curr_col:
+                # Wrap in a container for group logic, but use HTML for fixed-dimension image display
+                # We use the Stable Thumbnail URL (not Base64) in the HTML block 
+                # why? Because browsers cache these URLs perfectly, making swipes instant/cached.
+                # ── Determine stable preview URL for browser caching ────────────
+                if is_drive_url(url):
+                    file_id = extract_drive_file_id(url)
+                    display_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w400" if file_id else url
+                elif is_youtube_embed(url):
+                    m = re.search(r"youtube\.com/embed/([^?/]+)", url)
+                    vid_id = m.group(1) if m else ""
+                    display_url = f"https://img.youtube.com/vi/{vid_id}/mqdefault.jpg" if vid_id else url
+                else:
+                    # Regular web image link
+                    display_url = url
+                
+            with curr_col:
+                # ── Unified visual unit (Safety via st.image + Symmetry via CSS) ──
+                # We use st.container(height=260) which we've globally styled to hide scrollbars
+                with st.container(height=260, border=True):
+                    # Use the cached binary if available (Base64 is no longer needed with st.image)
+                    img_data = cache.get(url)
+                    if not img_data:
+                        img_data = display_url # st.image will proxy this safely
+                    
+                    st.image(img_data, use_container_width=True)
+                
+                # 2. Assignment button directly upfront
+                st.button(
+                    "Use for VO",
+                    key=f"assign_{embed_key_prefix}_{idx_in_list}_{target_step_index}",
+                    on_click=_assign_candidate_to_step,
+                    args=(slide_idx, segment_num, target_step_index, url),
+                    use_container_width=True
+                )
+                
+                # ── Option 1: Open high res link (Always visible, but secondary) ──
+                if is_drive_url(url):
+                    file_id = extract_drive_file_id(url)
+                    open_url = f"https://drive.google.com/file/d/{file_id}/view" if file_id else url
+                elif is_youtube_embed(url):
+                    open_url = to_youtube_watch_url(url)
+                else:
+                    open_url = url
+                st.markdown(f'<div style="text-align:center; font-size:0.8rem; margin-top: -12px; margin-bottom: 12px;"><a href="{open_url}" target="_blank">Open original</a></div>', unsafe_allow_html=True)
+
+def _fragment_candidate_videos_expander(video_pool_text, segment_num, slide_idx, target_step_index, embed_key_prefix):
+    """
+    Shows alternative video candidates from the filtered video pool.
+    Renders with looping players and assignment buttons.
+    """
+    if not video_pool_text or video_pool_text == "nan":
+        return
+    
+    unique_cache_key = f"videocand_unique_{embed_key_prefix}"
+    if unique_cache_key not in st.session_state:
+        # Use existing image pool parser as the format is identical (Title | URL)
+        candidates = parse_urls_from_image_pool(video_pool_text, segment_num)
+        seen = set()
+        unique = []
+        for v in candidates:
+            u = (v.get("url") or "").strip()
+            if u and u not in seen:
+                seen.add(u)
+                unique.append(v)
+        st.session_state[unique_cache_key] = unique
+    
+    unique = st.session_state[unique_cache_key]
+    if not unique:
+        return
+    
+    n = len(unique)
+    state_key = f"vid_start_{embed_key_prefix}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = 0
+    start_idx = st.session_state[state_key]
+    
+    max_visible = 30 # Upgraded to high-density 3x10 layout
+    if start_idx >= n:
+        start_idx = max(0, n - max_visible)
+        st.session_state[state_key] = start_idx
+        
+    show_videos_key = f"show_video_candidates_{embed_key_prefix}"
+    if show_videos_key not in st.session_state:
+        st.session_state[show_videos_key] = False
+    st.toggle(
+        f"🎬 Alternative Videos — {n} segments found",
+        key=show_videos_key,
+    )
+    if st.session_state.get(show_videos_key):
+        visible_indices = list(range(start_idx, min(start_idx + max_visible, n)))
+        
+        # Navigation
+        nav_cols = st.columns([0.1, 0.8, 0.1])
+        with nav_cols[0]:
+            if start_idx > 0:
+                if st.button("◀ Prev", key=f"{state_key}_prev", use_container_width=True):
+                    st.session_state[state_key] = max(0, start_idx - max_visible)
+                    st.rerun(scope="fragment")
+        with nav_cols[2]:
+            if start_idx + max_visible < n:
+                if st.button("Next ▶", key=f"{state_key}_next", use_container_width=True):
+                    st.session_state[state_key] = min(n - 1, start_idx + max_visible)
+                    st.rerun(scope="fragment")
+        
+        # Grid Rendering (3 columns)
+        for i, idx_in_list in enumerate(visible_indices):
+            if i % 3 == 0:
+                grid_cols = st.columns(3, gap="small", vertical_alignment="top")
+            
+            curr_col = grid_cols[i % 3]
+            v_cand = unique[idx_in_list]
+            v_url = (v_cand.get("url") or "").strip()
+            v_title = v_cand.get("title") or f"Video {idx_in_list + 1}"
+            
+            with curr_col:
+                # ── Looping Player Unit ──────────────────────────────────────
+                with st.container(height=280, border=True):
+                    if is_youtube_embed(v_url):
+                        v_html = render_looping_youtube_embed(v_url, f"altvid_{embed_key_prefix}_{idx_in_list}", height=240)
+                        st.components.v1.html(v_html, height=240)
+                    else:
+                        st.caption("Unsupported video format")
+                        st.write(v_url)
+                
+                # 🎯 Assignment button directly upfront (outside the container)
+                st.button(
+                    "Use for VO",
+                    key=f"assign_vid_{embed_key_prefix}_{idx_in_list}_{target_step_index}",
+                    on_click=_assign_candidate_to_step,
+                    args=(slide_idx, segment_num, target_step_index, v_url),
+                    use_container_width=True
+                )
+                
+                if is_youtube_embed(v_url):
+                    st.markdown(f'<div style="text-align:center; font-size:0.8rem; margin-top: -12px; margin-bottom: 12px;"><a href="{to_youtube_watch_url(v_url)}" target="_blank">Open on YouTube</a></div>', unsafe_allow_html=True)
+
+
+def _render_inspector_step_review_controls(step_key_prefix, allowed_actions=None):
     action_key = f"{step_key_prefix}_action"
     feedback_key = f"{step_key_prefix}_feedback"
 
@@ -1602,47 +2659,35 @@ def _render_inspector_step_review_controls(step_key_prefix):
     st.markdown("**Review action**")
     current_action = st.session_state.get(action_key, ACTION_NONE)
 
-    btn_cols = st.columns(4, gap="small")
-    with btn_cols[0]:
-        approve_label = "🟢 Approve" if current_action == ACTION_APPROVE else "Approve"
-        st.button(
-            approve_label,
-            key=f"{step_key_prefix}_btn_approve",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_APPROVE),
-            use_container_width=True,
-        )
-    with btn_cols[1]:
-        reject_dh_label = "🔴 Reject (Drive + HVAC School Videos)" if current_action == ACTION_REJECT_DRIVE_HVAC else "Reject (Drive + HVAC School Videos)"
-        st.button(
-            reject_dh_label,
-            key=f"{step_key_prefix}_btn_reject_drive_hvac",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_REJECT_DRIVE_HVAC),
-            use_container_width=True,
-        )
-    with btn_cols[2]:
-        reject_all_label = "🔴 Reject (Search all)" if current_action == ACTION_REJECT_ALL else "Reject (Search all)"
-        st.button(
-            reject_all_label,
-            key=f"{step_key_prefix}_btn_reject_all",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_REJECT_ALL),
-            use_container_width=True,
-        )
-    with btn_cols[3]:
-        reject_ai_label = "🔵 Reject (Generate with AI)" if current_action == ACTION_REJECT_AI else "Reject (Generate with AI)"
-        st.button(
-            reject_ai_label,
-            key=f"{step_key_prefix}_btn_reject_ai",
-            type="secondary",
-            on_click=_set_review_action,
-            args=(action_key, ACTION_REJECT_AI),
-            use_container_width=True,
-        )
+    # Standard actions: 
+    # Option 1 (GDv2) allows [Approve, Reject Drive, Reject All, Reject AI]
+    # Option 2 (Ref) allows [Approve, Reject AI]
+    
+    _actions = [
+        (ACTION_APPROVE, "🟢 Approve" if current_action == ACTION_APPROVE else "Approve", "secondary", btn_cols_idx := 0),
+        (ACTION_REJECT_DRIVE_HVAC, "🔴 Reject (Drive + HVAC School Videos)" if current_action == ACTION_REJECT_DRIVE_HVAC else "Reject (Drive + HVAC School Videos)", "secondary", 1),
+        (ACTION_REJECT_ALL, "🔴 Reject (Search all)" if current_action == ACTION_REJECT_ALL else "Reject (Search all)", "secondary", 2),
+        (ACTION_REJECT_AI, "🔵 Reject (Generate with AI)" if current_action == ACTION_REJECT_AI else "Reject (Generate with AI)", "secondary", 3),
+    ]
+
+    if allowed_actions:
+        _actions = [a for a in _actions if a[0] in allowed_actions]
+
+    num_cols = len(_actions)
+    if num_cols == 0:
+        return
+
+    btn_cols = st.columns(num_cols, gap="small")
+    for i, (act, label, btype, _) in enumerate(_actions):
+        with btn_cols[i]:
+            st.button(
+                label,
+                key=f"{step_key_prefix}_btn_{act}",
+                type=btype,
+                on_click=_set_review_action,
+                args=(action_key, act),
+                use_container_width=True,
+            )
 
     current_action = st.session_state.get(action_key, ACTION_NONE)
     if current_action == ACTION_APPROVE:
@@ -1662,7 +2707,174 @@ def _render_inspector_step_review_controls(step_key_prefix):
     )
 
 
-def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False):
+@_st_fragment
+def _render_single_segment_block(
+    slide_idx, seg_num, visible_steps, image_pool_text, video_pool_text, drive, slide_row_idx,
+    slide, current_round, historical_action_by_visual, historical_feedback_by_visual,
+    show_comparison=True
+):
+    """
+    Isolated fragment for a single segment's selection pool and VO visuals.
+    Using arguments (not closures) avoids variable-leak bugs in loops.
+    """
+    st.markdown(f"### Segment {seg_num}")
+    
+    # VO Step Visuals & Controls
+    for step_tuple in visible_steps:
+        # tuple: (step_dict, action_scope_key, action_key, feedback_key, visual_id)
+        s, scope_key, a_key, f_key, v_id = step_tuple
+        
+        st.markdown(f"**VO Part {s['step_index']}**")
+        if s.get("voiceover"):
+            st.write(s["voiceover"])
+        else:
+            st.caption("Voiceover text not found.")
+            
+        ov_key = f"asset_override_{slide_idx}_{seg_num}_{s['step_index']}"
+        is_ov = ov_key in st.session_state
+        cur_asset = st.session_state[ov_key] if is_ov else s.get("asset", "")
+        
+        cur_type = detect_asset_type(cur_asset)
+        cur_display = (
+            normalize_drive_image_url(cur_asset) if is_drive_url(cur_asset) else cur_asset
+        ) if cur_type == "image" else ""
+        
+        # Determine fixed embed key for consistency
+        this_embed_key = f"{slide_idx}-{seg_num}-{s['step_index']}"
+        
+        # ── Transient UI state computation (MUST be inside loop for fragments) ──
+        # Re-computing here ensures that after an Undo Revision (which triggers
+        # a fragment rerun), the comparison UI and Undo button disappear instantly.
+        comparison_payload = None
+        if show_comparison:
+            comparison_payload = _build_comparison_payload_for_visual(
+                slide=slide,
+                visual_id=v_id,
+                current_round=current_round,
+                current_asset=cur_asset,
+                historical_action_by_visual=historical_action_by_visual,
+                historical_feedback_by_visual=historical_feedback_by_visual,
+            )
+        undo_info = _compute_undo_info(
+            slide=slide,
+            visual_id=v_id,
+            current_round=current_round,
+        )
+
+        # 3. Auto-select between GDv2 and reference visuals when both are present.
+        asset_ref = s.get("asset_reference", "").strip()
+        has_reference_candidate = bool(asset_ref)
+        choice_key = f"choice_{slide_idx}_{seg_num}_{s['step_index']}_r{current_round}"
+        if has_reference_candidate and choice_key not in st.session_state:
+            st.session_state[choice_key] = None
+
+        if has_reference_candidate:
+            selected_asset, selected_choice, selected_reason = _auto_decide_visual_choice(
+                slide=slide,
+                segment_num=seg_num,
+                step=s,
+                drive=drive,
+            )
+            st.session_state[choice_key] = selected_choice
+            st.session_state[ov_key] = selected_asset
+            cur_asset = selected_asset
+            is_ov = True
+            cur_type = detect_asset_type(cur_asset)
+            cur_display = (
+                normalize_drive_image_url(cur_asset) if is_drive_url(cur_asset) else cur_asset
+            ) if cur_type == "image" else ""
+            if selected_reason:
+                st.caption(f"Auto-selected visual: {selected_reason}")
+        else:
+            st.session_state.pop(choice_key, None)
+            current_choice = "option1"
+
+        current_choice = st.session_state.get(choice_key, "option1") if has_reference_candidate else "option1"
+
+        # 1. Visual Assigned (Now that we have a choice or only one option)
+        _render_inspector_step_visual(
+            cur_asset, cur_type, cur_display, this_embed_key, drive, comparison=comparison_payload
+        )
+        
+        # 2. Toggles for candidate images and videos (Standard path only for candidate pool)
+        step_cand_key = f"{this_embed_key}-cand"
+        
+        _fragment_candidate_images_expander(
+            image_pool_text=image_pool_text,
+            segment_num=seg_num,
+            slide_idx=slide_idx,
+            target_step_index=s['step_index'],
+            drive=drive,
+            embed_key_prefix=step_cand_key,
+        )
+        
+        _fragment_candidate_videos_expander(
+            video_pool_text=video_pool_text,
+            segment_num=seg_num,
+            slide_idx=slide_idx,
+            target_step_index=s['step_index'],
+            embed_key_prefix=step_cand_key,
+        )
+
+        # 4. Action buttons row (Undo Re-assignment | Undo Revision)
+        action_btn_cols = []
+        if (is_ov and not has_reference_candidate) or undo_info:
+            n_cols = sum([1 if (is_ov and not has_reference_candidate) else 0, 1 if undo_info else 0])
+            if n_cols > 0:
+                action_btn_cols = st.columns(n_cols, gap="small")
+                col_iter = iter(action_btn_cols)
+
+                if is_ov and not has_reference_candidate:
+                    with next(col_iter):
+                        st.button(
+                            "↩️ Undo Re-assignment",
+                            key=f"revert_{ov_key}",
+                            on_click=_revert_asset_assignment,
+                            args=(ov_key,),
+                            type="secondary",
+                            use_container_width=True,
+                        )
+
+                if undo_info:
+                    with next(col_iter):
+                        st.button(
+                            "⏪ Undo Revision",
+                            key=f"undo_rev_{slide_idx}_{seg_num}_{s['step_index']}",
+                            on_click=_do_undo_revision,
+                            args=(
+                                slide,                               # slide object
+                                slide_row_idx,                       # row_index
+                                slide_idx,                           # slide_idx
+                                v_id,                                # visual_id
+                                undo_info["seg_idx"],
+                                undo_info["step_idx"],
+                                undo_info["original_url"],
+                                undo_info["tracking_round_idx"],
+                                undo_info["current_tracking_text"],
+                                undo_info["raw_def"],
+                                undo_info["parsed_segments"],
+                            ),
+                            type="secondary",
+                            use_container_width=True,
+                            help=(
+                                f"Restore original visual for {v_id} and clear all "
+                                "revision history in this feedback round."
+                            ),
+                        )
+
+        # Determine allowed actions
+        allowed = None
+        if has_reference_candidate and current_choice == "option2":
+            allowed = [ACTION_APPROVE, ACTION_REJECT_AI]
+        
+        _render_inspector_step_review_controls(scope_key, allowed_actions=allowed)
+        
+        sel_action = st.session_state.get(a_key, ACTION_NONE)
+        if sel_action == ACTION_APPROVE:
+            st.success("Approved")
+
+
+def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None, current_round=0, action_filter="all", include_unreviewed_with_revised=False, show_comparison=True):
     if not slides:
         st.info("No slide data to display.")
         return
@@ -1706,6 +2918,10 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
         segments = slide.get("segments", [])
         if not segments:
             continue
+        
+        # Store 1-based slide_idx into the slide dict so that _build_row_review_payload
+        # can construct asset_override keys that match those used during assignment.
+        slide["slide_idx_1based"] = slide_idx
 
         row_index = slide.get("row_index", slide_idx - 1)
         row_actions_key = f"gdv2_row_actions_{row_index}_r{current_round}"
@@ -1718,6 +2934,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
 
         # Build latest non-none action per visual across all completed previous rounds.
         historical_action_by_visual = {}
+        historical_feedback_by_visual = {}
         if current_round > 0:
             for round_idx in range(current_round):
                 historical_actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, round_idx)
@@ -1726,6 +2943,9 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                     historical_action = safe_str(historical_item.get("action", ACTION_NONE)).strip() or ACTION_NONE
                     if historical_action != ACTION_NONE:
                         historical_action_by_visual[historical_visual_id] = historical_action
+                        historical_feedback_by_visual[historical_visual_id] = safe_str(
+                            historical_item.get("feedback", "")
+                        ).strip()
 
         visible_segments = []
         for segment in segments:
@@ -1817,6 +3037,8 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 if not visible:
                     continue
 
+                # Transient UI state (undo_info, comparison_payload) is now
+                # computed inside the fragment to support instant post-undo refreshes.
                 visible_steps.append((step, action_scope_key, action_key, feedback_key, visual_id))
             if visible_steps:
                 visible_segments.append((segment, visible_steps))
@@ -1840,38 +3062,24 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 st.write(slide["slide_chunk"])
 
             for segment, visible_steps in visible_segments:
-                st.markdown(f"### Segment {segment['segment_index']}")
-                for step, action_scope_key, action_key, feedback_key, visual_id in visible_steps:
-                    st.markdown(f"**VO Part {step['step_index']}**")
-                    if step.get("voiceover"):
-                        st.write(step["voiceover"])
-                    else:
-                        st.caption("Voiceover text not found.")
+                seg_num = segment.get("segment_index", 1)
+                img_pool_text = safe_str(slide.get(IMAGE_POOL_COLUMN, "")).strip()
+                vid_pool_text = safe_str(slide.get(VIDEO_POOL_COLUMN, "")).strip()
 
-                    asset = step.get("asset", "")
-                    asset_type = detect_asset_type(asset)
-                    display_url = (
-                        normalize_drive_image_url(asset) if is_drive_url(asset) else asset
-                    ) if asset_type == "image" else ""
-                    embed_key = f"{slide_idx}-{segment['segment_index']}-{step['step_index']}"
-
-                    def _visual_block():
-                        _render_inspector_step_visual(
-                            asset, asset_type, display_url, embed_key, drive
-                        )
-
-                    if _st_fragment is not None:
-                        _st_fragment(_visual_block)()
-                    else:
-                        _visual_block()
-
-                    if _st_fragment is not None:
-                        _st_fragment(lambda k=action_scope_key: _render_inspector_step_review_controls(k))()
-                    else:
-                        _render_inspector_step_review_controls(action_scope_key)
-                    action_selected = st.session_state.get(action_key, ACTION_NONE)
-                    if action_selected == ACTION_APPROVE:
-                        st.success("Approved")
+                _render_single_segment_block(
+                    slide_idx=slide_idx,
+                    seg_num=seg_num,
+                    visible_steps=visible_steps,
+                    image_pool_text=img_pool_text,
+                    video_pool_text=vid_pool_text,
+                    drive=drive,
+                    slide_row_idx=row_index,
+                    slide=slide,
+                    current_round=current_round,
+                    historical_action_by_visual=historical_action_by_visual,
+                    historical_feedback_by_visual=historical_feedback_by_visual,
+                    show_comparison=show_comparison
+                )
 
             if can_save:
                 if st.button(
@@ -1887,30 +3095,47 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                                 "Please check if the sheet is protected or has restricted edit permissions."
                             )
                         else:
-                            feedback_value, actions_payload, _, row_action_map_by_visual_id = _build_row_review_payload(
+                            # 1. Build payload AND updated graphics JSON (includes manual candidates)
+                            fb_val, act_payload, _, row_act_map, up_graphics_json, up_tracking_text = _build_row_review_payload(
                                 slide=slide,
                                 row_actions=row_actions,
                                 current_round=current_round,
                             )
+                            
+                            # 2. Identify the main graphics column index for persistence
+                            graphics_col_name = FINAL_GRAPHICS_COLUMN
+                            graphics_col_idx = get_or_create_column(worksheet, graphics_col_name)
+                            
+                            # 3. Write all to sheet in one batch
+                            current_action_round = current_round
                             _write_single_row_review(
                                 worksheet=worksheet,
                                 row_index=row_index,
-                                feedback_value=feedback_value,
-                                actions_payload=actions_payload,
+                                feedback_value=fb_val,
+                                actions_payload=act_payload,
                                 round_feedback_col_idx=review_col_indices["feedback"],
                                 round_status_col_idx=review_col_indices["status"],
                                 round_tracking_col_idx=review_col_indices["tracking"],
                                 round_actions_col_idx=review_col_indices["actions"],
+                                updated_graphics_json=up_graphics_json,
+                                graphics_col_idx=graphics_col_idx,
+                                updated_tracking_text=up_tracking_text
                             )
-                            # Keep in-memory data synced so final save can skip already-saved rows.
-                            slide[round_actions_col] = actions_payload
-                            slide[round_feedback_col] = feedback_value
-                            if feedback_value or row_action_map_by_visual_id:
+                            # Keep in-memory data synced
+                            slide[round_actions_col] = act_payload
+                            slide[round_feedback_col] = fb_val
+                            slide[FINAL_GRAPHICS_COLUMN] = up_graphics_json
+                            if fb_val or row_act_map:
                                 st.success(f"Saved feedback for Slide {slide_idx}.")
                             else:
                                 st.success(f"Saved current state for Slide {slide_idx}.")
                     except Exception as e:
                         st.error(f"Failed to save Slide {slide_idx}: {e}")
+
+    # Pre-warm cache for all candidate Drive images after visible slides are rendered.
+    # This runs after the slide loop so it doesn't delay the main slide display.
+    # Only Drive images need server-side fetching; web images load directly in the browser.
+    _preload_candidate_images(slides, drive)
 
     if not any_visible_items:
         st.info("No visuals match the selected review filter.")
@@ -2128,13 +3353,16 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                 reject_count = 0
                 skipped_existing_count = 0
                 pending_row_writes = []
+                # Get graphics column index once before the loop
+                graphics_col_idx_global = get_or_create_column(worksheet, FINAL_GRAPHICS_COLUMN)
+
                 for slide in slides:
                     segments = slide.get("segments", [])
                     if not segments:
                         continue
                     row_index = slide.get("row_index", 0)
                     row_actions = st.session_state.get(f"gdv2_row_actions_{row_index}_r{current_round}", {})
-                    feedback_value, actions_payload, row_reject_count, row_action_map_by_visual_id = _build_row_review_payload(
+                    fb_val, actions_payload, row_reject_count, row_act_map, up_graphics_json, up_tracking_text = _build_row_review_payload(
                         slide=slide,
                         row_actions=row_actions,
                         current_round=current_round,
@@ -2149,15 +3377,13 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                         continue
 
                     pending_row_writes.append(
-                        (
-                            row_index,
-                            feedback_value,
-                            actions_payload,
-                        )
+                        (row_index, fb_val, actions_payload, up_graphics_json, up_tracking_text)
                     )
                     slide[round_actions_col] = actions_payload
-                    slide[round_feedback_col] = feedback_value
-                    if feedback_value or row_action_map_by_visual_id:
+                    slide[round_feedback_col] = fb_val
+                    slide[FINAL_GRAPHICS_COLUMN] = up_graphics_json
+                    slide[round_tracking_col] = up_tracking_text
+                    if fb_val or row_act_map:
                         saved_count += 1
 
                 # Batch write row updates to avoid per-cell quota spikes (429).
@@ -2166,37 +3392,21 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                         feedback_col = _col_to_a1(review_col_indices["feedback"])
                         status_col = _col_to_a1(review_col_indices["status"])
                         tracking_col = _col_to_a1(review_col_indices["tracking"])
-                        actions_col = _col_to_a1(review_col_indices["actions"])
+                        actions_col_letter = _col_to_a1(review_col_indices["actions"])
+                        graphics_col_letter = _col_to_a1(graphics_col_idx_global) if graphics_col_idx_global else None
 
                         # 250 rows -> 1000 ranges per request; keep request size moderate.
                         for chunk in _chunked(pending_row_writes, 250):
                             batch_ranges = []
-                            for row_index, feedback_value, actions_payload in chunk:
+                            for row_index, fb_val, actions_payload, up_graphics_json, up_tracking_text in chunk:
                                 sheet_row = int(row_index) + 2
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{feedback_col}{sheet_row}",
-                                        "values": [[feedback_value]],
-                                    }
-                                )
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{status_col}{sheet_row}",
-                                        "values": [[""]],
-                                    }
-                                )
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{tracking_col}{sheet_row}",
-                                        "values": [[""]],
-                                    }
-                                )
-                                batch_ranges.append(
-                                    {
-                                        "range": f"{actions_col}{sheet_row}",
-                                        "values": [[actions_payload]],
-                                    }
-                                )
+                                batch_ranges.append({"range": f"{feedback_col}{sheet_row}", "values": [[fb_val]]})
+                                batch_ranges.append({"range": f"{status_col}{sheet_row}", "values": [[""]]})
+                                batch_ranges.append({"range": f"{tracking_col}{sheet_row}", "values": [[up_tracking_text if up_tracking_text else ""]]})
+                                batch_ranges.append({"range": f"{actions_col_letter}{sheet_row}", "values": [[actions_payload]]})
+                                # Write updated graphics JSON (includes image/video assignments)
+                                if graphics_col_letter and up_graphics_json:
+                                    batch_ranges.append({"range": f"{graphics_col_letter}{sheet_row}", "values": [[up_graphics_json]]})
                             worksheet.batch_update(batch_ranges, value_input_option="RAW")
                     except Exception as e:
                         st.error(f"Failed to save review batch update: {e}")
@@ -2232,6 +3442,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             st.info("No rejected visuals found; skipped review-revise run.")
 
                         _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
+                        _clear_visual_selection_state()
                         st.session_state["gdv2_df"] = refreshed_df
                         st.rerun()
                     except Exception as e:
@@ -2457,6 +3668,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
 
                     # Refresh inspector state so regenerated links are visible immediately.
                     _clear_inspector_image_cache()
+                    _clear_visual_selection_state()
                     st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
                     _, refreshed_df = get_sheet_data_and_df(sheet, worksheet_name)
                     st.session_state["gdv2_df"] = refreshed_df
@@ -2528,6 +3740,7 @@ def main():
             st.session_state.pop("gdv2_revision_notice", None)
             st.session_state.pop("gdv2_regen_notice", None)
             _clear_inspector_image_cache()
+            _clear_visual_selection_state()
             st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
         except Exception as e:
             st.error(f"Failed to open sheet: {e}")
@@ -2550,6 +3763,7 @@ def main():
     ):
         try:
             _clear_inspector_image_cache()
+            _clear_visual_selection_state()
             st.session_state.pop(INSPECTOR_VIDEO_HTML_CACHE_KEY, None)
             _, df = get_sheet_data_and_df(sheet, worksheet_name)
             st.session_state["gdv2_df"] = df
@@ -2669,7 +3883,7 @@ def main():
             st.session_state["gdv2_visual_filter"] = "revised"
         else:
             st.session_state["gdv2_visual_filter"] = "all"
-    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+    filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns(5)
     with filter_col1:
         topic_filter = st.selectbox("Topic", options=["All"] + topic_values)
     with filter_col2:
@@ -2701,6 +3915,8 @@ def main():
             key="gdv2_visual_filter",
             format_func=lambda x: x.capitalize(),
         )
+    with filter_col5:
+        show_comparison = st.checkbox("Show Comparison", value=True, key="gdv2_show_comparison")
 
     filtered_df = df.copy()
     if topic_filter != "All" and column_map["topic"]:
@@ -2773,6 +3989,7 @@ def main():
         current_round=int(st.session_state.get("gdv2_round", 0)),
         action_filter=visual_filter,
         include_unreviewed_with_revised=int(st.session_state.get("gdv2_round", 0)) > 0,
+        show_comparison=show_comparison,
     )
 
 

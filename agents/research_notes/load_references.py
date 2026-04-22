@@ -726,6 +726,28 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
     references_df = references_df.fillna('')
     references_df = references_df[references_df['source'].str.strip() != '']
 
+    # Load external references from Course info sheet
+    try:
+        _, course_info_df_ext = get_sheet_data_and_df(sheet, 'Course info')
+        if 'External References' in course_info_df_ext.columns:
+            external_refs_raw = course_info_df_ext.loc[0, 'External References']
+            if pd.notna(external_refs_raw) and str(external_refs_raw).strip():
+                external_urls = [u.strip() for u in str(external_refs_raw).split('\n') if u.strip()]
+                for ext_url in external_urls:
+                    if ext_url in references_df['source'].values:
+                        continue
+                    ext_ref_type = "Youtube Video" if ('youtube.com' in ext_url or 'youtu.be' in ext_url) else "Web Article"
+                    new_row = {
+                        'source': ext_url,
+                        'source_origin': 'External References',
+                        'title': '',
+                        'reference_type': ext_ref_type,
+                        'chunks_0': ''
+                    }
+                    references_df = pd.concat([references_df, pd.DataFrame([new_row])], ignore_index=True)
+    except Exception as e:
+        print(f"Error processing External References from Course info: {e}")
+
     try:
         _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
         outline_stage = course_info_df.loc[0, 'Outline Stage'] if 'Outline Stage' in course_info_df.columns else None
@@ -783,17 +805,26 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
     """
     # Load the sheets and df
     print("Loading the sheets...")
-    videos_research_sheet, videos_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = video_research_sheet_name)
-    video_chunks_sheet, video_chunks_df = get_sheet_data_and_df(sheet = sheet, sheet_name = video_chunk_sheet_name)
+    videos_research_sheet, videos_research_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = video_research_sheet_name)
+    video_chunks_sheet, video_chunks_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = video_chunk_sheet_name)
     # client_reference_sheet, client_reference_df = get_sheet_data_and_df(sheet = sheet, sheet_name = client_reference_sheet_name)
-    preliminary_research_sheet, preliminary_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = web_research_sheet_name)
-    deep_research_sheet, deep_research_df = get_sheet_data_and_df(sheet = sheet, sheet_name = deep_research_sheet_name)
+    preliminary_research_sheet, preliminary_research_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = web_research_sheet_name)
+    deep_research_sheet, deep_research_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = deep_research_sheet_name)
     topic_outline_sheet, topic_outline_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_outline_sheet_name)
     topic_deep_research_sheet, topic_deep_research_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = topic_deep_research_sheet_name)
 
     # If video chunks df is empty, create an empty DataFrame
     if video_chunks_df.empty:
         video_chunks_df = pd.DataFrame(columns = ['video_id'])
+
+    # Defensive fallbacks so downstream list_*_references functions can filter safely
+    # when a research section was skipped and its sheet doesn't exist.
+    if videos_research_df.empty:
+        videos_research_df = pd.DataFrame(columns = ['video_id', 'video_url', 'title', 'Manual Review'])
+    if preliminary_research_df.empty:
+        preliminary_research_df = pd.DataFrame(columns = ['article', 'query', 'learning_objectives'])
+    if deep_research_df.empty:
+        deep_research_df = pd.DataFrame(columns = ['subtopic_query', 'source'])
 
     # Enlist the sources from all sheets in a single sheet
     references_sheet, references_df = list_references(sheet, videos_research_df, video_chunks_df, None, preliminary_research_df, deep_research_df, topic_deep_research_df if not topic_deep_research_df.empty else pd.DataFrame(), topic_outline_df if not topic_outline_df.empty else pd.DataFrame())
@@ -809,7 +840,7 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
             if row["chunks_0"] != "":
                 continue
 
-            if row.get("source_origin", "") == "References":
+            if row.get("source_origin", "") in ("References", "External References"):
                 if row["reference_type"] == "Youtube Video":
                     future = executor.submit(
                         get_yt_chapters_chunks_as_docs,
@@ -905,8 +936,8 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
                             col_base_name='chunks',
                             chunk_size=49000
                         )
-                        # Update the Title for Base Outline references
-                        if references_df.at[index, 'source_origin'] == 'References' and len(docs) > 0:
+                        # Update the Title for Base Outline / External references
+                        if references_df.at[index, 'source_origin'] in ('References', 'External References') and len(docs) > 0:
                             # Try to get a title from the first doc's metadata
                             title = docs[0].metadata.get('title', '') if hasattr(docs[0], 'metadata') else ''
                             if not title:

@@ -36,12 +36,20 @@ st.markdown("## Video Search Tool")
 st.markdown(
     "Search HVAC videos by **transcript** or by **visuals** in **HVAC School** & **Love2HVAC with Ty** YouTube channels."
 )
-tab_transcript, tab_visuals = st.tabs(["Search by transcript", "Search by visuals"])
+tab_visuals, tab_transcript = st.tabs(["Search by visuals", "Search by transcript"])
 
 with tab_visuals:
+    st.caption(
+        "Search using visual content — find videos by matching frames and visuals. "
+        "You can query with text, an image, or a video clip."
+    )
     render_hvac_visual_search(drive)
 
 with tab_transcript:
+    st.caption(
+        "Search using spoken content — find videos by matching words and phrases "
+        "from the video transcripts."
+    )
     # --------------------- Roles & Task Selection --------------------- #
     if "role" not in st.session_state:
         st.session_state.role = None
@@ -58,7 +66,12 @@ with tab_transcript:
     else:
         task_options = ["Search Videos"]
 
-    task = st.selectbox("Choose a task:", task_options) if task_options else None
+    if len(task_options) > 1:
+        task = st.selectbox("Choose a task:", task_options)
+    elif task_options:
+        task = task_options[0]
+    else:
+        task = None
 
     # --------------------- Google Sheet Input --------------------- #
     sheet = None
@@ -165,25 +178,24 @@ with tab_transcript:
 
     # --------------------- Task: Search Videos --------------------- #
     elif task == "Search Videos":
-        st.markdown("#### Search HVAC Videos")
+        # st.markdown("#### Search HVAC Videos")
         query = st.text_input(
             "Enter search query (e.g., 'refrigeration cycle')", placeholder="Type your query here"
         )
         num_results = st.number_input("Number of videos to retrieve", min_value=1, max_value=20, value=5, step=1)
 
         filters = {}
-        with st.expander("Apply Filters (Optional)"):
-            st.caption("Filter videos by channel")
-            channel_filter = st.selectbox(
-                "Channel",
-                options=["All", "HVAC School", "LOVE2HVAC with Ty Branaman"],
-            )
-            if channel_filter and channel_filter != "All":
+        channel_filter = st.selectbox(
+            "Channel",
+            options=["All", "HVAC School", "LOVE2HVAC with Ty Branaman"],
+        )
+        if channel_filter and channel_filter != "All":
                 filters["channel"] = channel_filter
 
-        use_agent = st.toggle("Agent Mode", value=False)
+        # use_agent = st.toggle("Agent Mode", value=False)
+        use_agent = False
 
-        if st.button("Run Video Search"):
+        if st.button("Search", type="primary"):
             if not query:
                 st.warning("Please enter a search query.")
             else:

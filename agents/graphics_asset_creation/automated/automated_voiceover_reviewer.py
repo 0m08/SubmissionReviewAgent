@@ -257,7 +257,8 @@ def review_and_edit_image(
     visual_instruction: str = "",
     image_size: str = "1K",
     callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-    target_stage: str = "full"
+    target_stage: str = "full",
+    skip_accuracy_validation: bool = False
 ) -> tuple[VoiceoverReviewResult, Optional[Image.Image], list]:
     """
     Orchestrator: Review and Edit workflow using separate agent sessions.
@@ -564,65 +565,68 @@ Set verdict to 'No' if any CRITICAL technical errors remain, and provide specifi
             
             if v_verdict == "yes":
                 # D.5 Secondary validation (Agent2) - Only run as a safety gate for YES verdicts
-                print("🔍 Running technical accuracy validation check (Safety Gate)...")
-                validator_context = (
-                    f"Slide Title: {slide_title}\n"
-                    f"Slide Content: {slide_content}\n"
-                    f"Voiceover: {voiceover}\n"
-                    f"Visual Instruction: {visual_instruction}"
-                )
-                agent2_validation = _run_agent2_accuracy_validation(
-                    reference_image=reference_image,
-                    output_image=current_image,
-                    context=validator_context,
-                )
-
-                if agent2_validation["error"]:
-                    print(f"⚠️ Agent2 validation skipped due to error: {agent2_validation['error']}")
-                else:
-                    agent2_result = agent2_validation["result"]
-                    print(
-                        "✅ Agent2 validation complete | "
-                        f"passed={agent2_result.validation_passed} | "
-                        f"inaccuracies_found={agent2_result.inaccuracies_found} | "
-                        f"inaccuracies_corrected={agent2_result.inaccuracies_corrected}"
+                if not skip_accuracy_validation:
+                    print("🔍 Running technical accuracy validation check (Safety Gate)...")
+                    validator_context = (
+                        f"Slide Title: {slide_title}\n"
+                        f"Slide Content: {slide_content}\n"
+                        f"Voiceover: {voiceover}\n"
+                        f"Visual Instruction: {visual_instruction}"
+                    )
+                    agent2_validation = _run_agent2_accuracy_validation(
+                        reference_image=reference_image,
+                        output_image=current_image,
+                        context=validator_context,
                     )
 
-                    # Safety net: prevent false-positive YES from accuracy reviewer.
-                    if (
-                        not agent2_result.validation_passed
-                        or getattr(agent2_result, "inaccuracies_found", 0) > 0
-                    ):
+                    if agent2_validation["error"]:
+                        print(f"⚠️ Agent2 validation skipped due to error: {agent2_validation['error']}")
+                    else:
+                        agent2_result = agent2_validation["result"]
                         print(
-                            "⚠️ Agent2 found technical inaccuracies after a YES verdict. "
-                            "Overriding verdict to NO and routing through normal edit path."
+                            "✅ Agent2 validation complete | "
+                            f"passed={agent2_result.validation_passed} | "
+                            f"inaccuracies_found={agent2_result.inaccuracies_found} | "
+                            f"inaccuracies_corrected={agent2_result.inaccuracies_corrected}"
                         )
 
-                        synthesized_notes = agent2_validation["correction_instructions"][:3]
-                        synthesized_text = " | ".join(synthesized_notes)
-
-                        # Update verdict/analysis/instructions while preserving existing structure.
-                        review_result.verdict = "No"
-                        review_result.analysis = (
-                            (review_result.analysis or "")
-                            + "\n\n[Agent2 Validation] "
-                            + f"Detected {agent2_result.inaccuracies_found} technical inaccuracy(ies). "
-                            + "Applying corrective edit cycle before copyright review."
-                        )
-                        if synthesized_text:
-                            existing = review_result.recommended_instructions.additional_comments or ""
-                            review_result.recommended_instructions.additional_comments = (
-                                (existing + "\n" if existing else "")
-                                + "Agent2 corrective instructions: "
-                                + synthesized_text
+                        # Safety net: prevent false-positive YES from accuracy reviewer.
+                        if (
+                            not agent2_result.validation_passed
+                            or getattr(agent2_result, "inaccuracies_found", 0) > 0
+                        ):
+                            print(
+                                "⚠️ Agent2 found technical inaccuracies after a YES verdict. "
+                                "Overriding verdict to NO and routing through normal edit path."
                             )
 
-                        print(
-                            "🛠 Injected Agent2 correction hints into accuracy instructions "
-                            "(additional_comments)."
-                        )
-                        # Re-calculate verdict after override
-                        v_verdict = "no"
+                            synthesized_notes = agent2_validation["correction_instructions"][:3]
+                            synthesized_text = " | ".join(synthesized_notes)
+
+                            # Update verdict/analysis/instructions while preserving existing structure.
+                            review_result.verdict = "No"
+                            review_result.analysis = (
+                                (review_result.analysis or "")
+                                + "\n\n[Agent2 Validation] "
+                                + f"Detected {agent2_result.inaccuracies_found} technical inaccuracy(ies). "
+                                + "Applying corrective edit cycle before copyright review."
+                            )
+                            if synthesized_text:
+                                existing = review_result.recommended_instructions.additional_comments or ""
+                                review_result.recommended_instructions.additional_comments = (
+                                    (existing + "\n" if existing else "")
+                                    + "Agent2 corrective instructions: "
+                                    + synthesized_text
+                                )
+
+                            print(
+                                "🛠 Injected Agent2 correction hints into accuracy instructions "
+                                "(additional_comments)."
+                            )
+                            # Re-calculate verdict after override
+                            v_verdict = "no"
+                else:
+                    print("⏩ Skipping technical accuracy validation check (Agent2) as requested.")
 
                 # Check verdict again in case Agent2 overrode it to 'no'
                 if v_verdict == "yes":
