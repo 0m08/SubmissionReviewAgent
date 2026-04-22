@@ -43,14 +43,17 @@ def semantic_chunker(text, chunk_size = 2000):
         )
         chunks = semantic.chunk(text)
         return [{"text": chunk.text} for chunk in chunks]
-    except (ImportError, ValueError, RuntimeError) as e:
+    except (ImportError, ValueError, RuntimeError, TypeError) as e:
         err = str(e).lower()
         if any(
             s in err
             for s in (
                 "sentence_transformers",
                 "sentence transformer",
+                "sentencetransformer",
                 "chonkie[st]",
+                "failed to load embeddings",
+                "unexpected keyword argument",
             )
         ):
             logger.warning(

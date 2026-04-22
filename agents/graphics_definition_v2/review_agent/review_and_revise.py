@@ -23,6 +23,7 @@ from services.sheets_service import (
     save_to_sheet,
     format_worksheet,
     clear_worksheet,
+    hide_columns_by_name,
 )
 from services.smart_progress_bar import SmartProgressBar
 from services.helper_functions import build_video_part
@@ -74,16 +75,12 @@ from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all
     parse_video_items_from_pool_other_channels,
 )
 
-from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
-        _get_youtube_api_key,
-        run_aggregation_agent_for_all_rows,
-        validate_youtube_clip_links_for_row,
-)
-
 load_dotenv()
 
 MAX_REVIEW_ATTEMPTS = 1
 MAX_REGEN_ATTEMPTS = 2
+REGEN_IMAGE_SEARCH_K = 4
+REGEN_VIDEO_SEARCH_K = 3
 
 
 # Alingment prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -131,6 +128,7 @@ Follow the below evaluation rules to guide your evaluation:
 2) What counts as PASS for a segment
    - The assigned visual(s) clearly show what is described by its respective voiceover sentence.
    - The visual(s) match the specific meaning of the segment as spoken, not just the general topic of the slide.
+   - The visual should be specific and clear enough that the exact object/action/detail in the segment is easy to identify without guesswork.
    - For segments that are part of a split sentence (e.g., lists or continuations), the visual must correctly represent the specific item or clause being spoken in that segment.
    - If multiple visuals are assigned to a segment, together they must fully support the segment’s meaning without introducing confusion or contradiction.
    - A learner should be able to understand what the voiceover segment is referring to by looking at the assigned visual(s) at that moment.
@@ -139,6 +137,7 @@ Follow the below evaluation rules to guide your evaluation:
    A segment FAILS if any one of the following is true:
    - The visual shows something different than what the voiceover segment describes.
    - The visual is generic, symbolic, or only loosely related, and does not clearly illustrate the specific meaning of the segment.
+   - The visual is too vague, distant, cluttered, or unclear to confidently identify the exact detail being referenced.
    - The visual represents the general topic but not the specific clause or item being spoken in that segment.
    - The visual contradicts the voiceover or implies a different instructional idea.
    - The assigned visual(s) do not provide enough visual evidence for a learner to understand the segment at that moment.
@@ -262,6 +261,7 @@ Follow the below evaluation rules to guide your evaluation:
 2) What counts as PASS for the slide
    - The assigned visual clearly shows what is described by the slide content.
    - The visual matches the specific meaning of the slide as spoken, not just the general topic of the slide.
+   - The visual should be specific and clear enough that the exact object/action/detail in the slide is identifiable without guesswork.
    - The visual does not contradict the slide content or implies a different instructional idea.
    - The assigned visual provides enough visual evidence for a learner to understand the intended meaning of the slide.
    - The visual asset is usable (not missing, broken, or non-loadable).
@@ -270,6 +270,7 @@ Follow the below evaluation rules to guide your evaluation:
    The slide FAILS if any one of the following is true:
    - The visual shows something different than what the slide content describes.
    - The visual is generic, symbolic, or only loosely related, and does not clearly illustrate the main intended meaning for the slide.
+   - The visual is too vague, distant, cluttered, or unclear to confidently identify the key detail being referenced.
    - The visual contradicts the slide content or implies a different instructional idea.
    - The assigned visual does not provide enough visual evidence for a learner to understand the slide.
    - The visual asset is unusable (missing, broken, or non-loadable).
@@ -342,13 +343,13 @@ PASS|FAIL
 """
 
 
-# Specificity review prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
-SPECIFICITY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
+# Segmentation quality review prompt for flexible visual assignment strategy
+SEGMENTATION_QUALITY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
 
-Criterion: Visual Specificity and Clarity
+Criterion: Narration-to-Visual Segmentation Quality
 
 Definition:
-For the given slide, verify that the assigned visual(s) for the given voiceover segment(s) show the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the voiceover is referring to at that moment.
+For the given slide, evaluate whether the way visuals are segmented and assigned across voiceover segments is instructionally efficient, coherent, and necessary. The goal is to ensure visuals are neither over-fragmented nor redundantly split, and that each assigned visual step meaningfully contributes to learner understanding at the exact narration moment.
 
 Inputs:
 These are the inputs for your evaluation:
@@ -371,184 +372,76 @@ These are the voiceover segments of this slide and the assigned visuals for each
 {review_targets}
 </review_targets>
 
-Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
+Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respective voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respective voiceover text), and so on.
 
 Instructions:
 Follow the below evaluation rules to guide your evaluation:
 
 1) Scope
-   - Review each voiceover segment independently as the primary evaluation unit.
-   - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
-   - You may use the full slide content and the sequence of voiceover segments to understand the intended meaning of a segment.
-   - When interpreting any part of the voiceover sentences, you must use the surrounding text in the slide content to understand the context and the instructional intent. Do not interpret a sentence, phrase or a clause literally in isolation. Always derive the meaning of a sentence, phrase or a clause from the surrounding text in the slide content.
-   - Judge specificity and clarity only between that segment's intended meaning and the visuals explicitly assigned to it.
-   - Use only the provided assets and voiceover text; do not assume missing context beyond what is present in the slide.
-   - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
+   - Review the full slide at once, while judging segmentation quality at the segment level and visual-step level.
+   - Evaluate how visuals are partitioned across each voiceover segment and within each segment's voiceover parts.
+   - Use the full slide content and voiceover sequence to interpret context, continuity, references, and instructional intent.
+   - Use only the provided voiceover and assigned visuals; do not assume missing context.
+   - Use Visual IDs when reporting failures.
 
-2) What counts as PASS for a segment
-   - The visual clearly shows the exact component, part, action, condition, or detail referenced in the voiceover segment.
-   - The visual removes ambiguity and does not require guesswork from the learner.
-   - If multiple visuals are assigned, together they provide sufficient clarity to identify the exact thing being described for the voiceover segment.
-   - A learner should be able to confidently point to the relevant detail in the visual while the voiceover is playing.
+2) What counts as PASS for segmentation quality
+   - The number of visual steps assigned to each segment is instructionally justified.
+   - Additional visual steps are used only when the narration clearly requires a different visual focus (for example: a clear subject change, a genuinely different process/state, or a distinct visual requirement that cannot be shown clearly in one visual).
+   - Visual steps are not split at a micro clause level without instructional need.
+   - Visual transitions are coherent with narration flow and do not create unnecessary cognitive load.
+   - No visual step is redundant, duplicate in intent, or unnecessarily repetitive within the same segment.
+   - The overall segmentation is efficient: enough granularity for clarity, but not fragmented.
 
-3) What counts as FAIL for a segment
-   A segment FAILS if any one of the following is true:
-   - The visual is too generic or vague.
-   - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the segment.
-   - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
-   - The visual asset is unusable (missing, broken, or non-loadable).
+3) What counts as FAIL for segmentation quality
+   A failure exists if any one of the following is true:
+   - A segment is over-segmented into multiple visuals where one visual would sufficiently support the full sentence/idea.
+   - Two or more visual steps in the same segment represent essentially the same visual intent without adding meaningful instructional value.
+   - A visual step is unnecessary and can be removed without reducing learner understanding.
+   - A split introduces avoidable fragmentation (for example, clause-by-clause splitting) that harms instructional coherence.
+   - Visual sequencing for a segment is structurally inefficient (too many transitions for no real gain in clarity).
+   - A specific visual is weak and should be replaced, but the segmentation structure itself can remain.
 
-4) Slide-Level Verdict
-   - The slide receives a PASS only if all voiceover segments PASS.
-   - If any single segment FAILS, the entire slide verdict must be FAIL.
-   - Be extremely strict and critical in your evaluation to ensure that the visuals are correctly specific and clear.
-   
-5) Failure Reporting Requirements
-   For every failed visual, you MUST:
-   - Identify the voiceover segment ID
-   - Quote the exact voiceover text
-   - List the failing Visual ID
-   - Clearly state why the visual lacks sufficient specificity or clarity for the voiceover
-   - Describe the specific visual requirements that would be required for the segment to PASS
+4) Allowed action types for failures
+   For each failure you report, you MUST choose exactly one action_type from the following:
+   - MERGE_VISUALS:
+     Use when two or more visuals in the same segment should be merged into one retained visual because the split is unnecessary.
+   - REPLACE_VISUAL:
+     Use only when the visual itself is unsuitable and must be replaced.
+
+5) Action selection rules
+   - Prefer MERGE_VISUALS when multiple visuals are structurally redundant and one retained visual can carry the intended meaning.
+   - Use REPLACE_VISUAL only when structural operation (MERGE_VISUALS) cannot solve the failure.
+   - Do not use REPLACE_VISUAL for pure quality/style/alignment issues that are outside segmentation structure.
+   - Do not report multiple action types inside one <failure> block.
+   - If multiple independent failures exist, provide multiple <failure> blocks.
+
+6) Slide-level verdict logic
+   - The slide receives PASS only if no segmentation-quality failures are found.
+   - If any one segmentation-quality failure exists, the slide verdict must be FAIL.
+   - Be strict and critical. Do not pass fragmented structures just because visuals are loosely relevant.
+
+7) Failure reporting requirements
+   For each failed case, you MUST:
+   - Identify the segment ID
+   - Provide the exact voiceover text for that segment
+   - Set one action_type (MERGE_VISUALS | REPLACE_VISUAL)
+   - Provide target Visual ID(s)
+   - For MERGE_VISUALS, provide retain_visual_id (must be one of the target Visual IDs)
+   - Explain clearly why this is a segmentation-quality failure
+   - For REPLACE_VISUAL only, provide needed_change describing the visual requirement needed for this criterion
 
 Output Format:
 Always provide your output strictly in the following format:
 
 <evaluation_breakdown>
 
-Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
+Use this section as a structured reasoning and scratchpad space to evaluate narration-to-visual segmentation quality for the slide.
 
-- Slide Understanding: State in your own words what the slide is about and what the voiceover segments are trying to convey.
-- Review of the assigned visuals: For each segment, list the assigned Visual IDs and briefly describe what is visibly shown in each visual (image or video).
-- Visual Specificity Analysis: For each segment, analyze whether the assigned visuals show the required specific detail clearly and unambiguously. Consider whether a learner can easily identify the exact thing being referenced without guessing, inference, or prior knowledge.
-- Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
-
-(It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
-
-</evaluation_breakdown>
-
-(Based on your above evaluation, provide your output in the following format)
-
-<review>
-
-<verdict>
-PASS|FAIL
-</verdict> 
-
-(If the slide verdict is FAIL, provide the details of the failed segments in the following format)
-<failures>
-
-<failure>
-<segment_id>
-(Provide the segment number of the failed segment. e.g. SEGMENT 1)
-</segment_id>
-
-<vo_text>
-(Provide the exact portion of voiceover text that is not clearly or specifically supported by this visual.)
-</vo_text>
-
-<failing_visual_id>
-(Provide the Visual ID of the assigned visual that lacks sufficient specificity or clarity. e.g. S1V3)
-</failing_visual_id>
-
-<reason>
-(Provide the reason why the assigned visual lacks sufficient specificity or clarity for the voiceover segment.)
-</reason>
-
-<needed_visual>
-(Describe the visual requirements that is needed to correctly support the failed voiceover segment for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
-</needed_visual>
-
-</failure>
-
-Repeat the <failure> block for each failed segment and its corresponding visual id. (Even if multiple visuals within the same segment fail, repeat the <failure> block separately for each failing visual.)
-
-</failures>
-
-</review>
-
-(Use this exact XML format given above while providing your output)
-"""
-
-
-# Specificity review prompt to use when we have 1 visual for the whole slide visual assingment strategy
-SPECIFICITY_REVIEW_PROMPT_FOR_ONE_VISUAL_PER_SLIDE = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
-
-Criterion: Visual Specificity and Clarity
-
-Definition:
-For the given slide, verify that the assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
-
-Inputs:
-These are the inputs for your evaluation:
-
-<course_information>
-Course name: {course_name}
-Target audience: {target_audience}
-Topic name: {topic_name}
-Subtopic name: {subtopic_name}
-</course_information>
-
-<slide_information>
-Slide ID: {slide_id}
-Slide title: {slide_title}
-Slide content: "{slide_chunk}"
-</slide_information>
-
-This is the assigned visual for this whole slide:
-<review_targets>
-{review_targets}
-</review_targets>
-
-Note: Visual IDs follow the format "S(segment_number)V(visual_number)".
-
-Instructions:
-Follow the below evaluation rules to guide your evaluation:
-
-1) Scope
-   - Review the assigned visual for the whole slide.
-   - The assigned visual is displayed on screen as the entire slide content is narrated.
-   - Use the full slide content to understand the intended meaning of the slide.
-   - Judge specificity and clarity only between that slide's intended meaning and the visual explicitly assigned to it.
-   - Use only the provided slide content and the assigned visual; do not assume missing context beyond what is present in the slide.
-   - The visual asset has a Visual ID assigned (for example, S1V1). Use this ID when listing any failures.
-   - IMPORTANT: Know that we have been allowed to assign only one visual asset for this particular slide. So keep that in mind as you evaluate the specificity and clarity of the visual to the slide.
-
-2) What counts as PASS for the slide
-  - The assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
-  - The visual removes ambiguity and does not require guesswork from the learner.
-  - The assigned visual provides enough visual evidence for a learner to understand the intended meaning of the slide.
-  - The visual asset is usable (not missing, broken, or non-loadable).
-
-3) What counts as FAIL for the slide
-   The slide FAILS if any one of the following is true:
-   - The visual is too generic or vague.
-   - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
-   - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
-   - The visual asset is unusable (missing, broken, or non-loadable).
-   
-4) Slide-Level Verdict
-   - The slide receives a PASS only if the assigned visual is PASS for this criteria.
-   - If the assigned visual FAILS, then you must assign a FAIL verdict to the slide.
-
-5) Failure Reporting Requirements
-   If your verdict for the slide is FAIL, you MUST:
-   - List the Segment ID
-   - List the failing Visual ID
-   - Clearly state why the visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
-   - Describe the specific visual requirement that will be required for the slide to PASS.
-
-Output Format:
-Always provide your output strictly in the following format:
-
-<evaluation_breakdown>
-
-Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
-
-- Slide Understanding: State in your own words what the slide is about and what it is trying to convey.
-- Review of the assigned visual: Briefly describe what is visibly shown in the assigned visual.
-- Visual Specificity Analysis: Analyze whether the assigned visual correctly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
-- Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
+- Slide Understanding: State in your own words what the slide is teaching and how narration progresses.
+- Segmentation Map Review: For each segment, list assigned Visual IDs and what is visibly shown in each visual and summarize how visuals are split across voiceover parts.
+- Segmentation Quality Analysis: Analyze where segmentation is efficient vs over-fragmented. Identify redundancy, unnecessary splits, and structural issues.
+- Action Planning: For each identified issue, explain why the best corrective action is MERGE_VISUALS or REPLACE_VISUAL.
+- Additional Analysis: Note any additional observations that support the final verdict and action selection.
 
 (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
 
@@ -562,7 +455,9 @@ Use this section as a structured reasoning and scratchpad space for you to evalu
 PASS|FAIL
 </verdict>
 
-(If the slide verdict is FAIL, provide the details of the failed segment in the following format)
+(If verdict is FAIL, provide failures in the following format)
+
+<failures>
 
 <failure>
 
@@ -571,171 +466,437 @@ PASS|FAIL
 </segment_id>
 
 <vo_text>
-(Provide the entire slide content text as it is.)
+(Provide the exact voiceover text of the failed segment)
 </vo_text>
 
-<failing_visual_id>
-(Provide the Visual ID of the assigned visual. e.g. S1V1)
-</failing_visual_id>
+<action_type>
+MERGE_VISUALS|REPLACE_VISUAL
+</action_type>
+
+<target_visual_ids>
+(Provide one or more Visual IDs that this action applies to, one per line prefixed with "- ")
+- S1V1
+- S1V2
+</target_visual_ids>
+
+<retain_visual_id>
+(Required only when action_type is MERGE_VISUALS. Must be one of the target_visual_ids. Omit this tag for REPLACE_VISUAL.)
+</retain_visual_id>
 
 <reason>
-(Provide the reason why the assigned visual lacks sufficient specificity or clarity for the slide content.)
+(Provide the reason why this is a segmentation-quality failure and why the chosen action_type is appropriate.)
 </reason>
 
-<needed_visual>
-(Describe the visual requirements that is needed to correctly support the slide content for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
-</needed_visual>
+<needed_change>
+(Required only when action_type is REPLACE_VISUAL. Describe the visual requirement needed to make this step pass for segmentation quality. Do not use words like "image" in this section since replacement can be from image or video candidates. Prefer "visual". Omit this tag for MERGE_VISUALS.)
+</needed_change>
 
 </failure>
 
-</review>
-
-(Use this exact XML format given above while providing your output)
-"""
-
-
-REDUNDANCY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
-
-Criterion: Visual Redundancy and Variety
-
-Definition:
-For the given set of slides, verify that a specific visual asset (identified by its URL) is not overly repetitive across voiceover segments and slides without clear instructional reason. Visual reuse is allowed when it supports continuity or learning, but unnecessary or excessive repetition that reduces instructional value or visual engagement should be flagged.
-
-Inputs:
-These are the inputs for your evaluation:
-
-<course_information>
-Course name: {course_name}
-Target audience: {target_audience}
-Topic name: {topic_name}
-</course_information>
-
-This is the visual that has been repeated multiple times:
-<repeated_visual_url>
-{repeated_visual_url}
-</repeated_visual_url>
-
-IMPORTANT: The URL above has been identified as appearing more than 3 times across the slides in this topic. Your task is to evaluate whether this specific visual asset is being used redundantly and whether it should be replaced in some or all of its occurrences.
-
-These are the voiceover segments and assigned visuals across the topic slide group being reviewed.
-<review_targets>
-{review_targets}
-</review_targets>
-
-Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
-
-Instructions:
-Follow the below evaluation rules to guide your evaluation:
-
-1) Scope
-   - Review all voiceover segments listed in <review_targets> together as a group.
-   - Identify all the Visual IDs where the repeated visual URL appears. Examine the respective voiceover texts to which the same repeated visuals are assigned.
-   - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
-   - The scope of review is across multiple slides within a topic and its segments.
-   - You may consider slide order and proximity when judging redundancy (for example, repetition across consecutive or nearby slides).
-   - Use only the provided voiceover text and assigned visuals; do not assume missing context beyond what is provided.
-   - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
-   - Your evaluation should focus specifically on whether the repeated visual URL is being used redundantly and whether it should be replaced in some or all occurrences.
-
-2) What counts as ACCEPTABLE reuse (PASS)
-   The repeated visual asset identified in <repeated_visual_url> is acceptable when:
-   - The same component or object must be shown again for instructional continuity across the segments where it appears.
-   - Reuse reinforces understanding of a key concept that remains the focus across slides.
-   - Reuse clearly serves a learning purpose and does not make the slides feel visually repetitive or lazy.
-   - The repetition is instructionally justified and adds value to the learning experience.
-
-3) What counts as REDUNDANCY (FAIL)
-   The repeated visual asset identified in <repeated_visual_url> FAILS and must be flagged for replacement in some or all occurrences if any one of the following is true:
-   - The same visual asset is reused across multiple slides or segments without clear instructional need.
-   - Consecutive or nearby slides feel visually identical when a different example or view would reasonably improve clarity or engagement.
-   - The repetition does not add new instructional value and could confuse, bore, or disengage the learner.
-   - A different example, view, visual or variation would reasonably improve clarity, engagement, or instructional quality, but the same visual is reused instead.
-   - The visual appears in contexts where different visuals would be more appropriate, even if the repetition serves some instructional purpose.
-
-4) Group-Level Verdict
-   - The group receives a PASS only if no visuals are flagged as needing replacement due to unnecessary or excessive repetition.
-   - If one or more visuals are identified as redundant and requiring replacement, the overall verdict must be FAIL.
-
-4) When to FAIL
-- One or more voiceover part(s) uses a visual that is clearly repetitive with no instructional need.
-- The repetition reduces clarity or engagement when a different visual example should be used.
-
-5) Failure Reporting Requirements
-  For every occurrence of the repeated visual asset (identified in <repeated_visual_url>) that is identified as unnecessarily repetitive and should be replaced, you MUST:
-   - Create a separate <failure> block
-   - Identify the slide and segment where this specific visual asset appears
-   - Quote the exact voiceover text where the visual is used
-   - List the Visual ID that needs replacement (this Visual ID must correspond to the repeated visual URL)
-   - Identify where else the same visual asset (the repeated URL) is being reused and needs to be replaced as well
-   - Clearly explain why the repetition of this specific visual asset is not instructionally justified
-   - Describe what kind of alternative or varied visual should be used instead
-   - Note: You should evaluate each occurrence of the repeated visual individually. Some occurrences may be instructionally justified and acceptable, while others may be redundant and need replacement. However, the overall verdict will be FAIL if ANY occurrence needs replacement, and PASS only if ALL occurrences are acceptable.
-
-Output Format:
-Always provide your output strictly in the following format:
-
-<evaluation_breakdown>
-
-Use this section as a structured reasoning and scratchpad space for you to evaluate visual redundancy and variety for the specific repeated visual asset across all its occurrences.
-
-- Repeated Visual Asset: Confirm the visual asset URL you are evaluating (from <repeated_visual_url>) and describe what is shown in this visual.
-- Slide Group Understanding: Briefly explain what the group of slides and all its voiceover segments is covering instructionally, and then note down what visuals are assigned for each of the voiceover segments by looking at the assigned visuals for each of the voiceover segments.
-- Occurrence Mapping: List all locations (Slide/segment/Visual ID) where the repeated visual asset appears. For each occurrence, note the assigned voiceover text and context.
-- Reuse Analysis: Analyze whether the repetition of this specific visual asset across these locations is instructionally justified or unnecessarily repetitive. Consider:
-  * Whether the same visual is needed for continuity or learning reinforcement
-  * Whether different visuals would improve clarity, engagement, or instructional quality
-  * Whether the repetition makes slides feel visually identical or lazy
-  * The proximity and order of slides where the visual appears
-- Redundancy Judgment: For each occurrence of the repeated visual asset, determine whether it is acceptable (instructionally justified) or needs replacement (redundant). Explain your judgment clearly for each occurrence. Based on these individual judgments, determine the overall verdict: PASS if ALL occurrences are acceptable, FAIL if ANY of the occurrence(s) needs replacement.
-- Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
-
-(It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
-
-</evaluation_breakdown>
-
-(Based on your above evaluation, provide your output in the following format)
-
-<review>
-
-<verdict>
-PASS|FAIL
-</verdict>
-
-(If the slide group verdict is FAIL, provide the details of the failed visuals in the following format)
-
-<failures>
-
-<failure>
-
-<slide_segment_id>
-(Provide the slide and segment identifier where this visual appears, e.g. SLIDE_2_SEGMENT_1)
-</slide_segment_id>
-
-<vo_text>
-(Provide the exact portion of the voiceover text where this visual is used.)
-</vo_text>
-
-<failing_visual_id>
-(Provide the Visual ID that needs to be replaced, e.g. S2V3)
-</failing_visual_id>
-
-<reason>
-Explain why this specific occurrence of the repeated visual asset is unnecessarily repetitive or lacks sufficient variety. Explicitly mention where else this same visual asset appears (for example: another slide ID, segment, or nearby visual) along with the Voiceover text to which it is assigned, and explain why replacing this occurrence is instructionally appropriate. 
-</reason>
-
-<needed_visual>
-(Describe what kind of alternative or varied visual should be used instead. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
-</needed_visual>
-
-</failure>
-
-Repeat one <failure> block per visual that needs to be replaced.
+Repeat one <failure> block per distinct failed case.
 
 </failures>
 
 </review>
-(Use this exact XML format given above while providing your output)
+
+(Use this exact XML format given above while providing your output. Do not provide any additional text outside this format.)
 """
+
+
+# # Specificity review prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
+# SPECIFICITY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
+
+# Criterion: Visual Specificity and Clarity
+
+# Definition:
+# For the given slide, verify that the assigned visual(s) for the given voiceover segment(s) show the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the voiceover is referring to at that moment.
+
+# Inputs:
+# These are the inputs for your evaluation:
+
+# <course_information>
+# Course name: {course_name}
+# Target audience: {target_audience}
+# Topic name: {topic_name}
+# Subtopic name: {subtopic_name}
+# </course_information>
+
+# <slide_information>
+# Slide ID: {slide_id}
+# Slide title: {slide_title}
+# Slide content: "{slide_chunk}"
+# </slide_information>
+
+# These are the voiceover segments of this slide and the assigned visuals for each segment:
+# <review_targets>
+# {review_targets}
+# </review_targets>
+
+# Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
+
+# Instructions:
+# Follow the below evaluation rules to guide your evaluation:
+
+# 1) Scope
+#    - Review each voiceover segment independently as the primary evaluation unit.
+#    - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
+#    - You may use the full slide content and the sequence of voiceover segments to understand the intended meaning of a segment.
+#    - When interpreting any part of the voiceover sentences, you must use the surrounding text in the slide content to understand the context and the instructional intent. Do not interpret a sentence, phrase or a clause literally in isolation. Always derive the meaning of a sentence, phrase or a clause from the surrounding text in the slide content.
+#    - Judge specificity and clarity only between that segment's intended meaning and the visuals explicitly assigned to it.
+#    - Use only the provided assets and voiceover text; do not assume missing context beyond what is present in the slide.
+#    - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
+
+# 2) What counts as PASS for a segment
+#    - The visual clearly shows the exact component, part, action, condition, or detail referenced in the voiceover segment.
+#    - The visual removes ambiguity and does not require guesswork from the learner.
+#    - If multiple visuals are assigned, together they provide sufficient clarity to identify the exact thing being described for the voiceover segment.
+#    - A learner should be able to confidently point to the relevant detail in the visual while the voiceover is playing.
+
+# 3) What counts as FAIL for a segment
+#    A segment FAILS if any one of the following is true:
+#    - The visual is too generic or vague.
+#    - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the segment.
+#    - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
+#    - The visual asset is unusable (missing, broken, or non-loadable).
+
+# 4) Slide-Level Verdict
+#    - The slide receives a PASS only if all voiceover segments PASS.
+#    - If any single segment FAILS, the entire slide verdict must be FAIL.
+#    - Be extremely strict and critical in your evaluation to ensure that the visuals are correctly specific and clear.
+   
+# 5) Failure Reporting Requirements
+#    For every failed visual, you MUST:
+#    - Identify the voiceover segment ID
+#    - Quote the exact voiceover text
+#    - List the failing Visual ID
+#    - Clearly state why the visual lacks sufficient specificity or clarity for the voiceover
+#    - Describe the specific visual requirements that would be required for the segment to PASS
+
+# Output Format:
+# Always provide your output strictly in the following format:
+
+# <evaluation_breakdown>
+
+# Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
+
+# - Slide Understanding: State in your own words what the slide is about and what the voiceover segments are trying to convey.
+# - Review of the assigned visuals: For each segment, list the assigned Visual IDs and briefly describe what is visibly shown in each visual (image or video).
+# - Visual Specificity Analysis: For each segment, analyze whether the assigned visuals show the required specific detail clearly and unambiguously. Consider whether a learner can easily identify the exact thing being referenced without guessing, inference, or prior knowledge.
+# - Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
+
+# (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+
+# </evaluation_breakdown>
+
+# (Based on your above evaluation, provide your output in the following format)
+
+# <review>
+
+# <verdict>
+# PASS|FAIL
+# </verdict> 
+
+# (If the slide verdict is FAIL, provide the details of the failed segments in the following format)
+# <failures>
+
+# <failure>
+# <segment_id>
+# (Provide the segment number of the failed segment. e.g. SEGMENT 1)
+# </segment_id>
+
+# <vo_text>
+# (Provide the exact portion of voiceover text that is not clearly or specifically supported by this visual.)
+# </vo_text>
+
+# <failing_visual_id>
+# (Provide the Visual ID of the assigned visual that lacks sufficient specificity or clarity. e.g. S1V3)
+# </failing_visual_id>
+
+# <reason>
+# (Provide the reason why the assigned visual lacks sufficient specificity or clarity for the voiceover segment.)
+# </reason>
+
+# <needed_visual>
+# (Describe the visual requirements that is needed to correctly support the failed voiceover segment for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
+# </needed_visual>
+
+# </failure>
+
+# Repeat the <failure> block for each failed segment and its corresponding visual id. (Even if multiple visuals within the same segment fail, repeat the <failure> block separately for each failing visual.)
+
+# </failures>
+
+# </review>
+
+# (Use this exact XML format given above while providing your output)
+# """
+
+
+# # Specificity review prompt to use when we have 1 visual for the whole slide visual assingment strategy
+# SPECIFICITY_REVIEW_PROMPT_FOR_ONE_VISUAL_PER_SLIDE = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
+
+# Criterion: Visual Specificity and Clarity
+
+# Definition:
+# For the given slide, verify that the assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
+
+# Inputs:
+# These are the inputs for your evaluation:
+
+# <course_information>
+# Course name: {course_name}
+# Target audience: {target_audience}
+# Topic name: {topic_name}
+# Subtopic name: {subtopic_name}
+# </course_information>
+
+# <slide_information>
+# Slide ID: {slide_id}
+# Slide title: {slide_title}
+# Slide content: "{slide_chunk}"
+# </slide_information>
+
+# This is the assigned visual for this whole slide:
+# <review_targets>
+# {review_targets}
+# </review_targets>
+
+# Note: Visual IDs follow the format "S(segment_number)V(visual_number)".
+
+# Instructions:
+# Follow the below evaluation rules to guide your evaluation:
+
+# 1) Scope
+#    - Review the assigned visual for the whole slide.
+#    - The assigned visual is displayed on screen as the entire slide content is narrated.
+#    - Use the full slide content to understand the intended meaning of the slide.
+#    - Judge specificity and clarity only between that slide's intended meaning and the visual explicitly assigned to it.
+#    - Use only the provided slide content and the assigned visual; do not assume missing context beyond what is present in the slide.
+#    - The visual asset has a Visual ID assigned (for example, S1V1). Use this ID when listing any failures.
+#    - IMPORTANT: Know that we have been allowed to assign only one visual asset for this particular slide. So keep that in mind as you evaluate the specificity and clarity of the visual to the slide.
+
+# 2) What counts as PASS for the slide
+#   - The assigned visual clearly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
+#   - The visual removes ambiguity and does not require guesswork from the learner.
+#   - The assigned visual provides enough visual evidence for a learner to understand the intended meaning of the slide.
+#   - The visual asset is usable (not missing, broken, or non-loadable).
+
+# 3) What counts as FAIL for the slide
+#    The slide FAILS if any one of the following is true:
+#    - The visual is too generic or vague.
+#    - The visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
+#    - The framing is too distant, obstructed, cluttered, or unfocused to identify the required detail.
+#    - The visual asset is unusable (missing, broken, or non-loadable).
+   
+# 4) Slide-Level Verdict
+#    - The slide receives a PASS only if the assigned visual is PASS for this criteria.
+#    - If the assigned visual FAILS, then you must assign a FAIL verdict to the slide.
+
+# 5) Failure Reporting Requirements
+#    If your verdict for the slide is FAIL, you MUST:
+#    - List the Segment ID
+#    - List the failing Visual ID
+#    - Clearly state why the visual does not clearly show the specific part, action, condition, detail, etc. mentioned in the slide content.
+#    - Describe the specific visual requirement that will be required for the slide to PASS.
+
+# Output Format:
+# Always provide your output strictly in the following format:
+
+# <evaluation_breakdown>
+
+# Use this section as a structured reasoning and scratchpad space for you to evaluate visual specificity and clarity for the slide.
+
+# - Slide Understanding: State in your own words what the slide is about and what it is trying to convey.
+# - Review of the assigned visual: Briefly describe what is visibly shown in the assigned visual.
+# - Visual Specificity Analysis: Analyze whether the assigned visual correctly shows the correct object, component, action, condition, etc. with enough visual detail, focus, and clarity for a learner to easily identify exactly what the slide is trying to convey.
+# - Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
+
+# (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+
+# </evaluation_breakdown>
+
+# (Based on your above evaluation, provide your output in the following format)
+
+# <review>
+
+# <verdict>
+# PASS|FAIL
+# </verdict>
+
+# (If the slide verdict is FAIL, provide the details of the failed segment in the following format)
+
+# <failure>
+
+# <segment_id>
+# (Provide the segment number of the failed segment. e.g. SEGMENT 1)
+# </segment_id>
+
+# <vo_text>
+# (Provide the entire slide content text as it is.)
+# </vo_text>
+
+# <failing_visual_id>
+# (Provide the Visual ID of the assigned visual. e.g. S1V1)
+# </failing_visual_id>
+
+# <reason>
+# (Provide the reason why the assigned visual lacks sufficient specificity or clarity for the slide content.)
+# </reason>
+
+# <needed_visual>
+# (Describe the visual requirements that is needed to correctly support the slide content for this criteria. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
+# </needed_visual>
+
+# </failure>
+
+# </review>
+
+# (Use this exact XML format given above while providing your output)
+# """
+
+
+# REDUNDANCY_REVIEW_PROMPT = """You are a Graphics Definition Review Agent specializing in the field of HVAC.
+
+# Criterion: Visual Redundancy and Variety
+
+# Definition:
+# For the given set of slides, verify that a specific visual asset (identified by its URL) is not overly repetitive across voiceover segments and slides without clear instructional reason. Visual reuse is allowed when it supports continuity or learning, but unnecessary or excessive repetition that reduces instructional value or visual engagement should be flagged.
+
+# Inputs:
+# These are the inputs for your evaluation:
+
+# <course_information>
+# Course name: {course_name}
+# Target audience: {target_audience}
+# Topic name: {topic_name}
+# </course_information>
+
+# This is the visual that has been repeated multiple times:
+# <repeated_visual_url>
+# {repeated_visual_url}
+# </repeated_visual_url>
+
+# IMPORTANT: The URL above has been identified as appearing more than 3 times across the slides in this topic. Your task is to evaluate whether this specific visual asset is being used redundantly and whether it should be replaced in some or all of its occurrences.
+
+# These are the voiceover segments and assigned visuals across the topic slide group being reviewed.
+# <review_targets>
+# {review_targets}
+# </review_targets>
+
+# Note: Visual IDs follow the format "S(segment_number)V(visual_number)". For example, "S1V3" means Segment 1, Visual 3 (the third visual assigned to segment 1 for its respecitve voiceover text), "S2V1" means Segment 2, Visual 1 (the first visual assigned to segment 2 for its respecitve voiceover text) and so on.
+
+# Instructions:
+# Follow the below evaluation rules to guide your evaluation:
+
+# 1) Scope
+#    - Review all voiceover segments listed in <review_targets> together as a group.
+#    - Identify all the Visual IDs where the repeated visual URL appears. Examine the respective voiceover texts to which the same repeated visuals are assigned.
+#    - The assigned visuals are displayed on screen as the voiceover text for that segment is played/narrated.
+#    - The scope of review is across multiple slides within a topic and its segments.
+#    - You may consider slide order and proximity when judging redundancy (for example, repetition across consecutive or nearby slides).
+#    - Use only the provided voiceover text and assigned visuals; do not assume missing context beyond what is provided.
+#    - Each visual asset has a Visual ID (for example, S2V1). Use these IDs when listing any failures.
+#    - Your evaluation should focus specifically on whether the repeated visual URL is being used redundantly and whether it should be replaced in some or all occurrences.
+
+# 2) What counts as ACCEPTABLE reuse (PASS)
+#    The repeated visual asset identified in <repeated_visual_url> is acceptable when:
+#    - The same component or object must be shown again for instructional continuity across the segments where it appears.
+#    - Reuse reinforces understanding of a key concept that remains the focus across slides.
+#    - Reuse clearly serves a learning purpose and does not make the slides feel visually repetitive or lazy.
+#    - The repetition is instructionally justified and adds value to the learning experience.
+
+# 3) What counts as REDUNDANCY (FAIL)
+#    The repeated visual asset identified in <repeated_visual_url> FAILS and must be flagged for replacement in some or all occurrences if any one of the following is true:
+#    - The same visual asset is reused across multiple slides or segments without clear instructional need.
+#    - Consecutive or nearby slides feel visually identical when a different example or view would reasonably improve clarity or engagement.
+#    - The repetition does not add new instructional value and could confuse, bore, or disengage the learner.
+#    - A different example, view, visual or variation would reasonably improve clarity, engagement, or instructional quality, but the same visual is reused instead.
+#    - The visual appears in contexts where different visuals would be more appropriate, even if the repetition serves some instructional purpose.
+
+# 4) Group-Level Verdict
+#    - The group receives a PASS only if no visuals are flagged as needing replacement due to unnecessary or excessive repetition.
+#    - If one or more visuals are identified as redundant and requiring replacement, the overall verdict must be FAIL.
+
+# 4) When to FAIL
+# - One or more voiceover part(s) uses a visual that is clearly repetitive with no instructional need.
+# - The repetition reduces clarity or engagement when a different visual example should be used.
+
+# 5) Failure Reporting Requirements
+#   For every occurrence of the repeated visual asset (identified in <repeated_visual_url>) that is identified as unnecessarily repetitive and should be replaced, you MUST:
+#    - Create a separate <failure> block
+#    - Identify the slide and segment where this specific visual asset appears
+#    - Quote the exact voiceover text where the visual is used
+#    - List the Visual ID that needs replacement (this Visual ID must correspond to the repeated visual URL)
+#    - Identify where else the same visual asset (the repeated URL) is being reused and needs to be replaced as well
+#    - Clearly explain why the repetition of this specific visual asset is not instructionally justified
+#    - Describe what kind of alternative or varied visual should be used instead
+#    - Note: You should evaluate each occurrence of the repeated visual individually. Some occurrences may be instructionally justified and acceptable, while others may be redundant and need replacement. However, the overall verdict will be FAIL if ANY occurrence needs replacement, and PASS only if ALL occurrences are acceptable.
+
+# Output Format:
+# Always provide your output strictly in the following format:
+
+# <evaluation_breakdown>
+
+# Use this section as a structured reasoning and scratchpad space for you to evaluate visual redundancy and variety for the specific repeated visual asset across all its occurrences.
+
+# - Repeated Visual Asset: Confirm the visual asset URL you are evaluating (from <repeated_visual_url>) and describe what is shown in this visual.
+# - Slide Group Understanding: Briefly explain what the group of slides and all its voiceover segments is covering instructionally, and then note down what visuals are assigned for each of the voiceover segments by looking at the assigned visuals for each of the voiceover segments.
+# - Occurrence Mapping: List all locations (Slide/segment/Visual ID) where the repeated visual asset appears. For each occurrence, note the assigned voiceover text and context.
+# - Reuse Analysis: Analyze whether the repetition of this specific visual asset across these locations is instructionally justified or unnecessarily repetitive. Consider:
+#   * Whether the same visual is needed for continuity or learning reinforcement
+#   * Whether different visuals would improve clarity, engagement, or instructional quality
+#   * Whether the repetition makes slides feel visually identical or lazy
+#   * The proximity and order of slides where the visual appears
+# - Redundancy Judgment: For each occurrence of the repeated visual asset, determine whether it is acceptable (instructionally justified) or needs replacement (redundant). Explain your judgment clearly for each occurrence. Based on these individual judgments, determine the overall verdict: PASS if ALL occurrences are acceptable, FAIL if ANY of the occurrence(s) needs replacement.
+# - Additional Analysis: Note any additional observations, thoughts or analysis that can help you arrive at the correct output and verdict.
+
+# (It is ok for this section to be quite verbose, long and detailed as long as it helps you arrive at the correct output.)
+
+# </evaluation_breakdown>
+
+# (Based on your above evaluation, provide your output in the following format)
+
+# <review>
+
+# <verdict>
+# PASS|FAIL
+# </verdict>
+
+# (If the slide group verdict is FAIL, provide the details of the failed visuals in the following format)
+
+# <failures>
+
+# <failure>
+
+# <slide_segment_id>
+# (Provide the slide and segment identifier where this visual appears, e.g. SLIDE_2_SEGMENT_1)
+# </slide_segment_id>
+
+# <vo_text>
+# (Provide the exact portion of the voiceover text where this visual is used.)
+# </vo_text>
+
+# <failing_visual_id>
+# (Provide the Visual ID that needs to be replaced, e.g. S2V3)
+# </failing_visual_id>
+
+# <reason>
+# Explain why this specific occurrence of the repeated visual asset is unnecessarily repetitive or lacks sufficient variety. Explicitly mention where else this same visual asset appears (for example: another slide ID, segment, or nearby visual) along with the Voiceover text to which it is assigned, and explain why replacing this occurrence is instructionally appropriate. 
+# </reason>
+
+# <needed_visual>
+# (Describe what kind of alternative or varied visual should be used instead. Don't use words like "image" in this section since we are going to replace the faulty visual from a pool of image as well as video candidates. So prefer words like "visual" instead.)
+# </needed_visual>
+
+# </failure>
+
+# Repeat one <failure> block per visual that needs to be replaced.
+
+# </failures>
+
+# </review>
+# (Use this exact XML format given above while providing your output)
+# """
 
 
 # Revision prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -1128,7 +1289,7 @@ Instructions:
    - Ensure each query adds value.
    - Queries should not be near-duplicates of each other.
    - Each query should represent a slightly different but relevant visual angle.
-   - Generate 1-4 search queries and ensure that collectively, all the queries cover all distinct visual requirements implied by all the given feedback.
+   - Generate exactly 3 search queries and ensure that collectively, all the queries cover all distinct visual requirements implied by all the given feedback.
 
 Output Format:
 
@@ -1156,7 +1317,7 @@ Always provide your output strictly in the following format:
 - Query 1
 - Query 2
 ...
-(Provide 1-4 search queries to address all the given feedback)
+(Provide exactly 3 search queries to address all the given feedback)
 </queries>
 
 </output>
@@ -1565,7 +1726,10 @@ def initialize_revision_tracking(segments_map):
                 if visual_id not in tracking:
                     tracking[visual_id] = {
                         "alignment": {0: asset_url},  # 0 = original
-                        "specificity": {}
+                        "specificity": {},
+                        "segmentation": {},
+                        "segmentation_events": [],
+                        "segmentation_merged_out_from_loop": None,
                     }
                 else:
                     # Update original if not set
@@ -1605,7 +1769,10 @@ def update_revision_tracking(tracking, criterion_name, loop_num, replaced_visual
             if visual_id not in tracking:
                 tracking[visual_id] = {
                     "alignment": {0: asset_url},
-                    "specificity": {}
+                    "specificity": {},
+                    "segmentation": {},
+                    "segmentation_events": [],
+                    "segmentation_merged_out_from_loop": None,
                 }
             
             # If this visual was replaced in this loop, record the new URL
@@ -1621,6 +1788,39 @@ def update_revision_tracking(tracking, criterion_name, loop_num, replaced_visual
                 if loop_num not in tracking[visual_id][criterion_name]:
                     tracking[visual_id][criterion_name][loop_num] = None  # None = No replacement
     
+    return tracking
+
+
+def update_segmentation_tracking_for_merge(tracking, loop_num, target_visual_ids, retain_visual_id):
+    """
+    Record segmentation merge events in unified revision tracking.
+
+    :param tracking: Current tracking structure
+    :param loop_num: Loop number
+    :param target_visual_ids: Visual IDs targeted by merge
+    :param retain_visual_id: Retained visual ID
+    :return: Updated tracking structure
+    """
+    if not target_visual_ids:
+        return tracking
+
+    merge_event = f"Loop {loop_num} - MERGE: targets={','.join(target_visual_ids)} | retained={retain_visual_id}"
+    for visual_id in target_visual_ids:
+        if visual_id not in tracking:
+            tracking[visual_id] = {
+                "alignment": {0: ""},
+                "specificity": {},
+                "segmentation": {},
+                "segmentation_events": [],
+                "segmentation_merged_out_from_loop": None,
+            }
+        tracking[visual_id].setdefault("segmentation", {})
+        tracking[visual_id].setdefault("segmentation_events", [])
+        tracking[visual_id].setdefault("segmentation_merged_out_from_loop", None)
+        if merge_event not in tracking[visual_id]["segmentation_events"]:
+            tracking[visual_id]["segmentation_events"].append(merge_event)
+        if visual_id != retain_visual_id and tracking[visual_id]["segmentation_merged_out_from_loop"] is None:
+            tracking[visual_id]["segmentation_merged_out_from_loop"] = loop_num
     return tracking
 
 
@@ -1666,35 +1866,497 @@ def format_revision_tracking(tracking):
         
         lines.append("")
         
-        # Specificity section
-        lines.append("Specificity")
-        specificity_data = tracking[visual_id].get("specificity", {})
-        
-        # Original for specificity is the last alignment URL (or original if no alignment replacements)
-        specificity_original = original_url
+        # Specificity section intentionally hidden from sheet output because
+        # specificity loop execution is currently disabled.
+        # lines.append("Specificity")
+        # specificity_data = tracking[visual_id].get("specificity", {})
+        # specificity_original = original_url
+        # if alignment_data:
+        #     alignment_loops = [k for k in alignment_data.keys() if k > 0 and alignment_data[k] is not None]
+        #     if alignment_loops:
+        #         last_alignment_loop = max(alignment_loops)
+        #         specificity_original = alignment_data[last_alignment_loop]
+        # if specificity_original:
+        #     lines.append(f"Original - {specificity_original}")
+        # else:
+        #     lines.append("Original - (not found)")
+        # for loop_num in range(1, total_loops + 1):
+        #     url = specificity_data.get(loop_num)
+        #     if url:
+        #         lines.append(f"Visual after loop {loop_num} - {url}")
+        #     else:
+        #         lines.append(f"Visual after loop {loop_num} - No replacement")
+        # lines.append("")
+        # Segmentation section
+        lines.append("Segmentation")
+        segmentation_data = tracking[visual_id].get("segmentation", {})
+        segmentation_original = original_url
         if alignment_data:
-            # Find the last alignment replacement (highest loop number with a non-None URL)
             alignment_loops = [k for k in alignment_data.keys() if k > 0 and alignment_data[k] is not None]
             if alignment_loops:
                 last_alignment_loop = max(alignment_loops)
-                specificity_original = alignment_data[last_alignment_loop]
-        
-        if specificity_original:
-            lines.append(f"Original - {specificity_original}")
+                segmentation_original = alignment_data[last_alignment_loop]
+        if segmentation_original:
+            lines.append(f"Original visual - {segmentation_original}")
         else:
-            lines.append("Original - (not found)")
-        
-        # Loops 1 to total_loops
+            lines.append("Original visual - (not found)")
+        for event_line in tracking[visual_id].get("segmentation_events", []):
+            lines.append(event_line)
+        merged_out_from_loop = tracking[visual_id].get("segmentation_merged_out_from_loop")
         for loop_num in range(1, total_loops + 1):
-            url = specificity_data.get(loop_num)
+            if merged_out_from_loop is not None and loop_num >= merged_out_from_loop and visual_id != "":
+                lines.append(f"Visual after loop {loop_num} - N/A (merged out)")
+                continue
+            url = segmentation_data.get(loop_num)
             if url:
                 lines.append(f"Visual after loop {loop_num} - {url}")
             else:
                 lines.append(f"Visual after loop {loop_num} - No replacement")
-        
+        lines.append("")
         lines.append("")
     
     return "\n".join(lines)
+
+
+def _build_segment_text_from_steps(segment_num: int, steps: List[Dict[str, str]]) -> str:
+    """
+    Build a segment block text from parsed visual steps.
+    """
+    formatted_parts: List[str] = []
+    formatted_parts.append("=" * 80)
+    formatted_parts.append(f"SEGMENT {segment_num}")
+    formatted_parts.append("=" * 80)
+    formatted_parts.append("")
+
+    for step_idx, step in enumerate(steps):
+        if step_idx > 0:
+            formatted_parts.append("----")
+            formatted_parts.append("")
+
+        if step.get("voiceover_part"):
+            formatted_parts.append(f'When VO: "{step["voiceover_part"]}"')
+            formatted_parts.append("")
+
+        if step.get("visual_instruction"):
+            formatted_parts.append(f"Visual Instructions: {step['visual_instruction']}")
+            formatted_parts.append("")
+
+        if step.get("asset"):
+            formatted_parts.append(f"Graphics to use: {step['asset']}")
+            formatted_parts.append("")
+
+        if step.get("selection_justification"):
+            formatted_parts.append(f"Selection Justification: {step['selection_justification']}")
+            formatted_parts.append("")
+
+    return "\n".join(formatted_parts)
+
+
+def _apply_segmentation_structural_actions(
+    final_graphics_definition: str,
+    failures: List[Dict[str, Any]],
+) -> Tuple[str, List[str]]:
+    """
+    Apply MERGE_VISUALS actions directly to final_graphics_definition.
+    Returns updated definition text and tracking event lines.
+    """
+    events: List[str] = []
+    segments = parse_final_graphics_definition(final_graphics_definition)
+    if not segments:
+        return final_graphics_definition, events
+
+    failures_by_segment: Dict[int, List[Dict[str, Any]]] = {}
+    for failure in failures:
+        action_type = _safe_str(failure.get("action_type", "")).strip().upper()
+        if action_type not in {"MERGE_VISUALS"}:
+            continue
+        segment_num = _parse_segment_marker(_safe_str(failure.get("segment_id", "")))
+        if not segment_num:
+            continue
+        failures_by_segment.setdefault(segment_num, []).append(failure)
+
+    for segment_num, segment_failures in failures_by_segment.items():
+        segment_text = segments.get(segment_num, "")
+        if not segment_text:
+            continue
+        steps = parse_visual_steps(segment_text)
+        if not steps:
+            continue
+        for idx, step in enumerate(steps, start=1):
+            step["visual_id"] = f"S{segment_num}V{idx}"
+
+        for failure in segment_failures:
+            action_type = _safe_str(failure.get("action_type", "")).strip().upper()
+            target_ids = [v for v in (failure.get("target_visual_ids") or []) if _safe_str(v).strip()]
+            reason = _safe_str(failure.get("reason", "")).strip()
+            if not target_ids:
+                continue
+
+            if action_type == "MERGE_VISUALS":
+                retain_visual_id = _safe_str(failure.get("retain_visual_id", "")).strip()
+                if not retain_visual_id or retain_visual_id not in target_ids:
+                    retain_visual_id = target_ids[0]
+                target_set = set(target_ids)
+                retained_step = next((s for s in steps if s.get("visual_id") == retain_visual_id), None)
+                if retained_step is None:
+                    continue
+                # Merge voiceover span text from all targeted steps in original order.
+                merged_vo_parts: List[str] = []
+                for s in steps:
+                    if s.get("visual_id") in target_set:
+                        vo_part = _safe_str(s.get("voiceover_part", "")).strip()
+                        if vo_part:
+                            merged_vo_parts.append(vo_part)
+                if merged_vo_parts:
+                    retained_step["voiceover_part"] = " ".join(merged_vo_parts).strip()
+                # Keep retained step; remove the other target visuals.
+                steps = [
+                    s for s in steps
+                    if (s.get("visual_id") not in target_set) or (s.get("visual_id") == retain_visual_id)
+                ]
+                events.append(
+                    f"MERGE_VISUALS | SEGMENT {segment_num} | targets={','.join(target_ids)} | retain={retain_visual_id} | reason={reason}"
+                )
+
+        # Reindex visual IDs after structural edits
+        for idx, step in enumerate(steps, start=1):
+            step["visual_id"] = f"S{segment_num}V{idx}"
+        segments[segment_num] = _build_segment_text_from_steps(segment_num, steps)
+
+    updated_definition = build_final_graphics_definition(segments)
+    return updated_definition, events
+
+
+def _format_segmentation_revision_tracking(events: List[str]) -> str:
+    if not events:
+        return "No segmentation actions applied."
+    lines = ["Segmentation Revision Tracking", ""]
+    lines.extend(events)
+    return "\n".join(lines)
+
+
+def _format_segmentation_review_breakdown(records: List[str]) -> str:
+    if not records:
+        return ""
+    return "\n\n".join(records).strip()
+
+
+def run_segmentation_quality_loop_for_slide(
+    row_index,
+    row,
+    df,
+    course_name,
+    target_audience,
+    drive,
+    llm,
+    revision_tracking,
+    ws=None,
+    use_only_drive_and_hvac=False,
+):
+    """
+    Run segmentation quality review loop for flexible strategy slides.
+    Structural actions (MERGE_VISUALS) are applied directly.
+    REPLACE actions use existing segment revision flow.
+    """
+    slide_id = f"SLIDE_{row_index + 1}"
+    slide_title = _safe_str(row.get("Slide Chunk Title", ""))
+    slide_chunk = _safe_str(row.get("Slide Chunk", ""))
+    topic_name = _safe_str(row.get("Topic", ""))
+    subtopic_name = _safe_str(row.get("Subtopic", ""))
+    voiceover_text = _safe_str(row.get("voiceover_segment", ""))
+
+    tracking_events: List[str] = []
+    breakdown_records: List[str] = []
+    raw_response_records: List[str] = []
+    conversation_history: Optional[List[types.Content]] = None
+    replaced_visual_ids_by_segment: Dict[int, List[str]] = {}
+    old_asset_urls_by_visual_id: Dict[str, str] = {}
+    last_feedback_by_segment: Dict[int, str] = {}
+    max_passes = MAX_REVIEW_ATTEMPTS + MAX_REGEN_ATTEMPTS
+
+    for loop_num in range(1, max_passes + 1):
+        row = df.loc[row_index]
+        final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
+        segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, "Flexible, let the agent decide", slide_chunk)
+        segment_nums = list(segments_map.keys())
+
+        print(f"\n{'='*60}")
+        print(f"Review segmentation_quality: Row {row_index + 1} loop {loop_num}/{max_passes}")
+        print(f"{'='*60}")
+
+        if conversation_history and replaced_visual_ids_by_segment:
+            previous_feedback_lines = []
+            for segment_num in replaced_visual_ids_by_segment.keys():
+                if segment_num in last_feedback_by_segment:
+                    previous_feedback_lines.append(
+                        f"Segment {segment_num}:\n{last_feedback_by_segment[segment_num]}"
+                    )
+            previous_feedback = "\n\n".join(previous_feedback_lines)
+            print(
+                f"  Using segmentation follow-up review with "
+                f"{sum(len(vids) for vids in replaced_visual_ids_by_segment.values())} replaced visual(s)"
+            )
+            verdict, failures, response_text, conversation_history = review_slide_segments_followup(
+                course_name=course_name,
+                target_audience=target_audience,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                slide_id=slide_id,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                segments_map=segments_map,
+                visual_ids_by_segment=replaced_visual_ids_by_segment,
+                old_asset_urls_by_visual_id=old_asset_urls_by_visual_id,
+                previous_feedback=previous_feedback,
+                drive=drive,
+                llm=llm,
+                conversation_history=conversation_history,
+                criterion_name="segmentation_quality",
+                visual_assignment_strategy="Flexible, let the agent decide",
+            )
+        else:
+            verdict, failures, response_text, conversation_history = review_slide_segments(
+                prompt_template=SEGMENTATION_QUALITY_REVIEW_PROMPT,
+                course_name=course_name,
+                target_audience=target_audience,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                slide_id=slide_id,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                segments_map=segments_map,
+                segment_nums=segment_nums,
+                drive=drive,
+                llm=llm,
+                conversation_history=conversation_history,
+                criterion_name="segmentation_quality",
+                visual_assignment_strategy="Flexible, let the agent decide",
+            )
+
+        breakdown_text = _extract_tag(response_text, "evaluation_breakdown")
+        if breakdown_text:
+            breakdown_records.append(
+                f"Loop {loop_num} | Verdict: {verdict}\n\n{breakdown_text}"
+            )
+        raw_response_records.append(
+            f"Loop {loop_num} | Verdict: {verdict}\n\n{_safe_str(response_text).strip()}"
+        )
+
+        if verdict == "PASS":
+            return "PASS", _format_segmentation_revision_tracking(tracking_events), revision_tracking
+
+        structural_failures = [
+            f for f in failures
+            if _safe_str(f.get("action_type", "")).upper() in {"MERGE_VISUALS"}
+        ]
+        replace_failures = [
+            f for f in failures
+            if _safe_str(f.get("action_type", "")).upper() == "REPLACE_VISUAL"
+        ]
+
+        any_change = False
+        structural_only_response = bool(structural_failures) and not bool(replace_failures)
+
+        # Apply structural actions directly
+        if structural_failures:
+            for failure in structural_failures:
+                target_ids = [v for v in (failure.get("target_visual_ids") or []) if _safe_str(v).strip()]
+                retain_visual_id = _safe_str(failure.get("retain_visual_id", "")).strip()
+                if target_ids:
+                    if not retain_visual_id or retain_visual_id not in target_ids:
+                        retain_visual_id = target_ids[0]
+                    revision_tracking = update_segmentation_tracking_for_merge(
+                        revision_tracking,
+                        loop_num,
+                        target_ids,
+                        retain_visual_id,
+                    )
+            updated_def, structural_events = _apply_segmentation_structural_actions(final_graphics_definition, structural_failures)
+            if updated_def != final_graphics_definition:
+                any_change = True
+                tracking_events.append(f"Loop {loop_num}")
+                tracking_events.extend(structural_events)
+                df.at[row_index, "final_graphics_definition"] = updated_def
+                final_graphics_definition = updated_def
+
+        # Handle replace actions via existing reviser for failed segments
+        replaced_visual_ids_by_segment = {}
+        old_asset_urls_by_visual_id = {}
+        if replace_failures:
+            segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, "Flexible, let the agent decide", slide_chunk)
+            feedback_by_segment: Dict[int, str] = {}
+            for failure in replace_failures:
+                segment_num = _parse_segment_marker(_safe_str(failure.get("segment_id", "")))
+                if not segment_num:
+                    continue
+                target_ids = failure.get("target_visual_ids") or []
+                reason = _safe_str(failure.get("reason", ""))
+                needed = _safe_str(failure.get("needed_visual", ""))
+                for target_id in target_ids:
+                    failure_text = (
+                        f"Failing Visual: {target_id}\n"
+                        f"Reason: {reason}\n"
+                        f"Needed: {needed}"
+                    )
+                    if segment_num in feedback_by_segment:
+                        feedback_by_segment[segment_num] += "\n\n" + failure_text
+                    else:
+                        feedback_by_segment[segment_num] = failure_text
+            last_feedback_by_segment = dict(feedback_by_segment)
+
+            updated_segments: Dict[int, str] = {}
+            old_assets_by_segment_and_visual: Dict[int, Dict[str, str]] = {}
+            for segment_num, segment in segments_map.items():
+                step_map: Dict[str, str] = {}
+                for step in segment.get("visual_steps", []):
+                    visual_id = _safe_str(step.get("visual_id", "")).strip()
+                    asset_url = _safe_str(step.get("asset", "")).strip()
+                    if visual_id and asset_url:
+                        step_map[visual_id] = asset_url
+                old_assets_by_segment_and_visual[segment_num] = step_map
+            for segment_num, feedback_text in feedback_by_segment.items():
+                segment = segments_map.get(segment_num, {})
+                current_visuals = "\n".join([
+                    f"{step.get('visual_id')} | When VO: \"{step.get('voiceover_part', '')}\" | Visual assigned: {step.get('asset', '')}"
+                    for step in segment.get("visual_steps", [])
+                ])
+                revised = revise_segment_visuals(
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    slide_title=slide_title,
+                    slide_chunk=slide_chunk,
+                    vo_text=_safe_str(segment.get("vo_text", "")),
+                    current_visuals=current_visuals,
+                    feedback=feedback_text,
+                    image_pool_text=_safe_str(row.get("image_pool", "")),
+                    video_pool_filtered_text=_safe_str(row.get("video_pool_filtered", "")),
+                    drive_results_text=_safe_str(row.get("drive_results", "")),
+                    web_results_text=_safe_str(row.get("web_results", "")),
+                    segment_num=segment_num,
+                    drive=drive,
+                    llm=llm,
+                    visual_assignment_strategy="Flexible, let the agent decide",
+                    video_pool_text=_safe_str(row.get("video_pool", "")),
+                    video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
+                )
+                if revised:
+                    revised_stripped = revised.strip()
+                    if not revised_stripped.startswith('<replacement_visuals>') and not revised_stripped.startswith('<replacement_visual>'):
+                        revised = f"<replacement_visuals>\n{revised}\n</replacement_visuals>"
+                    updated_segments[segment_num] = revised
+
+            if updated_segments:
+                any_change = True
+                for segment_num, replacement_xml in updated_segments.items():
+                    replacement_visuals_match = re.search(
+                        r'<replacement_visuals>(.*?)</replacement_visuals>',
+                        replacement_xml,
+                        re.DOTALL | re.IGNORECASE
+                    )
+                    if not replacement_visuals_match:
+                        replacement_visuals_match = re.search(
+                            r'<replacement_visual>(.*?)</replacement_visual>',
+                            replacement_xml,
+                            re.DOTALL | re.IGNORECASE
+                        )
+                    if replacement_visuals_match:
+                        visual_blocks = re.findall(
+                            r'<visual>(.*?)</visual>',
+                            replacement_visuals_match.group(1),
+                            re.DOTALL | re.IGNORECASE
+                        )
+                        for visual_xml in visual_blocks:
+                            visual_id = _extract_tag(visual_xml, "visual_id").strip()
+                            if not visual_id:
+                                continue
+                            replaced_visual_ids_by_segment.setdefault(segment_num, [])
+                            if visual_id not in replaced_visual_ids_by_segment[segment_num]:
+                                replaced_visual_ids_by_segment[segment_num].append(visual_id)
+                            old_url = old_assets_by_segment_and_visual.get(segment_num, {}).get(visual_id, "")
+                            if old_url:
+                                old_asset_urls_by_visual_id[visual_id] = old_url
+                    final_graphics_definition = update_final_graphics_definition_with_replacements(
+                        final_graphics_definition,
+                        segment_num,
+                        replacement_xml,
+                    )
+                    tracking_events.append(f"Loop {loop_num}")
+                    tracking_events.append(f"REPLACE_VISUAL | SEGMENT {segment_num} | revised via existing revise flow")
+                df.at[row_index, "final_graphics_definition"] = final_graphics_definition
+                latest_segments_map = build_segment_visual_map(
+                    voiceover_text,
+                    final_graphics_definition,
+                    "Flexible, let the agent decide",
+                    slide_chunk,
+                )
+                revision_tracking = update_revision_tracking(
+                    revision_tracking,
+                    "segmentation",
+                    loop_num,
+                    replaced_visual_ids_by_segment,
+                    latest_segments_map,
+                )
+            elif feedback_by_segment and loop_num < max_passes:
+                # If replace actions found but no revised outputs, try one regeneration step.
+                failed_segments = list(feedback_by_segment.keys())
+                regen_replaced_visual_ids_by_segment, regen_old_asset_urls_by_visual_id = regenerate_failed_segments(
+                    row_index=row_index,
+                    row=row,
+                    df=df,
+                    course_name=course_name,
+                    target_audience=target_audience,
+                    drive=drive,
+                    llm=llm,
+                    failed_segments=failed_segments,
+                    feedback_by_segment=feedback_by_segment,
+                    ws=ws,
+                    use_only_drive_and_hvac=use_only_drive_and_hvac,
+                )
+                replaced_visual_ids_by_segment = regen_replaced_visual_ids_by_segment
+                old_asset_urls_by_visual_id = regen_old_asset_urls_by_visual_id
+                any_change = True
+                tracking_events.append(f"Loop {loop_num}")
+                tracking_events.append("REPLACE_VISUAL | regeneration invoked")
+                refreshed_row = df.loc[row_index]
+                latest_segments_map = build_segment_visual_map(
+                    voiceover_text,
+                    _safe_str(refreshed_row.get("final_graphics_definition", "")),
+                    "Flexible, let the agent decide",
+                    slide_chunk,
+                )
+                revision_tracking = update_revision_tracking(
+                    revision_tracking,
+                    "segmentation",
+                    loop_num,
+                    replaced_visual_ids_by_segment,
+                    latest_segments_map,
+                )
+
+        if any_change:
+            # Keep final definition normalized after updates
+            processed_def = process_video_frames_in_text_format(_safe_str(df.at[row_index, "final_graphics_definition"]), drive)
+            if processed_def != _safe_str(df.at[row_index, "final_graphics_definition"]):
+                df.at[row_index, "final_graphics_definition"] = processed_def
+            if ws is not None:
+                with _sheet_lock:
+                    save_to_sheet(ws, df)
+            # Merge-only batches are single-pass by design:
+            # review once -> apply structural fix -> exit.
+            if structural_only_response:
+                return "PASS", _format_segmentation_revision_tracking(tracking_events), revision_tracking
+            continue
+
+        if structural_only_response:
+            tracking_events.append(f"Loop {loop_num}")
+            tracking_events.append("MERGE_VISUALS requested but no structural update was applied")
+            break
+
+        # No actionable updates possible in this loop
+        break
+
+    return "FAIL", _format_segmentation_revision_tracking(tracking_events), revision_tracking
 
 
 def is_youtube_url(url):
@@ -2109,6 +2771,22 @@ def parse_review_response(text):
         failure_blocks = re.findall(r"<failure>(.*?)</failure>", text or "", re.DOTALL | re.IGNORECASE)
     
     for block in failure_blocks:
+        target_visual_ids_raw = _extract_tag(block, "target_visual_ids")
+        target_visual_ids: List[str] = []
+        if target_visual_ids_raw:
+            for line in target_visual_ids_raw.splitlines():
+                cleaned = line.strip()
+                if not cleaned:
+                    continue
+                if cleaned.startswith("-"):
+                    cleaned = cleaned[1:].strip()
+                if cleaned:
+                    target_visual_ids.append(cleaned)
+        if not target_visual_ids:
+            fallback_visual_id = _extract_tag(block, "failing_visual_id")
+            if fallback_visual_id:
+                target_visual_ids = [fallback_visual_id]
+
         # Extract segment_key with fallback: try slide_segment_id first (for redundancy), then segment_id (for alignment/specificity)
         segment_key = _extract_tag(block, "slide_segment_id") or _extract_tag(block, "segment_id")
         failures.append({
@@ -2117,8 +2795,11 @@ def parse_review_response(text):
             "vo_text": _extract_tag(block, "vo_text"),
             "failing_visual_ids": _extract_tag(block, "failing_visual_id"),
             "reason": _extract_tag(block, "reason"),
-            "needed_visual": _extract_tag(block, "needed_visual"),
+            "needed_visual": _extract_tag(block, "needed_visual") or _extract_tag(block, "needed_change"),
             "reused_with": _extract_tag(block, "reused_with"),
+            "action_type": _extract_tag(block, "action_type").upper(),
+            "target_visual_ids": target_visual_ids,
+            "retain_visual_id": _extract_tag(block, "retain_visual_id"),
         })
     return verdict, failures
 
@@ -2173,11 +2854,12 @@ def review_slide_segments(prompt_template, course_name, target_audience, topic_n
         review_targets=review_targets,
     )
     strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED {criterion_name.upper()} REVIEW PROMPT ({slide_id}){strategy_label}:")
-    print(f"{'='*80}")
-    print(prompt)
-    print(f"{'='*80}\n")
+    # if criterion_name == "segmentation_quality":
+    #     print(f"\n{'='*80}")
+    #     print(f"FORMATTED {criterion_name.upper()} REVIEW PROMPT ({slide_id}){strategy_label}:")
+    #     print(f"{'='*80}")
+    #     print(prompt)
+    #     print(f"{'='*80}\n")
     print(f"Starting {criterion_name} review for {slide_id}...")
     print(f"Multimodal parts to be sent:")
     for idx, part in enumerate(asset_parts, 1):
@@ -2296,11 +2978,11 @@ Be very strict in your evaluation. Do not give a PASS verdict if any visual stil
 Remember: Striclty use the same output format as before while reviewing the NEW REPLACEMENT visuals and providing your output. Do not provide any additional text or commentary."""
     
     strategy_label = f" [Strategy: {visual_assignment_strategy}]" if visual_assignment_strategy else ""
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED {criterion_name.upper()} FOLLOW-UP REVIEW PROMPT ({slide_id}){strategy_label}:")
-    print(f"{'='*80}")
-    print(followup_prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED {criterion_name.upper()} FOLLOW-UP REVIEW PROMPT ({slide_id}){strategy_label}:")
+    # print(f"{'='*80}")
+    # print(followup_prompt)
+    # print(f"{'='*80}\n")
     print(f"Starting {criterion_name} follow-up review for {slide_id}...")
     print(f"Multimodal parts to be sent:")
     for idx, part in enumerate(asset_parts, 1):
@@ -2383,11 +3065,11 @@ def review_topic_segments(course_name, target_audience, topic_name, subtopic_nam
     )
     print(f"Starting redundancy review for {topic_name}...")
     # print(f"\n{'='*80}")
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
-    print(f"{'='*80}")
-    print(prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
+    # print(f"{'='*80}")
+    # print(prompt)
+    # print(f"{'='*80}\n")
     print(f"Multimodal parts to be sent:")
     for idx, part in enumerate(asset_parts, 1):
         if hasattr(part, 'text') and part.text:
@@ -2484,11 +3166,11 @@ Be very strict in your evaluation. Do not give a PASS verdict if any visual stil
 
 Remember: Only review the segments listed above. Focus on the repeated visual asset (URL: {repeated_visual_url}). If all revised visuals now meet the criteria, output PASS. If any visual still fails, provide detailed feedback in the same format as before."""
     
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED FOLLOW-UP REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
-    print(f"{'='*80}")
-    print(followup_prompt)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED FOLLOW-UP REDUNDANCY REVIEW PROMPT (Topic: {topic_name}):")
+    # print(f"{'='*80}")
+    # print(followup_prompt)
+    # print(f"{'='*80}\n")
     print(f"Invoking Gemini multimodal follow-up redundancy review (model: {llm})...")
     response_text, updated_history = invoke_gemini_multimodal(
         asset_parts + [types.Part(text=followup_prompt)], 
@@ -2803,6 +3485,7 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
     split3 = remaining.split("</video_candidates>", 1)
     if len(split3) == 2:
         parts.append(types.Part(text=split3[0] + "</video_candidates>"))
+        total_video_candidates = len(videos) + len(frame_videos)
         
         # Insert video candidates as multimodal
         # Handle embed videos (can use clips or frames)
@@ -2814,7 +3497,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                 # Embed URL with timestamps - can be used as clips or frames
                 clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
                 if clip_url:
-                    label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                    label_text = (
+                        f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                        f"ID: {candidate['id']}\n"
+                        f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                        f"URL: {video_url}\n"
+                    )
                     parts.append(types.Part(text=label_text))
                     video_part = build_video_part(clip_url, start_seconds, end_seconds)
                     if video_part:
@@ -2824,7 +3512,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                     print(f"WARNING: Failed to parse embed video URL: {video_url}")
             else:
                 # Fallback: treat as regular video
-                label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 visual_part = build_visual_part_only(video_url, drive)
                 if visual_part:
@@ -2840,7 +3533,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                 # Full video - frames only
                 embed_url = convert_watch_url_to_embed_url(video_url)
                 if embed_url:
-                    label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                    label_text = (
+                        f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                        f"ID: {candidate['id']}\n"
+                        f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps)\n"
+                        f"URL: {video_url}\n"
+                    )
                     parts.append(types.Part(text=label_text))
                     # Add video part without timestamps (full video)
                     video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
@@ -2851,7 +3549,12 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                     print(f"WARNING: Failed to convert video URL: {video_url}")
             else:
                 # Fallback: treat as regular video
-                label_text = f"Video Candidate {candidate_num} ({candidate['id']}): Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps) | URL: {video_url}"
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps)\n"
+                    f"URL: {video_url}\n"
+                )
                 parts.append(types.Part(text=label_text))
                 visual_part = build_visual_part_only(video_url, drive)
                 if visual_part:
@@ -3013,8 +3716,48 @@ def generate_search_queries_with_feedback(course_name, target_audience, topic_na
             cleaned = cleaned[1:].strip()
         if cleaned:
             queries.append(cleaned)
-    print(f"Generated {len(queries)} search query/queries")
-    return queries
+
+    # Enforce fixed query count for regeneration:
+    # - 3 for Flexible/1 Visual per Sentence
+    # - 4 for 1 Visual for the whole Slide
+    target_query_count = 4 if visual_assignment_strategy == "1 Visual for the whole Slide" else 3
+
+    # Deduplicate while preserving order
+    deduped_queries = []
+    seen_queries = set()
+    for q in queries:
+        key = q.strip().lower()
+        if key and key not in seen_queries:
+            seen_queries.add(key)
+            deduped_queries.append(q.strip())
+
+    # If model under-produces, backfill with deterministic context queries.
+    if len(deduped_queries) < target_query_count:
+        fallback_candidates = [
+            _safe_str(vo_text),
+            _safe_str(slide_title),
+            f"{_safe_str(topic_name)} {_safe_str(subtopic_name)}".strip(),
+            _safe_str(slide_chunk),
+        ]
+        for candidate in fallback_candidates:
+            cleaned = " ".join(candidate.split()).strip()
+            if not cleaned:
+                continue
+            cleaned = cleaned[:120]
+            key = cleaned.lower()
+            if key in seen_queries:
+                continue
+            deduped_queries.append(cleaned)
+            seen_queries.add(key)
+            if len(deduped_queries) >= target_query_count:
+                break
+
+    final_queries = deduped_queries[:target_query_count]
+    print(
+        f"Generated {len(queries)} raw query/queries; using {len(final_queries)} "
+        f"query/queries (target={target_query_count})"
+    )
+    return final_queries
 
 
 def merge_replacements_into_segment(existing_segment_text, replacement_visuals_xml, segment_num):
@@ -3285,7 +4028,12 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
 
         try:
             print(f"Segment {segment_num}: Searching drive...")
-            seg_num, drive_results = process_drive_search_segment(segment_num, queries, drive)
+            seg_num, drive_results = process_drive_search_segment(
+                segment_num,
+                queries,
+                drive,
+                k=REGEN_IMAGE_SEARCH_K,
+            )
             if drive_results:
                 lines = [line.strip() for line in drive_results.splitlines() if line.strip()]
                 df.at[row_index, "drive_results"] = replace_segment_block(
@@ -3307,7 +4055,11 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         elif "web_results" in df.columns:
             try:
                 print(f"    Segment {segment_num}: Searching web...")
-                seg_num, web_results = process_web_search_segment(segment_num, queries)
+                seg_num, web_results = process_web_search_segment(
+                    segment_num,
+                    queries,
+                    k=REGEN_IMAGE_SEARCH_K,
+                )
                 if web_results:
                     lines = [line.strip() for line in web_results.splitlines() if line.strip()]
                     df.at[row_index, "web_results"] = replace_segment_block(
@@ -3329,7 +4081,12 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         if not skip_video_candidates:
             try:
                 print(f"    Segment {segment_num}: Searching video pool...")
-                seg_num, video_pool = process_video_search_segment(segment_num, queries, drive)
+                seg_num, video_pool = process_video_search_segment(
+                    segment_num,
+                    queries,
+                    drive,
+                    k=REGEN_VIDEO_SEARCH_K,
+                )
                 if video_pool:
                     lines = [line.strip() for line in video_pool.splitlines() if line.strip()]
                     df.at[row_index, "video_pool"] = replace_segment_block(
@@ -3356,7 +4113,12 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                         break
                 try:
                     print(f"    Segment {segment_num}: Searching other channels...")
-                    seg_num, video_other = process_segment_other_channels(segment_num, queries, segment_sentence)
+                    seg_num, video_other = process_segment_other_channels(
+                        segment_num,
+                        queries,
+                        segment_sentence,
+                        k=REGEN_VIDEO_SEARCH_K,
+                    )
                     if video_other:
                         lines = [line.strip() for line in video_other.splitlines() if line.strip()]
                         df.at[row_index, "video_pool_other_channels"] = replace_segment_block(
@@ -4933,38 +5695,64 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
         )
 
         row = df.loc[row_index]
-        # Update segments_map after alignment for specificity tracking
+        # Update segments_map after alignment (kept for compatibility/debug parity with prior flow)
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
         segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
-        
-        print("\n[STEP 2] Reviewing SPECIFICITY criterion...")
-        specificity_status, revision_tracking = run_review_loop_for_slide(
-            criterion_name="specificity",
-            prompt_template=SPECIFICITY_REVIEW_PROMPT,
-            row_index=row_index,
-            row=row,
-            df=df,
-            course_name=course_name,
-            target_audience=target_audience,
-            drive=drive,
-            llm=llm,
-            ws=ws,
-            revision_tracking=revision_tracking,
-            use_only_drive_and_hvac=use_only_drive_and_hvac,
-        )
+
+        # Segmentation quality review for flexible strategy only.
+        segmentation_status = "SKIPPED"
+        segmentation_tracking = "Skipped (non-flexible strategy)"
+        if visual_assignment_strategy == "Flexible, let the agent decide":
+            print("\n[STEP 2] Reviewing SEGMENTATION QUALITY criterion...")
+            (
+                segmentation_status,
+                segmentation_tracking,
+                revision_tracking,
+            ) = run_segmentation_quality_loop_for_slide(
+                row_index=row_index,
+                row=row,
+                df=df,
+                course_name=course_name,
+                target_audience=target_audience,
+                drive=drive,
+                llm=llm,
+                revision_tracking=revision_tracking,
+                ws=ws,
+                use_only_drive_and_hvac=use_only_drive_and_hvac,
+            )
+        # Specificity review loop intentionally disabled.
+        # Rationale: alignment prompt now includes a light specificity/clarity check to avoid
+        # a second revision pass that can overwrite good alignment replacements.
+        specificity_status = "SKIPPED"
+        # print("\n[STEP 2] Reviewing SPECIFICITY criterion...")
+        # specificity_status, revision_tracking = run_review_loop_for_slide(
+        #     criterion_name="specificity",
+        #     prompt_template=SPECIFICITY_REVIEW_PROMPT,
+        #     row_index=row_index,
+        #     row=row,
+        #     df=df,
+        #     course_name=course_name,
+        #     target_audience=target_audience,
+        #     drive=drive,
+        #     llm=llm,
+        #     ws=ws,
+        #     revision_tracking=revision_tracking,
+        #     use_only_drive_and_hvac=use_only_drive_and_hvac,
+        # )
         
         # Format and save revision tracking
         tracking_text = format_revision_tracking(revision_tracking)
         df.at[row_index, "revision_tracking"] = tracking_text
         print(f"  Saved revision tracking for {len(revision_tracking)} visual(s)")
 
-        df.at[row_index, "graphics_review_v2_notes"] = (
-            f"alignment={alignment_status}; specificity={specificity_status}"
+        df.at[row_index, "graphics_review_v2_notes"] = f"alignment={alignment_status}; segmentation={segmentation_status}"
+        overall_pass = (
+            alignment_status in {"PASS", "SKIPPED"}
+            and (segmentation_status in {"PASS", "SKIPPED"})
         )
-        # Mark review as complete after alignment and specificity reviews are done
-        df.at[row_index, "review_complete"] = "TRUE"
-        print(f"\nRow {row_index + 1} completed (alignment={alignment_status}, specificity={specificity_status})")
-        print(f"  Marked review_complete=TRUE for row {row_index + 1}")
+        df.at[row_index, "review_complete"] = "TRUE" if overall_pass else "FALSE"
+        print(f"\nRow {row_index + 1} completed (alignment={alignment_status}, segmentation={segmentation_status})")
+        print(f"  Marked review_complete={df.at[row_index, 'review_complete']} for row {row_index + 1}")
         
         # Final check: Normalize YouTube URLs and convert video frames to Drive images
         # This ensures all YouTube links with timestamps are converted to Drive images before saving
@@ -5044,7 +5832,11 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
     course_name = _safe_str(course_info_df.loc[0, "Course Name"])
     target_audience = _safe_str(course_info_df.loc[0, "Target Audience & Industry"])
 
-    review_cols = ["graphics_review_v2_notes", "review_complete", "revision_tracking"]
+    review_cols = [
+        "graphics_review_v2_notes",
+        "review_complete",
+        "revision_tracking",
+    ]
     for col in review_cols:
         if col not in df.columns:
             df[col] = ""
@@ -5079,7 +5871,7 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
     print(f"Starting Graphics Definition V2 Review & Revise")
     print(f"{'='*80}\n")
 
-    progress = SmartProgressBar(total_tasks=len(rows_to_process), description="Graphics review (alignment/specificity)")
+    progress = SmartProgressBar(total_tasks=len(rows_to_process), description="Graphics review (alignment + segmentation)")
 
     # Process rows in parallel if max_workers > 1, otherwise sequential
     if max_workers > 1:
@@ -5135,60 +5927,10 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
                 progress.update()
 
     print("\n" + "=" * 80)
-    print("Saving alignment/specificity review results...")
+    print("Saving alignment review results...")
     print("=" * 80)
     save_to_sheet(ws, df)
     format_worksheet(ws)
-
-    # Post review-revise validation: check YouTube clip timestamps and re-run aggregation for faulty rows.
-    youtube_api_key = _get_youtube_api_key()
-    if youtube_api_key:
-        print("\n🔍 Running post-review-revise YouTube clip validation.")
-        ws, df = get_sheet_data_and_df(sheet, worksheet_name)
-        duration_cache = {}
-        faulty_rows = []
-        for index, row in df.iterrows():
-            clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
-                row, youtube_api_key, duration_cache
-            )
-            if not clip_valid:
-                print(f"⚠️ Faulty clip found in row {index + 2}: {clip_error_msg}")
-                faulty_rows.append(index)
-
-        if faulty_rows:
-            print(
-                f"⚠️ Found {len(faulty_rows)} row(s) with faulty YouTube clip links after review-revise. "
-                "Clearing final_graphics_definition and re-running aggregation for those rows."
-            )
-            for index in faulty_rows:
-                df.at[index, "final_graphics_definition"] = ""
-            save_to_sheet(ws, df)
-            format_worksheet(ws)
-
-            run_aggregation_agent_for_all_rows(sheet, llm=llm, max_workers=max_workers)
-
-            ws, df = get_sheet_data_and_df(sheet, worksheet_name)
-            duration_cache = {}
-            remaining_faulty = []
-            for index, row in df.iterrows():
-                clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
-                    row, youtube_api_key, duration_cache
-                )
-                if not clip_valid:
-                    remaining_faulty.append((index, clip_error_msg))
-
-            if remaining_faulty:
-                print(
-                    f"⚠️ Post-retry validation: {len(remaining_faulty)} row(s) still have faulty YouTube clip links."
-                )
-                for index, err in remaining_faulty[:5]:
-                    print(f"  Row {index + 2}: {err}")
-            else:
-                print("✅ Post-review-revise YouTube clip validation completed successfully after re-aggregation.")
-        else:
-            print("✅ Post-review-revise YouTube clip validation completed: no faulty clip links found.")
-    else:
-        print("⚠️ Post-review-revise YouTube clip validation skipped: missing GCLOUD_YT_SEARCH_API_KEY_1/2/3.")
 
     # print("\n" + "=" * 80)
     # print("[STEP 3] Starting REDUNDANCY review across topic groups...")
@@ -5227,6 +5969,11 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
     print("=" * 80)
     save_to_sheet(ws, df)
     format_worksheet(ws)
+
+    try:
+        hide_columns_by_name(ws, review_cols, df)
+    except Exception as e:
+        print(f"⚠️ Could not hide review columns: {e}")
     print("\n" + "=" * 80)
     print("✓ Graphics Definition V2 review/revise complete.")
     print("=" * 80)

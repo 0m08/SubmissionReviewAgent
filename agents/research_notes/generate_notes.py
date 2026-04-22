@@ -59,7 +59,9 @@ GOOD: "Apply mastic—also called pookie by tradesman—to seal the joints."
 </paraphrasing_rules>
 
 
-Generate research notes for the given subtopic and learning objectives. Your output must contain two sections:
+Generate research notes for the given subtopic and learning objectives. Always provide your output strictly in the following format:
+
+<output>
 
 <analysis>
 Briefly identify the key concepts from the learning objectives and note which parts of the provided documents are most relevant.
@@ -73,6 +75,10 @@ Write well-structured, comprehensive notes that:
 - Include relevant examples and definitions from the source material
 - Exclude information better suited for other sections of the course outline
 </research_notes>
+
+</output>
+
+CRITICAL FORMAT REQUIREMENT: Return output wrapped in <output>...</output>. Inside it, use exactly these XML tags in this order and close all tags: <analysis>...</analysis> then <research_notes>...</research_notes>. Do not include any text outside <output>...</output>.
 """
 
 @traceable(metadata={

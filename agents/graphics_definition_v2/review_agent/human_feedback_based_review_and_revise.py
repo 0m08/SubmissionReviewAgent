@@ -966,13 +966,16 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
     split3 = remaining.split("</video_candidates>", 1)
     if len(split3) == 2:
         parts.append(types.Part(text=split3[0] + "</video_candidates>"))
+        total_video_candidates = len(videos) + len(frame_videos)
         for candidate in videos:
             video_url = candidate.get("url", "")
             clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
             if clip_url:
                 label = (
-                    f"Video Candidate {candidate_num} ({candidate['id']}): "
-                    f"Can be used as video clip (any part with start/end) OR as still frame | URL: {video_url}"
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used as video clip (any part with start/end) OR as still frame\n"
+                    f"URL: {video_url}\n"
                 )
                 parts.append(types.Part(text=label))
                 video_part = build_video_part(clip_url, start_seconds, end_seconds)
@@ -981,8 +984,10 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
                 candidate_num += 1
             else:
                 label = (
-                    f"Video Candidate {candidate_num} ({candidate['id']}): "
-                    f"Can be used as video clip OR as still frame | URL: {video_url}"
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used as video clip OR as still frame\n"
+                    f"URL: {video_url}\n"
                 )
                 parts.append(types.Part(text=label))
                 visual_part = build_visual_part_only(video_url, drive)
@@ -995,8 +1000,10 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
             embed_url = convert_watch_url_to_embed_url(video_url)
             if embed_url:
                 label = (
-                    f"Video Candidate {candidate_num} ({candidate['id']}): "
-                    f"Can be used ONLY as still frames (NOT playable clips) | URL: {video_url}"
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used ONLY as still frames (NOT playable clips)\n"
+                    f"URL: {video_url}\n"
                 )
                 parts.append(types.Part(text=label))
                 video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
@@ -1005,8 +1012,10 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
                 candidate_num += 1
             else:
                 label = (
-                    f"Video Candidate {candidate_num} ({candidate['id']}): "
-                    f"Can be used ONLY as still frames (NOT playable clips) | URL: {video_url}"
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used ONLY as still frames (NOT playable clips)\n"
+                    f"URL: {video_url}\n"
                 )
                 parts.append(types.Part(text=label))
                 visual_part = build_visual_part_only(video_url, drive)

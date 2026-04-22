@@ -188,13 +188,13 @@ pipeline_sections = [
                 "depends_on": ["Generate Image and Video Candidates"],
                 "args": {
                     "sheet": "sheet",
-                    "image_pool_llm": "gemini_2_5_flash_lite",
+                    "image_pool_llm": "gemini_3_flash_thinking",
                     "video_pool_llm": "gemini_3_flash_thinking",
                     "max_workers": 50,
                 },
                 "is_llm_step": True, 
                 "estimated_time": "20-40 minutes",
-                "description": "This step runs Image Pool and Video Pool generation in parallel. Image Pool selects relevant images from drive_results and web_results. Video Pool selects relevant videos from video_pool and video_pool_other_channels. Both write to their respective columns (image_pool, video_pool_filtered).",
+                "description": "This step runs Image Pool and Video Pool generation in parallel. Image Pool selects relevant images from drive_results column. Video Pool selects relevant videos from video_pool column. Both write to their respective columns (image_pool, video_pool_filtered).",
                 "delete_func": delete_all_pool_results,
                 "delete_args": {
                     "sheet": "sheet"
@@ -341,7 +341,7 @@ pipeline_sections = [
     #         {
     #             "name": "Run Layout Agent",
     #             "func": run_layout_agent_for_all_rows,
-    #             "depends_on": ["Review and Revise Graphics Definitions based on Human Feedback"],
+    #             "depends_on": [],
     #             "args": {
     #                 "sheet": "sheet",
     #                 "llm": "gemini_3_flash_thinking",
