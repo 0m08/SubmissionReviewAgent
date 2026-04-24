@@ -255,17 +255,17 @@ def review_and_edit_image(
     slide_content: str = "",
     voiceover: str = "",
     visual_instruction: str = "",
-    image_size: str = "1K",
     callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     target_stage: str = "full",
-    skip_accuracy_validation: bool = False
+    skip_accuracy_validation: bool = False,
+    skip_copyright: bool = False
 ) -> tuple[VoiceoverReviewResult, Optional[Image.Image], list]:
     """
     Orchestrator: Review and Edit workflow using separate agent sessions.
     
     Creates dedicated chat sessions for:
     - Accuracy Reviewer (technical fidelity)
-    - Copyright Reviewer (IP compliance)
+    - Copyright Reviewer (IP compliance) - can be skipped with skip_copyright=True
     
     Manages the review-edit loop and bridges feedback to the image editor.
     Returns: (FinalReview, FinalImage, HistoryList)
@@ -640,6 +640,10 @@ Set verdict to 'No' if any CRITICAL technical errors remain, and provide specifi
                     return _finalize_before_return(review_result, current_image, history, "both-approved-same-image")
                     
                 # --- STAGE 2: COPYRIGHT REVIEW (separate session) ---
+                if skip_copyright:
+                    print(f"⏩ Skipping Copyright Audit (skip_copyright=True)...")
+                    return _finalize_before_return(review_result, current_image, history, "vo-approved-copyright-skipped")
+
                 print(f"✅ Voiceover Approved. Triggering Copyright Audit...")
                 # VO approved → accuracy strategy (if any) WORKED. Do NOT mark it as tried.
                 # It should remain available for future problems of the same class.
