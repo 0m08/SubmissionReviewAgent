@@ -342,7 +342,14 @@ def process_segment_row(
 
             result_payload["voiceover_segment"]   = '\n'.join(vo_lines)
             result_payload["reference_image_map"] = '\n'.join(map_lines)
-    
+
+        else:
+            # No inline markers: run standard segmentation.
+            segmented_output = segment_slide_from_slide_chunk(slide_chunk, llm=llm)
+            matches = re.findall(r'<segment>(.*?)</segment>', segmented_output, re.DOTALL)
+            segments = [seg.strip() for seg in matches if seg.strip()]
+            result_payload["voiceover_segment"] = '\n'.join(segments)
+            
         return index, result_payload
 
     except Exception as e:
