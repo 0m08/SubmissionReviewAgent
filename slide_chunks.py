@@ -58,7 +58,9 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "worksheet_name": "Final Outline",
-                    "output_sheet_name": "Slide Chunks"
+                    "output_sheet_name": "Slide Chunks",
+                    "max_workers": 5,
+                    "llm": "gemini_3_flash"
                 },
                 "delete_func": delete_slide_chunks_sheet,
                 "delete_args": {

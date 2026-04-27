@@ -448,7 +448,70 @@ Instructions: Based on the search results, provide a concise and specific answer
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# TOOL 7  ▸  stop
+# TOOL 7  ▸  preview_image
+# ─────────────────────────────────────────────────────────────────────────
+@tool("preview_image", parse_docstring=True)
+def preview_image(
+    image_url: str,
+    intent: str,
+):
+    """Load an image from a URL so it can be seen in the next turn.
+
+    Args:
+        image_url: The URL of the image to preview. Supports regular web URLs
+            and Google Drive file links.
+        intent: A field that describes why the image is being previewed
+            (e.g. "check whether this diagram matches paragraph 2").
+
+    Returns:
+        A multimodal content list with a short text part and an inline
+        base64-encoded JPEG image part for the model to view. On failure,
+        returns a plain string warning so the agent can skip gracefully.
+    """
+    print(
+        f"🔧 TOOL USED: preview_image | url: {image_url} | intent: {intent}"
+    )
+
+    try:
+        from agents.graphics_definition_v2.layout_agent.layout_agent import (
+            load_image_from_url,
+            get_drive_instance,
+        )
+    except Exception as e:
+        return f"⚠️ Could not load image from {image_url}: loader import failed ({e})"
+
+    drive = get_drive_instance()
+
+    try:
+        pil_image = load_image_from_url(image_url, drive, title="preview_image")
+    except Exception as e:
+        return f"⚠️ Could not load image from {image_url}: {e}"
+
+    if pil_image is None:
+        return f"⚠️ Could not load image from {image_url}: loader returned None (check that the file is shared to the service account or is publicly accessible)"
+
+    try:
+        from io import BytesIO
+        import base64
+        buffered = BytesIO()
+        pil_image.convert("RGB").save(buffered, format="JPEG")
+        b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    except Exception as e:
+        return f"⚠️ Could not encode image from {image_url}: {e}"
+
+    return [
+        {"type": "text", "text": f"Loaded image from {image_url}"},
+        {
+            "type": "image",
+            "source_type": "base64",
+            "mime_type": "image/jpeg",
+            "data": b64,
+        },
+    ]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# TOOL 8  ▸  stop
 # ─────────────────────────────────────────────────────────────────────────
 @tool("stop", parse_docstring=True, return_direct=True)
 def stop(
