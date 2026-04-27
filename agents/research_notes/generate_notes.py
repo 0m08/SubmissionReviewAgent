@@ -78,6 +78,8 @@ Write well-structured, comprehensive notes that:
 
 </output>
 
+Inline image links: Any markdown image links (`![alt](url)`) present in the source documents must be preserved verbatim in the generated research notes. Do not delete, rewrite, or modify the URL or alt text of an existing image link. Image-link repositioning is handled by a dedicated pipeline step; treat every `![](...)` you see as load-bearing content to keep intact.
+
 CRITICAL FORMAT REQUIREMENT: Return output wrapped in <output>...</output>. Inside it, use exactly these XML tags in this order and close all tags: <analysis>...</analysis> then <research_notes>...</research_notes>. Do not include any text outside <output>...</output>.
 """
 
