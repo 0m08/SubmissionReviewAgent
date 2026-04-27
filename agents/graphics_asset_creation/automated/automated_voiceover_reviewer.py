@@ -1000,7 +1000,7 @@ STRICT RULE: Do not regenerate the entire scene. Only surgically adjust the comp
                     reference_image=editing_image,
                     editing_instructions=pass1_dict,
                     quick_mode=True,
-                    image_size=image_size,
+                    # imageSize=image_size,
                     aspect_ratio=PIPELINE_ASPECT_RATIO,
                     system_instruction=context_instruction,
                     # image_editing_with_review_loop already has internal timeout/retry.
@@ -1023,7 +1023,7 @@ STRICT RULE: Do not regenerate the entire scene. Only surgically adjust the comp
                     reference_image=editing_image,
                     editing_instructions=pass2_dict,
                     quick_mode=True,
-                    image_size=image_size,
+                    # imageSize=image_size,
                     aspect_ratio=PIPELINE_ASPECT_RATIO,
                     system_instruction=context_instruction,
                     # image_editing_with_review_loop already has internal timeout/retry.
@@ -1334,7 +1334,7 @@ def _process_single_reviewer_row(
                     slide_content=slide_content,
                     voiceover=subseg['voiceover_focus'],
                     visual_instruction=subseg['visual_instruction'],
-                    image_size="1K",
+                    imageSize="1K",
                     target_stage="full",
                     callback=save_intermediate_callback
                 )
@@ -1694,7 +1694,7 @@ def run_automation(
                         slide_content=slide_content_w,
                         voiceover=voiceover_focus,
                         visual_instruction=visual_instr,
-                        image_size="1K",
+                        imageSize="1K",
                         target_stage="full",
                         callback=save_intermediate_callback
                     )
