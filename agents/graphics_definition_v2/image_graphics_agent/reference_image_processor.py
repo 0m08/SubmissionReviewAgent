@@ -128,7 +128,6 @@ def process_reference_image_path(
         slide_content       = relevant_source_chunk,
         voiceover           = extracted_vo_text,
         visual_instruction  = "",
-        image_size          = "1K",
         target_stage        = "full",
         callback            = None,
         skip_accuracy_validation = skip_technical_accuracy,
