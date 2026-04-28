@@ -19,6 +19,100 @@ GOOGLE_OAUTH_SCOPES = [
 ]
 
 
+SKILLCAT_SHARED_DRIVE_FOLDER_ID = "1-YOY7Z9kK5_NR2shHbJgRXTJT6D16HIM"
+
+
+def _load_service_account_dict():
+    """Return the service-account JSON as a dict from env, or None if not configured."""
+    try:
+        sa_json = os.environ.get("GDRIVE_SA_JSON")
+        if sa_json:
+            return json.loads(sa_json) if isinstance(sa_json, str) else sa_json
+        sa_b64 = os.environ.get("GDRIVE_SA_B64")
+        if sa_b64:
+            return json.loads(base64.b64decode(sa_b64).decode())
+    except Exception:
+        return None
+    return None
+
+
+def build_service_account_drive_service():
+    """Build a Google Drive v3 client authenticated with the background-job service account."""
+    sa_dict = _load_service_account_dict()
+    if not sa_dict:
+        return None
+    try:
+        creds = service_account.Credentials.from_service_account_info(
+            sa_dict, scopes=GOOGLE_OAUTH_SCOPES
+        )
+        return build("drive", "v3", credentials=creds, cache_discovery=False)
+    except Exception:
+        return None
+
+
+def extract_drive_id_from_url(value: str) -> str:
+    """Extract a Google Drive file/folder ID from common URL forms or accept a bare ID."""
+    if not value:
+        return ""
+    s = str(value).strip()
+    patterns = [
+        r"/spreadsheets/d/([a-zA-Z0-9_-]+)",
+        r"/file/d/([a-zA-Z0-9_-]+)",
+        r"/folders/([a-zA-Z0-9_-]+)",
+        r"/drive/folders/([a-zA-Z0-9_-]+)",
+        r"/d/([a-zA-Z0-9_-]+)",
+        r"[?&]id=([a-zA-Z0-9_-]+)",
+    ]
+    for p in patterns:
+        m = re.search(p, s, re.I)
+        if m:
+            return m.group(1)
+    if re.fullmatch(r"[a-zA-Z0-9_-]{10,}", s):
+        return s
+    return ""
+
+
+def is_inside_skillcat_shared_drive(file_or_folder_id: str, drive_service=None) -> bool:
+    """
+    Check if a file or folder is inside the Skillcat Shared Drive.
+    :param file_or_folder_id: ID of the file or folder to check
+    :param drive_service: Google Drive service client (optional, will build one if not provided)
+    
+    :return: True if the file or folder is inside the Skillcat Shared Drive, False otherwise
+    """
+   
+    if not file_or_folder_id:
+        return False
+    if drive_service is None:
+        drive_service = build_service_account_drive_service()
+    if drive_service is None:
+        return False
+
+    visited = set()
+    current_id = file_or_folder_id
+    for _ in range(25):
+        if not current_id or current_id in visited:
+            return False
+        visited.add(current_id)
+        if current_id == SKILLCAT_SHARED_DRIVE_FOLDER_ID:
+            return True
+        try:
+            meta = drive_service.files().get(
+                fileId=current_id,
+                fields="id,parents,driveId,mimeType",
+                supportsAllDrives=True,
+            ).execute()
+        except Exception:
+            return False
+        if meta.get("driveId") == SKILLCAT_SHARED_DRIVE_FOLDER_ID:
+            return True
+        parents = meta.get("parents") or []
+        if not parents:
+            return False
+        current_id = parents[0]
+    return False
+
+
 def login_with_service_account(path=None, json_str=None, user_email=None):
     """
     Google Drive service with a service account.

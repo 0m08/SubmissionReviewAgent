@@ -1750,6 +1750,101 @@ def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
                     merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
     merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
 
+    # Validation and retry logic for score completeness/shape
+    max_retries = 3
+    retry_count = 0
+    while retry_count < max_retries:
+        _, df = get_sheet_data_and_df(sheet, worksheet_name)
+        invalid_rows = []
+        for index, row in df.iterrows():
+            is_valid, error_msg = validate_video_score_row(row)
+            if not is_valid:
+                invalid_rows.append((index, row, error_msg))
+
+        if not invalid_rows:
+            break
+
+        retry_count += 1
+        print(f"\n⚠️ Found {len(invalid_rows)} rows with invalid {SCORE_COLUMN_NAME}. Retrying (attempt {retry_count}/{max_retries})...")
+        for idx, _, error in invalid_rows[:3]:
+            print(f"  Row {idx}: {error}")
+
+        # Clear invalid scores before retry so the scorer treats them as pending
+        for index, _, _ in invalid_rows:
+            df.at[index, SCORE_COLUMN_NAME] = ""
+        merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
+
+        futures_map = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for index, row, _ in invalid_rows:
+                futures_map[executor.submit(process_video_scoring_row, index, row, course_name, drive, llm)] = index
+
+            for future in as_completed(futures_map):
+                index = futures_map[future]
+                try:
+                    row_index, score_text = future.result()
+                    df.at[row_index, SCORE_COLUMN_NAME] = score_text
+                except Exception as e:
+                    df.at[index, SCORE_COLUMN_NAME] = f"ERROR: {str(e)}"
+
+        merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
+
+
+def validate_video_score_row(row):
+    """
+    Validate video_score for rows that are eligible for video scoring.
+    """
+    vo_segments_text = str(row.get("voiceover_segment", "")).strip()
+    slide_chunk = str(row.get("Slide Chunk", "")).strip()
+    video_pool = str(row.get("video_pool", "")).strip()
+    video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
+    video_score_text = str(row.get(SCORE_COLUMN_NAME, "")).strip()
+    slide_type = str(row.get("Slide Type", "")).strip().lower()
+
+    # Transition slides have no video candidates by design.
+    if slide_type in ("transition", "transition slide"):
+        return True, None
+
+    # If row is not eligible for video scoring, treat as valid skip.
+    if not vo_segments_text or vo_segments_text == "nan" or not slide_chunk or slide_chunk == "nan":
+        return True, None
+    if (not video_pool or video_pool == "nan") and (not video_pool_other_channels or video_pool_other_channels == "nan"):
+        return True, None
+
+    if not video_score_text or video_score_text == "nan" or video_score_text.strip() == "":
+        return False, "video_score is empty"
+
+    if video_score_text.startswith("ERROR:"):
+        return False, "video_score contains error marker"
+
+    segment_numbers = [int(match) for match in re.findall(r'---SEGMENT_(\d+)---', video_score_text)]
+    if not segment_numbers:
+        return False, "No segment markers found in video_score"
+
+    visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+    if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+        visual_assignment_strategy = "Flexible, let the agent decide"
+
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        if len(segment_numbers) != 1 or segment_numbers[0] != 1:
+            return False, f"For '1 Visual for the whole Slide', expected only SEGMENT_1, found: {segment_numbers}"
+        return True, None
+
+    vo_segments = [seg.strip() for seg in vo_segments_text.split('\n') if seg.strip()]
+    expected_count = len(vo_segments)
+    if expected_count == 0:
+        return True, None
+
+    actual_count = len(segment_numbers)
+    if actual_count != expected_count:
+        return False, f"Segment count mismatch in video_score: expected {expected_count}, found {actual_count}"
+
+    expected_sequence = list(range(1, expected_count + 1))
+    if sorted(segment_numbers) != expected_sequence:
+        return False, f"Segment numbering mismatch in video_score: expected {expected_sequence}, found {sorted(segment_numbers)}"
+
+    return True, None
+
 
 def validate_video_pool_filtered_row(row):
     """

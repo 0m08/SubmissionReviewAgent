@@ -1,14 +1,22 @@
 """
 reference_image_pipeline.py
 ============================
-Pipeline for processing sheets where each row contains a single *Reference Image*
-that must pass through the full Accuracy + Copyright review-and-edit pipeline.
+Pipeline for processing sheets where each row's Slide Chunk contains
+*inline* reference image links in markdown format:
+
+    [alt text](https://drive.google.com/file/d/.../view)
+
+Each such marker splits the chunk into a (voiceover_segment, drive_link) pair.
+All pairs within a row are processed in parallel through the full
+Accuracy + Copyright review-and-edit pipeline.
 
 Key differences from the standard automated_voiceover_reviewer pipeline:
-  - Input images come from the **"Reference Image"** column (one per row, no subsegment parsing).
-  - slide_title = Slide Chunk Title.
-  - slide_content + voiceover = Slide Chunk.
-  - The final edited image Drive link is written to the **"Edited Reference"** column.
+  - There is NO dedicated "Reference Image" column — images are detected
+    inline from the Slide Chunk text using [alt](url) markdown syntax.
+  - The [alt text] label is stripped from the voiceover; only the URL is used.
+  - Each inline marker becomes one independent work item (one processed image).
+  - Voiceover ↔ image pairing is explicit — no Gemini extraction needed.
+  - Results are saved to Drive sub-folders (one per segment per row).
 
 Reuses:
   - review_and_edit_image()  — the full Accuracy + Copyright orchestration loop
@@ -81,11 +89,12 @@ load_dotenv()
 # =============================================================================
 # COLUMN NAMES (update here if sheet headers change)
 # =============================================================================
-COL_SLIDE_CHUNK_TITLE = "Slide Chunk Title"   # used as slide_title
-COL_SLIDE_CHUNK       = "Slide Chunk"          # used as BOTH slide_content AND voiceover
-COL_REFERENCE_IMAGE   = "Reference Image"      # input image URL
-COL_EDITED_REFERENCE  = "Edited Reference"     # output — =IMAGE() formula rendered in sheet
-COL_RELEVANT_VOICEOVER = "Relevant Voiceover"  # output — the specific part of chunk illustrated
+COL_SLIDE_CHUNK_TITLE  = "Slide Chunk Title"   # used as slide_title
+COL_SLIDE_CHUNK        = "Slide Chunk"          # contains inline [alt](url) image markers
+# NOTE: There is NO dedicated "Reference Image" column. Images are detected
+# inline from COL_SLIDE_CHUNK using [alt text](drive_url) markdown syntax.
+COL_EDITED_REFERENCE   = "Edited Reference"     # output — =IMAGE() formula rendered in sheet
+COL_RELEVANT_VOICEOVER = "Relevant Voiceover"   # output — the specific VO segment for each image
 
 # =============================================================================
 # MAIN PIPELINE FUNCTION
@@ -102,13 +111,17 @@ def run_reference_image_pipeline(
     execution_mode: str = "full",  # "full", "step1" (extraction), "step2" (review)
 ) -> None:
     """
-    Batch-process a sheet where each row has a single Reference Image.
+    Batch-process a sheet where each row's Slide Chunk contains inline
+    reference image markers of the form  [alt text](drive_url).
 
-    Phase 1 [Serial]   — Scan all rows, validate Reference Image links, pre-create
-                         Drive folders.
-    Phase 2 [Parallel] — Launch one worker thread per valid row, running the full
-                         Accuracy + Copyright review-and-edit pipeline.
-    Phase 3 [Cleanup]  — Write any remaining rows (e.g. skipped/empty) back.
+    Each marker is parsed into a (voiceover_segment, drive_url) pair.
+    All pairs across all rows are processed in parallel.
+
+    Phase 1 [Serial]   — Scan all rows, parse inline [alt](url) markers from
+                         Slide Chunk, validate Drive links, pre-create folders.
+    Phase 2 [Parallel] — Launch one worker thread per valid segment, running the
+                         full Accuracy + Copyright review-and-edit pipeline.
+    Phase 3 [Cleanup]  — Log any skipped rows/segments.
 
     Args:
         sheet_url:          Full Google Sheets URL.
@@ -183,116 +196,133 @@ def run_reference_image_pipeline(
 
         col_slide_title = _find_col(COL_SLIDE_CHUNK_TITLE)
         col_slide_chunk = _find_col(COL_SLIDE_CHUNK)
-        col_ref_image   = _find_col(COL_REFERENCE_IMAGE)
 
         print(f"📌 Column mapping: ")
         print(f"   - '{COL_SLIDE_CHUNK_TITLE}' -> '{col_slide_title}'")
         print(f"   - '{COL_SLIDE_CHUNK}'       -> '{col_slide_chunk}'")
-        print(f"   - '{COL_REFERENCE_IMAGE}'   -> '{col_ref_image}'")
+        print(f"   ℹ️  Reference images are parsed inline from '{col_slide_chunk}' using [alt](url) markers.")
 
-        if col_ref_image not in df.columns:
-            print(f"❌ CRITICAL ERROR: Could not find '{COL_REFERENCE_IMAGE}' column in sheet.")
-            print(f"   Available columns: {list(df.columns)}")
+        # ── Phase 1: Scan rows and parse inline reference image markers ────────
+        print("\n🔍 Phase 1: Scanning all rows, parsing inline [alt](url) markers…")
 
-        # ── Phase 1: Scan rows ─────────────────────────────────────────────────
-        print("\n🔍 Phase 1: Scanning all rows and pre-creating Drive folders…")
-
-        row_meta          = []           # one entry per DataFrame row
-        global_work_items = []           # valid rows to process in Phase 2
-        rows_written: set = set()        # df_idx values already handled/skipped
+        row_meta          = []           # one meta entry per source row
+        global_work_items = []           # one work item per (row, segment) pair
+        rows_written: set = set()        # (df_idx, seg_idx) tuples already handled
 
         for df_idx, (_, row) in enumerate(df.iterrows()):
             sheet_row_number = df_idx + 2  # +1 for 1-based, +1 for header
 
-            # ── Resume / skip already-processed rows ──────────────────────────
-            if skip_filled_rows:
-                existing = str(row.get(COL_EDITED_REFERENCE, "")).strip()
-                if existing and (
-                    "drive.google.com" in existing.lower()
-                    or existing.upper().startswith("=IMAGE(")
-                ):
-                    print(f"  ⏭️  Row {df_idx + 1}: Already has '{COL_EDITED_REFERENCE}'. Skipping.")
-                    rows_written.add(df_idx)
-                    continue
+            slide_title = str(row.get(col_slide_title, "")).strip()
+            slide_chunk = str(row.get(col_slide_chunk, "")).strip()
 
-            slide_title   = str(row.get(col_slide_title, "")).strip()
-            slide_chunk   = str(row.get(col_slide_chunk, "")).strip()
-            ref_image_url = str(row.get(col_ref_image, "")).strip()
-
-            if not ref_image_url:
+            if not slide_chunk:
                 continue
 
-            # ── Collect Expanded Context (2 above, 2 below) ───────────
-            context_list = []
-            context_mapping = {}  # ID -> {title, chunk}
-            
-            for offset in range(-2, 3):
-                neighbor_idx = df_idx + offset
-                if 0 <= neighbor_idx < len(df):
-                    n_row = df.iloc[neighbor_idx]
-                    n_title = str(n_row.get(col_slide_title, "")).strip()
-                    n_chunk = str(n_row.get(col_slide_chunk, "")).strip()
-                    
-                    if n_chunk:
-                        marker = f"CHUNK_ID_{neighbor_idx+1}"
-                        label = f"[TARGET CHUNK]" if offset == 0 else f"[NEIGHBOR {neighbor_idx+1}]"
-                        context_list.append(f"{label} <{marker}>\n{n_chunk}\n</{marker}>")
-                        context_mapping[marker] = {"title": n_title, "chunk": n_chunk}
-            
-            context_chunks_str = "\n\n---\n\n".join(context_list)
-            relevant_vo_existing = str(row.get(COL_RELEVANT_VOICEOVER, "")).strip()
-
-            meta = {
-                "df_idx"          : df_idx,
-                "sheet_row_number": sheet_row_number,
-                "slide_title"     : slide_title,
-                "slide_chunk"     : slide_chunk,
-                "context_chunks"  : context_chunks_str,
-                "context_mapping" : context_mapping,
-                "ref_image_url"   : ref_image_url,
-                "relevant_vo_existing": relevant_vo_existing,
-                "valid"           : False,
-            }
-            row_meta.append(meta)
+            # ── Parse inline reference image markers ───────────────────────────
+            # Format: [alt text](https://drive.google.com/file/d/.../view)
+            # Each marker splits the chunk: text-before-marker → VO, url → ref image
+            segments = parse_inline_references(slide_chunk)
 
             print(f"\n  Row {df_idx + 1}: {slide_title[:60] or '(no title)'}")
 
-            # ── Validate reference image link ──────────────────────────────────
-            plain_link = re.sub(r'\s*\(snapshot\)\s*', '', ref_image_url, flags=re.IGNORECASE).strip()
+            if not segments:
+                # ── NORMAL SLIDE: no inline markers — treat full chunk as one VO ──
+                print(f"    📄 No inline markers → Normal slide (full chunk as single VO).")
 
-            link_is_valid = is_valid_web_image_link(plain_link)
-            
-            # Local override: Reference Image Pipeline allows any Drive link even without (snapshot)
-            if not link_is_valid:
-                if any(domain in plain_link.lower() for domain in ['drive.google.com', 'docs.google.com']):
-                    link_is_valid = True
-            
-            if not link_is_valid:
-                print(f"    ⚠️  Row {df_idx + 1}: Invalid link '{plain_link[:80]}' (From col '{col_ref_image}')")
-                continue
+                row_folder_name = f"Row_{df_idx + 1}_{slide_title[:30].replace('/', '_')}"
+                row_folder_id = _create_drive_subfolder(
+                    drive, output_folder_id, row_folder_name, drive_lock=drive_lock
+                )
 
-            if not slide_chunk:
-                print(f"    ⚠️  Empty '{COL_SLIDE_CHUNK}' — skipping.")
-                continue
+                work_item = {
+                    "df_idx"         : df_idx,
+                    "seg_idx"        : 0,
+                    "sheet_row_number": sheet_row_number,
+                    "slide_title"    : slide_title,
+                    "slide_chunk"    : slide_chunk,
+                    "voiceover_text" : slide_chunk,  # full chunk is the VO
+                    "plain_link"     : None,           # no reference image
+                    "row_folder_id"  : row_folder_id,
+                    "slide_type"     : "normal",
+                    "valid"          : True,
+                }
+                global_work_items.append(work_item)
+                row_meta.append({
+                    "df_idx"         : df_idx,
+                    "sheet_row_number": sheet_row_number,
+                    "slide_title"    : slide_title,
+                    "num_segments"   : 1,
+                    "slide_type"     : "normal",
+                })
+                continue  # move to next row
 
-            # Pre-create Drive folder for this row (serial — Drive API not thread-safe)
-            folder_name = f"Row_{df_idx + 1}_{slide_title[:30].replace('/', '_')}"
+            # ── REFERENCE SLIDE: has inline markers → one work item per segment ─
+            print(f"    🖼️  Found {len(segments)} inline reference image segment(s).")
+
+            # Pre-create a parent Drive folder for this row (serial — not thread-safe)
+            row_folder_name = f"Row_{df_idx + 1}_{slide_title[:30].replace('/', '_')}"
             row_folder_id = _create_drive_subfolder(
-                drive, output_folder_id, folder_name, drive_lock=drive_lock
+                drive, output_folder_id, row_folder_name, drive_lock=drive_lock
             )
-            print(f"    📁 Created folder: {folder_name}")
+            print(f"    📁 Created row folder: {row_folder_name}")
 
-            meta["valid"]         = True
-            meta["plain_link"]    = plain_link
-            meta["row_folder_id"] = row_folder_id
+            for seg_idx, (vo_text, ref_image_url) in enumerate(segments):
+                seg_label = f"Row {df_idx + 1} Seg {seg_idx + 1}"
 
-            global_work_items.append(meta)
+                if not vo_text:
+                    print(f"    ⚠️  {seg_label}: Empty voiceover segment — skipping.")
+                    continue
+
+                # ── Validate the inline drive link ─────────────────────────────
+                plain_link = re.sub(
+                    r'\s*\(snapshot\)\s*', '', ref_image_url, flags=re.IGNORECASE
+                ).strip()
+
+                link_is_valid = is_valid_web_image_link(plain_link)
+                # Allow any Drive link (even without snapshot marker)
+                if not link_is_valid:
+                    if any(d in plain_link.lower() for d in ['drive.google.com', 'docs.google.com']):
+                        link_is_valid = True
+
+                if not link_is_valid:
+                    print(f"    ⚠️  {seg_label}: Invalid drive link '{plain_link[:80]}' — skipping.")
+                    continue
+
+                # Pre-create a segment-level sub-folder
+                seg_folder_name = f"Seg_{seg_idx + 1}_{vo_text[:25].replace('/', '_')}"
+                seg_folder_id = _create_drive_subfolder(
+                    drive, row_folder_id, seg_folder_name, drive_lock=drive_lock
+                )
+                print(f"      📁 {seg_label}: folder='{seg_folder_name}' | VO='{vo_text[:60]}...'")
+
+                work_item = {
+                    "df_idx"         : df_idx,
+                    "seg_idx"        : seg_idx,
+                    "sheet_row_number": sheet_row_number,
+                    "slide_title"    : slide_title,
+                    "slide_chunk"    : slide_chunk,   # full original chunk (for context)
+                    "voiceover_text" : vo_text,       # the specific segment (pre-parsed)
+                    "plain_link"     : plain_link,
+                    "row_folder_id"  : seg_folder_id,
+                    "slide_type"     : "reference",
+                    "valid"          : True,
+                }
+                global_work_items.append(work_item)
+
+            row_meta.append({
+                "df_idx"         : df_idx,
+                "sheet_row_number": sheet_row_number,
+                "slide_title"    : slide_title,
+                "num_segments"   : len(segments),
+                "slide_type"     : "reference",
+            })
 
         total_rows = len(global_work_items)
         print(f"\n📊 Phase 1 complete.")
-        print(f"   Rows scanned  : {len(df)}")
-        print(f"   Valid rows    : {total_rows}")
-        print(f"   Workers to launch: {total_rows}  (1 per valid row)")
+        print(f"   Sheet rows scanned   : {len(df)}")
+        print(f"   Rows with segments   : {len(row_meta)}")
+        print(f"   Total work items     : {total_rows}  (1 per inline image marker)")
+        print(f"   Workers to launch    : {total_rows}")
 
         if progress_callback:
             try:
@@ -308,85 +338,61 @@ def run_reference_image_pipeline(
         # ── Worker function ──────────────────────────────────────────────────
         def _process_one_row(work_item: dict):
             """
-            End-to-end processing for one row:
-              1. Download the Reference Image.
-              2. Run the full Accuracy + Copyright review-and-edit pipeline,
-                 using the Slide Chunk as the voiceover.
-              3. Upload the final approved image to Drive.
-              4. Return (df_idx, drive_link_or_None).
-            """
-            df_idx_w        = work_item["df_idx"]
-            slide_chunk_w   = work_item["slide_chunk"]    # fallback
-            context_chunks_w = work_item["context_chunks"]
-            context_mapping_w = work_item.get("context_mapping", {})
-            plain_link_w     = work_item["plain_link"]
-            row_folder_id_w  = work_item["row_folder_id"]
-            relevant_vo_existing_w = work_item.get("relevant_vo_existing", "")
-            slide_title_original = work_item["slide_title"]
+            End-to-end processing for one work item. Branches on slide_type:
 
-            thread_name     = threading.current_thread().name
+            - "reference": Has an inline Drive link → downloads the image and
+              passes it as reference_image to review_and_edit_image().
+            - "normal": No inline markers → passes reference_image=None 
+
+            Returns (df_idx, seg_idx, drive_link_or_None, voiceover_text).
+            """
+            df_idx_w       = work_item["df_idx"]
+            seg_idx_w      = work_item["seg_idx"]
+            slide_title_w  = work_item["slide_title"]
+            slide_chunk_w  = work_item["slide_chunk"]   # full chunk — used as slide_content
+            voiceover_w    = work_item["voiceover_text"] # pre-parsed segment (or full chunk)
+            plain_link_w   = work_item["plain_link"]     # None for normal slides
+            seg_folder_id  = work_item["row_folder_id"]
+            slide_type_w   = work_item.get("slide_type", "reference")
+
+            thread_name      = threading.current_thread().name
             final_drive_link = None
             reviewer_counters = {"voiceover": 0, "copyright": 0}
 
-            print(f"\n[{thread_name}] ▶ Row {df_idx_w + 1}: {slide_title_original[:50]}")
+            type_label = "📄 Normal" if slide_type_w == "normal" else "🖼️  Reference"
+            seg_label  = f"Row {df_idx_w + 1} Seg {seg_idx_w + 1} [{type_label}]"
+
+            print(f"\n[{thread_name}] ▶ {seg_label}: {slide_title_w[:40]} | VO='{voiceover_w[:60]}'")
 
             for retry in range(3):
                 try:
                     if retry > 0:
                         time.sleep(retry * 2)
-                        print(f"  [{thread_name}] Retry {retry}/2 for Row {df_idx_w + 1}…")
+                        print(f"  [{thread_name}] Retry {retry}/2 for {seg_label}…")
 
-                    # 1. Download the reference image (Drive or plain web URL)
-                    with drive_lock:
-                        ref_image = _download_drive_image(plain_link_w, drive=drive)
-                    
-                    # 2. VO Extraction Logic
-                    extracted_vo = ""
-                    source_id = None
-                    
-                    if execution_mode == "step2" and relevant_vo_existing_w:
-                        print(f"    📝 [{thread_name}] Using existing Voiceover from sheet.")
-                        extracted_vo = relevant_vo_existing_w
+                    # ── Step 1: Obtain reference image (type-dependent) ────────
+                    if slide_type_w == "reference":
+                        # Download the Drive image linked inline in the chunk
+                        with drive_lock:
+                            ref_image = _download_drive_image(plain_link_w, drive=drive)
+                        print(f"    🖼️  [{thread_name}] Reference image downloaded from Drive.")
                     else:
-                        print(f"    🔍 [{thread_name}] Extracting best voiceover from 5-chunk context…")
-                        extracted_vo_raw = _extract_best_voiceover(
-                            ref_image, context_chunks_w, row_idx=df_idx_w + 1
-                        )
-                        
-                        if ": " in extracted_vo_raw and "CHUNK_ID_" in extracted_vo_raw:
-                            source_id, extracted_vo = extracted_vo_raw.split(": ", 1)
-                            source_id = source_id.strip()
-                            extracted_vo = extracted_vo.strip()
-                        else:
-                            extracted_vo = extracted_vo_raw
-                    
-                    # ── IRRELEVANCE FILTER ──────────────────────────────────────────
-                    if extracted_vo.strip().upper() in ["NOT_RELEVANT", "IRRELEVANT IMAGE"]:
-                        print(f"    🚫 [{thread_name}] Image identified as NOT RELEVANT. Skipping review.")
-                        return df_idx_w, None, "IRRELEVANT IMAGE"
-                    
+                        # Normal slide — no reference image; pipeline generates from scratch
+                        ref_image = None
+                        print(f"    📄 [{thread_name}] Normal slide — no reference image.")
+
+                    # ── Step 2: Log voiceover (already determined in Phase 1) ──
+                    print(f"    📝 [{thread_name}] VO: '{voiceover_w[:100]}…'")
+
                     if execution_mode == "step1":
-                        print(f"    ✅ [{thread_name}] Step 1 Complete (Extraction Only).")
-                        return df_idx_w, None, extracted_vo
+                        # Extraction-only mode — return the VO without running review
+                        print(f"    ✅ [{thread_name}] Step 1 complete. VO ready.")
+                        return df_idx_w, seg_idx_w, None, voiceover_w
 
-                    # Identify the correct Slide Title and Content to use for review
-                    source_info = context_mapping_w.get(source_id) if source_id else None
-                    if source_info:
-                        title_to_use   = source_info["title"]
-                        content_to_use = source_info["chunk"]
-                        print(f"    🎯 [{thread_name}] Switched context to {source_id}: {title_to_use[:40]}...")
-                    else:
-                        title_to_use   = slide_title_original
-                        content_to_use = slide_chunk_w
-
-                    voiceover_to_use = extracted_vo or content_to_use
-                    
-                    print(f"    📢 [{thread_name}] Selected Voiceover: {voiceover_to_use[:100]}...")
-
-                    # 3. Intermediate callback — save every review round to Drive
+                    # ── Step 3: Intermediate callback — save review rounds ─────
                     def _save_intermediate(
                         round_data: Dict[str, Any],
-                        _folder_id=row_folder_id_w,
+                        _folder_id=seg_folder_id,
                         _counters=reviewer_counters,
                     ):
                         agent_type = round_data["agent"]
@@ -403,41 +409,40 @@ def run_reference_image_pipeline(
                         except Exception as cb_err:
                             print(f"    ⚠️  [{thread_name}] Failed to save {fname}: {cb_err}")
 
-                    # 4. Run the full Accuracy + Copyright pipeline.
+                    # ── Step 4: Run the full Accuracy + Copyright pipeline ─────
                     _, final_image, _ = review_and_edit_image(
-                        reference_image     = ref_image,
-                        slide_title         = title_to_use,   # ← Refined
-                        slide_content       = content_to_use, # ← Refined
-                        voiceover           = voiceover_to_use,
-                        visual_instruction  = "",
-                        image_size          = "1K",
-                        target_stage        = "full",
-                        callback            = _save_intermediate,
+                        reference_image    = ref_image,
+                        slide_title        = slide_title_w,
+                        slide_content      = slide_chunk_w,
+                        voiceover          = voiceover_w,
+                        visual_instruction = "",
+                        target_stage       = "full",
+                        callback           = _save_intermediate,
                     )
-
-                    # 4. Upload the final approved image
+                    
+                    # ── Step 5: Upload the final approved image ────────────────
                     if final_image:
                         upload_link = _save_image_to_drive(
-                            final_image, "FINAL_Image.png", drive, row_folder_id_w, drive_lock=drive_lock
+                            final_image, "FINAL_Image.png", drive, seg_folder_id, drive_lock=drive_lock
                         )
                         if upload_link:
                             final_drive_link = upload_link
-                            print(f"  [{thread_name}] ✅ Row {df_idx_w + 1}: uploaded → {upload_link}")
+                            print(f"  [{thread_name}] ✅ {seg_label}: uploaded → {upload_link}")
                         else:
-                            print(f"  [{thread_name}] ⚠️  Row {df_idx_w + 1}: upload returned empty link")
+                            print(f"  [{thread_name}] ⚠️  {seg_label}: upload returned empty link")
                     else:
-                        print(f"  [{thread_name}] ⚠️  Row {df_idx_w + 1}: no final image produced")
+                        print(f"  [{thread_name}] ⚠️  {seg_label}: no final image produced")
 
                     break  # success — exit retry loop
 
                 except Exception as exc:
                     if retry == 2:
                         print(
-                            f"  [{thread_name}] ❌ Row {df_idx_w + 1} failed after 2 retries: {exc}"
+                            f"  [{thread_name}] ❌ {seg_label} failed after 2 retries: {exc}"
                         )
                         traceback.print_exc()
 
-            return df_idx_w, final_drive_link, voiceover_to_use
+            return df_idx_w, seg_idx_w, final_drive_link, voiceover_w
 
         # ── Write helper ─────────────────────────────────────────────────────
         def _write_row_result(meta_entry: dict, drive_link: Optional[str], extracted_vo: str = "") -> None:
@@ -528,15 +533,19 @@ def run_reference_image_pipeline(
             for future in as_completed(futures):
                 wi = futures[future]
                 try:
-                    r_df_idx, link, extracted_vo = future.result()
+                    r_df_idx, r_seg_idx, link, vo_text = future.result()
                 except Exception as fut_err:
-                    r_df_idx = wi["df_idx"]
-                    link     = None
-                    extracted_vo = ""
-                    print(f"\n  ❌ Row {r_df_idx + 1} future raised: {fut_err}")
+                    r_df_idx  = wi["df_idx"]
+                    r_seg_idx = wi["seg_idx"]
+                    link      = None
+                    vo_text   = ""
+                    print(f"\n  ❌ Row {r_df_idx + 1} Seg {r_seg_idx + 1} future raised: {fut_err}")
 
                 completed += 1
-                print(f"\n  ✔ [{completed}/{total_rows}] Row {r_df_idx + 1} complete (Mode: {execution_mode})")
+                print(
+                    f"\n  ✔ [{completed}/{total_rows}] "
+                    f"Row {r_df_idx + 1} Seg {r_seg_idx + 1} complete (Mode: {execution_mode})"
+                )
 
                 if progress_callback:
                     try:
@@ -544,24 +553,24 @@ def run_reference_image_pipeline(
                     except Exception:
                         pass
 
-                # Write result row immediately
-                rows_written.add(r_df_idx)
-                _write_row_result(wi, link, extracted_vo)
+                # Write result for this segment
+                rows_written.add((r_df_idx, r_seg_idx))
+                _write_row_result(wi, link, vo_text)
 
-        # ── Phase 3: Handle rows that were skipped (invalid link / empty chunk) ─
-        print(f"\n📝 Phase 3: Writing any remaining skipped rows…")
-        for meta in row_meta:
-            if meta["df_idx"] in rows_written:
-                continue
-            # Row was invalid — write an empty value to Edited Reference
-            print(f"  Row {meta['df_idx'] + 1}: skipped (invalid/missing data) — writing empty cell")
-            _write_row_result(meta, None)
-            rows_written.add(meta["df_idx"])
+        # ── Phase 3: Log unprocessed segments ─────────────────────────────────
+        print(f"\n📝 Phase 3: Logging any skipped segments…")
+        for wi in global_work_items:
+            key = (wi["df_idx"], wi["seg_idx"])
+            if key not in rows_written:
+                print(
+                    f"  ⚠️  Row {wi['df_idx'] + 1} Seg {wi['seg_idx'] + 1}: "
+                    f"was not completed — check logs above."
+                )
 
         print(
             f"\n🎉 Reference Image Pipeline complete. "
-            f"Processed {completed} row(s). "
-            f"Results written to '{COL_EDITED_REFERENCE}' column."
+            f"Processed {completed}/{total_rows} inline image segment(s). "
+            f"Results saved to Drive folder '{output_folder_name}'."
         )
 
     except Exception as exc:
@@ -569,25 +578,63 @@ def run_reference_image_pipeline(
         traceback.print_exc()
     finally:
         llm_tracker.mark_pipeline_end()
- 
- 
+
+
 # =============================================================================
-# VOICE OVER EXTRACTION UTILITIES
+# INLINE REFERENCE IMAGE PARSING
 # =============================================================================
- 
+
+# Matches: [any alt text](https://...)
+_INLINE_REF_PATTERN = re.compile(
+    r'\[([^\]]*)\]'           # [alt text]  — captured but ignored
+    r'\((https?://[^\)]+)\)', # (url)       — the Drive link we want
+    re.IGNORECASE,
+)
+
+
+def parse_inline_references(slide_chunk: str) -> list:
+    """
+    Parse a slide chunk that contains inline markdown image references:
+
+    Returns:
+        List of (voiceover_text: str, drive_url: str) tuples,
+        one per inline marker found.  Empty list if no markers are present.
+    """
+    segments = []
+    last_end = 0
+    pending_text = ""
+
+    for match in _INLINE_REF_PATTERN.finditer(slide_chunk):
+        # Text from end of the previous marker up to the start of [alt]
+        text_chunk = slide_chunk[last_end : match.start()]
+        vo_text = (pending_text + text_chunk).strip()
+        drive_url = match.group(2).strip()
+
+        segments.append((vo_text, drive_url))
+
+        last_end = match.end()
+        pending_text = ""
+
+    return segments
+
+
+# =============================================================================
+# VOICE OVER EXTRACTION UTILITIES (Legacy / Context-Based)
+# =============================================================================
+
 def _extract_best_voiceover(image: Image.Image, context_chunks: str, row_idx: int) -> str:
     """
-    Calls Gemini to identify the specific part of the expanded 5-chunk context 
+    Calls Gemini to identify the specific part of the expanded 5-chunk context
     that best matches the provided reference image.
     """
-    
+
     client = _get_client()
     if not client:
         return ""
-        
+
     try:
         img_bytes = prepare_image_for_gemini(image)
-        
+
         prompt = f"""You are an expert at aligning educational images with technical text.
 
 Below are several 'Slide Chunks' representing the surrounding context of a specific slide (Row {row_idx}).
@@ -610,12 +657,12 @@ REQUIREMENTS:
 3. If the image matches the theme perfectly but not a specific sentence, return the [TARGET CHUNK] ID and its content.
 4. Do not provide any explanation or conversational response. Just the 'CHUNK_ID: Text' or 'NOT_RELEVANT'.
 """
- 
+
         parts = [
             types.Part.from_text(text=prompt),
             types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
         ]
-        
+
         with llm_tracker.call(DEFAULT_REVIEWER_MODEL, "VO Extraction") as usage:
             response = client.models.generate_content(
                 model=DEFAULT_REVIEWER_MODEL,
@@ -626,9 +673,9 @@ REQUIREMENTS:
                 )
             )
             usage.set_response(response)
-            
+
         return response.text.strip()
-        
+
     except Exception as e:
         print(f"      ⚠️ Failed to extract best VO: {e}")
         return ""

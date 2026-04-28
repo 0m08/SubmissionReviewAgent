@@ -8,7 +8,14 @@ import re
 import time
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
-from services.drive_service import login_with_oauth2, share_sheet_with_service_account, get_service_account_email
+from services.drive_service import (
+    login_with_oauth2,
+    share_sheet_with_service_account,
+    get_service_account_email,
+    build_service_account_drive_service,
+    extract_drive_id_from_url,
+    is_inside_skillcat_shared_drive,
+)
 from services.activity_tracking_service import (
     track_step_start,
     track_step_complete,
@@ -333,6 +340,40 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     gc = st.session_state["gc"]
                 else:
                     st.stop()
+
+                # Check if both the Google sheet and the course Drive folder are inside the Skillcat Shared Drive.
+                sa_drive_service = build_service_account_drive_service()
+                if sa_drive_service is None:
+                    st.error(
+                        "The agent is not configured correctly on the server. "
+                        "Please contact the admin."
+                    )
+                    st.stop()
+
+                sheet_file_id = extract_drive_id_from_url(sheet_link)
+                folder_id_norm = extract_drive_id_from_url(root_folder_id) or (root_folder_id or "").strip()
+
+                if not sheet_file_id:
+                    st.error("Please enter a valid Google Sheet link.")
+                    st.stop()
+                if not folder_id_norm:
+                    st.error("Please enter a valid course Drive folder ID.")
+                    st.stop()
+
+                if not is_inside_skillcat_shared_drive(sheet_file_id, sa_drive_service):
+                    st.error(
+                        "This Google Sheet is not inside the Skillcat Shared Drive on Google Drive. "
+                        "Please move the sheet into the Skillcat Shared Drive and try again."
+                    )
+                    st.stop()
+
+                if not is_inside_skillcat_shared_drive(folder_id_norm, sa_drive_service):
+                    st.error(
+                        "This course Drive folder is not inside the Skillcat Shared Drive on Google Drive. "
+                        "Please move the folder into the Skillcat Shared Drive and try again."
+                    )
+                    st.stop()
+
                 sheet = gc.open_by_url(sheet_link)
                 course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 

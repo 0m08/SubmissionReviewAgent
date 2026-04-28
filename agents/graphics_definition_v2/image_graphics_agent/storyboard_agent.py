@@ -234,6 +234,73 @@ Use this section as a reasoning scratchpad to think through the slide and plan t
 """
 
 
+# Prompt for inline reference slides: VO segments are pre-fixed; LLM only fills visual ideas.
+storyboard_agent_for_locked_segments_prompt = """You are a senior instructional visual designer specializing in HVAC e-learning content. Your task is to describe a clear, instructionally useful visual idea for each narration segment of a slide.
+
+The narration has already been divided into segments. Your job is to assign exactly one visual idea to each segment — you must NOT merge, split, or reorder segments.
+
+These are the inputs:
+
+<course_information>
+Course name: {course_name}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<slide_content>
+Slide Type: {slide_type}
+Slide Title: {slide_title}
+</slide_content>
+
+Here are the locked narration segments (one per line, numbered):
+
+<narration_segments>
+{numbered_segments}
+</narration_segments>
+
+Instructions:
+
+1. Produce exactly one <storyboard_step> for each segment above, in order.
+2. In <narration_part>, copy the segment text EXACTLY as given — no paraphrasing, no changes.
+3. In <visual_idea>, describe the visual that should be shown on screen when that segment is narrated. Be specific and instructionally relevant.
+   - Focus on what the learner must SEE to understand the narration (components, actions, processes, diagrams, scenes, conditions, etc.).
+   - Use generic terms ("visual", "visual content") — do NOT write "image", "photo", or "picture", as visuals may be static or video.
+   - Keep each visual idea concise but descriptive — 1–3 sentences is ideal.
+4. Transition Slide Type: if the slide type is "Transition", assign a visual relevant to the topic and subtopic name.
+5. Do NOT introduce new content, merge segments, or create extra steps.
+
+Output strictly in this format:
+
+<detailed_analysis>
+Briefly think through what visual best supports each segment before writing the final output.
+</detailed_analysis>
+
+<output>
+
+<storyboard_steps>
+
+<storyboard_step>
+
+<narration_part>
+(Copy the segment text exactly)
+</narration_part>
+
+<visual_idea>
+(Your visual idea for this segment)
+</visual_idea>
+
+</storyboard_step>
+
+<!-- Repeat for each segment in order -->
+
+</storyboard_steps>
+
+</output>
+
+(Ensure you follow this exact XML format)
+"""
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -315,6 +382,78 @@ def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_
     print("\n" + "=" * 100 + "\n")
 
     return storyboard_output, strategy_type
+
+
+@traceable(
+    metadata={
+        "agent_name": "graphics_definition_v2",
+        "step_name": "Storyboard Agent",
+        "function_name": "generate_storyboard_for_locked_segments",
+        "user_id": st.session_state.get("role", "anonymous"),
+        "user_email": st.session_state.get("user_email", "anonymous")
+    }
+)
+def generate_storyboard_for_locked_segments(
+    course_name, topic_name, subtopic_name, slide_title, slide_type, vo_lines, llm="gemini_3_flash_thinking"
+):
+    """
+    Generate one visual idea per pre-locked VO segment (inline reference slide path).
+
+    The LLM receives the exact VO lines from Step 1 and must produce exactly one
+    <storyboard_step> per entry — copying each line verbatim into <narration_part>
+    and filling only the <visual_idea>. This preserves SEGMENT_N alignment with
+    reference_image_map while still getting rich, context-aware visual descriptions.
+
+    :param vo_lines: List of VO strings already cleaned of [alt](url) markers.
+    :return: Formatted storyboard text ready for the sheet.
+    """
+    numbered_segments = "\n".join(f"{i+1}. {line}" for i, line in enumerate(vo_lines))
+
+    agent = Chain(llm=llm, tags=["output", "storyboard_steps", "detailed_analysis"])
+    agent.add_message(
+        role="user",
+        content=storyboard_agent_for_locked_segments_prompt.format(
+            course_name=course_name,
+            topic_name=topic_name,
+            subtopic_name=subtopic_name,
+            slide_title=slide_title,
+            slide_type=slide_type or "",
+            numbered_segments=numbered_segments,
+        )
+    )
+
+    response = agent.run()
+    full_text = response.get("text", "")
+    storyboard_xml = response.get("output", "")
+
+    print(f"\nSlide Title: {slide_title} (locked-segment path — {len(vo_lines)} segments)")
+    print("📤 Locked-Segment Storyboard Response:\n")
+    print(full_text)
+    print("\n" + "=" * 100 + "\n")
+
+    # Parse the LLM's steps; build output using VO lines as the authoritative When VO.
+    steps = re.findall(
+        r'<storyboard_step>(.*?)</storyboard_step>', storyboard_xml, re.DOTALL | re.IGNORECASE
+    )
+
+    formatted_parts = []
+    for step_idx, vo_line in enumerate(vo_lines):
+        # Use the LLM's visual idea for this position (if available)
+        visual_idea = ""
+        if step_idx < len(steps):
+            vm = re.search(r'<visual_idea>(.*?)</visual_idea>', steps[step_idx], re.DOTALL | re.IGNORECASE)
+            if vm:
+                visual_idea = vm.group(1).strip()
+
+        formatted_parts.append(f'When VO: "{vo_line}"')
+        formatted_parts.append("")  # blank gap
+        formatted_parts.append(f"Visual Idea: {visual_idea}" if visual_idea else "Visual Idea: (See reference image for this segment)")
+        formatted_parts.append("")
+        if step_idx < len(vo_lines) - 1:
+            formatted_parts.append("-----------------------------------------------")
+            formatted_parts.append("")
+
+    return "\n".join(formatted_parts)
 
 
 def format_storyboard_for_sheet(storyboard_xml, strategy_type="flexible", slide_content=""):
@@ -419,20 +558,38 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
         if not visual_assignment_strategy or visual_assignment_strategy == "nan":
             visual_assignment_strategy = "Flexible, let the agent decide"
+
+        # Get voiceover segments from Step 1 (may be multiple segments joined by \n)
+        voiceover_segments_raw = str(row.get("voiceover_segment", "")).strip()
         
-        # If this row has a Reference Image, force single-visual strategy.
-        # This ensures the storyboard is never split into multiple segments for reference rows,
-        # regardless of whether the Segment Slide step was re-run.
-        ref_image = str(row.get("Reference Image", "")).strip()
-        if ref_image and ref_image != "nan":
-            visual_assignment_strategy = "1 Visual for the whole Slide"
-            print(f"Row {index + 1}: Reference image present → forcing '1 Visual for the whole Slide' strategy.")
-        
+        # Check if we have an inline reference map
+        ref_map = str(row.get("reference_image_map", "")).strip()
+        has_inline_map = ref_map and ref_map != "nan"
+
+        if has_inline_map:
+            # FOR INLINE REFERENCE SLIDES:
+            # The When VOs are locked to the exact pre-segmented lines from Step 1 so that
+            # SEGMENT_N indices in reference_image_map stay perfectly aligned.
+            print(f"Row {index + 1}: Inline reference map present → calling LLM with locked-segment prompt.")
+            vo_lines = [line.strip() for line in voiceover_segments_raw.splitlines() if line.strip()]
+            if not vo_lines:
+                return index, ""
+            formatted_storyboard = generate_storyboard_for_locked_segments(
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                slide_title=slide_title,
+                slide_type=slide_type,
+                vo_lines=vo_lines,
+                llm=llm,
+            )
+            return index, formatted_storyboard
+
         # Skip if slide_content is empty
         if not slide_content or slide_content == "nan":
             return index, ""
         
-        # Generate storyboard
+        # Generate storyboard (LLM path — only reached when no inline reference map)
         storyboard_xml, strategy_type = generate_storyboard_for_slide(
             course_name=course_name,
             topic_name=topic_name,
