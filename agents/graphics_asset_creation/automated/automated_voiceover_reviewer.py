@@ -255,17 +255,17 @@ def review_and_edit_image(
     slide_content: str = "",
     voiceover: str = "",
     visual_instruction: str = "",
-    image_size: str = "1K",
     callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     target_stage: str = "full",
-    skip_accuracy_validation: bool = False
+    skip_accuracy_validation: bool = False,
+    skip_copyright: bool = False
 ) -> tuple[VoiceoverReviewResult, Optional[Image.Image], list]:
     """
     Orchestrator: Review and Edit workflow using separate agent sessions.
     
     Creates dedicated chat sessions for:
     - Accuracy Reviewer (technical fidelity)
-    - Copyright Reviewer (IP compliance)
+    - Copyright Reviewer (IP compliance) - can be skipped with skip_copyright=True
     
     Manages the review-edit loop and bridges feedback to the image editor.
     Returns: (FinalReview, FinalImage, HistoryList)
@@ -640,6 +640,10 @@ Set verdict to 'No' if any CRITICAL technical errors remain, and provide specifi
                     return _finalize_before_return(review_result, current_image, history, "both-approved-same-image")
                     
                 # --- STAGE 2: COPYRIGHT REVIEW (separate session) ---
+                if skip_copyright:
+                    print(f"⏩ Skipping Copyright Audit (skip_copyright=True)...")
+                    return _finalize_before_return(review_result, current_image, history, "vo-approved-copyright-skipped")
+
                 print(f"✅ Voiceover Approved. Triggering Copyright Audit...")
                 # VO approved → accuracy strategy (if any) WORKED. Do NOT mark it as tried.
                 # It should remain available for future problems of the same class.
@@ -996,7 +1000,7 @@ STRICT RULE: Do not regenerate the entire scene. Only surgically adjust the comp
                     reference_image=editing_image,
                     editing_instructions=pass1_dict,
                     quick_mode=True,
-                    image_size=image_size,
+                    # imageSize=image_size,
                     aspect_ratio=PIPELINE_ASPECT_RATIO,
                     system_instruction=context_instruction,
                     # image_editing_with_review_loop already has internal timeout/retry.
@@ -1019,7 +1023,7 @@ STRICT RULE: Do not regenerate the entire scene. Only surgically adjust the comp
                     reference_image=editing_image,
                     editing_instructions=pass2_dict,
                     quick_mode=True,
-                    image_size=image_size,
+                    # imageSize=image_size,
                     aspect_ratio=PIPELINE_ASPECT_RATIO,
                     system_instruction=context_instruction,
                     # image_editing_with_review_loop already has internal timeout/retry.
@@ -1330,7 +1334,7 @@ def _process_single_reviewer_row(
                     slide_content=slide_content,
                     voiceover=subseg['voiceover_focus'],
                     visual_instruction=subseg['visual_instruction'],
-                    image_size="1K",
+                    imageSize="1K",
                     target_stage="full",
                     callback=save_intermediate_callback
                 )
@@ -1690,7 +1694,7 @@ def run_automation(
                         slide_content=slide_content_w,
                         voiceover=voiceover_focus,
                         visual_instruction=visual_instr,
-                        image_size="1K",
+                        imageSize="1K",
                         target_stage="full",
                         callback=save_intermediate_callback
                     )
