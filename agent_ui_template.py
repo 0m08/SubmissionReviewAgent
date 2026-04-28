@@ -332,15 +332,6 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 else:
                     st.stop()
 
-                # Check if both the Google sheet and the course Drive folder are inside the Skillcat Shared Drive.
-                sa_drive_service = build_service_account_drive_service()
-                if sa_drive_service is None:
-                    st.error(
-                        "The agent is not configured correctly on the server. "
-                        "Please contact the admin."
-                    )
-                    st.stop()
-
                 sheet_file_id = extract_drive_id_from_url(sheet_link)
                 folder_id_norm = extract_drive_id_from_url(root_folder_id) or (root_folder_id or "").strip()
 
@@ -349,6 +340,15 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     st.stop()
                 if not folder_id_norm:
                     st.error("Please enter a valid course Drive folder ID.")
+                    st.stop()
+
+                # Check if both the Google sheet and the course Drive folder are inside the Skillcat Shared Drive.
+                sa_drive_service = build_service_account_drive_service()
+                if sa_drive_service is None:
+                    st.error(
+                        "The agent is not configured correctly on the server. "
+                        "Please contact the admin."
+                    )
                     st.stop()
 
                 if not is_inside_skillcat_shared_drive(sheet_file_id, sa_drive_service):
