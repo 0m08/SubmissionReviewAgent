@@ -22,32 +22,34 @@ GOOGLE_OAUTH_SCOPES = [
 SKILLCAT_SHARED_DRIVE_FOLDER_ID = "1-YOY7Z9kK5_NR2shHbJgRXTJT6D16HIM"
 
 
-def _load_service_account_dict():
-    """Return the service-account JSON as a dict from env, or None if not configured."""
-    try:
-        sa_json = os.environ.get("GDRIVE_SA_JSON")
-        if sa_json:
-            return json.loads(sa_json) if isinstance(sa_json, str) else sa_json
-        sa_b64 = os.environ.get("GDRIVE_SA_B64")
-        if sa_b64:
-            return json.loads(base64.b64decode(sa_b64).decode())
-    except Exception:
-        return None
-    return None
+def _iter_service_account_candidates():
+    """Yield parsed service-account dict candidates from env in priority order."""
+    sa_json = os.environ.get("GDRIVE_SA_JSON")
+    if sa_json:
+        try:
+            yield "GDRIVE_SA_JSON", (json.loads(sa_json) if isinstance(sa_json, str) else sa_json)
+        except Exception:
+            pass
+
+    sa_b64 = os.environ.get("GDRIVE_SA_B64")
+    if sa_b64:
+        try:
+            yield "GDRIVE_SA_B64", json.loads(base64.b64decode(sa_b64).decode())
+        except Exception:
+            pass
 
 
 def build_service_account_drive_service():
     """Build a Google Drive v3 client authenticated with the background-job service account."""
-    sa_dict = _load_service_account_dict()
-    if not sa_dict:
-        return None
-    try:
-        creds = service_account.Credentials.from_service_account_info(
-            sa_dict, scopes=GOOGLE_OAUTH_SCOPES
-        )
-        return build("drive", "v3", credentials=creds, cache_discovery=False)
-    except Exception:
-        return None
+    for _source, sa_dict in _iter_service_account_candidates():
+        try:
+            creds = service_account.Credentials.from_service_account_info(
+                sa_dict, scopes=GOOGLE_OAUTH_SCOPES
+            )
+            return build("drive", "v3", credentials=creds, cache_discovery=False)
+        except Exception:
+            continue
+    return None
 
 
 def extract_drive_id_from_url(value: str) -> str:
