@@ -49,6 +49,10 @@ from agents.research_notes.paraphrase_research_notes import (
     delete_paraphrased_research_notes,
 )
 from agents.research_notes.research_notes_checklist_v2 import run_research_notes_checklist_and_reviser, delete_research_notes_checklist_and_reviser
+from agents.research_notes.inline_image_placement import (
+    run_inline_image_placement_for_all_rows,
+    delete_inline_image_placement,
+)
 from agents.research_notes.old_checklist_review_and_revise import (
     run_research_review_revise_checklist,
     delete_research_checklist_review_revise,
@@ -389,9 +393,27 @@ pipeline_sections = [
                 }
             },
             {
+                "name": "Inline Image Placement",
+                "func": run_inline_image_placement_for_all_rows,
+                "depends_on": ["Checklist Based Review and Revise Agents"],
+                "args": {
+                    "sheet": "sheet",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_3_flash",
+                },
+                "estimated_time": "~ 3 minutes",
+                "description": "Agent previews each inline image and repositions the `![](url)` link next to the paragraph it illustrates. URLs and alt text are preserved.",
+                "delete_func": delete_inline_image_placement,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                }
+            },
+            {
                 "name": "Visualize Research Notes Diff",
                 "func": manual_review_research_notes_diff,
-                "depends_on": ["Checklist Based Review and Revise Agents"],
+                "depends_on": ["Inline Image Placement"],
                 "args": {
                     "sheet": "sheet",
                 },

@@ -42,8 +42,9 @@ from pydantic import BaseModel, Field
 from langgraph.prebuilt import InjectedState
 from langchain.agents import AgentState
 import pandas as pd
-from services.crud_text_block_tools import create_block, read_blocks, update_block, delete_block, search_web, stop, str_replace
+from services.crud_text_block_tools import create_block, read_blocks, update_block, delete_block, search_web, stop, str_replace, preview_image
 from services.helper_functions import iterate_scope
+from agents.research_notes.inline_image_placement import extract_inline_image_links
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple
 import difflib
 
@@ -60,6 +61,7 @@ TOOL_NAME_TO_FUNCTION = {
     "Search": search_web,
     "Stop": stop,
     "StrReplace": str_replace,
+    "PreviewImage": preview_image,
 }
 
 
@@ -103,6 +105,58 @@ def is_failed_items_empty(failed_items: str, min_length: int = 50) -> bool:
         return True
 
     return False
+
+
+def restore_dropped_image_links(original_df: pd.DataFrame, revised_df: pd.DataFrame) -> str:
+    """
+    Compare image links per block between the pre-revision and post-revision DataFrames.
+    For blocks present in both, append any `![](url)` links the reviser dropped back to
+    the end of the revised block text. For blocks the reviser removed outright, log the
+    lost URLs (no auto-restore of the block itself).
+
+    Mutates ``revised_df`` in place. Returns a human-readable report string listing what
+    was restored or warned about; empty string if nothing was dropped.
+
+    :param original_df: DataFrame before revision.
+    :param revised_df: DataFrame after revision.
+    :return: Report string describing restorations and warnings.
+    """
+    report_lines = []
+    original_ids = set(original_df.index.tolist())
+    revised_ids = set(revised_df.index.tolist())
+
+    # Blocks present in both: restore any dropped links
+    for block_id in sorted(original_ids & revised_ids):
+        pre_text = str(original_df.at[block_id, 'block text'])
+        post_text = str(revised_df.at[block_id, 'block text'])
+        pre_links = set(extract_inline_image_links(pre_text))
+        post_links = set(extract_inline_image_links(post_text))
+        missing = pre_links - post_links
+        if not missing:
+            continue
+        print(f"⚠️ Reviser dropped image links from block {block_id}: {sorted(missing)}")
+        restored = post_text.rstrip()
+        for url in sorted(missing):
+            restored += f"\n\n![]({url})"
+        revised_df.at[block_id, 'block text'] = restored
+        report_lines.append(
+            f"Block {block_id}: restored {len(missing)} dropped image link(s): {sorted(missing)}"
+        )
+
+    # Blocks removed entirely: warn but do not restore the block
+    for block_id in sorted(original_ids - revised_ids):
+        pre_text = str(original_df.at[block_id, 'block text'])
+        pre_links = set(extract_inline_image_links(pre_text))
+        if pre_links:
+            print(
+                f"⚠️ Reviser deleted block {block_id} which contained image links: "
+                f"{sorted(pre_links)} (not auto-restored)"
+            )
+            report_lines.append(
+                f"Block {block_id}: DELETED by reviser; lost image links: {sorted(pre_links)}"
+            )
+
+    return "\n".join(report_lines)
 
 
 def compute_blockwise_diffs(original_df: pd.DataFrame, revised_df: pd.DataFrame) -> str:
@@ -209,6 +263,7 @@ Critical Evaluation Instructions (only for non-video-based research notes):
 - Each criteria has specific requirements that must be met - evaluate against those exact requirements, not general best practices.
 - Do not let overall quality of the content influence your judgment - focus solely on whether each specific criteria requirement is met.
 - Strictly evaluate every single criteria provided in the checklist. Do not skip or miss any criteria.
+- Inline image links: Any markdown image links (`![alt](url)`) present in the research notes are intentional and must be preserved. Do not flag their presence as a defect and do not propose removing or rewriting them. Image-link repositioning is handled by a dedicated pipeline step.
 
 Make sure to output in the following format:
 <analysis>
@@ -317,6 +372,8 @@ The refrigeration cycle consists of four main components...
 
 IMPORTANT: Never change or remove these headers (Block ID, Topic, Subtopic, Learning Objective, Research Notes). Only modify the content after the header as required for the revision. The format is essential for the system to function properly.
 
+Inline image links: Any markdown image links (`![alt](url)`) present in the research notes must be preserved. Do not delete, rewrite, or modify the URL or alt text of an existing image link during unrelated edits. Image-link repositioning is handled by a dedicated pipeline step; treat every `![](...)` you see as load-bearing content to keep intact.
+
 NOTES:
 - Make use of the given set of CRUD block text tools to make the necessary revisions.
 - These CRUD tools allow you to create, read, update, and delete blocks of text from the above research notes as needed.
@@ -379,6 +436,7 @@ Instructions:
 5. Deduplicate only when two reviewers flag the exact same issue on the exact same block. In that case, keep the more detailed feedback of the two.
 6. Do NOT remove failures that were identified by a reviewer, unless another reviewer's conflicting assessment is demonstrably correct based on the actual research notes.
 7. If while cross-referencing you spot additional issues that no reviewer caught, you may add them as new failures — but clearly mark them as "[Aggregator-identified]".
+8. Inline image links: Any markdown image links (`![alt](url)`) present in the research notes must be preserved. Do not synthesize or retain feedback that asks the reviser to remove or rewrite existing image links. Image-link repositioning is handled by a dedicated pipeline step.
 
 Output your consolidated report:
 
@@ -1151,8 +1209,18 @@ def run_research_notes_checklist_and_reviser(sheet, course_name, target_audience
             blockwise_diffs=last_diffs,
         )
 
+        # ── Phase 4b: Restore any image links the reviser dropped ──
+        image_guard_report = restore_dropped_image_links(df_before_revision, research_notes_df)
+        if image_guard_report:
+            print(f"\n🖼️ Image-link guard restored dropped links:\n{image_guard_report}")
+
         # ── Phase 5: Compute diffs for next iteration ──
         last_diffs = compute_blockwise_diffs(df_before_revision, research_notes_df)
+        if image_guard_report:
+            last_diffs = (
+                f"{last_diffs}\n\n### Image-link guard (automatic restorations)\n"
+                f"```\n{image_guard_report}\n```\n"
+            )
         print(f"\n📊 Iteration {iteration} complete. DataFrame shape: {research_notes_df.shape}")
         if last_diffs != "No changes detected.":
             print(f"📝 Diffs preview: {last_diffs[:300]}...")

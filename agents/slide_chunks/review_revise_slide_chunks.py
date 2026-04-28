@@ -412,6 +412,7 @@ GOOD: "Apply mastic—also called pookie by tradesman—to seal the joints."
 - Be specific in your feedback — cite exact slide titles, quote passages, or describe exact gaps.
 - For each criterion, make a clear pass/fail determination. If a criterion is fully satisfied, do NOT list it in failed_items.
 - A criterion should fail if ANY of its checks are violated, even if other checks within it pass.
+- Inline image links: Markdown image links in the slide content (in either `[alt](url)` or `![alt](url)` form) are intentional and handled by a dedicated upstream pipeline step. Do NOT flag their presence, format, placement, or alt text as a defect under any criterion. Do NOT include failed_items asking the reviser to remove, rewrite, reformat, or reposition image links. Treat them as invisible to your evaluation.
 
 ---
 
@@ -545,6 +546,7 @@ Instructions:
 - For NEW INVENTED DATA: Use `str_replace` to remove or replace invented content with information actually present in the research notes.
 - For TRANSITION SLIDE REDUNDANCY: Use `str_replace` to rework the transition slide so it introduces or teases the topic without duplicating specific details from the following content slides.
 - Use `str_replace` for targeted, precise edits. Use `full_overwrite` only when major restructuring is truly required.
+- Inline image links: Any markdown image links in the slide content — in either `[alt](url)` or `![alt](url)` form — must be preserved. Do NOT delete, rewrite, drop, merge, reposition, or modify the URL or alt text of any existing image link during your revisions, even if your other edits touch the surrounding sentence. Keep each link in the exact position (same surrounding sentence) and exact format (same `[` vs `!` prefix) it currently has. When using `str_replace`, if the `old_text` you are replacing contains an image link, the `new_text` must contain the same image link(s) verbatim in the same relative position. If you use `full_overwrite`, every image link from the current slide chunks must appear in the new text verbatim. Image-link placement is handled by a dedicated upstream pipeline step — treat every `[...](...)` / `![...](...)` as load-bearing content.
 - After all revisions are complete, call `stop` to signal completion.
 
 Follow these Paraphrasing Rules in all revisions:

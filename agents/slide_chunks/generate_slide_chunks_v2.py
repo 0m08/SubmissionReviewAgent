@@ -188,6 +188,7 @@ GOOD: "Apply mastic—also called pookie by tradesman—to seal the joints."
    - Every specific fact, detail, measurement, and procedural step in the research notes must appear in the output. Do not drop details like positions, ratings, or specifications.
    - Do not remove or skip content unless it is clearly redundant or off-topic.
    - Your job is to restructure and present — not to expand or reduce.
+   - Inline image links: Any markdown image links in the research notes — in either `[alt](url)` or `![alt](url)` form — must be carried through verbatim into the Content of the slide whose text covers the sentence or paragraph that the link sits next to. Do not delete, rewrite, drop, merge, or modify the URL or alt text of any existing image link. Keep the link format exactly as it appears in the source (same `[` vs `!` prefix, same URL, same alt text). Place each link inline with the Content text, in the same position relative to the surrounding sentence as it had in the source research notes. Image-link placement has already been handled by an upstream pipeline step — treat every `[...](...)` / `![...](...)` you see as load-bearing content to preserve exactly.
 
 5. Slide Titles:
    - Keep titles clear, concise (2-5 words).
