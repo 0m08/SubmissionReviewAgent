@@ -15,7 +15,7 @@ from services.smart_progress_bar import SmartProgressBar
 from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save_to_sheet
 
 
-def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_events, emit_progress, completed, errors, label_a, fn_a, llm_a, label_b, fn_b, llm_b):
+def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_events, emit_progress, completed, errors, label_a, fn_a, llm_a, label_b, fn_b, llm_b, selected_topics=None):
     """
     Run two row-parallel pipeline functions concurrently and stream progress events.
 
@@ -42,6 +42,7 @@ def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_event
                 sheet=sheet,
                 llm=llm_a,
                 max_workers=max_workers,
+                selected_topics=selected_topics,
                 progress_callback=emit_progress,
                 show_progress=False,
             ): label_a,
@@ -50,6 +51,7 @@ def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_event
                 sheet=sheet,
                 llm=llm_b,
                 max_workers=max_workers,
+                selected_topics=selected_topics,
                 progress_callback=emit_progress,
                 show_progress=False,
             ): label_b,
@@ -88,6 +90,7 @@ def run_generate_image_and_video_pools(
     image_pool_llm="gemini_3_flash_thinking",
     video_pool_llm="gemini_3_flash_thinking",
     max_workers=50,
+    selected_topics=None,
 ):
     """
     Run both Image and Video scoring/filtering with two phases:
@@ -116,6 +119,9 @@ def run_generate_image_and_video_pools(
     def _count_image_tasks(_df) -> int:
         tasks = 0
         for _, row in _df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
             image_pool = str(row.get("image_pool", "")).strip()
             if not voiceover_segments or voiceover_segments == "nan":
@@ -128,6 +134,9 @@ def run_generate_image_and_video_pools(
     def _count_video_tasks(_df) -> int:
         tasks = 0
         for _, row in _df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             video_pool = str(row.get("video_pool", "")).strip()
             video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
             video_pool_filtered = str(row.get("video_pool_filtered", "")).strip()
@@ -180,6 +189,7 @@ def run_generate_image_and_video_pools(
         label_b="Video Scoring",
         fn_b=run_video_scoring_for_all_rows,
         llm_b=video_pool_llm,
+        selected_topics=selected_topics,
     )
 
     print("🔹 Phase 2: filtering shortlisted candidates (image_pool + video_pool_filtered)")
@@ -197,6 +207,7 @@ def run_generate_image_and_video_pools(
         label_b="Video Pool",
         fn_b=run_video_selection_from_all_videos_for_all_rows,
         llm_b=video_pool_llm,
+        selected_topics=selected_topics,
     )
     
     # Summary

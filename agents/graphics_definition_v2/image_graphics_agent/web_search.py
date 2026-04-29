@@ -312,7 +312,7 @@ def validate_web_search_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_web_search_for_all_rows(sheet, k=web_search_k, max_workers=50):
+def run_web_search_for_all_rows(sheet, k=web_search_k, max_workers=50, selected_topics=None):
     """
     Execute web search for all rows in the Slide Chunks sheet.
     
@@ -335,6 +335,9 @@ def run_web_search_for_all_rows(sheet, k=web_search_k, max_workers=50):
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             search_queries = str(row.get("search_queries", "")).strip()
             web_results = str(row.get("web_results", "")).strip()
             
@@ -400,6 +403,9 @@ def run_web_search_for_all_rows(sheet, k=web_search_k, max_workers=50):
         # Find rows that need processing (empty or invalid web_results)
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_web_search_row(row)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
@@ -424,6 +430,9 @@ def run_web_search_for_all_rows(sheet, k=web_search_k, max_workers=50):
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, error_msg in invalid_rows:
+                topic_name = str(row.get("Topic", "")).strip()
+                if selected_topics and topic_name not in selected_topics:
+                    continue
                 future = executor.submit(process_web_search_row, index, row, k)
                 futures_map[future] = index
             
@@ -446,6 +455,9 @@ def run_web_search_for_all_rows(sheet, k=web_search_k, max_workers=50):
         worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
         final_invalid = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_web_search_row(row)
             if not is_valid:
                 final_invalid.append((index, error_msg))

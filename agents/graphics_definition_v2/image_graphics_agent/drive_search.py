@@ -385,7 +385,7 @@ def validate_drive_search_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', max_workers=50):
+def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', max_workers=50, selected_topics=None):
     """
     Execute drive search for all rows in the Slide Chunks sheet.
     
@@ -416,6 +416,9 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             search_queries = str(row.get("search_queries", "")).strip()
             drive_results = str(row.get("drive_results", "")).strip()
             
@@ -481,6 +484,9 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
         # Find rows that need processing (empty or invalid drive_results)
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_drive_search_row(row)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
@@ -505,6 +511,9 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, error_msg in invalid_rows:
+                topic_name = str(row.get("Topic", "")).strip()
+                if selected_topics and topic_name not in selected_topics:
+                    continue
                 future = executor.submit(process_drive_search_row, index, row, drive, k, filters, root_folder_id)
                 futures_map[future] = index
             

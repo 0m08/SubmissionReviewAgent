@@ -21,7 +21,7 @@ from services.smart_progress_bar import SmartProgressBar
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_drive_and_hvac=False):
+def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_drive_and_hvac=False, selected_topics=None):
     """
     Run candidate generation steps in parallel.
     When use_only_drive_and_hvac is False (default), runs all 4:
@@ -40,12 +40,12 @@ def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_driv
     print("="*80 + "\n")
     
     search_functions = [
-        ("Drive Search", run_drive_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
-        ("Video Search (HVAC Channels)", run_youtube_video_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}),
+        ("Drive Search", run_drive_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers, "selected_topics": selected_topics}),
+        ("Video Search (HVAC Channels)", run_youtube_video_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers, "selected_topics": selected_topics}),
     ]
     if not use_only_drive_and_hvac:
-        search_functions.append(("Web Search", run_web_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers}))
-        search_functions.append(("Video Search (Other Channels)", run_youtube_video_search_other_channels_for_all_rows, {"sheet": sheet, "max_workers": max_workers}))
+        search_functions.append(("Web Search", run_web_search_for_all_rows, {"sheet": sheet, "max_workers": max_workers, "selected_topics": selected_topics}))
+        search_functions.append(("Video Search (Other Channels)", run_youtube_video_search_other_channels_for_all_rows, {"sheet": sheet, "max_workers": max_workers, "selected_topics": selected_topics}))
     else:
         print("ℹ️  Toggle ON: Skipping Web Search and Video Search (Other Channels)")
 

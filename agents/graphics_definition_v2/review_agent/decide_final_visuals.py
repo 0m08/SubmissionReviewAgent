@@ -660,7 +660,7 @@ def _parse_decision_tracking_output(text):
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_decide_final_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_decide_final_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None):
     """
     Run final-visual decision for all eligible rows.
 
@@ -695,6 +695,9 @@ def run_decide_final_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", 
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for index, row in df.iterrows():
+            topic_name = _safe_str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             existing = _safe_str(row.get("decision_of_final_visual", "")).strip()
             if existing and existing.lower() != "nan":
                 continue
