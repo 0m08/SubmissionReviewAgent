@@ -18,8 +18,6 @@ jobs:
       LIGHTNING_STUDIO_NAME: ${{ secrets.LIGHTNING_STUDIO_NAME }}
       LIGHTNING_TEAMSPACE: ${{ secrets.LIGHTNING_TEAMSPACE }}
       LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
-      SMTP_USER: ${{ secrets.SMTP_USER }}
-      SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
       LIGHTNING_WAKE_MAX_WAIT_SECONDS: "300"
       LIGHTNING_WAKE_POLL_SECONDS: "10"
 
@@ -47,8 +45,6 @@ jobs:
             LIGHTNING_STUDIO_NAME
             LIGHTNING_TEAMSPACE
             LIGHTNING_USERNAME
-            SMTP_USER
-            SMTP_APP_PASSWORD
           )
           for var_name in "${required_vars[@]}"; do
             if [ -z "${!var_name:-}" ]; then
