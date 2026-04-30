@@ -1,17 +1,20 @@
 import os
-import smtplib
 import sys
 import time
-from datetime import datetime, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 from lightning_sdk import Studio
 
-RECIPIENT_EMAILS = [
-    "niket@skillcatapp.com",
-    "dilip@skillcatapp.com",
-]
+
+#
+# import smtplib
+# from datetime import datetime, timedelta
+# from email.mime.multipart import MIMEMultipart
+# from email.mime.text import MIMEText
+#
+# RECIPIENT_EMAILS = [
+#     "niket@skillcatapp.com",
+#     "dilip@skillcatapp.com",
+# ]
 
 
 def _required_env(name: str) -> str:
@@ -34,43 +37,43 @@ def _is_running(status_obj) -> bool:
     return _status_text(status_obj) in {"running"}
 
 
-def _format_time_utc_and_ist() -> str:
-    utc_now = datetime.utcnow()
-    ist_now = utc_now + timedelta(hours=5, minutes=30)
-    return f"{utc_now.strftime('%Y-%m-%d %H:%M:%S')} UTC ({ist_now.strftime('%Y-%m-%d %H:%M:%S')} IST)"
-
-
-def _send_smtp_email(subject: str, body_plain: str, body_html: str | None = None) -> bool:
-    smtp_user = (os.environ.get("SMTP_USER") or "").strip()
-    smtp_password = (os.environ.get("SMTP_APP_PASSWORD") or "").strip()
-    if not smtp_user or not smtp_password:
-        print("[WARN] SMTP is not fully configured; skipping status email.")
-        return False
-    recipients = [email.strip() for email in RECIPIENT_EMAILS if email.strip()]
-    if not recipients:
-        print("[WARN] No recipient emails configured; skipping status email.")
-        return False
-
-    if body_html:
-        msg = MIMEMultipart("alternative")
-        msg.attach(MIMEText(body_plain, "plain", "utf-8"))
-        msg.attach(MIMEText(body_html, "html", "utf-8"))
-    else:
-        msg = MIMEText(body_plain, "plain", "utf-8")
-
-    msg["Subject"] = subject
-    msg["From"] = smtp_user
-    msg["To"] = ", ".join(recipients)
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail(smtp_user, recipients, msg.as_string())
-        print(f"[INFO] Status email sent to: {', '.join(recipients)}")
-        return True
-    except Exception as exc:
-        print(f"[WARN] Failed to send status email: {exc}")
-        return False
+# def _format_time_utc_and_ist() -> str:
+#     utc_now = datetime.utcnow()
+#     ist_now = utc_now + timedelta(hours=5, minutes=30)
+#     return f"{utc_now.strftime('%Y-%m-%d %H:%M:%S')} UTC ({ist_now.strftime('%Y-%m-%d %H:%M:%S')} IST)"
+#
+#
+# def _send_smtp_email(subject: str, body_plain: str, body_html: str | None = None) -> bool:
+#     smtp_user = (os.environ.get("SMTP_USER") or "").strip()
+#     smtp_password = (os.environ.get("SMTP_APP_PASSWORD") or "").strip()
+#     if not smtp_user or not smtp_password:
+#         print("[WARN] SMTP is not fully configured; skipping status email.")
+#         return False
+#     recipients = [email.strip() for email in RECIPIENT_EMAILS if email.strip()]
+#     if not recipients:
+#         print("[WARN] No recipient emails configured; skipping status email.")
+#         return False
+#
+#     if body_html:
+#         msg = MIMEMultipart("alternative")
+#         msg.attach(MIMEText(body_plain, "plain", "utf-8"))
+#         msg.attach(MIMEText(body_html, "html", "utf-8"))
+#     else:
+#         msg = MIMEText(body_plain, "plain", "utf-8")
+#
+#     msg["Subject"] = subject
+#     msg["From"] = smtp_user
+#     msg["To"] = ", ".join(recipients)
+#     try:
+#         with smtplib.SMTP("smtp.gmail.com", 587) as server:
+#             server.starttls()
+#             server.login(smtp_user, smtp_password)
+#             server.sendmail(smtp_user, recipients, msg.as_string())
+#         print(f"[INFO] Status email sent to: {', '.join(recipients)}")
+#         return True
+#     except Exception as exc:
+#         print(f"[WARN] Failed to send status email: {exc}")
+#         return False
 
 
 def main() -> int:
@@ -137,26 +140,33 @@ def main() -> int:
         changed = "yes"
 
     elapsed = round(time.time() - started_at, 2)
-    timestamp = _format_time_utc_and_ist()
-    subject = (
-        f"[Lightning Wake Check] {studio_name} - "
-        f"{'SUCCESS' if outcome == 'success' else 'FAILED'}"
+    print(
+        f"[INFO] Wake check summary: status_before={status_before}, "
+        f"action_taken={action_taken}, status_after={status_after}, "
+        f"status_changed={changed}, outcome={outcome}, elapsed_seconds={elapsed}, "
+        f"error={error_text or 'none'}"
     )
-    body_plain = (
-        "Lightning Studio wake-check result\n\n"
-        f"Timestamp: {timestamp}\n"
-        f"Studio: {studio_name}\n"
-        f"Teamspace: {teamspace}\n"
-        f"User: {username}\n"
-        f"Status before: {status_before}\n"
-        f"Action taken: {action_taken}\n"
-        f"Status after: {status_after}\n"
-        f"Status changed: {changed}\n"
-        f"Outcome: {outcome}\n"
-        f"Elapsed seconds: {elapsed}\n"
-        f"Error: {error_text or 'none'}\n"
-    )
-    _send_smtp_email(subject=subject, body_plain=body_plain)
+
+    # timestamp = _format_time_utc_and_ist()
+    # subject = (
+    #     f"[Lightning Wake Check] {studio_name} - "
+    #     f"{'SUCCESS' if outcome == 'success' else 'FAILED'}"
+    # )
+    # body_plain = (
+    #     "Lightning Studio wake-check result\n\n"
+    #     f"Timestamp: {timestamp}\n"
+    #     f"Studio: {studio_name}\n"
+    #     f"Teamspace: {teamspace}\n"
+    #     f"User: {username}\n"
+    #     f"Status before: {status_before}\n"
+    #     f"Action taken: {action_taken}\n"
+    #     f"Status after: {status_after}\n"
+    #     f"Status changed: {changed}\n"
+    #     f"Outcome: {outcome}\n"
+    #     f"Elapsed seconds: {elapsed}\n"
+    #     f"Error: {error_text or 'none'}\n"
+    # )
+    # _send_smtp_email(subject=subject, body_plain=body_plain)
     return exit_code
 
 
