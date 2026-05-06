@@ -569,7 +569,7 @@ def process_review_finalized_visuals_row(index, row, course_name, target_audienc
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_review_finalized_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_review_finalized_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None):
     """
     Run finalized-visual review for all eligible rows.
 
@@ -595,6 +595,9 @@ def run_review_finalized_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinkin
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             final_graphics_definition = str(row.get("final_graphics_definition", "")).strip()
             existing_review = str(row.get("final_visuals_review", "")).strip()
 
@@ -668,7 +671,7 @@ def delete_final_visuals_review(sheet):
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_generate_alternative_visuals_from_web_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_generate_alternative_visuals_from_web_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None):
     """
     Generate alternative visuals from web/other channels for FAILED visuals.
 
@@ -714,6 +717,9 @@ def run_generate_alternative_visuals_from_web_for_all_rows(sheet, llm="gemini_3_
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for index, row in df.iterrows():
+            topic_name = _safe_str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             final_review = _safe_str(row.get("final_visuals_review", "")).strip()
             final_graphics_definition = _safe_str(row.get("final_graphics_definition", "")).strip()
             if not final_review or final_review.lower() == "nan":
@@ -961,6 +967,8 @@ def _process_alternative_visuals_row(row_index, row, course_name, target_audienc
     visual_assignment_strategy = _safe_str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide"))
     if not visual_assignment_strategy or visual_assignment_strategy == "nan":
         visual_assignment_strategy = "Flexible, let the agent decide"
+    slide_type = _safe_str(row.get("Slide Type", "")).strip().lower()
+    is_transition_slide = slide_type in ("transition", "transition slide")
 
     (
         failed_segments,
@@ -1059,26 +1067,26 @@ def _process_alternative_visuals_row(row_index, row, course_name, target_audienc
             if seg_idx == segment_num:
                 segment_sentence = seg_text
                 break
-        seg_num, video_other = process_segment_other_channels(segment_num, queries, segment_sentence)
-        if video_other:
-            lines = [line.strip() for line in video_other.splitlines() if line.strip()]
-            local_df.at[row_index, "video_pool_other_channels"] = replace_segment_block(
-                _safe_str(local_df.at[row_index, "video_pool_other_channels"]),
-                segment_num,
-                lines[1:] if lines and lines[0].startswith("---SEGMENT_") else lines,
-            )
-            if sheet is not None:
-                merge_and_save_row_cells(
-                    sheet,
-                    worksheet_name,
-                    row_index,
-                    {
-                        "video_pool_other_channels": _safe_str(
-                            local_df.at[row_index, "video_pool_other_channels"]
-                        )
-                    },
+        if not is_transition_slide:
+            seg_num, video_other = process_segment_other_channels(segment_num, queries, segment_sentence)
+            if video_other:
+                lines = [line.strip() for line in video_other.splitlines() if line.strip()]
+                local_df.at[row_index, "video_pool_other_channels"] = replace_segment_block(
+                    _safe_str(local_df.at[row_index, "video_pool_other_channels"]),
+                    segment_num,
+                    lines[1:] if lines and lines[0].startswith("---SEGMENT_") else lines,
                 )
-
+                if sheet is not None:
+                    merge_and_save_row_cells(
+                        sheet,
+                        worksheet_name,
+                        row_index,
+                        {
+                            "video_pool_other_channels": _safe_str(
+                                local_df.at[row_index, "video_pool_other_channels"]
+                            )
+                        },
+                    )
     # 3) Use regeneration prompt, but constrain candidate inputs to web+other only.
     replacement_by_visual_id = {}
     for segment_num in failed_segments:

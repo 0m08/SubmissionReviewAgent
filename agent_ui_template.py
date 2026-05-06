@@ -8,7 +8,14 @@ import re
 import time
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
-from services.drive_service import login_with_oauth2, share_sheet_with_service_account, get_service_account_email
+from services.drive_service import (
+    login_with_oauth2,
+    share_sheet_with_service_account,
+    get_service_account_email,
+    build_service_account_drive_service,
+    extract_drive_id_from_url,
+    is_inside_skillcat_shared_drive,
+)
 from services.activity_tracking_service import (
     track_step_start,
     track_step_complete,
@@ -22,6 +29,7 @@ from langtrace_python_sdk import langtrace # Must precede any llm module imports
 import tempfile, json, base64
 import subprocess
 import sys
+import inspect
 
 from services.helper_functions import get_short_name
 from services.background_job_status_service import (
@@ -252,6 +260,14 @@ def _record_step_metrics(step: dict, duration_seconds: float, start_time: dateti
     st.session_state["step_metrics"][step["name"]] = metrics
 
 
+def _normalize_selected_topics(selected_topics):
+    if not selected_topics:
+        return []
+    if any(str(topic).strip() == "All Topics" for topic in selected_topics):
+        return []
+    return [str(topic).strip() for topic in selected_topics if str(topic).strip()]
+
+
 def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None, top_instructions: str | None = None, top_toggles: list[dict] | None = None):
     st.session_state["outline_finalized"] = outline_finalized
     st.title(f"{step_name} Agent")
@@ -324,6 +340,40 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     gc = st.session_state["gc"]
                 else:
                     st.stop()
+
+                sheet_file_id = extract_drive_id_from_url(sheet_link)
+                folder_id_norm = extract_drive_id_from_url(root_folder_id) or (root_folder_id or "").strip()
+
+                if not sheet_file_id:
+                    st.error("Please enter a valid Google Sheet link.")
+                    st.stop()
+                if not folder_id_norm:
+                    st.error("Please enter a valid course Drive folder ID.")
+                    st.stop()
+
+                # Check if both the Google sheet and the course Drive folder are inside the Skillcat Shared Drive.
+                sa_drive_service = build_service_account_drive_service()
+                if sa_drive_service is None:
+                    st.error(
+                        "The agent is not configured correctly on the server. "
+                        "Please contact the admin."
+                    )
+                    st.stop()
+
+                if not is_inside_skillcat_shared_drive(sheet_file_id, sa_drive_service):
+                    st.error(
+                        "This Google Sheet is not inside the Skillcat Shared Drive on Google Drive. "
+                        "Please move the sheet into the Skillcat Shared Drive and try again."
+                    )
+                    st.stop()
+
+                if not is_inside_skillcat_shared_drive(folder_id_norm, sa_drive_service):
+                    st.error(
+                        "This course Drive folder is not inside the Skillcat Shared Drive on Google Drive. "
+                        "Please move the folder into the Skillcat Shared Drive and try again."
+                    )
+                    st.stop()
+
                 sheet = gc.open_by_url(sheet_link)
                 course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
 
@@ -502,6 +552,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         for toggle in top_toggles:
                             tkey = toggle["key"]
                             toggle_values[tkey] = st.session_state.get(tkey, toggle.get("default", False))
+                    if step_name == "Graphics Definition V2" and "selected_topics" in st.session_state:
+                        toggle_values["selected_topics"] = st.session_state.get("selected_topics", [])
                     cmd = [
                         sys.executable,
                         "launch_agents_via_sdk.py",
@@ -624,6 +676,67 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
         # Optional instructions shown above all sections (e.g. "before you run" setup)
         if top_instructions:
             st.info(top_instructions)
+
+        if step_name == "Graphics Definition V2":
+            try:
+                _, slide_chunks_df = get_sheet_data_and_df(st.session_state["sheet"], "Slide Chunks")
+                topic_series = slide_chunks_df.get("Topic")
+                available_topics = []
+                if topic_series is not None:
+                    seen = set()
+                    for value in topic_series.tolist():
+                        topic = str(value).strip()
+                        if not topic or topic.lower() == "nan":
+                            continue
+                        if topic in seen:
+                            continue
+                        seen.add(topic)
+                        available_topics.append(topic)
+
+                label_to_topic = {
+                    f"Topic {idx + 1} - {topic}": topic
+                    for idx, topic in enumerate(available_topics)
+                }
+                selection_options = ["All Topics"] + list(label_to_topic.keys())
+                if "graphics_v2_topic_selection_labels" not in st.session_state:
+                    st.session_state["graphics_v2_topic_selection_labels"] = ["All Topics"]
+
+                selected_labels = st.multiselect(
+                    "Topics to run",
+                    options=selection_options,
+                    key="graphics_v2_topic_selection_labels",
+                    help="Select one or more topics, or keep All Topics selected.",
+                )
+                if not selected_labels:
+                    selected_labels = ["All Topics"]
+                    st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
+                if "All Topics" in selected_labels and len(selected_labels) > 1:
+                    selected_labels = [label for label in selected_labels if label != "All Topics"]
+                    st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
+
+                selected_topics = [
+                    label_to_topic[label]
+                    for label in selected_labels
+                    if label in label_to_topic
+                ]
+                if "All Topics" in selected_labels:
+                    selected_topics = []
+                st.session_state["selected_topics"] = _normalize_selected_topics(selected_topics)
+
+                if st.session_state["selected_topics"]:
+                    filtered_df = slide_chunks_df[
+                        slide_chunks_df["Topic"].astype(str).str.strip().isin(st.session_state["selected_topics"])
+                    ]
+                    total_slides = len(filtered_df)
+                else:
+                    total_slides = len(slide_chunks_df)
+
+                topic_scope = "All Topics" if not st.session_state["selected_topics"] else ", ".join(st.session_state["selected_topics"])
+                st.caption(f"Topic Scope: {topic_scope}")
+                st.caption(f"Total Slides: {total_slides}")
+            except Exception as e:
+                st.warning(f"Could not load topic selector: {e}")
+                st.session_state["selected_topics"] = []
 
         # Optional toggles shown above all sections
         if top_toggles:
@@ -773,6 +886,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                         else:
                                             # or if it's a literal / direct value, pass it through
                                             kwargs[arg_name] = session_key
+
+                                    fn_params = inspect.signature(step["func"]).parameters
+                                    if step_name == "Graphics Definition V2" and "selected_topics" in fn_params and "selected_topics" not in kwargs:
+                                        kwargs["selected_topics"] = st.session_state.get("selected_topics", [])
 
                                     # Track step start
                                     if ctx["gc"]:
@@ -1089,6 +1206,10 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
                                 else:
                                     # or if it's a literal / direct value, pass it through
                                     kwargs[arg_name] = session_key
+
+                            fn_params = inspect.signature(step["func"]).parameters
+                            if step_name == "Graphics Definition V2" and "selected_topics" in fn_params and "selected_topics" not in kwargs:
+                                kwargs["selected_topics"] = st.session_state.get("selected_topics", [])
 
                             # Track step start
                             if ctx["gc"]:

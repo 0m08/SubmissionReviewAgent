@@ -431,7 +431,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", max_workers=50):
+def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", max_workers=50, selected_topics=None):
     """
     Generate search queries for all segments in all rows in the Slide Chunks sheet.
 
@@ -440,6 +440,7 @@ def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", m
     :param max_workers: Number of parallel workers (default 5).
     :return: None
     """
+    
     worksheet_name = "Slide Chunks"
     
     # Fetch course info
@@ -458,6 +459,9 @@ def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", m
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             vo_segments = str(row.get("voiceover_segment", "")).strip()
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             search_queries = str(row.get("search_queries", "")).strip()
@@ -607,6 +611,9 @@ def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", m
         # Validate all rows and find invalid ones
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_search_queries_row(row)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
@@ -631,6 +638,9 @@ def run_generate_search_query_for_all_rows(sheet, llm="gemini_2_5_flash_lite", m
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, error_msg in invalid_rows:
+                topic_name = str(row.get("Topic", "")).strip()
+                if selected_topics and topic_name not in selected_topics:
+                    continue
                 future = executor.submit(process_search_query_row, index, row, course_name, llm)
                 futures_map[future] = index
             

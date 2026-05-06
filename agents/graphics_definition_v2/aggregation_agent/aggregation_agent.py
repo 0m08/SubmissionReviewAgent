@@ -3465,7 +3465,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type=""):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type="", inline_ref_url=""):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -3487,7 +3487,9 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     :param visual_assignment_strategy: Visual assignment strategy ("Flexible, let the agent decide", "1 Visual per Sentence", or "1 Visual for the whole Slide")
     :param video_pool_text: Optional; used as fallback when video_pool_filtered is empty
     :param video_pool_other_channels_text: Optional; used as fallback when video_pool_filtered is empty
-    :return: Tuple of (segment_idx, formatted_segment_text, formatted_eval_breakdown) or (segment_idx, None, formatted_eval_breakdown) if no definition generated
+    :param inline_ref_url: Pre-specified Drive URL from an inline [alt](url) marker; injected
+        as the top-priority image candidate for this specific segment.
+    :return: Tuple of (segment_idx, formatted_segment_text, formatted_eval_breakdown)
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
     
@@ -3506,7 +3508,12 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
             print(f" ✅ Found {len(image_items)} images from fallback sources ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
         else:
             print(f" ⚠️  No images found in fallback sources either")
-    
+
+    # For segments with reference images, force "1 Visual per Sentence" strategy
+    if inline_ref_url and inline_ref_url.strip():
+        visual_assignment_strategy = "1 Visual per Sentence"
+        print(f" 🔗 Segment {segment_idx}: forcing '1 Visual per Sentence' strategy for reference image.")
+
     # Parse video items from video_pool_filtered for this segment
     video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_idx)
     # Fallback: if video_pool_filtered is empty, use video_pool + video_pool_other_channels combined
@@ -3650,8 +3657,8 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
     :param ref_output_folder_id: Folder ID for reference pipeline output
     :param ref_drive_lock: Lock for reference pipeline thread safety
     :param df: Full dataframe for context
-    :param precomputed_ref_link: Pre-computed reference image Drive URL (from early-start thread launched
-        right after Step 1). When provided, the inline background thread is skipped entirely.
+    :param precomputed_ref_link: Pre-computed reference image mapping text from
+        reference_image_processed_url (e.g., SEGMENT_n:url lines).
     :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text, ref_link)
         where ref_link is the processed reference image URL (or None) to store separately.
     """
@@ -3671,13 +3678,44 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
         if not visual_assignment_strategy or visual_assignment_strategy == "nan":
             visual_assignment_strategy = "Flexible, let the agent decide"
-            
-        # Force "1 Visual for the whole Slide" if a Reference Image is present
-        # This ensures consistency even if previous steps didn't update the sheet column correctly
-        ref_image_url = str(row.get("Reference Image", "")).strip()
-        if ref_image_url and ref_image_url.lower() != "nan":
-            visual_assignment_strategy = "1 Visual for the whole Slide"
-        
+
+        # Parse inline reference image map (from segment_slide Step 1).
+        # Format: "SEGMENT_1:url\nSEGMENT_2:url\n..."
+        reference_image_map_text = str(row.get("reference_image_map", "")).strip()
+        inline_ref_map = {}  # {segment_idx (int): drive_url (str)}
+        if reference_image_map_text and reference_image_map_text not in ("nan", ""):
+            for _line in reference_image_map_text.splitlines():
+                _line = _line.strip()
+                if ":" in _line and _line.upper().startswith("SEGMENT_"):
+                    _key, _url = _line.split(":", 1)
+                    try:
+                        _seg_num = int(_key.strip().upper().replace("SEGMENT_", ""))
+                        inline_ref_map[_seg_num] = _url.strip()
+                    except ValueError:
+                        pass
+            if inline_ref_map:
+                print(f"🔗 Row {index + 1}: reference_image_map found with {len(inline_ref_map)} segment(s): {list(inline_ref_map.keys())}")
+
+        # Retrieve precomputed processed reference map.
+        # Priority: (1) precomputed_ref_link from the caller, (2) the row snapshot.
+        processed_ref_map_text = precomputed_ref_link if precomputed_ref_link else str(row.get("reference_image_processed_url", "")).strip()
+        processed_ref_map = {} # {segment_idx (int): processed_url (str)} or {None: processed_url} for legacy
+        if processed_ref_map_text and processed_ref_map_text not in ("nan", ""):
+            if ":" in processed_ref_map_text:
+                for _line in processed_ref_map_text.splitlines():
+                    _line = _line.strip()
+                    if ":" in _line:
+                        _key, _url = _line.split(":", 1)
+                        if _key.strip().upper().startswith("SEGMENT_"):
+                            try:
+                                _seg_num = int(_key.strip().upper().replace("SEGMENT_", ""))
+                                processed_ref_map[_seg_num] = _url.strip()
+                            except ValueError: pass
+                        else: # Fallback for keys that don't start with SEGMENT_
+                            processed_ref_map[None] = _url.strip()
+            else:
+                # Legacy single URL
+                processed_ref_map[None] = processed_ref_map_text
         # Get row data
         topic_name = str(row.get("Topic", "")).strip()
         subtopic_name = str(row.get("Subtopic", "")).strip()
@@ -3687,48 +3725,9 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         if slide_type == "nan":
             slide_type = ""
 
-        # ── REFERENCE PIPELINE: USE PRE-COMPUTED RESULT OR START INLINE THREAD ──
-        # Priority:
-        #   1. precomputed_ref_link — provided when the caller (run_aggregation_agent_for_all_rows)
-        #      pre-launched the thread right after Step 1 so it ran in parallel with Steps 2-4.
-        #   2. Inline background thread — fallback when called without a pre-computed result
-        #      (e.g. during retry passes or standalone calls).
-        _has_ref_image = ref_image_url and ref_image_url.lower() != "nan"
-        ref_result_box = {}  # shared container used only for the inline fallback thread
-        ref_thread = None
-
-        if _has_ref_image and precomputed_ref_link is not None:
-            # Fast path: the early-start thread already finished; use its result directly.
-            if re.match(r"^https?://", str(precomputed_ref_link).strip(), flags=re.IGNORECASE):
-                ref_result_box["link"] = precomputed_ref_link
-            else:
-                ref_result_box["link"] = None
-            print(f"🔗 Row {index + 1}: Using pre-computed reference link: {precomputed_ref_link or '(none)'}")
-        elif _has_ref_image and ref_drive_client and ref_output_folder_id and df is not None:
-            # Fallback inline thread (retry path or standalone call)
-            _ref_slide_chunk = slide_chunk  # capture for closure
-            _ref_idx = index
-
-            def _reference_pipeline_task():
-                try:
-                    result = process_reference_image_path(
-                        df=df,
-                        df_idx=_ref_idx,
-                        ref_image_url=ref_image_url,
-                        drive=ref_drive_client,
-                        output_folder_id=ref_output_folder_id,
-                        drive_lock=ref_drive_lock,
-                        llm=llm,
-                        voiceover_override=_ref_slide_chunk,
-                    )
-                    ref_result_box["result"] = result
-                except Exception as _e:
-                    print(f"⚠️ Row {_ref_idx + 1}: Reference pipeline thread error: {_e}")
-                    ref_result_box["result"] = (False, None, None)
-
-            ref_thread = threading.Thread(target=_reference_pipeline_task, daemon=True)
-            ref_thread.start()
-            print(f"🔗 Row {index + 1}: Reference pipeline started inline (parallel with GDv2 aggregation).") 
+        # NOTE: Reference processing is intentionally not performed inside this function.
+        # It must be completed beforehand, and this function only consumes
+        # reference_image_processed_url content passed via precomputed_ref_link.
 
         # Handle "1 Visual for the whole Slide" case differently
         if visual_assignment_strategy == "1 Visual for the whole Slide":
@@ -3740,10 +3739,6 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             # For "entire slide" case, all candidates are under SEGMENT_1
             image_items = parse_urls_from_image_pool(image_pool_text, segment_num=1)  # Get all images from SEGMENT_1
             
-            # Inject reference image as a primary candidate if present
-            if ref_image_url and ref_image_url.lower() != "nan":
-                if not any(item.get("url") == ref_image_url for item in image_items):
-                    image_items.insert(0, {"title": "Reference Image from Storyboard", "url": ref_image_url})
             used_fallback = False
             
             # Fallback: if no images in image_pool, check drive_results and web_results
@@ -3780,23 +3775,24 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed with timestamps, {full_video_count} full videos)")
             
             if not image_items and not video_items_filtered:
-                print(f" ⚠️  No image or video candidates available for entire slide, skipping")
-                return index, "", ""
-            
-            # Generate aggregated graphics definition for entire slide
-            graphics_definition_xml, evaluation_breakdown = aggregate_graphics_definition_for_entire_slide(
-                slide_title=slide_title,
-                slide_chunk=slide_chunk,
-                image_items=image_items,
-                video_items_filtered=video_items_filtered,
-                course_name=course_name,
-                topic_name=topic_name,
-                subtopic_name=subtopic_name,
-                storyboard=storyboard_text,
-                drive=drive,
-                llm=llm,
-                slide_type=slide_type,
-            )
+                print(f" ⚠️  No image or video candidates available for entire slide")
+                graphics_definition_xml = f"<segment><voiceover>{slide_chunk}</voiceover><asset><url>(No visual found via search)</url><type>image</type></asset><justification>Searching produced no relevant candidates.</justification></segment>"
+                evaluation_breakdown = "No candidates found for the entire slide."
+            else:
+                # Generate aggregated graphics definition for entire slide
+                graphics_definition_xml, evaluation_breakdown = aggregate_graphics_definition_for_entire_slide(
+                    slide_title=slide_title,
+                    slide_chunk=slide_chunk,
+                    image_items=image_items,
+                    video_items_filtered=video_items_filtered,
+                    course_name=course_name,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    storyboard=storyboard_text,
+                    drive=drive,
+                    llm=llm,
+                    slide_type=slide_type,
+                )
             
             if graphics_definition_xml:
                 # Post-processing: single-timestamp YouTube URLs -> 1s embed clips in <asset>
@@ -3848,6 +3844,9 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             if not segments:
                 return index, "", ""
             
+            # Map segment index to voiceover text for reconciliation
+            seg_vo_map = {idx: txt for idx, txt in segments}
+            
             print(f"\n{'='*80}")
             print(f"📋 Row {index + 2}: Processing {len(segments)} segment(s) (Strategy: {visual_assignment_strategy})")
             print(f"{'='*80}")
@@ -3878,6 +3877,8 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                         video_pool_text,
                         video_pool_other_channels_text,
                         slide_type,
+                        # Use ONLY segment-wise processed reference URL from reference_image_processed_url.
+                        processed_ref_map.get(segment_idx, ""),
                     ): (segment_idx, vo_text)
                     for segment_idx, vo_text in segments
                 }
@@ -3922,80 +3923,101 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                 ]
                 evaluation_breakdown_text = '\n\n'.join(all_eval_breakdowns)
 
-        # ── COLLECT REFERENCE PATH RESULT ────────────────────────────────────────
-        # Resolve the processed reference image URL from whichever path ran:
-        #   • Pre-computed path  → already in ref_result_box["link"]
-        #   • Inline thread path → join thread, parse result into ref_result_box["link"]
-        # The URL is NOT injected into final_graphics_definition here; instead it is
-        # returned separately so run_aggregation_agent_for_all_rows can store it in
-        # the 'reference_image_processed_url' column.  The Decide Final Visuals step
-        # will compare the GDv2 image against this reference image and choose the best one.
-        resolved_ref_link = ref_result_box.get("link")  # set by pre-computed path
-        reference_eligible_for_compare = bool(
-            resolved_ref_link and re.match(r"^https?://", str(resolved_ref_link).strip(), flags=re.IGNORECASE)
-        )
+        # ── RECONCILIATION / FINAL COMPARISON ────────────────────────────────────
+        # For each segment, compare the GDv2 choice against the processed reference image.
+        if final_graphics_definition_text:
+            # 1. Parse GDv2 choice for each segment
+            # Format: SEGMENT 1\n...\nGraphics to use: url\n...
+            segment_blocks = re.split(r'={20,}\s*SEGMENT\s+(\d+)\s*={20,}', final_graphics_definition_text, flags=re.IGNORECASE)
+            
+            # If split has content, rebuild the text with reconciled URLs
+            reconciled_parts = []
+            if len(segment_blocks) > 1:
+                # blocks[0] is preamble/empty, then [seg_num, content, seg_num, content, ...]
+                for i in range(1, len(segment_blocks), 2):
+                    try:
+                        seg_num = int(segment_blocks[i])
+                        seg_content = segment_blocks[i+1]
+                        
+                        header = f"{'='*80}\nSEGMENT {seg_num}\n{'='*80}"
+                        
+                        # Get processed ref URL for this segment
+                        resolved_ref_link = processed_ref_map.get(seg_num) or processed_ref_map.get(None)
 
-        if ref_thread is not None:
-            ref_thread.join()
-            ref_result = ref_result_box.get("result")
-
-            if ref_result is None:
-                print(f"❌ [REF-PIPELINE] Row {index + 1}: ref_result is None — thread may have crashed silently.")
+                        # Case A: We have a processed reference image
+                        if resolved_ref_link and re.match(r"^https?://", str(resolved_ref_link).strip(), flags=re.IGNORECASE):
+                            resolved_ref_link = str(resolved_ref_link).strip()
+                            # Find GDv2 URL in segment content
+                            gdv2_urls = _extract_graphics_to_use_urls(seg_content)
+                            
+                            if gdv2_urls:
+                                gdv2_url = gdv2_urls[0]
+                                if gdv2_url.strip() != resolved_ref_link.strip():
+                                    print(f"⚖️ [FINAL-COMPARE] Row {index + 1} Segment {seg_num}: comparing GDv2 choice vs Reference")
+                                    chosen_url, chosen_option, chosen_reason = _compare_final_visuals(
+                                        gdv2_url=gdv2_url,
+                                        reference_url=resolved_ref_link,
+                                        vo_text=seg_vo_map.get(seg_num, voiceover_text), 
+                                        slide_title=slide_title,
+                                        slide_chunk=slide_chunk,
+                                        course_name=course_name,
+                                        topic_name=topic_name,
+                                        subtopic_name=subtopic_name,
+                                        drive=drive,
+                                        llm=llm,
+                                    )
+                                    if chosen_url and chosen_url != gdv2_url:
+                                        seg_content = seg_content.replace(gdv2_url, chosen_url, 1)
+                                        print(f"✅ [FINAL-COMPARE] Segment {seg_num}: chose reference visual ({chosen_option}) - {chosen_reason}")
+                                    else:
+                                        print(f"✅ [FINAL-COMPARE] Segment {seg_num}: kept GDv2 visual - {chosen_reason}")
+                            else:
+                                # GDv2 found no visual, but we have a reference image! Inject it directly.
+                                print(f"📍 [FINAL-COMPARE] Segment {seg_num}: GDv2 was empty, injecting processed reference image.")
+                                # Replace placeholder text or broken/empty Graphics line
+                                seg_content = re.sub(r'Graphics to use:.*', f'Graphics to use: {resolved_ref_link}', seg_content)
+                                seg_content = re.sub(r'Selection Justification:.*', f'Selection Justification: Utilised pre-specified and processed reference image.', seg_content)
+                        
+                        reconciled_parts.append(header + seg_content)
+                    except Exception as e:
+                        print(f"⚠️ Error during reconciliation for row {index+1} segment {i}: {e}")
+                
+                final_graphics_definition_text = "\n\n".join(reconciled_parts)
             else:
-                is_relevant, ref_final_def, _ = ref_result
-                print(f"🔍 [REF-PIPELINE] Row {index + 1}: is_relevant={is_relevant}, ref_final_def is {'SET' if ref_final_def else 'EMPTY/NONE'}")
-                if ref_final_def:
-                    print(f"   ref_final_def preview: {ref_final_def[:200]!r}")
-
-                if is_relevant and ref_final_def:
-                    graphics_match = re.search(
-                        r'Graphics to use:\s*(https?://[^\s\n]+)', ref_final_def
-                    )
-                    if graphics_match:
-                        resolved_ref_link = graphics_match.group(1).strip()
-                        reference_eligible_for_compare = True
-                        print(f"✅ [REF-PIPELINE] Row {index + 1}: Parsed ref_link = {resolved_ref_link}")
+                # Handle single-visual slides (headerless or just SEGMENT 1)
+                resolved_ref_link = processed_ref_map.get(1) or processed_ref_map.get(None)
+                if resolved_ref_link and re.match(r"^https?://", str(resolved_ref_link).strip(), flags=re.IGNORECASE):
+                    resolved_ref_link = str(resolved_ref_link).strip()
+                    gdv2_urls = _extract_graphics_to_use_urls(final_graphics_definition_text)
+                    if gdv2_urls:
+                        gdv2_url = gdv2_urls[0]
+                        if gdv2_url.strip() != resolved_ref_link.strip():
+                            chosen_url, chosen_option, chosen_reason = _compare_final_visuals(
+                                gdv2_url=gdv2_url,
+                                reference_url=resolved_ref_link,
+                                vo_text=voiceover_text,
+                                slide_title=slide_title,
+                                slide_chunk=slide_chunk,
+                                course_name=course_name,
+                                topic_name=topic_name,
+                                subtopic_name=subtopic_name,
+                                drive=drive,
+                                llm=llm,
+                            )
+                            if chosen_url and chosen_url != gdv2_url:
+                                final_graphics_definition_text = final_graphics_definition_text.replace(gdv2_url, chosen_url, 1)
+                                print(f"✅ [FINAL-COMPARE] Row {index + 1}: chose reference visual ({chosen_option}) - {chosen_reason}")
                     else:
-                        print(f"⚠️ [REF-PIPELINE] Row {index + 1}: Could not parse URL from ref_final_def. Full text: {ref_final_def!r}")
-                elif not is_relevant:
-                    print(f"ℹ️ [REF-PIPELINE] Row {index + 1}: Reference image marked NOT relevant — skipping.")
-                    resolved_ref_link = None
-                    reference_eligible_for_compare = False
+                        # GDv2 found no visual, but we have a reference!
+                        print(f"📍 [FINAL-COMPARE] Row {index + 1}: GDv2 was empty, injecting processed reference image.")
+                        final_graphics_definition_text = re.sub(r'Graphics to use:.*', f'Graphics to use: {resolved_ref_link}', final_graphics_definition_text)
+                        final_graphics_definition_text = re.sub(r'Selection Justification:.*', f'Selection Justification: Utilised pre-specified and processed reference image.', final_graphics_definition_text)
 
-            status = "✅ succeeded" if resolved_ref_link else "⚠️ failed or not relevant"
-            print(f"[REF-PIPELINE] Row {index + 1}: {status}. Storing in reference_image_processed_url column.")
-
-        if reference_eligible_for_compare and final_graphics_definition_text:
-            gdv2_urls = _extract_graphics_to_use_urls(final_graphics_definition_text)
-            gdv2_url = gdv2_urls[0] if gdv2_urls else ""
-            if gdv2_url and gdv2_url != resolved_ref_link:
-                chosen_url, chosen_option, chosen_reason = _compare_final_visuals(
-                    gdv2_url=gdv2_url,
-                    reference_url=resolved_ref_link,
-                    vo_text=voiceover_text,
-                    slide_title=slide_title,
-                    slide_chunk=slide_chunk,
-                    course_name=course_name,
-                    topic_name=topic_name,
-                    subtopic_name=subtopic_name,
-                    drive=drive,
-                    llm=llm,
-                )
-                if chosen_url and chosen_url != gdv2_url:
-                    final_graphics_definition_text = final_graphics_definition_text.replace(gdv2_url, chosen_url, 1)
-                    print(
-                        f"[FINAL-COMPARE] Row {index + 1}: chose reference visual ({chosen_option}) - {chosen_reason or 'no reason provided'}"
-                    )
-                else:
-                    print(
-                        f"[FINAL-COMPARE] Row {index + 1}: kept GDv2 visual ({chosen_option}) - {chosen_reason or 'no reason provided'}"
-                    )
-
-        return index, final_graphics_definition_text, evaluation_breakdown_text, resolved_ref_link
+        return index, final_graphics_definition_text, evaluation_breakdown_text, processed_ref_map_text
         
     except Exception as e:
         print(f"Error processing row {index}: {e}")
-        return index, "", ""
+        return index, "", "", ""  # 4-tuple to match caller unpacking
 
 
 def validate_final_graphics_definition_row(row):
@@ -4026,16 +4048,19 @@ def validate_final_graphics_definition_row(row):
     segment_pattern = r'SEGMENT\s+(\d+)'
     segment_numbers = [int(match) for match in re.findall(segment_pattern, final_graphics_def_text, re.IGNORECASE)]
     
-    # Check if this should be treated as a single-visual slide
-    ref_image = str(row.get("Reference Image", "")).strip()
-    is_forced_single = (visual_assignment_strategy == "1 Visual for the whole Slide") or (ref_image and ref_image != "nan")
+    # Check if we have any processed reference images (inline or legacy)
+    processed_ref_text = str(row.get("reference_image_processed_url", "")).strip()
+    has_reference = processed_ref_text and processed_ref_text != "nan"
+    
+    # If it's forced single visual per strategy
+    is_forced_single = (visual_assignment_strategy == "1 Visual for the whole Slide")
 
     # For single-visual strategy, segment markers are optional
     if is_forced_single:
         # For reference rows: verify that the normal GDv2 result is present.
         # 'Graphics to use:' (the standard key) must exist so GDv2 failures are
         # caught by the outer retry loop even when the reference key is written.
-        if ref_image and ref_image != "nan":
+        if has_reference:
             gdv2_key_present = bool(
                 re.search(r'^Graphics to use:\s*\S', final_graphics_def_text, re.MULTILINE)
             )
@@ -4210,7 +4235,7 @@ def validate_youtube_clip_links_for_row(row, api_key, duration_cache = None):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None):
     """
     Run aggregation agent for all rows in the Slide Chunks sheet.
 
@@ -4275,6 +4300,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
     # Filter rows that have voiceover_segment but missing final_graphics_definition
     rows_to_process = []
     for index, row in df.iterrows():
+        topic_name = str(row.get("Topic", "")).strip()
+        if selected_topics and topic_name not in selected_topics:
+            continue
         voiceover_segment = str(row.get("voiceover_segment", "")).strip()
         final_graphics_def = str(row.get("final_graphics_definition", "")).strip()
         
@@ -4296,32 +4324,74 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
 
     # Precompute reference-image outputs first so the final comparison step can
     # reuse the saved URL from the sheet instead of re-running the reference path.
-    ref_rows_to_process = []
+    # We gather tasks for all mapped reference images (inline or legacy).
+    ref_tasks = [] # (index, row, segment_num, ref_image_url)
     for index, row in rows_to_process:
-        ref_image_url = str(row.get("Reference Image", "")).strip()
-        if ref_image_url and ref_image_url.lower() != "nan":
-            ref_rows_to_process.append((index, row, ref_image_url))
+        # 1. Parse inline reference image map
+        ref_map_text = str(row.get("reference_image_map", "")).strip()
+        has_inline = False
+        if ref_map_text and ref_map_text not in ("nan", ""):
+            for _line in ref_map_text.splitlines():
+                _line = _line.strip()
+                if ":" in _line and _line.upper().startswith("SEGMENT_"):
+                    _key, _url = _line.split(":", 1)
+                    try:
+                        _seg_num = int(_key.strip().upper().replace("SEGMENT_", ""))
+                        _url = _url.strip()
+                        if _url:
+                            # Check if this segment was already processed
+                            existing_map_text = str(row.get("reference_image_processed_url", "")).strip()
+                            already_done = False
+                            if existing_map_text and existing_map_text not in ("nan", ""):
+                                for _ex_line in existing_map_text.splitlines():
+                                    if ":" in _ex_line and _ex_line.upper().startswith(f"SEGMENT_{_seg_num}:"):
+                                        _ex_url = _ex_line.split(":", 1)[1].strip()
+                                        if re.match(r"^https?://", _ex_url, flags=re.IGNORECASE):
+                                            already_done = True
+                                            break
+                            
+                            if not already_done:
+                                ref_tasks.append((index, row, _seg_num, _url))
+                                has_inline = True
+                            else:
+                                print(f"⏭️ Row {index + 1} Segment {_seg_num}: reference image already processed, skipping.")
+                                has_inline = True # Still mark as inline so legacy check doesn't trigger
+                    except ValueError: pass
+        
 
-    if ref_rows_to_process and ref_drive_client and ref_output_folder_id:
-        print(f"🧪 Precomputing {len(ref_rows_to_process)} reference-image row(s) in parallel before GDv2 aggregation...")
+    if ref_tasks and ref_drive_client and ref_output_folder_id:
+        print(f"🧪 Precomputing {len(ref_tasks)} reference-image task(s) in parallel before GDv2 aggregation...")
+        
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            ref_futures = {
-                executor.submit(
+            futures = {}
+            for idx, row, seg_num, url in ref_tasks:
+                # Extract specific voiceover segment for anchor mapping if segment_num is provided
+                all_vo_text = str(row.get("voiceover_segment", "")).strip()
+                specific_vo = all_vo_text
+                if seg_num is not None:
+                    try:
+                        segments = parse_segments_from_voiceover(all_vo_text)
+                        seg_vo_map = {s_idx: s_txt for s_idx, s_txt in segments}
+                        specific_vo = seg_vo_map.get(seg_num, all_vo_text)
+                    except Exception:
+                        pass
+                
+                future = executor.submit(
                     process_reference_image_path,
                     df,
-                    index,
-                    ref_image_url,
+                    idx,
+                    url,
                     ref_drive_client,
                     ref_output_folder_id,
                     ref_drive_lock,
                     llm,
-                    str(row.get("voiceover_segment", "")).strip(),
-                ): index
-                for index, row, ref_image_url in ref_rows_to_process
-            }
+                    specific_vo, 
+                )
+                futures[future] = (idx, seg_num)
 
-            for future in as_completed(ref_futures):
-                index = ref_futures[future]
+            # Gather results and update the column
+            for future in as_completed(futures):
+                idx, seg_num = futures[future]
                 try:
                     is_relevant, ref_final_def, _ = future.result()
                     ref_link = ""
@@ -4329,11 +4399,27 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                         graphics_match = re.search(r'Graphics to use:\s*(https?://[^\s\n]+)', ref_final_def)
                         if graphics_match:
                             ref_link = graphics_match.group(1).strip()
-                    df.at[index, "reference_image_processed_url"] = ref_link
-                    print(f"[REF-PRECOMPUTE] Row {index + 1}: {'stored' if ref_link else 'empty'} reference_image_processed_url")
+                    
+                    # Update the mapping in the cell
+                    current_val = str(df.at[idx, "reference_image_processed_url"]).strip()
+                    if current_val == "nan": current_val = ""
+                    
+                    if seg_num is not None:
+                        new_line = f"SEGMENT_{seg_num}:{ref_link}"
+                        if current_val:
+                            # Avoid duplicates on retry
+                            lines = [l.strip() for l in current_val.splitlines() if l.strip() and not l.startswith(f"SEGMENT_{seg_num}:")]
+                            lines.append(new_line)
+                            current_val = "\n".join(lines)
+                        else:
+                            current_val = new_line
+                    else:
+                        current_val = ref_link # Legacy single URL
+                    
+                    df.at[idx, "reference_image_processed_url"] = current_val
+                    print(f"[REF-PRECOMPUTE] Row {idx + 1} {'SEGMENT_'+str(seg_num) if seg_num else 'Legacy'}: {'stored' if ref_link else 'empty'}")
                 except Exception as e:
-                    print(f"[REF-PRECOMPUTE] Row {index + 1}: error while precomputing reference image: {e}")
-                    df.at[index, "reference_image_processed_url"] = ""
+                    print(f"[REF-PRECOMPUTE] Row {idx + 1}: error: {e}")
 
         save_to_sheet(ws, df)
         format_worksheet(ws)
@@ -4369,9 +4455,15 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
             try:
                 row_index, final_graphics_def_text, _, ref_link = future.result()
                 
-                # Update dataframe
+                # Update final_graphics_definition
                 df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
-                df.at[row_index, "reference_image_processed_url"] = ref_link or ""
+
+                # Only write back reference_image_processed_url if the pre-compute pass
+                # didn't already fill it (avoid overwriting good precomputed data with
+                # the stale snapshot that was read when the row was submitted).
+                existing_ref = str(df.at[row_index, "reference_image_processed_url"]).strip()
+                if not existing_ref or existing_ref == "nan":
+                    df.at[row_index, "reference_image_processed_url"] = ref_link or ""
                 
                 # Update progress
                 progress.update()
@@ -4411,6 +4503,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         duration_cache: Dict[str, Optional[int]] = {}
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_final_graphics_definition_row(row)
             clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
                 row, youtube_api_key, duration_cache
@@ -4469,7 +4564,10 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 try:
                     row_index, final_graphics_def_text, _, ref_link = future.result()
                     df.at[row_index, "final_graphics_definition"] = final_graphics_def_text
-                    df.at[row_index, "reference_image_processed_url"] = ref_link or ""
+                    # Keep precomputed processed reference mappings unchanged on retry.
+                    existing_ref = str(df.at[row_index, "reference_image_processed_url"]).strip()
+                    if not existing_ref or existing_ref == "nan":
+                        df.at[row_index, "reference_image_processed_url"] = ref_link or ""
                     # Save immediately after each row completes in retry
                     print(f'Saving row {row_index + 2} (retry) to sheet immediately.')
                     save_to_sheet(ws, df)
@@ -4487,6 +4585,9 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         duration_cache: Dict[str, Optional[int]] = {}
         final_invalid = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_final_graphics_definition_row(row)
             clip_valid, clip_error_msg = validate_youtube_clip_links_for_row(
                 row, youtube_api_key, duration_cache

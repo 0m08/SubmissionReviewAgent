@@ -272,6 +272,7 @@ Critical Evaluation Instructions:
 - Each criteria has specific requirements that must be met - evaluate against those exact requirements, not general best practices.
 - Do not let overall quality of the content influence your judgment - focus solely on whether each specific criteria requirement is met.
 - Strictly evaluate every single criteria provided in the checklist. Do not skip or miss any criteria.
+- Inline image links: Markdown image links in the slide content — in either `[alt](url)` or `![alt](url)` form — are intentional and handled by a dedicated upstream pipeline step. Do not flag their presence, format, placement, or alt text as a defect under any criteria. Do not ask the reviser to remove, rewrite, reformat, or reposition them.
 
 Make sure to output in the following format:
 <analysis>
@@ -357,6 +358,8 @@ Content: The refrigeration cycle consists of four main components...
 
 IMPORTANT: Never change or remove these headers (Block ID, Topic, Subtopic, Slide Chunk) from the block text. Only modify the content after the header as required for the revision. The format is essential for the system to function properly.
 
+Inline image links: Any markdown image links in the slide Content — in either `[alt](url)` or `![alt](url)` form — must be preserved. Do not delete, rewrite, drop, merge, reposition, or modify the URL or alt text of any existing image link during your revisions, even if the checklist feedback asks for unrelated edits to the surrounding text. Keep each link in the exact position (same surrounding sentence) and exact format (same `[` vs `!` prefix) it currently has. Image-link placement is handled by a dedicated upstream pipeline step — treat every `[...](...)` / `![...](...)` you see as load-bearing content to preserve verbatim.
+
 NOTES:
 - Make use of the given set of CRUD block text tools to make the necessary revisions.
 - If creating new slide using create_blocks, ensure to follow the correct format and maintain the headers required for revision.
@@ -400,6 +403,7 @@ Instructions:
 5. Deduplicate only when two reviewers flag the exact same issue on the exact same block. In that case, keep the more detailed feedback of the two.
 6. Do NOT remove failures that were identified by a reviewer, unless another reviewer's conflicting assessment is demonstrably correct based on the actual slide chunks.
 7. If while cross-referencing you spot additional issues that no reviewer caught, you may add them as new failures — but clearly mark them as "[Aggregator-identified]".
+8. Inline image links: Markdown image links in the slide content (`[alt](url)` or `![alt](url)`) are intentional and handled by a dedicated upstream pipeline step. Drop any reviewer failures or feedback that ask the reviser to remove, rewrite, reposition, or reformat image links, since acting on such feedback would break the upstream placement work.
 
 Output your consolidated report:
 
@@ -1331,7 +1335,7 @@ def parse_block_text_row(block_text_cell, index):
     """
     try:
         # Use LLM + Pydantic to parse and validate
-        agent = Chain(llm="gemini_2_flash")
+        agent = Chain(llm="gemini_3_flash")
         agent.add_message(
             role="user",
             content=block_text_parsing_prompt.format(block=block_text_cell)

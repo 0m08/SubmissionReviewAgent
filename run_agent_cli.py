@@ -3,6 +3,7 @@ import importlib
 import sys
 import os
 import signal
+import inspect
 from datetime import datetime, timedelta
 import streamlit as st
 import json
@@ -258,6 +259,9 @@ def run_all_automated_steps_for_cli(sections, state):
                         print(f"[INFO] Paused at manual step: {step['name']}")
                         continue
                 kwargs = {a: state.get(k, k) for a, k in step.get("args", {}).items()}
+                fn_params = inspect.signature(step["func"]).parameters
+                if "selected_topics" in fn_params and "selected_topics" not in kwargs:
+                    kwargs["selected_topics"] = state.get("selected_topics", [])
                 print(f"[START] {step['name']}")
                 try:
                     step["func"](**kwargs)

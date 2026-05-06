@@ -1686,7 +1686,7 @@ def process_image_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True):
+def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None):
     """
     Run image scoring for all eligible rows and write results to image_score.
     
@@ -1709,6 +1709,9 @@ def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             existing_score = str(row.get(SCORE_COLUMN_NAME, "")).strip()
@@ -1743,6 +1746,92 @@ def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
                 if completed_count % SAVE_INTERVAL_ROWS == 0:
                     merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
     merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
+
+    # Validation and retry logic for score completeness/shape
+    max_retries = 3
+    retry_count = 0
+    while retry_count < max_retries:
+        _, df = get_sheet_data_and_df(sheet, worksheet_name)
+        invalid_rows = []
+        for index, row in df.iterrows():
+            is_valid, error_msg = validate_image_score_row(row)
+            if not is_valid:
+                invalid_rows.append((index, row, error_msg))
+
+        if not invalid_rows:
+            break
+
+        retry_count += 1
+        print(f"\n⚠️ Found {len(invalid_rows)} rows with invalid {SCORE_COLUMN_NAME}. Retrying (attempt {retry_count}/{max_retries})...")
+        for idx, _, error in invalid_rows[:3]:
+            print(f"  Row {idx}: {error}")
+
+        # Clear invalid scores before retry so the scorer treats them as pending
+        for index, _, _ in invalid_rows:
+            df.at[index, SCORE_COLUMN_NAME] = ""
+        merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
+
+        futures_map = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for index, row, _ in invalid_rows:
+                futures_map[executor.submit(process_image_scoring_row, index, row, course_name, drive, llm)] = index
+
+            for future in as_completed(futures_map):
+                index = futures_map[future]
+                try:
+                    row_index, score_text = future.result()
+                    df.at[row_index, SCORE_COLUMN_NAME] = score_text
+                except Exception as e:
+                    df.at[index, SCORE_COLUMN_NAME] = f"ERROR: {str(e)}"
+
+        merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
+
+
+def validate_image_score_row(row):
+    """
+    Validate image_score for rows that are eligible for image scoring.
+    """
+    vo_segments_text = str(row.get("voiceover_segment", "")).strip()
+    slide_chunk = str(row.get("Slide Chunk", "")).strip()
+    image_score_text = str(row.get(SCORE_COLUMN_NAME, "")).strip()
+
+    # If row is not eligible for image scoring, treat as valid skip.
+    if not vo_segments_text or vo_segments_text == "nan" or not slide_chunk or slide_chunk == "nan":
+        return True, None
+
+    if not image_score_text or image_score_text == "nan" or image_score_text.strip() == "":
+        return False, "image_score is empty"
+
+    if image_score_text.startswith("ERROR:"):
+        return False, "image_score contains error marker"
+
+    segment_numbers = [int(match) for match in re.findall(r'---SEGMENT_(\d+)---', image_score_text)]
+    if not segment_numbers:
+        return False, "No segment markers found in image_score"
+
+    visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
+    if not visual_assignment_strategy or visual_assignment_strategy == "nan":
+        visual_assignment_strategy = "Flexible, let the agent decide"
+
+    if visual_assignment_strategy == "1 Visual for the whole Slide":
+        if len(segment_numbers) != 1 or segment_numbers[0] != 1:
+            return False, f"For '1 Visual for the whole Slide', expected only SEGMENT_1, found: {segment_numbers}"
+        return True, None
+
+    vo_segments = [seg.strip() for seg in vo_segments_text.split('\n') if seg.strip()]
+    expected_count = len(vo_segments)
+    if expected_count == 0:
+        return True, None
+
+    actual_count = len(segment_numbers)
+    if actual_count != expected_count:
+        return False, f"Segment count mismatch in image_score: expected {expected_count}, found {actual_count}"
+
+    expected_sequence = list(range(1, expected_count + 1))
+    if sorted(segment_numbers) != expected_sequence:
+        return False, f"Segment numbering mismatch in image_score: expected {expected_sequence}, found {sorted(segment_numbers)}"
+
+    return True, None
 
 
 def validate_image_pool_row(row):
@@ -1826,7 +1915,7 @@ def validate_image_pool_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True,
+def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None,
 ):
     """
     Select relevant images from all available images for all rows in the Slide Chunks sheet.
@@ -1864,6 +1953,9 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks first
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
             image_pool = str(row.get("image_pool", "")).strip()
             
@@ -1950,6 +2042,9 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
         # Validate all rows and find invalid ones
         invalid_rows = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_image_pool_row(row)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
@@ -1973,6 +2068,9 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, error_msg in invalid_rows:
+                topic_name = str(row.get("Topic", "")).strip()
+                if selected_topics and topic_name not in selected_topics:
+                    continue
                 future = executor.submit(process_image_selection_row, index, row, course_name, drive, llm)
                 futures_map[future] = index
             
@@ -1994,6 +2092,9 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
         worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
         final_invalid = []
         for index, row in df.iterrows():
+            topic_name = str(row.get("Topic", "")).strip()
+            if selected_topics and topic_name not in selected_topics:
+                continue
             is_valid, error_msg = validate_image_pool_row(row)
             if not is_valid:
                 final_invalid.append((index, error_msg))
