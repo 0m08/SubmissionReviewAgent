@@ -39,6 +39,11 @@ Visual storyboard for the full slide (for planning context and intent reference)
 {visual_storyboard}
 </visual_storyboard>
 
+Layout planning context for this slide (scene structure and layout intent):
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 Instructions:
 
 1. Base all search queries strictly on the meaning of the voiceover sentence.
@@ -66,6 +71,12 @@ Instructions:
 6. Transition Slide Type:
    - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
    - The slide content of Transition slide may lack depth or details, so you should infer and plan the search queries for transition slides by taking into account the topic and subtopic name along with the storyboard.
+
+7. Use of Layout Planning Context
+   - The layout planning context defines the intended scene structure and layout strategy for this slide.
+   - Use it together with the visual storyboard to understand what kind of visual evidence is needed for this voiceover sentence.
+   - When layout planning implies multiple components, roles, or regions, prefer concrete queries that target those required visual elements.
+   - Keep the generated queries sentence-grounded; do not expand beyond what this sentence needs.
 
 Always provide your output strictly in the following format:
 
@@ -118,6 +129,11 @@ Visual storyboard for the full slide (for planning context and intent reference)
 {visual_storyboard}
 </visual_storyboard>
 
+Layout planning context for this slide (scene structure and layout intent):
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 Instructions:
 
 1. Base all search queries strictly on the meaning of the entire slide.
@@ -143,6 +159,11 @@ Instructions:
 6. Transition Slide Type:
    - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
    - The slide content of Transition slide may lack depth or details, so you should infer and plan the search queries for transition slides by taking into account the topic and subtopic name along with the storyboard.
+
+7. Use of Layout Planning Context
+   - The layout planning context defines the intended scene structure and layout strategy for this slide.
+   - Use it together with the visual storyboard to decide the set of queries needed for the whole slide.
+   - If the planned layout implies multiple required elements, ensure query coverage includes those elements while still prioritizing the main instructional idea.
 
 Always provide your output strictly in the following format:
 
@@ -176,7 +197,7 @@ Always provide your output strictly in the following format:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", slide_type="", llm="gemini_2_5_flash_lite"):
+def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", layout_plan="", slide_type="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for a single voiceover segment.
 
@@ -187,6 +208,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     :param subtopic_name: The subtopic name.
     :param slide_title: The slide title.
     :param visual_storyboard: The visual storyboard content.
+    :param layout_plan: Layout planning context for the slide.
     :param slide_type: The slide type from the Slide Type column (e.g. Transition, Content, Summary).
     :param llm: The language model to use.
     :return: The search query output.
@@ -205,6 +227,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
             vo_text=vo_text,
             slide_chunk=slide_chunk,
             visual_storyboard=visual_storyboard,
+            layout_plan=layout_plan,
             slide_type=slide_type or ""
         )
     )
@@ -222,7 +245,7 @@ def generate_search_query_from_segment(vo_text, slide_chunk, course_name, topic_
     return queries_output
 
 
-def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", slide_type="", llm="gemini_2_5_flash_lite"):
+def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name, subtopic_name, slide_title="", visual_storyboard="", layout_plan="", slide_type="", llm="gemini_2_5_flash_lite"):
     """
     Generate search queries for the entire slide (not per segment).
 
@@ -232,6 +255,7 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
     :param subtopic_name: The subtopic name.
     :param slide_title: The slide title.
     :param visual_storyboard: The visual storyboard content.
+    :param layout_plan: Layout planning context for the slide.
     :param slide_type: The slide type from the Slide Type column (e.g. Transition, Content, Summary).
     :param llm: The language model to use.
     :return: The search query output.
@@ -262,6 +286,7 @@ def generate_search_query_for_entire_slide(slide_chunk, course_name, topic_name,
             slide_title=slide_title,
             slide_chunk=slide_chunk,
             visual_storyboard=visual_storyboard,
+            layout_plan=layout_plan,
             slide_type=slide_type or ""
         )
     )
@@ -306,9 +331,12 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
         topic_name = str(row.get("Topic", "")).strip()
         subtopic_name = str(row.get("Subtopic", "")).strip()
         visual_storyboard = str(row.get("storyboard_planning", "")).strip()
+        layout_plan = str(row.get("layout_plan", "")).strip()
         slide_type = str(row.get("Slide Type", "")).strip()
         if slide_type == "nan":
             slide_type = ""
+        if not layout_plan or layout_plan == "nan":
+            layout_plan = ""
         
         # Get visual assignment strategy (default to "Flexible, let the agent decide" if not found)
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
@@ -328,6 +356,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
                 subtopic_name=subtopic_name,
                 slide_title=slide_title,
                 visual_storyboard=visual_storyboard,
+                layout_plan=layout_plan,
                 slide_type=slide_type,
                 llm=llm
             )
@@ -377,6 +406,7 @@ def process_search_query_row(index, row, course_name, llm="gemini_2_5_flash_lite
                     subtopic_name,
                     slide_title,
                     visual_storyboard,
+                    layout_plan,
                     slide_type,
                     llm
                 ): (segment_idx, segment)

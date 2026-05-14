@@ -384,6 +384,12 @@ PAGE_DESCRIPTIONS = {
         "description": "Generate slideshows and videos by combining images, audio narration, and transitions.",
         "category": "tool",
     },
+    "slideshow_manifest_video_page": {
+        "icon": ":material/movie:",
+        "title": "Slideshow Video (Manifest)",
+        "description": "Render layout-aware slideshow videos from the slideshow_manifest column with edge-tts narration.",
+        "category": "tool",
+    },
     "paraphraser_page": {
         "icon": ":material/edit:",
         "title": "Paraphraser",
@@ -560,6 +566,12 @@ slideshow_streamlit_page = st.Page(
     icon=":material/slideshow:",
 )
 
+slideshow_manifest_video_page = st.Page(
+    "slideshow_manifest_video.py",
+    title="Slideshow Video (Manifest)",
+    icon=":material/movie:",
+)
+
 paraphraser_page = st.Page(
     "paraphraser.py",
     title="Paraphraser",
@@ -656,6 +668,7 @@ page_name_to_object = {
     "template_sheet_setup_page": template_sheet_setup_page,
     #"graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
     "slideshow_streamlit_page": slideshow_streamlit_page,
+    "slideshow_manifest_video_page": slideshow_manifest_video_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
@@ -685,6 +698,7 @@ tool_pages = [
     #"video_embeddings_page",
     #"graphics_definition_v2_slideshow_page",
     "slideshow_streamlit_page",
+    "slideshow_manifest_video_page",
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",

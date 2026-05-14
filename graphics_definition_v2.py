@@ -5,6 +5,10 @@ from agents.graphics_definition_v2.image_graphics_agent.segment_slide import (
     delete_segment_slide,
     ensure_visual_assignment_strategy_column,
 )
+from agents.graphics_definition_v2.planning_layout.layout_plan import (
+    run_layout_planning_agent_for_all_rows,
+    delete_layout_plan_columns,
+)
 from agents.graphics_definition_v2.image_graphics_agent.storyboard_agent import (
     run_storyboard_agent_for_all_rows,
     delete_storyboard_planning,
@@ -75,6 +79,10 @@ from agents.graphics_definition_v2.review_agent.decide_final_visuals import (
     run_decide_final_visuals_for_all_rows,
     delete_final_visual_decisions,
 )
+from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
+    run_slideshow_manifest_for_all_rows,
+    delete_slideshow_manifest_columns,
+)
 from agents.graphics_definition_v2.download_assets.download_assets_for_sheet import (
     run_download_assets_for_sheet,
 )
@@ -91,7 +99,28 @@ TOP_INSTRUCTIONS = (
 
 pipeline_sections = [
     {
-        "section_name": "Section 1: Segment Slide into Voiceover Segments",
+        "section_name": "Section 1: Layout Planning",
+        "steps": [
+            {
+                "name": "Generate Layout Plan for each Slide",
+                "func": run_layout_planning_agent_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "5-12 minutes",
+                "description": "This function identifies scene-wise layout strategy for each slide row and saves the output to layout_plan and layout_plan_evaluation columns.",
+                "delete_func": delete_layout_plan_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 2: Segment Slide into Voiceover Segments",
         "steps": [
             {
                 "name": "Segment Slide into Voiceover Segments",
@@ -101,7 +130,7 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "worksheet_name": "Slide Chunks"
                 },
-                "depends_on": [],
+                "depends_on": ["Generate Layout Plan for each Slide"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_2_5_flash_lite",
@@ -117,7 +146,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 2: Generate Storyboard Planning for each Slide",
+        "section_name": "Section 3: Generate Storyboard Planning for each Slide",
         "steps": [
             {
                 "name": "Generate Storyboard for each Slide",
@@ -138,7 +167,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 2: Generate Search Queries for Image and Video Retrieval",
+        "section_name": "Section 4: Generate Search Queries for Image and Video Retrieval",
         "steps": [
             {
                 "name": "Generate Search Queries for Image and Video Retrieval",
@@ -159,7 +188,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 3: Generate Image and Video Candidates",
+        "section_name": "Section 5: Generate Image and Video Candidates",
         "steps": [
             {
                 "name": "Generate Image and Video Candidates",
@@ -180,7 +209,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 4: Generate Image and Video Pools",
+        "section_name": "Section 6: Generate Image and Video Pools",
         "steps": [
             {
                 "name": "Generate Image and Video Pools",
@@ -203,7 +232,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 5: Aggregation Agent",
+        "section_name": "Section 7: Aggregation Agent",
         "steps": [
             {
                 "name": "Aggregation Agent",
@@ -224,7 +253,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 6: Review and Revise Graphics Definitions",
+        "section_name": "Section 8: Review and Revise Graphics Definitions",
         "steps": [
             {
                 "name": "Review and Revise Graphics Definitions",
@@ -246,7 +275,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 7: Review Finalized Visuals and do a Targeted Web Fallback and Selection.",
+        "section_name": "Section 9: Review Finalized Visuals and do a Targeted Web Fallback and Selection.",
         "steps": [
             {
                 "name": "Review all the Finalized Visuals to decide if Web Search is needed for some visuals",
@@ -295,6 +324,27 @@ pipeline_sections = [
                 "delete_args": {
                     "sheet": "sheet"
                 }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 10: Slideshow Manifest",
+        "steps": [
+            {
+                "name": "Generate Slideshow Manifest",
+                "func": run_slideshow_manifest_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "5-20 minutes",
+                "description": "Builds a machine-readable slideshow_manifest (and evaluation) per slide from final_graphics_definition (When VO / Assigned Asset pairs), with multimodal asset parts for layout decisions. Runs after final visual decisions are merged into the sheet.",
+                "delete_func": delete_slideshow_manifest_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
             },
         ]
     },

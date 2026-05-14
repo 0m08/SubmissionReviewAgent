@@ -27,6 +27,10 @@ Slide Title: {slide_title}
 Slide Content: {slide_content}
 </slide_content>
 
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 Instructions and Guidelines:
 
 1. Core Responsibility
@@ -53,6 +57,13 @@ Instructions and Guidelines:
 5. Transition Slide Type:
    - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
    - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
+
+6. Use of Layout Planning Context
+   - You will be provided with a layout planning context containing scene-wise layout strategy and required visual slots.
+   - Use that layout planning context as a required planning guide for structuring storyboard steps and visual ideas.
+   - Align storyboard boundaries and visual ideas with the layout planning context while preserving narration meaning and instructional clarity.
+   - If you detect conflicts between layout planning and narration meaning, resolve them in favor of narration meaning while still preserving the intended scene structure as much as possible.
+   - Do not copy layout planning text verbatim; convert it into clear storyboard steps grounded in narration meaning.
 
 Output:
 
@@ -106,6 +117,10 @@ Slide Title: {slide_title}
 Slide Content: {slide_content}
 </slide_content>
 
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 Instructions and Guidelines:
 
 1. Core Responsibility
@@ -126,6 +141,12 @@ Instructions and Guidelines:
 3. Transition Slide Type:
    - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
    - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
+
+4. Use of Layout Planning Context
+   - You will be provided with a layout planning context containing scene-wise layout strategy and required visual slots.
+   - Use it as a required planning guide while deciding the single best visual idea for the whole slide.
+   - Ensure the final storyboard for the slide is consistent with the intended scene structure in the layout planning context.
+   - Do not copy layout planning text verbatim into output.
 
 Output:
 
@@ -170,6 +191,10 @@ Slide Title: {slide_title}
 Slide Content: {slide_content}
 </slide_content>
 
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 Instructions and Guidelines:
 
 1. Core Responsibility
@@ -197,6 +222,12 @@ Instructions and Guidelines:
 5. Transition Slide Type:
    - Only in cases where the slide type is "Transition", you should take special care to assign a visual that is relevant to the topic and subtopic name as well.
    - The slide content of Transition slide may lack depth or details, so you should infer and plan the storyboard for transition slides by taking into account the topic and subtopic name.
+
+6. Use of Layout Planning Context
+   - You will be provided with a layout planning context containing scene-wise layout strategy and required visual slots.
+   - Use that context to improve sentence-level storyboard quality without violating the one-visual-per-sentence constraint.
+   - Ensure sentence-level storyboard steps remain consistent with the intended scene structure from the layout planning context.
+   - Do not copy layout planning text verbatim; translate it into concise sentence-aligned visual ideas.
 
 Output:
 
@@ -310,7 +341,7 @@ Briefly think through what visual best supports each segment before writing the 
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_title, slide_content, visual_assignment_strategy="Flexible, let the agent decide", slide_type="", llm="gemini_3_flash_thinking"):
+def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_title, slide_content, visual_assignment_strategy="Flexible, let the agent decide", layout_plan="", slide_type="", llm="gemini_3_flash_thinking"):
     """
     Generate a visual storyboard for a single slide.
 
@@ -320,6 +351,7 @@ def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_
     :param slide_title: The slide title.
     :param slide_content: The slide content.
     :param visual_assignment_strategy: The visual assignment strategy from the sheet.
+    :param layout_plan: Optional layout planning context from layout planning step.
     :param slide_type: The slide type from the Slide Type column (e.g. Transition, Content, Summary).
     :param llm: The language model to use.
     :return: Tuple of (storyboard_output, strategy_type) where strategy_type indicates the format.
@@ -363,6 +395,7 @@ def generate_storyboard_for_slide(course_name, topic_name, subtopic_name, slide_
             subtopic_name=subtopic_name,
             slide_title=slide_title,
             slide_content=slide_content,
+            layout_plan=layout_plan,
             slide_type=slide_type or ""
         )
     )
@@ -553,6 +586,10 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
         slide_type = str(row.get("Slide Type", "")).strip()
         if slide_type == "nan":
             slide_type = ""
+        layout_plan = str(row.get("layout_plan", "")).strip()
+        if not layout_plan or layout_plan == "nan":
+            print(f"⚠️ Row {index + 1}: layout_plan is missing; proceeding with empty layout planning context.")
+            layout_plan = ""
         
         # Get visual assignment strategy (default to "Flexible, let the agent decide" if not found)
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
@@ -597,6 +634,7 @@ def process_storyboard_row(index, row, course_name, llm="gemini_3_flash_thinking
             slide_title=slide_title,
             slide_content=slide_content,
             visual_assignment_strategy=visual_assignment_strategy,
+            layout_plan=layout_plan,
             slide_type=slide_type,
             llm=llm
         )
