@@ -82,6 +82,20 @@ from agents.graphics_definition_v2.review_agent.decide_final_visuals import (
 from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
     run_slideshow_manifest_for_all_rows,
     delete_slideshow_manifest_columns,
+    run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
+    delete_apply_edited_urls_to_slideshow_manifest,
+)
+from agents.graphics_definition_v2.image_editing_for_layout.image_edit_planning import (
+    run_scene_edit_planning_for_all_rows,
+    delete_scene_edit_plan_columns,
+)
+from agents.graphics_definition_v2.image_editing_for_layout.image_editing_based_on_edit_planning import (
+    run_image_editing_execution_for_all_rows,
+    delete_image_editing_execution_columns,
+)
+from agents.graphics_definition_v2.image_editing_for_layout.image_edit_results_sheet import (
+    run_populate_image_edit_results_sheet,
+    delete_image_edit_results_sheet_data,
 )
 from agents.graphics_definition_v2.download_assets.download_assets_for_sheet import (
     run_download_assets_for_sheet,
@@ -333,7 +347,7 @@ pipeline_sections = [
             {
                 "name": "Generate Slideshow Manifest",
                 "func": run_slideshow_manifest_for_all_rows,
-                "depends_on": [],
+                "depends_on": ["Decide which visual to Use"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
@@ -342,6 +356,86 @@ pipeline_sections = [
                 "estimated_time": "5-20 minutes",
                 "description": "Builds a machine-readable slideshow_manifest (and evaluation) per slide from final_graphics_definition (When VO / Assigned Asset pairs), with multimodal asset parts for layout decisions. Runs after final visual decisions are merged into the sheet.",
                 "delete_func": delete_slideshow_manifest_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    {
+        "section_name": "Section 11: Scene Edit Planning",
+        "steps": [
+            {
+                "name": "Generate Scene Edit Plan",
+                "func": run_scene_edit_planning_for_all_rows,
+                "depends_on": ["Generate Slideshow Manifest"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "10-30 minutes",
+                "description": "Parses slideshow_manifest scene-by-scene and generates scene_edit_plan output by running the image edit planning agent once per scene with multimodal slot assets.",
+                "delete_func": delete_scene_edit_plan_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    {
+        "section_name": "Section 12: Scene Edit Execution",
+        "steps": [
+            {
+                "name": "Run Scene Edit Execution",
+                "func": run_image_editing_execution_for_all_rows,
+                "depends_on": ["Generate Scene Edit Plan"],
+                "args": {
+                    "sheet": "sheet",
+                    "max_workers": 50,
+                },
+                "estimated_time": "20-120 minutes",
+                "description": "Per instructional slot, runs an edit -> review -> regenerate loop.",
+                "delete_func": delete_image_editing_execution_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    {
+        "section_name": "Section 12b: Apply edited images to slideshow manifest",
+        "steps": [
+            {
+                "name": "Apply edited asset URLs to slideshow manifest",
+                "func": run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
+                "depends_on": ["Run Scene Edit Execution"],
+                "args": {
+                    "sheet": "sheet",
+                    "max_workers": 30,
+                },
+                "estimated_time": "1-5 minutes",
+                "description": "Reads image_editing_tracking per row and replaces matching slot asset URLs in slideshow_manifest with the Edited Image Drive URLs (same-file matching as final_graphics_definition). Skips rows with no manifest, no tracking, or no Original/Edited pairs. Re-run Generate Slideshow Manifest to restore pre-edit URLs.",
+                "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    {
+        "section_name": "Section 13: Image Edit Results Sheet",
+        "steps": [
+            {
+                "name": "Populate Image Edit Results Sheet",
+                "func": run_populate_image_edit_results_sheet,
+                "depends_on": ["Apply edited images to slideshow manifest"],
+                "args": {
+                    "sheet": "sheet",
+                },
+                "estimated_time": "2-10 minutes",
+                "description": "Creates or refreshes the 'Image Edit results' tab: one row per edited image with slide content, matched When VO, =IMAGE previews for original/edited assets (notes with view URLs), and formatted <edits> XML from scene_edit_plan.",
+                "delete_func": delete_image_edit_results_sheet_data,
                 "delete_args": {
                     "sheet": "sheet"
                 },
