@@ -760,6 +760,73 @@ def apply_edited_asset_urls_to_slideshow_manifest_inner_xml(inner_xml, tracking_
     return ET.tostring(root, encoding="unicode").strip()
 
 
+def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs):
+    """
+    Replace slot asset URLs in slideshow manifest inner XML using (old_url, new_url) pairs.
+
+    :param inner_xml: slideshow_manifest column value (inner XML, one or more <scene> roots).
+    :param url_pairs: Iterable of (old_url, new_url) tuples preserving caller order.
+    :return: Tuple(updated_inner_xml, applied_pairs) where applied_pairs is a list of (old_url, new_url) tuples that actually replaced at least one slot.
+    """
+    pairs_list = [(o, n) for o, n in (url_pairs or []) if o and n and o != n]
+    if not pairs_list:
+        return (inner_xml or "").strip(), []
+
+    text = str(inner_xml or "").strip()
+    if not text or text in ("nan",) or text.startswith("ERROR:"):
+        return text, []
+
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+
+    text = _normalize_manifest_attribute_quotes(text)
+    wrapped = text
+    if "<slideshow_manifest" not in wrapped.lower():
+        wrapped = f"<slideshow_manifest>\n{wrapped}\n</slideshow_manifest>"
+    safe = _escape_manifest_bare_ampersands(wrapped)
+
+    try:
+        root = ET.fromstring(safe)
+    except ET.ParseError as e:
+        print(f"apply_url_replacements_to_manifest: XML parse error: {e}")
+        return (inner_xml or "").strip(), []
+
+    tag = (root.tag or "").lower()
+    if tag.endswith("slideshow_manifest"):
+        scenes = root.findall("scene")
+    elif tag.endswith("scene"):
+        scenes = [root]
+    else:
+        print("apply_url_replacements_to_manifest: unexpected root tag, leaving manifest unchanged.")
+        return (inner_xml or "").strip(), []
+
+    applied_pairs = []
+    applied_set = set()
+    for scene_el in scenes:
+        for slot_el in scene_el.findall("slot"):
+            asset = (slot_el.get("asset") or "").strip()
+            if not asset:
+                continue
+            for old_url, new_url in pairs_list:
+                if urls_match_for_graphics_assignment(old_url, asset):
+                    slot_el.set("asset", new_url)
+                    key = (old_url, new_url)
+                    if key not in applied_set:
+                        applied_set.add(key)
+                        applied_pairs.append(key)
+                    break
+
+    if not applied_pairs:
+        return (inner_xml or "").strip(), []
+
+    if tag.endswith("slideshow_manifest"):
+        chunks = []
+        for child in list(root):
+            chunks.append(ET.tostring(child, encoding="unicode"))
+        return "\n\n".join(chunks).strip(), applied_pairs
+    return ET.tostring(root, encoding="unicode").strip(), applied_pairs
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",

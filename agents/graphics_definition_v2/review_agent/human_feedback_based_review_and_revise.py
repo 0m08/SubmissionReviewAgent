@@ -56,6 +56,9 @@ from agents.graphics_definition_v2.review_agent.review_and_revise import (
     parse_review_response,
     regenerate_failed_segments,
 )
+from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
+    apply_url_replacements_to_slideshow_manifest_inner_xml,
+)
 
 load_dotenv()
 
@@ -1493,6 +1496,7 @@ def process_human_feedback_row(
     human_feedback_status_column="human_feedback_status",
     human_feedback_revision_tracking_column="human_feedback_revision_tracking",
     human_review_actions_column="human_review_actions",
+    manifest_replacements_log=None,
 ):
     """
     Process a single row's full human-feedback workflow: revise, review, optional regen loop, then write status and tracking to df.
@@ -1550,6 +1554,9 @@ def process_human_feedback_row(
                 with _sheet_lock:
                     save_to_sheet(ws, df)
             return
+
+        if manifest_replacements_log is None:
+            manifest_replacements_log = []
 
         print(f"  Parsed human feedback for {len(feedback_by_segment)} segment(s): {list(feedback_by_segment.keys())}")
 
@@ -1771,6 +1778,9 @@ def process_human_feedback_row(
         if not review_segment_nums:
             print("\n[STEP 2] Skipped: only AI-generation actions were requested.")
             _finalize_row(row_index, df, drive, ws)
+            _sync_slideshow_manifest_for_row(
+                row_index, df, hf_revision_tracking, manifest_replacements_log,
+            )
             if ai_generation_errors and not updated_segments:
                 df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
                     "ERROR", ai_generation_errors
@@ -1814,6 +1824,9 @@ def process_human_feedback_row(
         if verdict == "PASS":
             print(f"\n  Human feedback satisfaction PASSED for row {row_index + 1}")
             _finalize_row(row_index, df, drive, ws)
+            _sync_slideshow_manifest_for_row(
+                row_index, df, hf_revision_tracking, manifest_replacements_log,
+            )
             df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
                 "PASS", ai_generation_errors
             )
@@ -1950,6 +1963,9 @@ def process_human_feedback_row(
             if regen_verdict == "PASS":
                 print(f"  Regeneration PASSED on attempt {attempt}")
                 _finalize_row(row_index, df, drive, ws)
+                _sync_slideshow_manifest_for_row(
+                    row_index, df, hf_revision_tracking, manifest_replacements_log,
+                )
                 df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
                     "PASS", ai_generation_errors
                 )
@@ -1967,6 +1983,9 @@ def process_human_feedback_row(
 
         # All regen attempts exhausted
         _finalize_row(row_index, df, drive, ws)
+        _sync_slideshow_manifest_for_row(
+            row_index, df, hf_revision_tracking, manifest_replacements_log,
+        )
         df.at[row_index, human_feedback_status_column] = _compose_hf_status_with_ai_errors(
             "FAIL", ai_generation_errors
         )
@@ -2020,6 +2039,106 @@ def _finalize_row(row_index, df, drive, ws):
         with _sheet_lock:
             save_to_sheet(ws, df)
         print(f"  Row {row_index + 1} saved")
+
+
+_TRACKING_FINAL_URL_PRIORITY = (
+    "after_regen_2",
+    "after_regen_1",
+    "after_revision",
+    "manually_selected",
+)
+
+
+def _final_url_from_tracking_entry(entry):
+    """
+    Return the last non-empty URL in priority order for a tracking dict entry.
+
+    Priority: after_regen_2 > after_regen_1 > after_revision > manually_selected.
+
+    :param entry: Per-visual tracking dict from hf_revision_tracking.
+    :return: URL string or empty string when no stage URL is set.
+    """
+    if not isinstance(entry, dict):
+        return ""
+    for key in _TRACKING_FINAL_URL_PRIORITY:
+        candidate = _safe_str(entry.get(key, "")).strip()
+        if candidate:
+            return candidate
+    return ""
+
+
+def _sync_slideshow_manifest_for_row(
+    row_index,
+    df,
+    hf_revision_tracking,
+    manifest_replacements_log,
+):
+    """
+    Patch slideshow_manifest slot URLs using human_feedback_revision_tracking as the source of truth. 
+
+    :param row_index: Row index in df.
+    :param df: Slide Chunks dataframe.
+    :param hf_revision_tracking: In-memory tracking dict for this row (visual_id -> {original, manually_selected, after_revision, after_regen_1, after_regen_2}).
+    :param manifest_replacements_log: Shared list to append replacement records to.
+    :return: None
+    """
+    if "slideshow_manifest" not in df.columns:
+        return
+    if not hf_revision_tracking:
+        return
+
+    row = df.loc[row_index]
+    manifest = _safe_str(row.get("slideshow_manifest", "")).strip()
+    if not manifest or manifest in ("nan",) or manifest.startswith("ERROR:"):
+        return
+
+    url_pairs = []
+    seen_old = set()
+    for visual_id, entry in hf_revision_tracking.items():
+        if not isinstance(entry, dict):
+            continue
+        original_url = _safe_str(entry.get("original", "")).strip()
+        if not original_url:
+            continue
+        final_url = _final_url_from_tracking_entry(entry)
+        if not final_url:
+            continue
+        if final_url == original_url:
+            continue
+        if original_url in seen_old:
+            continue
+        seen_old.add(original_url)
+        url_pairs.append((original_url, final_url))
+
+    if not url_pairs:
+        return
+
+    try:
+        updated_manifest, applied_pairs = apply_url_replacements_to_slideshow_manifest_inner_xml(
+            manifest, url_pairs,
+        )
+    except Exception as e:
+        print(f"  WARNING: slideshow_manifest patch failed for row {row_index + 1}: {e}")
+        return
+
+    if not applied_pairs or updated_manifest == manifest:
+        return
+
+    df.at[row_index, "slideshow_manifest"] = updated_manifest
+
+    slide_title = _safe_str(row.get("Slide Chunk Title", "")).strip()
+    for old_url, new_url in applied_pairs:
+        manifest_replacements_log.append({
+            "row_index": int(row_index),
+            "slide_title": slide_title,
+            "original": old_url,
+            "replaced": new_url,
+        })
+
+    print(
+        f"  Synced slideshow_manifest for row {row_index + 1}: "
+        f"{len(applied_pairs)} URL replacement(s)"
+    )
 
 
 def _build_regen_feedback(failures, segments_map, visual_assignment_strategy):
@@ -2587,6 +2706,8 @@ def run_human_feedback_review_revise_for_all_rows(
         with _progress_lock:
             progress.update()
 
+    manifest_replacements_log: List[Dict[str, object]] = []
+
     if max_workers > 1:
         print(f"Processing {len(rows_to_process)} row(s) in parallel with {max_workers} worker(s)...\n")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -2605,6 +2726,7 @@ def run_human_feedback_review_revise_for_all_rows(
                     human_feedback_status_column,
                     human_feedback_revision_tracking_column,
                     human_review_actions_column,
+                    manifest_replacements_log,
                 ): row_index
                 for row_index in rows_to_process
             }
@@ -2635,6 +2757,7 @@ def run_human_feedback_review_revise_for_all_rows(
                     human_feedback_status_column,
                     human_feedback_revision_tracking_column,
                     human_review_actions_column,
+                    manifest_replacements_log,
                 )
                 _safe_progress_update()
             except Exception as e:
@@ -2645,6 +2768,17 @@ def run_human_feedback_review_revise_for_all_rows(
         with _sheet_lock:
             save_to_sheet(ws, df)
             format_worksheet(ws)
+
+    print(f"\n{'=' * 80}")
+    print("Links that were replaced in slideshow_manifest column:")
+    print(f"{'=' * 80}\n")
+    if not manifest_replacements_log:
+        print("(No URL replacements applied to slideshow_manifest.)\n")
+    else:
+        for entry in manifest_replacements_log:
+            print(f"Original Link: {entry.get('original', '')}")
+            print(f"Replaced Link: {entry.get('replaced', '')}")
+            print()
 
     print(f"\n{'=' * 80}")
     print("Human Feedback Review & Revise complete.")

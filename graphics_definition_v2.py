@@ -404,7 +404,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 12b: Apply edited images to slideshow manifest",
+        "section_name": "Section 13: Apply edited images to slideshow manifest",
         "steps": [
             {
                 "name": "Apply edited asset URLs to slideshow manifest",
@@ -423,25 +423,25 @@ pipeline_sections = [
             },
         ]
     },
-    {
-        "section_name": "Section 13: Image Edit Results Sheet",
-        "steps": [
-            {
-                "name": "Populate Image Edit Results Sheet",
-                "func": run_populate_image_edit_results_sheet,
-                "depends_on": ["Apply edited images to slideshow manifest"],
-                "args": {
-                    "sheet": "sheet",
-                },
-                "estimated_time": "2-10 minutes",
-                "description": "Creates or refreshes the 'Image Edit results' tab: one row per edited image with slide content, matched When VO, =IMAGE previews for original/edited assets (notes with view URLs), and formatted <edits> XML from scene_edit_plan.",
-                "delete_func": delete_image_edit_results_sheet_data,
-                "delete_args": {
-                    "sheet": "sheet"
-                },
-            },
-        ]
-    },
+    # {
+    #     "section_name": "Section 13: Image Edit Results Sheet",
+    #     "steps": [
+    #         {
+    #             "name": "Populate Image Edit Results Sheet",
+    #             "func": run_populate_image_edit_results_sheet,
+    #             "depends_on": ["Apply edited asset URLs to slideshow manifest"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #             },
+    #             "estimated_time": "2-10 minutes",
+    #             "description": "Creates or refreshes the 'Image Edit results' tab: one row per edited image with slide content, matched When VO, =IMAGE previews for original/edited assets (notes with view URLs), and formatted <edits> XML from scene_edit_plan.",
+    #             "delete_func": delete_image_edit_results_sheet_data,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
     # {
     #     "section_name": "Section 7: Human Feedback Revisions",
     #     "steps": [
