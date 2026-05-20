@@ -118,6 +118,11 @@ pipeline_sections = [
             {
                 "name": "Generate Layout Plan for each Slide",
                 "func": run_layout_planning_agent_for_all_rows,
+                "pre_exec_func": ensure_visual_assignment_strategy_column,
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks"
+                },
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
@@ -139,11 +144,6 @@ pipeline_sections = [
             {
                 "name": "Segment Slide into Voiceover Segments",
                 "func": run_segment_slide_from_slide_chunk_for_all_rows,
-                "pre_exec_func": ensure_visual_assignment_strategy_column,
-                "pre_exec_args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks"
-                },
                 "depends_on": ["Generate Layout Plan for each Slide"],
                 "args": {
                     "sheet": "sheet",
