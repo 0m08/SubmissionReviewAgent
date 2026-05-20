@@ -118,6 +118,11 @@ pipeline_sections = [
             {
                 "name": "Generate Layout Plan for each Slide",
                 "func": run_layout_planning_agent_for_all_rows,
+                "pre_exec_func": ensure_visual_assignment_strategy_column,
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Slide Chunks"
+                },
                 "depends_on": [],
                 "args": {
                     "sheet": "sheet",
@@ -139,11 +144,6 @@ pipeline_sections = [
             {
                 "name": "Segment Slide into Voiceover Segments",
                 "func": run_segment_slide_from_slide_chunk_for_all_rows,
-                "pre_exec_func": ensure_visual_assignment_strategy_column,
-                "pre_exec_args": {
-                    "sheet": "sheet",
-                    "worksheet_name": "Slide Chunks"
-                },
                 "depends_on": ["Generate Layout Plan for each Slide"],
                 "args": {
                     "sheet": "sheet",
@@ -415,7 +415,7 @@ pipeline_sections = [
                     "max_workers": 30,
                 },
                 "estimated_time": "1-5 minutes",
-                "description": "Reads image_editing_tracking per row and replaces matching slot asset URLs in slideshow_manifest with the Edited Image Drive URLs (same-file matching as final_graphics_definition). Skips rows with no manifest, no tracking, or no Original/Edited pairs. Re-run Generate Slideshow Manifest to restore pre-edit URLs.",
+                "description": "Replace the Original Image URLs with the Edited Image URLs in the slideshow_manifest and final_graphics_definition columns",
                 "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
                 "delete_args": {
                     "sheet": "sheet"

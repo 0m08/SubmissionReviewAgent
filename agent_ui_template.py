@@ -1197,6 +1197,21 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
                             if llm_pricing is not None and _is_llm_step(step):
                                 _record_step_token_offset(step["name"])
 
+                            # Run pre-execution function if configured 
+                            if "pre_exec_func" in step:
+                                pre_exec_key = f"{step['name']}_pre_executed"
+                                always_run = step.get("pre_exec_always_run", False)
+                                if always_run or not st.session_state.get(pre_exec_key, False):
+                                    pre_kwargs = {}
+                                    if "pre_exec_args" in step:
+                                        for arg_name, session_key in step["pre_exec_args"].items():
+                                            if isinstance(session_key, str) and session_key in st.session_state:
+                                                pre_kwargs[arg_name] = st.session_state[session_key]
+                                            else:
+                                                pre_kwargs[arg_name] = session_key
+                                    step["pre_exec_func"](**pre_kwargs)
+                                    st.session_state[pre_exec_key] = True
+
                             # Gather actual arguments from session_state
                             kwargs = {}
                             for arg_name, session_key in step["args"].items():
@@ -1208,7 +1223,8 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
                                     kwargs[arg_name] = session_key
 
                             fn_params = inspect.signature(step["func"]).parameters
-                            if step_name == "Graphics Definition V2" and "selected_topics" in fn_params and "selected_topics" not in kwargs:
+                            agent_name = st.session_state.get("agent_name", "")
+                            if agent_name == "Graphics Definition V2" and "selected_topics" in fn_params and "selected_topics" not in kwargs:
                                 kwargs["selected_topics"] = st.session_state.get("selected_topics", [])
 
                             # Track step start
