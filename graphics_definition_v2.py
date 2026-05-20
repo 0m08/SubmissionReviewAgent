@@ -5,6 +5,10 @@ from agents.graphics_definition_v2.image_graphics_agent.segment_slide import (
     delete_segment_slide,
     ensure_visual_assignment_strategy_column,
 )
+from agents.graphics_definition_v2.planning_layout.layout_plan import (
+    run_layout_planning_agent_for_all_rows,
+    delete_layout_plan_columns,
+)
 from agents.graphics_definition_v2.image_graphics_agent.storyboard_agent import (
     run_storyboard_agent_for_all_rows,
     delete_storyboard_planning,
@@ -75,6 +79,24 @@ from agents.graphics_definition_v2.review_agent.decide_final_visuals import (
     run_decide_final_visuals_for_all_rows,
     delete_final_visual_decisions,
 )
+from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
+    run_slideshow_manifest_for_all_rows,
+    delete_slideshow_manifest_columns,
+    run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
+    delete_apply_edited_urls_to_slideshow_manifest,
+)
+from agents.graphics_definition_v2.image_editing_for_layout.image_edit_planning import (
+    run_scene_edit_planning_for_all_rows,
+    delete_scene_edit_plan_columns,
+)
+from agents.graphics_definition_v2.image_editing_for_layout.image_editing_based_on_edit_planning import (
+    run_image_editing_execution_for_all_rows,
+    delete_image_editing_execution_columns,
+)
+from agents.graphics_definition_v2.image_editing_for_layout.image_edit_results_sheet import (
+    run_populate_image_edit_results_sheet,
+    delete_image_edit_results_sheet_data,
+)
 from agents.graphics_definition_v2.download_assets.download_assets_for_sheet import (
     run_download_assets_for_sheet,
 )
@@ -91,7 +113,28 @@ TOP_INSTRUCTIONS = (
 
 pipeline_sections = [
     {
-        "section_name": "Section 1: Segment Slide into Voiceover Segments",
+        "section_name": "Section 1: Layout Planning",
+        "steps": [
+            {
+                "name": "Generate Layout Plan for each Slide",
+                "func": run_layout_planning_agent_for_all_rows,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "5-12 minutes",
+                "description": "This function identifies scene-wise layout strategy for each slide row and saves the output to layout_plan and layout_plan_evaluation columns.",
+                "delete_func": delete_layout_plan_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
+        ]
+    },
+    {
+        "section_name": "Section 2: Segment Slide into Voiceover Segments",
         "steps": [
             {
                 "name": "Segment Slide into Voiceover Segments",
@@ -101,7 +144,7 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "worksheet_name": "Slide Chunks"
                 },
-                "depends_on": [],
+                "depends_on": ["Generate Layout Plan for each Slide"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_2_5_flash_lite",
@@ -117,7 +160,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 2: Generate Storyboard Planning for each Slide",
+        "section_name": "Section 3: Generate Storyboard Planning for each Slide",
         "steps": [
             {
                 "name": "Generate Storyboard for each Slide",
@@ -138,7 +181,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 2: Generate Search Queries for Image and Video Retrieval",
+        "section_name": "Section 4: Generate Search Queries for Image and Video Retrieval",
         "steps": [
             {
                 "name": "Generate Search Queries for Image and Video Retrieval",
@@ -159,7 +202,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 3: Generate Image and Video Candidates",
+        "section_name": "Section 5: Generate Image and Video Candidates",
         "steps": [
             {
                 "name": "Generate Image and Video Candidates",
@@ -180,7 +223,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 4: Generate Image and Video Pools",
+        "section_name": "Section 6: Generate Image and Video Pools",
         "steps": [
             {
                 "name": "Generate Image and Video Pools",
@@ -203,7 +246,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 5: Aggregation Agent",
+        "section_name": "Section 7: Aggregation Agent",
         "steps": [
             {
                 "name": "Aggregation Agent",
@@ -224,7 +267,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 6: Review and Revise Graphics Definitions",
+        "section_name": "Section 8: Review and Revise Graphics Definitions",
         "steps": [
             {
                 "name": "Review and Revise Graphics Definitions",
@@ -246,7 +289,7 @@ pipeline_sections = [
         ]
     },
     {
-        "section_name": "Section 7: Review Finalized Visuals and do a Targeted Web Fallback and Selection.",
+        "section_name": "Section 9: Review Finalized Visuals and do a Targeted Web Fallback and Selection.",
         "steps": [
             {
                 "name": "Review all the Finalized Visuals to decide if Web Search is needed for some visuals",
@@ -298,6 +341,107 @@ pipeline_sections = [
             },
         ]
     },
+    {
+        "section_name": "Section 10: Slideshow Manifest",
+        "steps": [
+            {
+                "name": "Generate Slideshow Manifest",
+                "func": run_slideshow_manifest_for_all_rows,
+                "depends_on": ["Decide which visual to Use"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "5-20 minutes",
+                "description": "Builds a machine-readable slideshow_manifest (and evaluation) per slide from final_graphics_definition (When VO / Assigned Asset pairs), with multimodal asset parts for layout decisions. Runs after final visual decisions are merged into the sheet.",
+                "delete_func": delete_slideshow_manifest_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    {
+        "section_name": "Section 11: Scene Edit Planning",
+        "steps": [
+            {
+                "name": "Generate Scene Edit Plan",
+                "func": run_scene_edit_planning_for_all_rows,
+                "depends_on": ["Generate Slideshow Manifest"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "10-30 minutes",
+                "description": "Parses slideshow_manifest scene-by-scene and generates scene_edit_plan output by running the image edit planning agent once per scene with multimodal slot assets.",
+                "delete_func": delete_scene_edit_plan_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    {
+        "section_name": "Section 12: Scene Edit Execution",
+        "steps": [
+            {
+                "name": "Run Scene Edit Execution",
+                "func": run_image_editing_execution_for_all_rows,
+                "depends_on": ["Generate Scene Edit Plan"],
+                "args": {
+                    "sheet": "sheet",
+                    "max_workers": 50,
+                },
+                "estimated_time": "20-120 minutes",
+                "description": "Per instructional slot, runs an edit -> review -> regenerate loop.",
+                "delete_func": delete_image_editing_execution_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    {
+        "section_name": "Section 13: Apply edited images to slideshow manifest",
+        "steps": [
+            {
+                "name": "Apply edited asset URLs to slideshow manifest",
+                "func": run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
+                "depends_on": ["Run Scene Edit Execution"],
+                "args": {
+                    "sheet": "sheet",
+                    "max_workers": 30,
+                },
+                "estimated_time": "1-5 minutes",
+                "description": "Reads image_editing_tracking per row and replaces matching slot asset URLs in slideshow_manifest with the Edited Image Drive URLs (same-file matching as final_graphics_definition). Skips rows with no manifest, no tracking, or no Original/Edited pairs. Re-run Generate Slideshow Manifest to restore pre-edit URLs.",
+                "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
+    # {
+    #     "section_name": "Section 13: Image Edit Results Sheet",
+    #     "steps": [
+    #         {
+    #             "name": "Populate Image Edit Results Sheet",
+    #             "func": run_populate_image_edit_results_sheet,
+    #             "depends_on": ["Apply edited asset URLs to slideshow manifest"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #             },
+    #             "estimated_time": "2-10 minutes",
+    #             "description": "Creates or refreshes the 'Image Edit results' tab: one row per edited image with slide content, matched When VO, =IMAGE previews for original/edited assets (notes with view URLs), and formatted <edits> XML from scene_edit_plan.",
+    #             "delete_func": delete_image_edit_results_sheet_data,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
     # {
     #     "section_name": "Section 7: Human Feedback Revisions",
     #     "steps": [

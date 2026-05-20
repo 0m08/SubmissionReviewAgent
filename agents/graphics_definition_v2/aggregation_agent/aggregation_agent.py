@@ -60,6 +60,10 @@ Slide Content: {slide_chunk}
 {storyboard}
 </storyboard_reference>
 
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 <image_candidates>
 {image_candidates}
 </image_candidates>
@@ -123,6 +127,12 @@ Instructions:
    - Prioritize instructional clarity and accuracy over visual richness, variety or strict adherence to the storyboard.
    - When you find both a video clip and a still image that are equally clear, directly relevant, and instructionally effective for any part of the voiceover sentence, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration.
    - Always remember that the storyboard is a reference and not a strict template regarding the kind of visuals that should be used for the voiceover sentence. Try your best to follow the storyboard's visual ideas and sequencing, but do not be too rigid about it.
+
+8. Use of Layout Planning Context
+   - The layout planning context defines intended scene structure and layout strategy for the slide.
+   - Use it together with the storyboard to make selection decisions that remain structurally compatible with the planned layout.
+   - If multiple visuals are selected for this sentence, ensure their roles are coherent with the intended scene composition and do not conflict with the planned layout intent.
+   - Keep selection grounded in this voiceover sentence; do not introduce visuals only because they appear in other scenes.
 
 Strictly provide your output in the following format:
 
@@ -229,6 +239,10 @@ Slide Content: {slide_chunk}
 {storyboard}
 </storyboard_reference>
 
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 <image_candidates>
 {image_candidates}
 </image_candidates>
@@ -290,6 +304,11 @@ Instructions:
    - Prioritize instructional clarity and accuracy over visual richness or strict adherence to the storyboard.
    - When you find both a video clip and a still image that are equally clear, directly relevant, and instructionally effective for the voiceover sentence, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration.
    - Always remember that the storyboard is a reference and not a strict template regarding the kind of visual that should be used for the voiceover sentence. Try your best to follow the storyboard's visual idea, but do not be too rigid about it.
+
+8. Use of Layout Planning Context
+   - The layout planning context defines intended scene structure and layout strategy for the slide.
+   - Use it together with the storyboard while selecting the single best visual for this sentence.
+   - Ensure the chosen visual remains compatible with the intended scene composition and does not conflict with layout intent.
 
 Strictly provide your output in the following format:
 
@@ -380,6 +399,10 @@ Slide Content: {slide_chunk}
 {storyboard}
 </storyboard_reference>
 
+<layout_planning_context>
+{layout_plan}
+</layout_planning_context>
+
 <image_candidates>
 {image_candidates}
 </image_candidates>
@@ -440,6 +463,11 @@ Instructions:
    - Prioritize instructional clarity and accuracy over visual richness or strict adherence to the storyboard.
    - When you find both a video clip and a still image that are equally clear, directly relevant, and instructionally effective for the entire slide, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration.
    - Always remember that the storyboard is a reference and not a strict template regarding the kind of visual that should be used for the slide. Try your best to follow the storyboard's visual idea, but do not be too rigid about it.
+
+8. Use of Layout Planning Context
+   - The layout planning context defines intended scene structure and layout strategy for the slide.
+   - Use it together with the storyboard while selecting the single visual for the entire slide.
+   - Ensure the selected visual is compatible with the intended scene composition and overall layout intent.
 
 Strictly provide your output in the following format:
 
@@ -1194,6 +1222,7 @@ def load_image_from_url(url, drive, title=""):
     :param title: Image title (for logging)
     :return: PIL Image object or None if load fails
     """
+    
     if is_drive_url(url):
         return load_image_from_drive_url(url, drive, title)
     else:
@@ -2721,7 +2750,7 @@ def parse_segments_from_voiceover(voiceover_text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None, visual_assignment_strategy="Flexible, let the agent decide", slide_type=""):
+def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, layout_plan, drive, llm="gemini_3_flash_thinking", feedback=None, target_audience=None, failed_visuals=None, visual_assignment_strategy="Flexible, let the agent decide", slide_type=""):
     """
     Aggregate graphics definition for a single segment using images and videos.
     
@@ -2734,6 +2763,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
     :param storyboard: Storyboard content from storyboard_planning column
+    :param layout_plan: Layout planning context from layout_plan column
     :param drive: Google Drive instance
     :param llm: Language model to use
     :param feedback: Optional revision feedback to correct previous failures (if provided, uses regeneration prompt)
@@ -2785,6 +2815,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     
     # Use storyboard if provided, otherwise use empty string
     storyboard_text = storyboard if storyboard and storyboard.strip() and storyboard != "nan" else "No storyboard reference provided."
+    layout_plan_text = layout_plan if layout_plan and str(layout_plan).strip() and str(layout_plan).strip() != "nan" else "No layout planning context provided."
     
     # Select prompt based on whether feedback is provided (regeneration case) or visual_assignment_strategy
     if feedback and feedback.strip():
@@ -2859,6 +2890,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 slide_title=slide_title,
                 slide_chunk=slide_chunk,
                 storyboard=storyboard_text,
+                layout_plan=layout_plan_text,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
@@ -2877,6 +2909,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 slide_title=slide_title,
                 slide_chunk=slide_chunk,
                 storyboard=storyboard_text,
+                layout_plan=layout_plan_text,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
@@ -3056,7 +3089,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         return None, ""
 
 
-def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, drive, llm="gemini_3_flash_thinking", slide_type=""):
+def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, image_items, video_items_filtered, course_name, topic_name, subtopic_name, storyboard, layout_plan, drive, llm="gemini_3_flash_thinking", slide_type=""):
     """
     Aggregate graphics definition for the entire slide using images and videos.
     
@@ -3115,6 +3148,7 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     
     # Use storyboard if provided, otherwise use empty string
     storyboard_text = storyboard if storyboard and storyboard.strip() and storyboard != "nan" else "No storyboard reference provided."
+    layout_plan_text = layout_plan if layout_plan and str(layout_plan).strip() and str(layout_plan).strip() != "nan" else "No layout planning context provided."
     
     # Use entire slide prompt
     prompt_text = aggregation_agent_prompt_for_entire_slide.format(
@@ -3124,6 +3158,7 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
         slide_title=slide_title,
         slide_chunk=slide_chunk,
         storyboard=storyboard_text,
+        layout_plan=layout_plan_text,
         image_candidates=image_candidates_text,
         video_candidates=video_candidates_text
     )
@@ -3464,7 +3499,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type="", inline_ref_url=""):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, layout_plan_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type="", inline_ref_url=""):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -3548,6 +3583,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
         topic_name=topic_name,
         subtopic_name=subtopic_name,
         storyboard=storyboard_text,
+        layout_plan=layout_plan_text,
         drive=drive,
         llm=llm,
         feedback=feedback,
@@ -3672,6 +3708,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         drive_results_text = str(row.get("drive_results", "")).strip()
         web_results_text = str(row.get("web_results", "")).strip()
         storyboard_text = str(row.get("storyboard_planning", "")).strip()
+        layout_plan_text = str(row.get("layout_plan", "")).strip()
         
         # Get Visual Assignment Strategy
         visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
@@ -3774,24 +3811,24 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed with timestamps, {full_video_count} full videos)")
             
             if not image_items and not video_items_filtered:
-                print(f" ⚠️  No image or video candidates available for entire slide")
-                graphics_definition_xml = f"<segment><voiceover>{slide_chunk}</voiceover><asset><url>(No visual found via search)</url><type>image</type></asset><justification>Searching produced no relevant candidates.</justification></segment>"
-                evaluation_breakdown = "No candidates found for the entire slide."
-            else:
-                # Generate aggregated graphics definition for entire slide
-                graphics_definition_xml, evaluation_breakdown = aggregate_graphics_definition_for_entire_slide(
-                    slide_title=slide_title,
-                    slide_chunk=slide_chunk,
-                    image_items=image_items,
-                    video_items_filtered=video_items_filtered,
-                    course_name=course_name,
-                    topic_name=topic_name,
-                    subtopic_name=subtopic_name,
-                    storyboard=storyboard_text,
-                    drive=drive,
-                    llm=llm,
-                    slide_type=slide_type,
-                )
+                print(f" ⚠️  No image or video candidates available for entire slide, skipping")
+                return index, "", ""
+            
+            # Generate aggregated graphics definition for entire slide
+            graphics_definition_xml, evaluation_breakdown = aggregate_graphics_definition_for_entire_slide(
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                image_items=image_items,
+                video_items_filtered=video_items_filtered,
+                course_name=course_name,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                storyboard=storyboard_text,
+                layout_plan=layout_plan_text,
+                drive=drive,
+                llm=llm,
+                slide_type=slide_type,
+            )
             
             if graphics_definition_xml:
                 # Post-processing: single-timestamp YouTube URLs -> 1s embed clips in <asset>
@@ -3866,6 +3903,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                         drive_results_text,
                         web_results_text,
                         storyboard_text,
+                        layout_plan_text,
                         course_name,
                         topic_name,
                         subtopic_name,

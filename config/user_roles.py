@@ -75,25 +75,25 @@ role_page_access = {
         "graphics_definition_page", "graphics_definition_v2_page", "assessments_generation_page",
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page", "paraphraser_page", "image_translation_page",
-        "mcp_ui_page", "slideshow_streamlit_page", "image_editing_tool_page", "curriculum_mapping_tool_page", "video_embeddings_page", "aggregation_agent_page", "pptx_exporter_page"
+        "mcp_ui_page", "slideshow_streamlit_page", "slideshow_manifest_video_page", "image_editing_tool_page", "curriculum_mapping_tool_page", "video_embeddings_page", "aggregation_agent_page", "pptx_exporter_page"
     ],
     "Managers": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
         "graphics_definition_page", "graphics_definition_v2_page", "assessments_generation_page",
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page"
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Instructional Designer": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
         "graphics_definition_v2_page", "assessments_generation_page", "vectorstore_page", "get_images_page",
         "video_search_tool_page", "quality_compliance_scoring_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page"
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Visual Designer": [
         "template_sheet_setup_page", "workflow_directory_page", "graphics_definition_page", "graphics_definition_v2_page", "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page"
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Basic User": [
         "vectorstore_page", "video_search_tool_page",

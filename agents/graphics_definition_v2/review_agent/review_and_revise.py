@@ -5699,27 +5699,27 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
         final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
         segments_map = build_segment_visual_map(voiceover_text, final_graphics_definition, visual_assignment_strategy, slide_chunk)
 
-        # Segmentation quality review for flexible strategy only.
+        # Segmentation quality review temporarily disabled.
         segmentation_status = "SKIPPED"
-        segmentation_tracking = "Skipped (non-flexible strategy)"
-        if visual_assignment_strategy == "Flexible, let the agent decide":
-            print("\n[STEP 2] Reviewing SEGMENTATION QUALITY criterion...")
-            (
-                segmentation_status,
-                segmentation_tracking,
-                revision_tracking,
-            ) = run_segmentation_quality_loop_for_slide(
-                row_index=row_index,
-                row=row,
-                df=df,
-                course_name=course_name,
-                target_audience=target_audience,
-                drive=drive,
-                llm=llm,
-                revision_tracking=revision_tracking,
-                ws=ws,
-                use_only_drive_and_hvac=use_only_drive_and_hvac,
-            )
+        segmentation_tracking = "Skipped (temporarily disabled)"
+        # if visual_assignment_strategy == "Flexible, let the agent decide":
+        #     print("\n[STEP 2] Reviewing SEGMENTATION QUALITY criterion...")
+        #     (
+        #         segmentation_status,
+        #         segmentation_tracking,
+        #         revision_tracking,
+        #     ) = run_segmentation_quality_loop_for_slide(
+        #         row_index=row_index,
+        #         row=row,
+        #         df=df,
+        #         course_name=course_name,
+        #         target_audience=target_audience,
+        #         drive=drive,
+        #         llm=llm,
+        #         revision_tracking=revision_tracking,
+        #         ws=ws,
+        #         use_only_drive_and_hvac=use_only_drive_and_hvac,
+        #     )
         # Specificity review loop intentionally disabled.
         # Rationale: alignment prompt now includes a light specificity/clarity check to avoid
         # a second revision pass that can overwrite good alignment replacements.
