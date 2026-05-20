@@ -415,7 +415,7 @@ pipeline_sections = [
                     "max_workers": 30,
                 },
                 "estimated_time": "1-5 minutes",
-                "description": "Reads image_editing_tracking per row and replaces matching slot asset URLs in slideshow_manifest with the Edited Image Drive URLs (same-file matching as final_graphics_definition). Skips rows with no manifest, no tracking, or no Original/Edited pairs. Re-run Generate Slideshow Manifest to restore pre-edit URLs.",
+                "description": "Replace the Original Image URLs with the Edited Image URLs in the slideshow_manifest and final_graphics_definition columns",
                 "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
                 "delete_args": {
                     "sheet": "sheet"

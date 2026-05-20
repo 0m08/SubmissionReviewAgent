@@ -699,6 +699,61 @@ def parse_image_editing_tracking_edited_pairs(tracking_text):
     return out
 
 
+def edited_url_pairs_from_image_editing_tracking(tracking_text):
+    """
+    Build (original_url, edited_url) pairs from image_editing_tracking cell text.
+
+    :param tracking_text: image_editing_tracking column value.
+    :return: List of (original_url, edited_url) tuples in document order.
+    """
+    return [
+        (rec["original_url"], rec["edited_url"])
+        for rec in parse_image_editing_tracking_edited_pairs(tracking_text)
+    ]
+
+
+_FGD_URL_IN_TEXT_RE = re.compile(r'https?://[^\s<>"\')\]]+', re.IGNORECASE)
+
+
+def apply_url_replacements_to_final_graphics_definition(fgd_text, url_pairs):
+    """
+    Replace asset URLs in final_graphics_definition using (old_url, new_url) pairs.
+
+    Scans http(s) URLs in the cell and swaps those that match each old_url via
+    urls_match_for_graphics_assignment (Drive id or exact URL). Replacements run
+    from end to start so earlier match indices stay valid.
+
+    :param fgd_text: final_graphics_definition cell value.
+    :param url_pairs: Iterable of (original_url, edited_url) from image edit tracking.
+    :return: Tuple (updated_text, changed) where changed is True if at least one URL swapped.
+    """
+    text = str(fgd_text or "").strip()
+    if not text or text in ("nan",) or text.startswith("ERROR:"):
+        return text, False
+
+    pairs_list = [(o, n) for o, n in (url_pairs or []) if o and n and o != n]
+    if not pairs_list:
+        return text, False
+
+    matches = list(_FGD_URL_IN_TEXT_RE.finditer(text))
+    if not matches:
+        return text, False
+
+    result = text
+    changed = False
+    for match in reversed(matches):
+        found = match.group(0)
+        start, end = match.start(), match.end()
+        for old_url, new_url in pairs_list:
+            if urls_match_for_graphics_assignment(old_url, found):
+                if found != new_url:
+                    result = result[:start] + new_url + result[end:]
+                    changed = True
+                break
+
+    return result, changed
+
+
 def apply_edited_asset_urls_to_slideshow_manifest_inner_xml(inner_xml, tracking_text):
     """
     Replace slot asset URLs in slideshow manifest inner XML with edited URLs from tracking.
@@ -838,29 +893,46 @@ def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs)
 )
 def process_apply_edited_urls_to_slideshow_manifest_row(index, row):
     """
-    For one Slide Chunks row, swap manifest slot asset URLs to edited URLs where tracking provides pairs.
+    For one Slide Chunks row, swap edited image URLs into slideshow_manifest and final_graphics_definition.
 
     :param index: DataFrame row index.
     :param row: DataFrame row.
-    :return: Tuple(index, new_manifest_or_None). None means leave cell unchanged.
+    :return: Tuple (index, new_manifest_or_None, new_fgd_or_None). None per column means leave unchanged.
     """
     try:
-        manifest = str(row.get("slideshow_manifest", "")).strip()
         tracking = str(row.get("image_editing_tracking", "")).strip()
-        if not manifest or manifest in ("nan",) or manifest.startswith("ERROR:"):
-            return index, None
         if not tracking or tracking in ("nan",) or tracking.startswith("ERROR:"):
-            return index, None
-        if not parse_image_editing_tracking_edited_pairs(tracking):
-            return index, None
-        updated = apply_edited_asset_urls_to_slideshow_manifest_inner_xml(manifest, tracking)
-        if updated == manifest:
-            return index, None
-        return index, updated
+            return index, None, None
+
+        url_pairs = edited_url_pairs_from_image_editing_tracking(tracking)
+        if not url_pairs:
+            return index, None, None
+
+        new_manifest = None
+        manifest = str(row.get("slideshow_manifest", "")).strip()
+        if manifest and manifest not in ("nan",) and not manifest.startswith("ERROR:"):
+            updated_manifest = apply_edited_asset_urls_to_slideshow_manifest_inner_xml(
+                manifest, tracking,
+            )
+            if updated_manifest != manifest:
+                new_manifest = updated_manifest
+
+        new_fgd = None
+        fgd = str(row.get("final_graphics_definition", "")).strip()
+        if fgd and fgd not in ("nan",) and not fgd.startswith("ERROR:"):
+            updated_fgd, fgd_changed = apply_url_replacements_to_final_graphics_definition(
+                fgd, url_pairs,
+            )
+            if fgd_changed and updated_fgd != fgd:
+                new_fgd = updated_fgd
+
+        if new_manifest is None and new_fgd is None:
+            return index, None, None
+        return index, new_manifest, new_fgd
     except Exception as e:
-        print(f"Error apply edited URLs to manifest row {index}: {e}")
+        print(f"Error apply edited URLs row {index}: {e}")
         traceback.print_exc()
-        return index, None
+        return index, None, None
 
 
 @traceable(
@@ -874,10 +946,10 @@ def process_apply_edited_urls_to_slideshow_manifest_row(index, row):
 )
 def run_apply_edited_urls_to_slideshow_manifest_for_all_rows(sheet, max_workers=30):
     """
-    Update slideshow_manifest on Slide Chunks so slot asset URLs point at edited images when tracking has pairs.
+    Update slideshow_manifest and final_graphics_definition with edited image URLs from tracking.
 
-    Processes every row that has both a non-empty slideshow_manifest and at least one
-    Original/Edited pair in image_editing_tracking. Rows with no edits are skipped.
+    Processes rows that have at least one Original/Edited pair in image_editing_tracking and
+    a non-empty slideshow_manifest and/or final_graphics_definition to patch.
 
     :param sheet: gspread sheet object.
     :param max_workers: Parallel row workers.
@@ -888,28 +960,36 @@ def run_apply_edited_urls_to_slideshow_manifest_for_all_rows(sheet, max_workers=
 
     if "slideshow_manifest" not in df.columns:
         df["slideshow_manifest"] = ""
+    if "final_graphics_definition" not in df.columns:
+        df["final_graphics_definition"] = ""
     if "image_editing_tracking" not in df.columns:
-        print("Apply edited URLs to manifest: no image_editing_tracking column; nothing to do.")
+        print("Apply edited URLs: no image_editing_tracking column; nothing to do.")
         return
 
     rows_to_process = []
     for index, row in df.iterrows():
-        manifest = str(row.get("slideshow_manifest", "")).strip()
         tracking = str(row.get("image_editing_tracking", "")).strip()
-        if not manifest or manifest in ("nan",) or manifest.startswith("ERROR:"):
-            continue
         if not tracking or tracking in ("nan",) or tracking.startswith("ERROR:"):
             continue
-        if not parse_image_editing_tracking_edited_pairs(tracking):
+        if not edited_url_pairs_from_image_editing_tracking(tracking):
+            continue
+        manifest = str(row.get("slideshow_manifest", "")).strip()
+        fgd = str(row.get("final_graphics_definition", "")).strip()
+        has_manifest = manifest and manifest not in ("nan",) and not manifest.startswith("ERROR:")
+        has_fgd = fgd and fgd not in ("nan",) and not fgd.startswith("ERROR:")
+        if not has_manifest and not has_fgd:
             continue
         rows_to_process.append((index, row))
 
     if not rows_to_process:
-        print("Apply edited URLs to manifest: no rows with manifest + edited tracking pairs.")
+        print(
+            "Apply edited URLs: no rows with edited tracking pairs and "
+            "slideshow_manifest or final_graphics_definition."
+        )
         return
 
     print(
-        f"Apply edited URLs to manifest: processing {len(rows_to_process)} row(s), "
+        f"Apply edited URLs (manifest + FGD): processing {len(rows_to_process)} row(s), "
         f"max_workers={max_workers}"
     )
 
@@ -925,39 +1005,47 @@ def run_apply_edited_urls_to_slideshow_manifest_for_all_rows(sheet, max_workers=
 
         progress = SmartProgressBar(
             total_tasks=len(futures_map),
-            description="Apply edited URLs to manifest",
+            description="Apply edited URLs (manifest + FGD)",
             save_interval=5,
         )
 
+        manifest_updates = 0
+        fgd_updates = 0
         for future in as_completed(futures_map):
             index = futures_map[future]
             try:
-                row_index, new_manifest = future.result()
+                row_index, new_manifest, new_fgd = future.result()
                 if new_manifest is not None:
                     df.at[row_index, "slideshow_manifest"] = new_manifest
+                    manifest_updates += 1
+                if new_fgd is not None:
+                    df.at[row_index, "final_graphics_definition"] = new_fgd
+                    fgd_updates += 1
                 progress.update()
                 if progress.should_save():
                     save_to_sheet(ws, df)
             except Exception as e:
-                print(f"Apply edited URLs to manifest future error row {index}: {e}")
+                print(f"Apply edited URLs future error row {index}: {e}")
                 progress.update()
 
     save_to_sheet(ws, df)
     format_worksheet(ws)
-    print("Apply edited URLs to manifest: complete.")
+    print(
+        f"Apply edited URLs: complete. "
+        f"slideshow_manifest={manifest_updates}, final_graphics_definition={fgd_updates} row(s) updated."
+    )
 
 
 def delete_apply_edited_urls_to_slideshow_manifest(sheet):
     """
-    No-op: edited URLs are merged into slideshow_manifest; originals are not stored separately.
+    No-op: edited URLs are merged into slideshow_manifest and final_graphics_definition.
 
-    Re-run the Slideshow Manifest generation step from final_graphics_definition if you need
-    URLs reset to the pre-edit assets.
+    Re-run 'Generate Slideshow Manifest' from pre-edit FGD (or restore from backup) to reset URLs.
 
     :param sheet: gspread sheet object (unused).
     :return: None
     """
     print(
-        "Apply edited URLs to manifest: delete skipped — re-run 'Generate Slideshow Manifest' "
-        "to rebuild manifest from final_graphics_definition if you need original asset URLs."
+        "Apply edited URLs: delete skipped — re-run 'Generate Slideshow Manifest' or restore "
+        "final_graphics_definition from backup to reset pre-edit asset URLs."
     )
