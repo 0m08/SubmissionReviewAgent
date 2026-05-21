@@ -2257,11 +2257,74 @@ def _build_comparison_payload_for_visual(
     }
 
 
-def _render_single_asset_visual(asset, embed_key, drive, show_open_link=True):
-    """Render one visual (image or video) and a direct open link."""
+def classify_visual_source(url, slide):
+    """
+    Classify the source of a visual URL into one of 5 categories based on
+    which column the URL appears in and its URL type.
+
+    Categories (checked in priority order):
+    - "Reference Pool Image"  : Drive URL found in reference_image_map
+    - "SkillCat Drive Image"  : Drive URL found in drive_results
+    - "HVAC School YT Video"  : YouTube URL found in video_pool_filtered
+    - "General YT Video"      : YouTube URL found in video_pool_other_channels
+    - "Web Image"             : Any other non-Drive, non-YouTube URL
+    - None                   : URL empty or cannot be classified
+    """
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+
+    url_is_drive = is_drive_url(url)
+    url_is_yt = is_youtube_embed(url)
+
+    # Helper: check if url appears anywhere in a column text string
+    def _url_in_col(col_name):
+        col_text = safe_str(slide.get(col_name, "")).strip()
+        if not col_text or col_text.lower() == "nan":
+            return False
+        # Compare against stable URL core (strip query string for robustness)
+        url_core = url.split("?")[0].rstrip("/")
+        return url_core in col_text
+
+    if url_is_drive:
+        # Reference Pool Image takes priority over plain Drive image
+        if _url_in_col("reference_image_map"):
+            return "Reference Pool Image"
+        if _url_in_col("drive_results"):
+            return "SkillCat Drive Image"
+        # Drive URL not found in either column — still label as Drive Image
+        return "SkillCat Drive Image"
+
+    if url_is_yt:
+        # HVAC School (video_pool_filtered) takes priority
+        if _url_in_col("video_pool_filtered"):
+            return "HVAC School YT Video"
+        if _url_in_col("video_pool_other_channels"):
+            return "General YT Video"
+        # YouTube URL not in either video pool column
+        return "HVAC School YT Video"
+
+    # Not Drive, not YouTube → Web Image
+    return "Web Image"
+
+
+def _render_single_asset_visual(asset, embed_key, drive, show_open_link=True, source_label=None):
+    """Render one visual (image or video) and a direct open link.
+
+    :param source_label: Optional string like "SkillCat Drive Image" shown in
+        italic faded grey brackets next to the open link.
+    """
     asset = safe_str(asset).strip()
     asset_type = detect_asset_type(asset)
     display_url = normalize_drive_image_url(asset) if asset_type == "image" and is_drive_url(asset) else asset
+
+    # Build the source badge HTML (shown inline after the open link)
+    source_badge_html = (
+        f' <span style="color:#666; font-style:italic; font-size:0.9em;">(Source: {source_label})</span>'
+        if source_label else ""
+    )
 
     if asset_type == "image":
         image_bytes = _get_inspector_image_bytes(asset, drive)
@@ -2277,7 +2340,10 @@ def _render_single_asset_visual(asset, embed_key, drive, show_open_link=True):
         else:
             st.warning("Image URL missing.")
         if display_url and show_open_link:
-            st.markdown(f"[Open image]({display_url})")
+            st.markdown(
+                f'<a href="{display_url}" target="_blank">Open image</a>{source_badge_html}',
+                unsafe_allow_html=True,
+            )
         return
 
     if asset_type == "video":
@@ -2286,7 +2352,11 @@ def _render_single_asset_visual(asset, embed_key, drive, show_open_link=True):
             if html:
                 st.components.v1.html(html, height=360)
             if show_open_link:
-                st.markdown(f"[Open video]({to_youtube_watch_url(asset)})")
+                watch_url = to_youtube_watch_url(asset)
+                st.markdown(
+                    f'<a href="{watch_url}" target="_blank">Open video</a>{source_badge_html}',
+                    unsafe_allow_html=True,
+                )
         else:
             st.warning("Video URL missing.")
         return
@@ -2294,8 +2364,12 @@ def _render_single_asset_visual(asset, embed_key, drive, show_open_link=True):
     st.warning("Asset URL missing or unsupported.")
 
 
-def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, drive, comparison=None):
-    """Image/video only — no widgets. Safe to run inside st.fragment."""
+def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, drive, comparison=None, source_label=None):
+    """Image/video only — no widgets. Safe to run inside st.fragment.
+
+    :param source_label: Passed through to _render_single_asset_visual for the
+        main (non-comparison) view only.
+    """
     if comparison and comparison.get("previous_asset"):
         left_col, right_col = st.columns(2, gap="large")
         with left_col:
@@ -2322,7 +2396,7 @@ def _render_inspector_step_visual(asset, asset_type, display_url, embed_key, dri
                 )
         return
 
-    _render_single_asset_visual(asset, embed_key, drive)
+    _render_single_asset_visual(asset, embed_key, drive, source_label=source_label)
 
 
 @st.cache_resource
@@ -2792,8 +2866,10 @@ def _render_single_segment_block(
         current_choice = st.session_state.get(choice_key, "option1") if has_reference_candidate else "option1"
 
         # 1. Visual Assigned (Now that we have a choice or only one option)
+        visual_source_label = classify_visual_source(cur_asset, slide)
         _render_inspector_step_visual(
-            cur_asset, cur_type, cur_display, this_embed_key, drive, comparison=comparison_payload
+            cur_asset, cur_type, cur_display, this_embed_key, drive,
+            comparison=comparison_payload, source_label=visual_source_label
         )
         
         # 2. Toggles for candidate images and videos (Standard path only for candidate pool)

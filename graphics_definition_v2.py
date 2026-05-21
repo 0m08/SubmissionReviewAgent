@@ -61,6 +61,10 @@ from agents.graphics_definition_v2.image_graphics_agent.generate_candidates impo
     run_generate_image_and_video_candidates,
     delete_all_candidate_results,
 )
+from agents.graphics_definition_v2.image_graphics_agent.reference_pool_agent import (
+    run_reference_image_pool_mapping,
+    delete_reference_image_pool_mappings,
+)
 # from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
 #     run_human_feedback_review_revise_for_all_rows,
 #     delete_human_feedback_based_review_and_revise,
@@ -199,6 +203,23 @@ pipeline_sections = [
                     "sheet": "sheet"
                 }
             },
+            {
+                "name": "Map Reference Image Pool",
+                "func": run_reference_image_pool_mapping,
+                "depends_on": ["Generate Search Queries for Image and Video Retrieval"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash",
+                    "max_workers": 50,
+                },
+                "is_llm_step": True,
+                "estimated_time": "5-10 minutes",
+                "description": "This sub-agent finds the best matching images from the reference image pool for each segment and stores them in reference_image_map.",
+                "delete_func": delete_reference_image_pool_mappings,
+                "delete_args": {
+                    "sheet": "sheet"
+                }
+            },
         ]
     },
     {
@@ -207,7 +228,7 @@ pipeline_sections = [
             {
                 "name": "Generate Image and Video Candidates",
                 "func": run_generate_image_and_video_candidates,
-                "depends_on": ["Generate Search Queries for Image and Video Retrieval"],
+                "depends_on": ["Map Reference Image Pool"],
                 "args": {
                     "sheet": "sheet",
                     "max_workers": 50,
