@@ -54,11 +54,26 @@ EDITED_IMAGE_DRIVE_FOLDER_ID = "1_cYkmnvDAUPardU1FyRHEU7Puwht6qZS"
 SCENE_IMAGE_EDIT_MODEL = "gemini-3-pro-image-preview"
 
 
-SCENE_IMAGE_EDIT_REVIEW_MODEL = "gemini-3-pro-preview"
+SCENE_IMAGE_EDIT_REVIEW_MODEL = "gemini_3_flash_thinking"
 
 MAX_EDIT_REVIEW_LOOPS = 3
 
 _NON_INSTRUCTIONAL_EDIT_TYPES = frozenset({"NO_EDIT", "SKIPPED_VIDEO"})
+
+
+def _resolve_scene_image_edit_review_model(model_id):
+    """
+    Resolve scene edit review alias to a concrete model id.
+
+    :param model_id: Configured review model id or alias string.
+    :return: Concrete model id string accepted by generate_content.
+    """
+    m = (model_id or "").strip()
+    mapping = {
+        "gemini_3_flash_thinking": "gemini-3-flash-preview",
+        "gemini_3_flash": "gemini-3-flash-preview",
+    }
+    return mapping.get(m, m)
 
 image_edit_execution_prompt = """You are a senior instructional image editing agent specializing in HVAC e-learning content. Your task is to apply the requested instructional edits to a single selected image asset based strictly on the provided edit plan.
 
@@ -1078,6 +1093,12 @@ def _gemini_review_call_with_contents(client, model, contents):
     response = None
     used_config = None
     for idx, cfg in enumerate(configs_to_try):
+        current_thinking_label = _gemini_thinking_label_for_config(cfg)
+        print(
+            "Image edit review: Gemini request config "
+            f"(attempt {idx + 1}/{len(configs_to_try)}) | "
+            f"model={model!r} | {current_thinking_label}"
+        )
         try:
             with tracker.call(model, "Scene Image Edit Review (Gemini)") as usage:
                 response = call_llm_with_retry(
@@ -1088,6 +1109,10 @@ def _gemini_review_call_with_contents(client, model, contents):
                 )
                 usage.set_response(response)
             used_config = cfg
+            print(
+                "Image edit review: Gemini request succeeded | "
+                f"model={model!r} | {_gemini_thinking_label_for_config(used_config)}"
+            )
             break
         except Exception as e:
             if (
@@ -1481,13 +1506,13 @@ def _run_edit_review_loop_for_slot(scene_id, image_index, asset_url, reference_i
     """
     loops = []
 
-    print("=" * 80)
-    print("Image edit execution — image_edit_execution_prompt (formatted)")
-    print(f"Scene ID {scene_id} | Image {image_index} | Initial editor turn (loop 1)")
-    print("=" * 80)
-    print(full_edit_prompt)
-    print("=" * 80)
-    print()
+    # print("=" * 80)
+    # print("Image edit execution — image_edit_execution_prompt (formatted)")
+    # print(f"Scene ID {scene_id} | Image {image_index} | Initial editor turn (loop 1)")
+    # print("=" * 80)
+    # print(full_edit_prompt)
+    # print("=" * 80)
+    # print()
 
     rec = {
         "loop_num": 1,
@@ -1535,13 +1560,13 @@ def _run_edit_review_loop_for_slot(scene_id, image_index, asset_url, reference_i
         **review_prompt_kwargs,
         edited_asset_url=edited_url,
     )
-    print("=" * 80)
-    print("Image edit execution — image_edit_review_prompt (formatted)")
-    print(f"Scene ID {scene_id} | Image {image_index} | Initial reviewer turn (loop 1)")
-    print("=" * 80)
-    print(full_review_prompt)
-    print("=" * 80)
-    print()
+    # print("=" * 80)
+    # print("Image edit execution — image_edit_review_prompt (formatted)")
+    # print(f"Scene ID {scene_id} | Image {image_index} | Initial reviewer turn (loop 1)")
+    # print("=" * 80)
+    # print(full_review_prompt)
+    # print("=" * 80)
+    # print()
     try:
         verdict, failures, raw, review_history = _review_chat_first_turn(
             reference_image,
@@ -1604,16 +1629,16 @@ def _run_edit_review_loop_for_slot(scene_id, image_index, asset_url, reference_i
                 last.get("raw_review") or "",
             )
         )
-        print("=" * 80)
-        print("Image edit execution — edit_revision_followup_template (formatted)")
-        print(
-            f"Scene ID {scene_id} | Image {image_index} | "
-            f"Editor follow-up before loop {loop_num} edit (after loop {last['loop_num']} FAIL)"
-        )
-        print("=" * 80)
-        print(follow_up_edit_text)
-        print("=" * 80)
-        print()
+        # print("=" * 80)
+        # print("Image edit execution — edit_revision_followup_template (formatted)")
+        # print(
+        #     f"Scene ID {scene_id} | Image {image_index} | "
+        #     f"Editor follow-up before loop {loop_num} edit (after loop {last['loop_num']} FAIL)"
+        # )
+        # print("=" * 80)
+        # print(follow_up_edit_text)
+        # print("=" * 80)
+        # print()
         try:
             edited_pil, edit_state = _edit_chat_followup_turn(
                 reference_image,
@@ -1655,16 +1680,16 @@ def _run_edit_review_loop_for_slot(scene_id, image_index, asset_url, reference_i
         print("=" * 80)
         print()
 
-        print("=" * 80)
-        print("Image edit execution — review_revision_followup_template")
-        print(
-            f"Scene ID {scene_id} | Image {image_index} | "
-            f"Reviewer follow-up re-review after loop {loop_num} edit"
-        )
-        print("=" * 80)
-        print(review_revision_followup_template)
-        print("=" * 80)
-        print()
+        # print("=" * 80)
+        # print("Image edit execution — review_revision_followup_template")
+        # print(
+        #     f"Scene ID {scene_id} | Image {image_index} | "
+        #     f"Reviewer follow-up re-review after loop {loop_num} edit"
+        # )
+        # print("=" * 80)
+        # print(review_revision_followup_template)
+        # print("=" * 80)
+        # print()
         try:
             verdict, failures, raw, review_history = _review_chat_followup_turn(
                 edited_pil,
@@ -1759,7 +1784,9 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
             return index, err, err
 
         edit_model = SCENE_IMAGE_EDIT_MODEL.strip()
-        review_model = SCENE_IMAGE_EDIT_REVIEW_MODEL.strip()
+        review_model = _resolve_scene_image_edit_review_model(
+            SCENE_IMAGE_EDIT_REVIEW_MODEL
+        )
 
         tracking_sections = []
         review_sections = []
@@ -1893,8 +1920,8 @@ def run_image_editing_execution_for_all_rows(sheet, max_workers=50):
         else ""
     )
     target_audience = (
-        str(course_info_df.loc[0, "Target Audience"]).strip()
-        if not course_info_df.empty and "Target Audience" in course_info_df.columns
+        str(course_info_df.loc[0, "Target Audience & Industry"]).strip()
+        if not course_info_df.empty
         else ""
     )
 
@@ -1906,7 +1933,9 @@ def run_image_editing_execution_for_all_rows(sheet, max_workers=50):
 
     model_id = SCENE_IMAGE_EDIT_MODEL.strip()
     provider = _scene_image_edit_provider(model_id)
-    review_model_id = SCENE_IMAGE_EDIT_REVIEW_MODEL.strip()
+    review_model_id = _resolve_scene_image_edit_review_model(
+        SCENE_IMAGE_EDIT_REVIEW_MODEL
+    )
     print(
         f"Image edit execution: edit model={model_id!r} (backend={provider}), "
         f"review model={review_model_id!r}, "
