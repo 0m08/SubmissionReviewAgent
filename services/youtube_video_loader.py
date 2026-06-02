@@ -938,7 +938,7 @@ def get_additional_metadata(video_id):
     "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(n = 3, wait = 1, backoff = "linear")
-def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestamped_transcript = None, llm = 'gemini_2_flash'):
+def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestamped_transcript = None, llm = 'gemini_3_flash'):
     """
     Get chapters for a YouTube video based on its title and transcript.
     Args:

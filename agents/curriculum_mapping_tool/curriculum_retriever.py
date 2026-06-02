@@ -182,7 +182,7 @@ def _get_default_llm_name() -> str:
     try:
         return st.session_state.get("llm_model", "gemini_2_5_flash") or "gemini_2_5_flash"
     except Exception:
-        return "gemini_2_flash"
+        return "gemini_3_flash"
 
 
 def load_chroma_db(cfg: Dict[str, str], embedding_function, drive) -> Chroma:

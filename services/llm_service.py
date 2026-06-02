@@ -136,7 +136,7 @@ def log_token_usage(llm, input_tokens, output_tokens, log_file="token_usage_log.
 
 @traceable
 @try_n_times(n=5, wait=2, backoff="exponential")
-def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
+def google_search_with_grounding(prompt, model="gemini-3-flash-preview"):
     """
     Makes an API call to Gemini with search grounding, then attempts to resolve each returned URL in parallel.
     :param prompt: str
@@ -231,7 +231,7 @@ def google_search_with_grounding(prompt, model="gemini-2.0-flash"):
 
 
 # Function to generate structured output using direct provider APIs
-def generate_structured_output(prompt, structured_output, model="gemini-2.0-flash", temperature=0.7, max_tokens=8192, thinking_level=None):
+def generate_structured_output(prompt, structured_output, model="gemini-3-flash-preview", temperature=0.7, max_tokens=8192, thinking_level=None):
     """
     Generate structured output using Gemini API directly.
 
@@ -377,7 +377,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                     "gemini_3_pro": "gemini-3-pro-preview",
                     "gemini_3_flash": "gemini-3-flash-preview",
                     "gemini_3_flash_thinking": "gemini-3-flash-preview",
-                    None: "gemini-2.0-flash"  # Default if no name provided
+                    None: "gemini-3-flash-preview"  # Default if no name provided
                 }
                 
                 # Map thinking levels for Gemini 3 models
@@ -386,7 +386,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                     "gemini_3_flash": None,  # Default thinking level
                 }
                 
-                model = model_mapping.get(llm_name, "gemini-2.0-flash")
+                model = model_mapping.get(llm_name, "gemini-3-flash-preview")
                 thinking_level = thinking_level_mapping.get(llm_name)
                 
                 return generate_structured_output(
@@ -410,7 +410,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
     
     # Use LangChain for non-Gemini models or when structured output is not needed
     llm = ChatGoogleGenerativeAI(
-        model = "gemini-2.0-flash",
+        model = "gemini-3-flash-preview",
         temperature = 0.7,
         max_tokens = 8192
         ).configurable_alternatives(

@@ -96,7 +96,7 @@ def agent_node(state: SearchState) -> SearchState:
             query=query,
             query_image=query_image,
             drive=state["drive"],
-            llm=state.get("llm", "gemini_2_flash"),
+            llm=state.get("llm", "gemini_3_flash"),
             k=state.get("k", 5),
             filters=state.get("filters"),
             max_turns=1,
@@ -147,7 +147,7 @@ def agent_node(state: SearchState) -> SearchState:
     # Evaluate results with LLM
     print("[AGENT] Evaluating results with LLM...")
     chain = Chain(
-        llm=state.get("llm", "gemini_2_flash"),
+        llm=state.get("llm", "gemini_3_flash"),
         tags=["observations", "verdict", "selected_indexes", "action", "query"],
         use_xml_checker=True
     )
@@ -244,7 +244,7 @@ def run_graphics_search_graph(
     query_image: Any,
     k: int = 5,
     *,
-    llm: str = "gemini_2_flash",
+    llm: str = "gemini_3_flash",
     max_turns: int = 3,
     filters: Dict[str, Any] | None = None,
     definition: str | None = None,

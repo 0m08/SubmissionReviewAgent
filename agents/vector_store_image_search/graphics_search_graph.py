@@ -54,7 +54,7 @@ def retriever_node(state: SearchState) -> SearchState:
 def agent_node(state: SearchState) -> SearchState:
     query = state["query"]
     results = state.get("results", [])
-    llm = state.get("llm", "gemini_2_flash")
+    llm = state.get("llm", "gemini_3_flash")
 
     chain = Chain(
         llm=llm,
@@ -152,7 +152,7 @@ def run_graphics_search_graph(
     drive: Any,
     k: int = 5,
     *,
-    llm: str = "gemini_2_flash",
+    llm: str = "gemini_3_flash",
     max_turns: int = 3,
     filters: Dict[str, Any] | None = None,
     root_folder_id: str | None = None,
