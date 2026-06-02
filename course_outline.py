@@ -1055,6 +1055,7 @@ pipeline_sections.append({
             "depends_on": ["Checklist Based Review and Revise Agents"] if not outline_finalized else ["Create the Final Outline Sheet"],
             "args": {
                 "sheet": "sheet",
+                "llm": llm_model,
             },
             "estimated_time": "~ 2-5 minutes",
             "description": "Loads all reference documents into the vectorstore for faster retrieval.",
