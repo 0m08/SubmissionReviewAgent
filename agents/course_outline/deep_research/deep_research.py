@@ -38,7 +38,7 @@ def deep_research_subtopic(course_name, target_audience, subtopic, llm="gemini_w
                 target_audience = target_audience,
                 subtopic = subtopic
             ),
-            # model = "gemini-2.0-flash"
+            model = "gemini-3-flash-preview",
         )
     else:
         research_agent = Chain(llm=llm, use_output_parser=False)
