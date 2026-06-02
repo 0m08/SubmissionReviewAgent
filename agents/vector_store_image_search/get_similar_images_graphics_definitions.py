@@ -308,7 +308,7 @@ def generate_clean_query_from_scene(
     gtype: str,
     purpose: str,
     visuals: str,
-    llm: str = "gemini_2_flash"
+    llm: str = "gemini_3_flash"
 ) -> Optional[str]:
 
     """
@@ -487,7 +487,7 @@ def load_queries_from_sheet(sheet, sheet_name, queries_column="generated_graphic
 
 
 
-# def search_images_for_query_list(queries: List[str], query_image: Any, llm: str = "gemini_2_flash") -> List[str]:
+# def search_images_for_query_list(queries: List[str], query_image: Any, llm: str = "gemini_3_flash") -> List[str]:
 #     """
 #     Search for images based on a list of queries sequentially.
     
@@ -523,7 +523,7 @@ def search_images_for_query_list(
     queries: List[str],
     query_image: Any,
     definition: str | None = None,
-    llm: str = "gemini_2_flash",
+    llm: str = "gemini_3_flash",
 ) -> List[str]:
     """
     Search for images based on a list of queries, injecting contextual graphics definitions
@@ -563,7 +563,7 @@ def search_images_for_query_list(
     return image_links
 
 
-def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_2_flash", k=4):
+def run_search_images_for_query_list(sheet, sheet_name, llm="gemini_3_flash", k=4):
     """
     Run image search for each newline-separated query in a sheet row.
     Each individual query is processed and saved immediately.
