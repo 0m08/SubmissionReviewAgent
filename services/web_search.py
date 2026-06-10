@@ -11,29 +11,61 @@ from langsmith import traceable
 @traceable(metadata={
     "agent_name": "course_outline",
     "step_name": "Obtain Web Article Links",
-    "function_name": "ddgs_search",
+    "function_name": "bing_search",
     "user_id": st.session_state.get("role", "anonymous")
 })
-@try_n_times(2, wait = 5, backoff = 'linear')
-def ddgs_search(search_query, max_results=30, backend = 'api'):
+@try_n_times(2, wait=5, backoff="linear")
+def bing_search(search_query, max_results=30, region="us-en"):
     """
-    Search the web using DuckDuckGo
-    Args:
-        search_query (str): The query to search on DuckDuckGo
-        max_results (int): The maximum number of results to return
-    Returns:
-        search_results (list): The response from DuckDuckGo. Contains a list of dictionaries with keys: title, href, body
+    Search the web using Bing (via duckduckgo_search backend).
+
+    Returns a list of dicts with keys: title, href, body.
     """
     ddgs = DDGS()
     search_results = ddgs.text(
-        keywords = search_query,          # keywords: keywords for query.
-        region = "wt-wt",                 # region: wt-wt, us-en, uk-en, ru-ru, etc. Defaults to "wt-wt".
-        safesearch = "moderate",          # safesearch: on, moderate, off. Defaults to "moderate".
-        timelimit = None,                 # timelimit: d, w, m, y. Defaults to None.
-        backend = backend,                # backend: api, html, lite. Defaults to api. api - collect data from https://duckduckgo.com, html - collect data from https://html.duckduckgo.com, lite - collect data from https://lite.duckduckgo.com.
-        max_results = max_results,        # max_results: max number of results. If None, returns results only from the first response. Defaults to None.
-        )
-    return search_results
+        keywords=search_query,
+        region=region,
+        safesearch="moderate",
+        timelimit=None,
+        backend="bing",
+        max_results=max_results,
+    )
+    return list(search_results or [])
+
+
+@traceable(metadata={
+    "agent_name": "course_outline",
+    "step_name": "Obtain Web Article Links",
+    "function_name": "ddgs_search",
+    "user_id": st.session_state.get("role", "anonymous")
+})
+@try_n_times(2, wait=5, backoff="linear")
+def ddgs_search(search_query, max_results=30, region="us-en"):
+    """
+    Search the web using DuckDuckGo HTML/lite backends (not Bing).
+
+    Returns a list of dicts with keys: title, href, body.
+    """
+    ddgs = DDGS()
+    for backend in ("html", "lite"):
+        try:
+            search_results = list(
+                ddgs.text(
+                    keywords=search_query,
+                    region=region,
+                    safesearch="moderate",
+                    timelimit=None,
+                    backend=backend,
+                    max_results=max_results,
+                )
+                or []
+            )
+            if search_results:
+                print(f"DuckDuckGo search ({backend}) returned {len(search_results)} results")
+                return search_results
+        except Exception as e:
+            print(f"DuckDuckGo search ({backend}) failed: {e}")
+    return []
 
 @traceable(metadata={
     "agent_name": "course_outline",
@@ -42,19 +74,25 @@ def ddgs_search(search_query, max_results=30, backend = 'api'):
     "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(2, wait = 5, backoff = 'linear')
-def exa_search(search_query):
+def exa_search(search_query, max_results=30):
     """
     Search the web with Exa.
     Returns empty list if no results found (instead of raising exception).
     Retries on network/API errors, but returns empty list for "no results" case.
     """
-    exa = Exa(api_key = os.environ.get("EXA_API_KEY"))
+    api_key = os.environ.get("EXA_API_KEY")
+    if not api_key:
+        print("Exa search skipped: EXA_API_KEY not set")
+        return []
+
+    exa = Exa(api_key=api_key)
 
     # Using search_and_contents for improved results
     response = exa.search_and_contents(
-        search_query, 
-        type="auto", 
-        summary=True
+        search_query,
+        type="auto",
+        summary=True,
+        num_results=max_results,
     )
 
     # Check if response is valid and contains results
@@ -75,6 +113,34 @@ def exa_search(search_query):
 
     return search_results
 
+
+def search_web_for_articles(search_query, max_results=30):
+    """
+    Try web search providers in order: Exa, then Bing, then DuckDuckGo.
+
+    Uses the first provider that returns at least one result.
+    """
+    providers = (
+        ("exa", lambda: exa_search(search_query, max_results=max_results)),
+        ("bing", lambda: bing_search(search_query, max_results=max_results)),
+        ("ddgs", lambda: ddgs_search(search_query, max_results=max_results)),
+    )
+    for name, fetch in providers:
+        try:
+            results = fetch()
+        except Exception as e:
+            print(f"{name} search failed for query {search_query!r}: {e}")
+            continue
+        if results:
+            print(
+                f"Web search using {name}: {len(results)} results "
+                f"for query: {search_query[:120]}"
+            )
+            return results
+        print(f"{name} search returned 0 results for query: {search_query[:120]}")
+    return []
+
+
 @traceable(metadata={
     "agent_name": "course_outline",
     "step_name": "Obtain Web Article Links",
@@ -82,7 +148,7 @@ def exa_search(search_query):
     "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(3)
-def web_search_screening(course_name, course_outline, search_query, llm = 'gemini_3_flash'):
+def web_search_screening(course_name, course_outline, search_query, llm = 'gemini_2_flash'):
     """
     Screen the web search results for relevant articles
     Args:
@@ -122,12 +188,7 @@ def web_search_screening(course_name, course_outline, search_query, llm = 'gemin
 
         return markdown
 
-    try:
-        search_results = ddgs_search(search_query = search_query)
-    except Exception as e:
-        print(f"DDGS failed with {e}")
-        print("Falling back to Exa search")
-        search_results = exa_search(search_query = search_query)
+    search_results = search_web_for_articles(search_query=search_query)
 
     search_results_md = convert_search_results_to_md_table(search_results)
 
