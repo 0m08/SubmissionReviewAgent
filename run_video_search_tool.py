@@ -15,7 +15,7 @@ from agents.course_outline.video_search_tool.video_retriever import video_retrie
 from agents.course_outline.video_search_tool.create_video_vectorstore import create_video_vectorstore, chroma_db_exists
 from video_search_hvac_channels import render_hvac_visual_search
 
-llm_model = st.session_state.get("llm_model", "gemini_2_flash") or "gemini_2_flash"
+llm_model = st.session_state.get("llm_model", "gemini_3_flash") or "gemini_3_flash"
 
 # --------------------- Auth --------------------- #
 load_dotenv()

@@ -80,7 +80,7 @@ def generate_llm_feedback_from_issues(
     creator: str,
     course: str,
     comments: str = "",
-    llm: str = "gemini_2_flash"
+    llm: str = "gemini_3_flash"
 ) -> Optional[dict]:
 
     if not issues and not comments:
@@ -231,7 +231,7 @@ def generate_rephrased_flagged_items(issue_df):
     Adds 'Flagged Items - Basic' and 'Flagged Items - Critical' columns to issue_df.
     """
     updated_rows = []
-    agent = Chain(llm="gemini_2_flash", tags=['output'])
+    agent = Chain(llm="gemini_3_flash", tags=['output'])
 
     for _, row in issue_df.iterrows():
         creator = row.get("Creator Name", "Unknown")

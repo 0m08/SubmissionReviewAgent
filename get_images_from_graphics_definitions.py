@@ -16,7 +16,7 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "sheet_name": "Slide Chunks",
-                    "llm": "gemini_2_flash"
+                    "llm": "gemini_3_flash"
                 },
 
                 "delete_func": delete_generated_graphics_queries,
@@ -37,7 +37,7 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "sheet_name": "Slide Chunks",
                     "k": 5,
-                    "llm":"gemini_2_flash"
+                    "llm":"gemini_3_flash"
                 },
 
                 "delete_func": delete_retrieved_image_urls,

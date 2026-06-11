@@ -7,12 +7,11 @@ from langsmith import traceable
 # Load environment variables from .env file
 load_dotenv()
 
-
 gcloud_yt_search_api_keys = [
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_1"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_2"),
-    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_3")
-]
+    k for k in (
+        os.environ.get(f"GCLOUD_YT_SEARCH_API_KEY_{i}") for i in range(1, 57)
+    ) if k
+][:25]
 
 @traceable
 @cycle_api_keys_decorator(gcloud_yt_search_api_keys)

@@ -82,7 +82,7 @@ def exa_search(search_query):
     "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(3)
-def web_search_screening(course_name, course_outline, search_query, llm = 'gemini_2_flash'):
+def web_search_screening(course_name, course_outline, search_query, llm = 'gemini_3_flash'):
     """
     Screen the web search results for relevant articles
     Args:

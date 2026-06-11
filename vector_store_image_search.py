@@ -321,7 +321,7 @@ elif task == "Search Images":
                             query_image=query_image,
                             drive=drive,
                             k=k,
-                            llm="gemini_2_flash",
+                            llm="gemini_3_flash",
                             max_turns=3,
                             filters=filters,
                             root_folder_id=root_folder_id

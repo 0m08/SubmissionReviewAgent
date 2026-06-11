@@ -1329,7 +1329,7 @@ def parse_block_text_row(block_text_cell, index):
     """
     try:
         # Use LLM + Pydantic to parse and validate
-        agent = Chain(llm="gemini_2_flash")
+        agent = Chain(llm="gemini_3_flash")
         agent.add_message(
             role="user",
             content=block_text_parsing_prompt.format(block=block_text_cell)

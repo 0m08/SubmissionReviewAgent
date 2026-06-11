@@ -800,7 +800,7 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
 def load_references(sheet, video_research_sheet_name = 'Videos Research', video_chunk_sheet_name = 'Video Chunks', 
                           client_reference_sheet_name = 'Client References', web_research_sheet_name = 'Preliminary Research',
                           deep_research_sheet_name = 'Deep Research', topic_outline_sheet_name = 'Topic Outline',
-                          topic_deep_research_sheet_name = 'Topic Deep Research', llm = "gemini_2_flash"):
+                          topic_deep_research_sheet_name = 'Topic Deep Research', llm = "gemini_3_flash"):
     """
     """
     # Load the sheets and df

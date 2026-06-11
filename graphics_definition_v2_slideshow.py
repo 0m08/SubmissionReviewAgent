@@ -435,6 +435,82 @@ def _build_row_review_payload(slide, row_actions, current_round):
     return feedback_value, actions_payload, reject_count, row_action_map_by_visual_id, updated_graphics_text, updated_tracking_text
 
 
+def _ordered_step_keys(parsed_segments):
+    """Document-order (segment_index, step_index) keys from parsed segments."""
+    ordered = []
+    for seg in parsed_segments or []:
+        for step in seg.get("steps", []):
+            ordered.append((seg.get("segment_index"), step.get("step_index")))
+    return ordered
+
+
+_USE_IMAGE_AT_NOTE_AFTER_LINE = re.compile(
+    r"\r?\n[ \t]*\(\s*use the image at\b[^)\n]*\)[ \t]*",
+    re.IGNORECASE,
+)
+
+
+def _log_fgd_asset_replacement(old_url, new_url, strategy, seg_idx=None, step_idx=None):
+    """Log when final_graphics_definition asset URL is replaced on save/undo."""
+    step_label = f"S{seg_idx}V{step_idx}" if seg_idx is not None and step_idx is not None else "?"
+    print(
+        f"[gdv2_slideshow] final_graphics_definition replacement "
+        f"({strategy}, {step_label}): {old_url} -> {new_url}"
+    )
+
+
+def _strip_following_use_image_at_note(text, line_end_pos):
+    """
+    Remove a YouTube still-frame hint line immediately after ``Graphics to use:``.
+
+    Example: ``(use the image at 5m16s)`` on the line following the asset URL.
+    """
+    if line_end_pos < 0 or line_end_pos > len(text):
+        return text
+    rest = text[line_end_pos:]
+    m = _USE_IMAGE_AT_NOTE_AFTER_LINE.match(rest)
+    if not m:
+        return text
+    return text[:line_end_pos] + rest[m.end() :]
+
+
+def _formatted_graphics_line_replace(raw_text, parsed_segments, override_map):
+    """
+    Replace URLs on ``Graphics to use:`` lines for formatted final_graphics_definition text.
+
+    Parsed ``asset`` values may include a ``(use the image at …)`` note on the next line,
+    so plain substring replacement against ``step['asset']`` often fails.
+    """
+    pattern = re.compile(
+        r"(?im)^[ \t]*(Graphics to use:)[ \t]*(\S+)([ \t]*)$",
+    )
+    matches = list(pattern.finditer(raw_text))
+    ordered = _ordered_step_keys(parsed_segments)
+    if not matches or len(matches) != len(ordered):
+        return None
+
+    replacements = {}
+    for i, key in enumerate(ordered):
+        if key in override_map:
+            replacements[i] = override_map[key]
+
+    if not replacements:
+        return raw_text
+
+    result = raw_text
+    for i in sorted(replacements.keys(), reverse=True):
+        m = matches[i]
+        old_url = m.group(2)
+        new_url = replacements[i]
+        seg_idx, step_idx = ordered[i]
+        _log_fgd_asset_replacement(old_url, new_url, "formatted_graphics_line", seg_idx, step_idx)
+        line = f"{m.group(1)} {new_url}{m.group(3)}"
+        line_end = m.start() + len(line)
+        result = result[: m.start()] + line + result[m.end() :]
+        result = _strip_following_use_image_at_note(result, line_end)
+    return result
+
+
 def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
     """
     Surgically update asset URLs in the original raw column text WITHOUT
@@ -444,7 +520,8 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
     1. XML  — replace the <asset> tag content within the N-th <visual_step>
                of the M-th <segment> (or top-level visual_steps for single-segment).
     2. JSON — already-JSON column (from a previous save): parse, update, re-dump.
-    3. Fallback — plain URL swap in the raw text (best-effort).
+    3. Formatted text — replace the URL on each ``Graphics to use:`` line in order.
+    4. Fallback — plain URL swap using the primary http(s) URL only.
 
     :param raw_text: original column value (XML, JSON, or free-text)
     :param parsed_segments: list of segment dicts (already parsed) — used for step ordering
@@ -471,7 +548,10 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
                 for step in seg.get("steps", []):
                     step_idx = step.get("step_index", 1)
                     if (seg_idx, step_idx) in override_map:
-                        step["asset"] = override_map[(seg_idx, step_idx)]
+                        old_url = safe_str(step.get("asset", "")).strip()
+                        new_url = override_map[(seg_idx, step_idx)]
+                        _log_fgd_asset_replacement(old_url, new_url, "json", seg_idx, step_idx)
+                        step["asset"] = new_url
                         # Normalize after selection: keep only primary asset key.
                         for ref_key in (
                             "asset_reference",
@@ -486,10 +566,14 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
         except Exception:
             pass
 
-    # ── Strategy 3: Plain URL swap (best-effort, last resort) ────────────────
+    # ── Strategy 3: Formatted ``Graphics to use:`` line replacement ──────────
+    formatted_result = _formatted_graphics_line_replace(raw_text, parsed_segments, override_map)
+    if formatted_result is not None:
+        return _remove_reference_key_for_overrides(formatted_result, parsed_segments, override_map)
+
+    # ── Strategy 4: Plain primary-URL swap (best-effort) ─────────────────────
     updated = raw_text
     for (seg_idx, step_idx), new_url in override_map.items():
-        # Find the original asset URL from parsed segments and swap it
         old_url = ""
         for seg in parsed_segments:
             if seg.get("segment_index") == seg_idx:
@@ -497,8 +581,15 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
                     if step.get("step_index") == step_idx:
                         old_url = (step.get("asset") or "").strip()
                         break
-        if old_url and old_url in updated:
-            updated = updated.replace(old_url, new_url, 1)
+        old_primary = _primary_asset_url(old_url)
+        if old_primary and old_primary in updated:
+            _log_fgd_asset_replacement(old_primary, new_url, "primary_url_fallback", seg_idx, step_idx)
+            idx = updated.find(old_primary)
+            updated = updated.replace(old_primary, new_url, 1)
+            line_end = updated.find("\n", idx)
+            if line_end == -1:
+                line_end = len(updated)
+            updated = _strip_following_use_image_at_note(updated, line_end)
     return _remove_reference_key_for_overrides(updated, parsed_segments, override_map)
 
 
@@ -607,7 +698,7 @@ def _xml_surgical_asset_replace(raw_text, parsed_segments, override_map):
 
     # Build replacement map: match index -> new content
     replacements = {}  # match_index -> new_url
-    for i, (seg_idx, step_idx, _old) in enumerate(ordered):
+    for i, (seg_idx, step_idx, old_asset) in enumerate(ordered):
         if (seg_idx, step_idx) in override_map:
             replacements[i] = override_map[(seg_idx, step_idx)]
 
@@ -618,7 +709,10 @@ def _xml_surgical_asset_replace(raw_text, parsed_segments, override_map):
     result = raw_text
     for i in sorted(replacements.keys(), reverse=True):
         m = matches[i]
+        seg_idx, step_idx, old_asset = ordered[i]
         new_url = replacements[i]
+        old_url = (m.group(2) or old_asset or "").strip()
+        _log_fgd_asset_replacement(old_url, new_url, "xml", seg_idx, step_idx)
         open_tag = m.group(1)
         close_tag = m.group(3)
         result = result[:m.start()] + f"{open_tag}{new_url}{close_tag}" + result[m.end():]
