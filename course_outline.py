@@ -162,6 +162,9 @@ if "sheet" in st.session_state:
     web_research_enabled = "web" in _enabled_sources
     deep_research_enabled = "deep" in _enabled_sources
 
+    # Persist into session state so agent_ui_template can gate video steps.
+    st.session_state["video_research_enabled"] = video_research_enabled
+
     # Check the status of the oultine
     if "Outline Stage" in course_info_df.columns:
         status = course_info_df.loc[0, "Outline Stage"]
@@ -1084,6 +1087,9 @@ pipeline_sections.append({
             "delete_args": {
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",
+                "drive": "drive",
+                "root_folder_id": "root_folder_id",
+                "course_name": "course_name",
             }
         },
         
@@ -1091,6 +1097,7 @@ pipeline_sections.append({
             "name": "Retrieve relevant HVAC Videos for Learning Objectives",
             "func": run_video_search_for_los,
             "depends_on": ["Retrieve relevant references for Learning Objectives"],
+            "hide_if_video_disabled": True,
             "args": {
                 "course_name": "course_name",
                 "target_audience": "target_audience",
@@ -1112,6 +1119,7 @@ pipeline_sections.append({
             "name": "Validate Video References",
             "func": run_validate_video_references,
             "depends_on": ["Retrieve relevant HVAC Videos for Learning Objectives"],
+            "hide_if_video_disabled": True,
             "args": {
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",
@@ -1131,6 +1139,7 @@ pipeline_sections.append({
             "name": "Preview Video References",
             "func": manual_preview_video_references,
             "depends_on": ["Validate Video References"],
+            "hide_if_video_disabled": True,
             "args": {
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",

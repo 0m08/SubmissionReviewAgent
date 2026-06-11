@@ -456,6 +456,110 @@ def try_build_user_drive_for_background_jobs():
         return None
 
 
+def get_authenticated_drive_client():
+    """
+    Get an authenticated PyDrive GoogleDrive client instance.
+    Prioritizes user OAuth credentials (from Streamlit session state or background environment refresh token).
+    Falls back to the service account.
+    """
+    # 1. Try Streamlit session state
+    try:
+        import streamlit as st
+        drive = st.session_state.get("drive")
+        if drive is not None:
+            return drive
+    except Exception:
+        pass
+
+    # 2. Try background OAuth refresh token
+    try:
+        drive = try_build_user_drive_for_background_jobs()
+        if drive is not None:
+            return drive
+    except Exception as e:
+        print(f"[WARN] Failed to build user drive client from refresh token: {e}")
+
+    # 3. Fallback to service account
+    try:
+        sa_json = os.environ.get("GDRIVE_SA_JSON")
+        if sa_json:
+            sa_dict = json.loads(sa_json) if isinstance(sa_json, str) else sa_json
+        else:
+            sa_b64 = os.environ.get("GDRIVE_SA_B64")
+            if sa_b64:
+                sa_dict = json.loads(base64.b64decode(sa_b64).decode())
+            else:
+                sa_dict = None
+        if sa_dict:
+            from pydrive2.drive import GoogleDrive
+            gauth = login_with_service_account(json_str=json.dumps(sa_dict))
+            gauth.ServiceAuth()
+            return GoogleDrive(gauth)
+    except Exception as e:
+        print(f"[WARN] Failed to build service account Drive client: {e}")
+
+    return None
+
+
+def get_authenticated_drive_service():
+    """
+    Get a Google Drive API v3 service client (googleapiclient.discovery.build).
+    Prioritizes user OAuth credentials (from Streamlit session state or background environment refresh token).
+    Falls back to the service account.
+
+    NOTE: Uses google.oauth2.credentials.Credentials directly (not oauth2client),
+    which is the correct type for googleapiclient.discovery.build.
+    """
+    from googleapiclient.discovery import build as _api_build
+
+    # 1. Try background OAuth refresh token (works both in UI background jobs
+    #    and when GOOGLE_OAUTH_REFRESH_TOKEN is set directly in the environment).
+    refresh = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
+    client_id = os.getenv("OAUTH_CLIENT_ID", "").strip()
+    client_secret = os.getenv("OAUTH_CLIENT_SECRET", "").strip()
+    if refresh and client_id and client_secret:
+        try:
+            from google.auth.transport.requests import Request
+
+            creds = Credentials(
+                None,
+                refresh_token=refresh,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=GOOGLE_OAUTH_SCOPES,
+            )
+            creds.refresh(Request())
+            return _api_build("drive", "v3", credentials=creds, cache_discovery=False)
+        except Exception as e:
+            print(f"[WARN] Failed to build user Drive API service from refresh token: {e}")
+
+    # 2. Try Streamlit session state — re-hydrate creds from the stored refresh token
+    #    if available so we get a proper google.oauth2.credentials.Credentials object.
+    try:
+        import streamlit as st
+        stored_rt = st.session_state.get("google_oauth_refresh_token")
+        if stored_rt and client_id and client_secret:
+            from google.auth.transport.requests import Request
+
+            creds = Credentials(
+                None,
+                refresh_token=stored_rt,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=GOOGLE_OAUTH_SCOPES,
+            )
+            creds.refresh(Request())
+            return _api_build("drive", "v3", credentials=creds, cache_discovery=False)
+    except Exception as e:
+        print(f"[WARN] Failed to build user Drive API service from session refresh token: {e}")
+
+    # 3. Fallback to service account
+    return build_service_account_drive_service()
+
+
+
 def share_sheet_with_service_account(sheet, service_account_email: str, creds: Credentials):
     """
     Share a Google Sheet with a service account email using OAuth credentials.

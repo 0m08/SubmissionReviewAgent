@@ -178,14 +178,36 @@ def retrieve_relevant_docs(
         if "youtube search" in search_on.lower():
             print(f"[DEBUG] Turn {turn+1}: Using YouTube search retriever for query '{query}'")
             try:
-                yt_search_retriever = search_youtube_videos(query, max_results=5)
-                docs = yt_search_retriever.invoke(query)
+                from langchain_core.documents import Document
+                video_details = search_youtube_videos(query, max_results=5)
+                
+                docs = []
+                youtube_selected_ids = []
+                for item in video_details:
+                    page_content = f"Title: {item['title']}\nDescription: {item['description']}\nChannel: {item['channel_title']}"
+                    metadata = {
+                        "video_id": item["video_id"],
+                        "video_url": item["video_url"],
+                        "title": item["title"],
+                        "description": item["description"],
+                        "channel_title": item["channel_title"],
+                        "published_at": item["published_at"],
+                        "start_time": 0,
+                        "end_time": None
+                    }
+                    
+                    doc = Document(page_content=page_content, metadata=metadata)
+                    
+                    # Add to all_docs and get its index
+                    doc_id = len(all_docs)
+                    all_docs.append(doc)
+                    youtube_selected_ids.append(str(doc_id))
+                
+                print(f"[DEBUG] YouTube search returned {len(youtube_selected_ids)} documents.")
+                return youtube_selected_ids, all_docs
             except Exception as e:
                 print(f"[ERROR] YouTube retriever failed: {e}")
-                docs = []
-
-            # NOTE: Not passing through get_docs_as_string here
-            return docs, all_docs
+                return [], all_docs
 
     print(f"[DEBUG] Returning {len(all_docs)} total docs, {len(selected_video_ids)} selected IDs")
     return selected_video_ids, all_docs
