@@ -110,12 +110,8 @@ deep_research_enabled = True
 
 RESEARCH_SOURCE_ALIASES = {
     "video": "video",
-    "video research": "video",
-    "videos": "video",
-    "web": "web",
-    "web research": "web",
-    "deep": "deep",
-    "deep research": "deep",
+    "web":   "web",
+    "deep":  "deep",
 }
 
 
@@ -148,27 +144,36 @@ def _parse_research_sources(df, col="Research Sources"):
 
 
 if "sheet" in st.session_state:
-    _, course_info_df = get_sheet_data_and_df(st.session_state["sheet"], "Course info")
-    flag_raw = course_info_df.loc[0, "Outline Topic Deep Research"]
-    topic_deep_research_enabled = (
-        str(flag_raw).strip().lower() != "false"
-        if pd.notna(flag_raw)
-        else True
-    )
+    try:
+        _, course_info_df = get_sheet_data_and_df(st.session_state["sheet"], "Course info")
 
-    # Research-type toggles driven by the "Research Sources" column in Course info.
-    _enabled_sources = _parse_research_sources(course_info_df)
-    video_research_enabled = "video" in _enabled_sources
-    web_research_enabled = "web" in _enabled_sources
-    deep_research_enabled = "deep" in _enabled_sources
+        if "Outline Topic Deep Research" in course_info_df.columns:
+            flag_raw = course_info_df.loc[0, "Outline Topic Deep Research"]
+            topic_deep_research_enabled = (
+                str(flag_raw).strip().lower() != "false"
+                if pd.notna(flag_raw)
+                else True
+            )
 
-    # Persist into session state so agent_ui_template can gate video steps.
-    st.session_state["video_research_enabled"] = video_research_enabled
+        # Research-type toggles driven by the "Research Sources" column in Course info.
+        _enabled_sources = _parse_research_sources(course_info_df)
+        video_research_enabled = "video" in _enabled_sources
+        web_research_enabled = "web" in _enabled_sources
+        deep_research_enabled = "deep" in _enabled_sources
 
-    # Check the status of the oultine
-    if "Outline Stage" in course_info_df.columns:
-        status = course_info_df.loc[0, "Outline Stage"]
-        outline_finalized = isinstance(status, str) and status.strip().lower() == "final"
+        # Persist into session state so agent_ui_template can gate video steps.
+        st.session_state["video_research_enabled"] = video_research_enabled
+
+        # Check the status of the outline
+        if "Outline Stage" in course_info_df.columns:
+            status = course_info_df.loc[0, "Outline Stage"]
+            outline_finalized = isinstance(status, str) and status.strip().lower() == "final"
+
+    except Exception as _e:
+        print(f"[WARNING] Could not read Course info sheet to configure pipeline flags: {_e}. "
+              f"Falling back to defaults: video={video_research_enabled}, "
+              f"web={web_research_enabled}, deep={deep_research_enabled}")
+
 
 # --- 1) Define pipeline as sections, each with its own steps ---
 pipeline_sections = [

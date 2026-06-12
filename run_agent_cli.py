@@ -111,34 +111,6 @@ else:
         "on the job) to match in-browser Drive uploads."
     )
 
-# Map agent_name to pipeline module
-AGENT_PIPELINES = {
-    "course_outline": "course_outline",
-    "research_notes": "research_notes",
-    "slide_chunks": "slide_chunks",
-    "graphics_definition": "graphics_definition",
-    "graphics_definition_v2": "graphics_definition_v2",
-    "assessment": "assessment",
-}
-pipeline_sections = None
-if args.agent_name not in ("human_feedback_review_revise", "web_image_regeneration_bg"):
-    pipeline_module_name = AGENT_PIPELINES.get(args.agent_name)
-    if not pipeline_module_name:
-        print(f"[ERROR] Unknown agent: {args.agent_name}")
-        sys.exit(1)
-
-    try:
-        pipeline_module = importlib.import_module(pipeline_module_name)
-    except ImportError as e:
-        print(f"[ERROR] Could not import pipeline module '{pipeline_module_name}': {e}")
-        sys.exit(1)
-
-    # Prepare pipeline sections
-    pipeline_sections = getattr(pipeline_module, "pipeline_sections", None)
-    if pipeline_sections is None:
-        print(f"[ERROR] Pipeline sections not found in module '{pipeline_module_name}'.")
-        sys.exit(1)
-
 # Set up session state
 session_state = {
     "sheet": sheet,
@@ -148,6 +120,7 @@ session_state = {
     "root_folder_id": args.drive_folder_id,
     "gc": gc,
     "use_only_drive_and_hvac": False,
+    "llm_model": args.llm,
 }
 
 # Copy completed-step flags from Agent logs (loaded into st.session_state) into session_state
@@ -183,8 +156,52 @@ try:
             session_state["outline_finalized"] = outline_stage_raw.strip().lower() == "final"
         else:
             session_state["outline_finalized"] = False
+
+        _RESEARCH_ALIASES = {"video": "video", "web": "web", "deep": "deep"}
+        _research_raw = str(row0.get("Research Sources", "") or "").strip()
+        if _research_raw:
+            import re as _re
+            _tokens = _re.split(r"[\n,]", _research_raw)
+            _enabled = {_RESEARCH_ALIASES[t.strip().lower()] for t in _tokens if t.strip().lower() in _RESEARCH_ALIASES}
+        else:
+            _enabled = {"video", "web", "deep"}
+        session_state["video_research_enabled"] = "video" in _enabled
+        session_state["web_research_enabled"]   = "web"   in _enabled
+        session_state["deep_research_enabled"]  = "deep"  in _enabled
+        print(f"[INFO] Research sources: {_enabled}")
 except Exception as e:
     print(f"[WARNING] Could not extract course info: {e}")
+
+# Populate st.session_state before importing pipeline module
+for k, v in session_state.items():
+    st.session_state[k] = v
+# Map agent_name to pipeline module
+AGENT_PIPELINES = {
+    "course_outline": "course_outline",
+    "research_notes": "research_notes",
+    "slide_chunks": "slide_chunks",
+    "graphics_definition": "graphics_definition",
+    "graphics_definition_v2": "graphics_definition_v2",
+    "assessment": "assessment",
+}
+pipeline_sections = None
+if args.agent_name not in ("human_feedback_review_revise", "web_image_regeneration_bg"):
+    pipeline_module_name = AGENT_PIPELINES.get(args.agent_name)
+    if not pipeline_module_name:
+        print(f"[ERROR] Unknown agent: {args.agent_name}")
+        sys.exit(1)
+
+    try:
+        pipeline_module = importlib.import_module(pipeline_module_name)
+    except ImportError as e:
+        print(f"[ERROR] Could not import pipeline module '{pipeline_module_name}': {e}")
+        sys.exit(1)
+
+    # Prepare pipeline sections
+    pipeline_sections = getattr(pipeline_module, "pipeline_sections", None)
+    if pipeline_sections is None:
+        print(f"[ERROR] Pipeline sections not found in module '{pipeline_module_name}'.")
+        sys.exit(1)
 
 
 def _format_time_utc_and_ist():
