@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, List, Optional
-from langchain.schema import Document
+from langchain_classic.schema import Document
 from modules.chain import Chain
 
 resource_mapping_prompt = """

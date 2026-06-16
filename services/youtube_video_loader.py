@@ -150,17 +150,33 @@ def convert_time_to_sec(time_str):
         raise Exception('Invalid time format')
 
 
+def _ytt_list_transcripts(video_id: str):
+    """Compat: pre-1.2 used classmethod list_transcripts; newer API uses instance .list()."""
+    if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+        return YouTubeTranscriptApi.list_transcripts(video_id)
+    return YouTubeTranscriptApi().list(video_id)
+
+
+def _ytt_segments_as_dicts(fetched):
+    """Compat: older .fetch() returned list[dict]; newer returns FetchedTranscript."""
+    if isinstance(fetched, list):
+        return fetched
+    if hasattr(fetched, "to_raw_data"):
+        return fetched.to_raw_data()
+    return [{"text": s.text, "start": float(s.start)} for s in fetched]
+
+
 @try_n_times(3)
 def get_transcript(video_id: str, return_text_only = False):
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript_list = _ytt_list_transcripts(video_id)
         transcript = transcript_list.find_transcript(['en'])
 
         # To get subtitle in any other language (Autotranslate)
         #translated_transcript = transcript.translate('es')
         #print(translated_transcript.fetch())
 
-        transcript =  transcript.fetch()
+        transcript = _ytt_segments_as_dicts(transcript.fetch())
 
         # Return transcript as text if True
         if return_text_only:
@@ -922,7 +938,7 @@ def get_additional_metadata(video_id):
     "user_id": st.session_state.get("role", "anonymous")
 })
 @try_n_times(n = 3, wait = 1, backoff = "linear")
-def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestamped_transcript = None, llm = 'gemini_2_flash'):
+def get_yt_chapters_chunks_as_docs(video_id: str, video_title = None, timestamped_transcript = None, llm = 'gemini_3_flash'):
     """
     Get chapters for a YouTube video based on its title and transcript.
     Args:

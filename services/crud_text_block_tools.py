@@ -3,6 +3,8 @@ import pandas as pd
 import re
 import threading
 import itertools
+from google import genai
+from google.genai import types
 # ─────────────────────────────────────────────────────────────────────────
 # TOOL 1  ▸  create_block
 # ─────────────────────────────────────────────────────────────────────────
@@ -296,7 +298,242 @@ def delete_block(
     
     if block_id not in df.index:
         raise IndexError("block_id not found")
-    
+
     # Delete from current DataFrame slice
     df.drop(block_id, inplace=True)
     return f"🗑️ Deleted block {block_id}."
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# TOOL 5  ▸  str_replace
+# ─────────────────────────────────────────────────────────────────────────
+@tool("str_replace", parse_docstring=True)
+def str_replace(
+    df: Annotated[pd.DataFrame, InjectedState("df")],
+    block_id: int,
+    old_text: str,
+    new_text: str,
+    intent: str,
+) -> str:
+    """Replace a specific substring within a block's text with precision.
+
+    This tool performs exact string matching and replacement. The old_text must
+    match the block content exactly, including all whitespace and indentation.
+
+    Args:
+        block_id:  ID of the block to modify.
+        old_text:  The exact text to find and replace. Must match the block
+                   content exactly, including whitespace and indentation.
+                   Must uniquely identify the target location (appear exactly once).
+        new_text:  The text to replace old_text with. Must be different from old_text.
+        intent:    A field that describes the intent of the change.
+
+    Returns:
+        A confirmation message: `"✏️ Replaced text in block {block_id}."`
+
+    Raises:
+        IndexError: If block_id does not exist.
+        ValueError: If old_text is not found in the block (0 matches).
+        ValueError: If old_text equals new_text (no-op replacement).
+        ValueError: If old_text appears multiple times (ambiguous match).
+    """
+    print(
+        f"🔧 TOOL USED: str_replace | block_id: {block_id} | "
+        f"old_text_length: {len(old_text)} chars | new_text_length: {len(new_text)} chars | "
+        f"intent: {intent}"
+    )
+
+    # Validate block exists
+    if block_id not in df.index:
+        raise IndexError(f"block_id {block_id} not found")
+
+    # Validate old_text != new_text (prevent no-op)
+    if old_text == new_text:
+        raise ValueError("old_text and new_text are identical. No replacement needed.")
+
+    current_text = df.at[block_id, "block text"]
+
+    # Count occurrences
+    match_count = current_text.count(old_text)
+
+    # Handle zero matches
+    if match_count == 0:
+        raise ValueError(
+            f"old_text not found in block {block_id}. "
+            "Ensure the text matches exactly, including whitespace and indentation."
+        )
+
+    # Handle multiple matches (ambiguous)
+    if match_count > 1:
+        raise ValueError(
+            f"old_text appears {match_count} times in block {block_id}. "
+            "Include more surrounding context to uniquely identify the target location."
+        )
+
+    # Perform replacement (exactly one match)
+    updated_text = current_text.replace(old_text, new_text, 1)
+    df.at[block_id, "block text"] = updated_text
+
+    return f"✏️ Replaced text in block {block_id}."
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# TOOL 6  ▸  search_web
+# ─────────────────────────────────────────────────────────────────────────
+@tool("search_web", parse_docstring=True)
+def search_web(
+    query: str,
+    intent: str,
+) -> str:
+    """Search the web using Google Search with Gemini grounding to find information.
+
+    Args:
+        query: The search query to find information about.
+        intent: A field that describes the intent of the search.
+
+    Returns:
+        The answer to the search query based on web search results.
+    """
+    print(
+        f"🔧 TOOL USED: search_web | query: {query} | intent: {intent}"
+    )
+
+    # from dotenv import load_dotenv
+    # load_dotenv()  # Load environment variables from .env file
+
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client()
+
+    grounding_tool = types.Tool(
+        google_search=types.GoogleSearch()
+    )
+    url_context_tool = types.Tool(
+        url_context=types.UrlContext()
+    )
+
+    config = types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(
+            include_thoughts=True
+        ),
+        tools=[grounding_tool, url_context_tool]
+    )
+
+    # Construct a focused prompt to ensure concise, relevant output
+    focused_prompt = f"""Search Query: {query}
+Intent: {intent}
+
+Instructions: Based on the search results, provide a concise and specific answer that directly addresses the query and intent above.
+- Focus only on information relevant to the query
+- Avoid unnecessary details, tangents, or general background information
+- Be factual and precise
+- Keep the response brief and actionable"""
+
+
+    response = client.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=focused_prompt,
+        config=config,
+    )
+
+    # print("Raw response from Gemini:")
+    # print(response)
+
+    # Extract the text response
+    if response and response.text:
+        return f"🔍 Search results for '{query}':\n\n{response.text}"
+    else:
+        return f"⚠️ No results found for query: {query}"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# TOOL 7  ▸  preview_image
+# ─────────────────────────────────────────────────────────────────────────
+@tool("preview_image", parse_docstring=True)
+def preview_image(
+    image_url: str,
+    intent: str,
+):
+    """Load an image from a URL so it can be seen in the next turn.
+
+    Args:
+        image_url: The URL of the image to preview. Supports regular web URLs
+            and Google Drive file links.
+        intent: A field that describes why the image is being previewed
+            (e.g. "check whether this diagram matches paragraph 2").
+
+    Returns:
+        A multimodal content list with a short text part and an inline
+        base64-encoded JPEG image part for the model to view. On failure,
+        returns a plain string warning so the agent can skip gracefully.
+    """
+    print(
+        f"🔧 TOOL USED: preview_image | url: {image_url} | intent: {intent}"
+    )
+
+    try:
+        from agents.graphics_definition_v2.layout_agent.layout_agent import (
+            load_image_from_url,
+            get_drive_instance,
+        )
+    except Exception as e:
+        return f"⚠️ Could not load image from {image_url}: loader import failed ({e})"
+
+    drive = get_drive_instance()
+
+    try:
+        pil_image = load_image_from_url(image_url, drive, title="preview_image")
+    except Exception as e:
+        return f"⚠️ Could not load image from {image_url}: {e}"
+
+    if pil_image is None:
+        return f"⚠️ Could not load image from {image_url}: loader returned None (check that the file is shared to the service account or is publicly accessible)"
+
+    try:
+        from io import BytesIO
+        import base64
+        buffered = BytesIO()
+        pil_image.convert("RGB").save(buffered, format="JPEG")
+        b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    except Exception as e:
+        return f"⚠️ Could not encode image from {image_url}: {e}"
+
+    return [
+        {"type": "text", "text": f"Loaded image from {image_url}"},
+        {
+            "type": "image",
+            "source_type": "base64",
+            "mime_type": "image/jpeg",
+            "data": b64,
+        },
+    ]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# TOOL 8  ▸  stop
+# ─────────────────────────────────────────────────────────────────────────
+@tool("stop", parse_docstring=True, return_direct=True)
+def stop(
+    reason: str,
+) -> str:
+    """Signal that all edits have been completed and the agent should stop.
+
+    Call this tool when you have finished making all necessary revisions
+    to the blocks. This explicitly indicates that no more CRUD operations
+    are needed.
+
+    Args:
+        reason: A brief explanation of what was accomplished or why no further edits are needed.
+
+    Returns:
+        A confirmation message indicating the agent has completed its work.
+    """
+    print(
+        f"🛑 TOOL USED: stop | reason: {reason}"
+    )
+    return f"✅ Agent completed. Reason: {reason}"
+
+
+# result = search_web("What is the saturation pressure of R410a at 100 F? What is the temp of R22 at that same pressure?", "Finding refrigerant specific details")
+# print(result)

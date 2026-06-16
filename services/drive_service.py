@@ -19,6 +19,102 @@ GOOGLE_OAUTH_SCOPES = [
 ]
 
 
+SKILLCAT_SHARED_DRIVE_FOLDER_ID = "1-YOY7Z9kK5_NR2shHbJgRXTJT6D16HIM"
+
+
+def _iter_service_account_candidates():
+    """Yield parsed service-account dict candidates from env in priority order."""
+    sa_json = os.environ.get("GDRIVE_SA_JSON")
+    if sa_json:
+        try:
+            yield "GDRIVE_SA_JSON", (json.loads(sa_json) if isinstance(sa_json, str) else sa_json)
+        except Exception:
+            pass
+
+    sa_b64 = os.environ.get("GDRIVE_SA_B64")
+    if sa_b64:
+        try:
+            yield "GDRIVE_SA_B64", json.loads(base64.b64decode(sa_b64).decode())
+        except Exception:
+            pass
+
+
+def build_service_account_drive_service():
+    """Build a Google Drive v3 client authenticated with the background-job service account."""
+    for _source, sa_dict in _iter_service_account_candidates():
+        try:
+            creds = service_account.Credentials.from_service_account_info(
+                sa_dict, scopes=GOOGLE_OAUTH_SCOPES
+            )
+            return build("drive", "v3", credentials=creds, cache_discovery=False)
+        except Exception:
+            continue
+    return None
+
+
+def extract_drive_id_from_url(value: str) -> str:
+    """Extract a Google Drive file/folder ID from common URL forms or accept a bare ID."""
+    if not value:
+        return ""
+    s = str(value).strip()
+    patterns = [
+        r"/spreadsheets/d/([a-zA-Z0-9_-]+)",
+        r"/file/d/([a-zA-Z0-9_-]+)",
+        r"/folders/([a-zA-Z0-9_-]+)",
+        r"/drive/folders/([a-zA-Z0-9_-]+)",
+        r"/d/([a-zA-Z0-9_-]+)",
+        r"[?&]id=([a-zA-Z0-9_-]+)",
+    ]
+    for p in patterns:
+        m = re.search(p, s, re.I)
+        if m:
+            return m.group(1)
+    if re.fullmatch(r"[a-zA-Z0-9_-]{10,}", s):
+        return s
+    return ""
+
+
+def is_inside_skillcat_shared_drive(file_or_folder_id: str, drive_service=None) -> bool:
+    """
+    Check if a file or folder is inside the Skillcat Shared Drive.
+    :param file_or_folder_id: ID of the file or folder to check
+    :param drive_service: Google Drive service client (optional, will build one if not provided)
+    
+    :return: True if the file or folder is inside the Skillcat Shared Drive, False otherwise
+    """
+   
+    if not file_or_folder_id:
+        return False
+    if drive_service is None:
+        drive_service = build_service_account_drive_service()
+    if drive_service is None:
+        return False
+
+    visited = set()
+    current_id = file_or_folder_id
+    for _ in range(25):
+        if not current_id or current_id in visited:
+            return False
+        visited.add(current_id)
+        if current_id == SKILLCAT_SHARED_DRIVE_FOLDER_ID:
+            return True
+        try:
+            meta = drive_service.files().get(
+                fileId=current_id,
+                fields="id,parents,driveId,mimeType",
+                supportsAllDrives=True,
+            ).execute()
+        except Exception:
+            return False
+        if meta.get("driveId") == SKILLCAT_SHARED_DRIVE_FOLDER_ID:
+            return True
+        parents = meta.get("parents") or []
+        if not parents:
+            return False
+        current_id = parents[0]
+    return False
+
+
 def login_with_service_account(path=None, json_str=None, user_email=None):
     """
     Google Drive service with a service account.
@@ -238,19 +334,33 @@ def exchange_code_for_credentials(client_id: str, client_secret: str, redirect_u
     return flow.credentials
 
 
-def init_clients_from_credentials(creds: Credentials):
+def init_clients_from_credentials(creds: Credentials, client_id: str = None, client_secret: str = None):
     """
     Given google.oauth2.credentials.Credentials, initialize:
       - PyDrive2 GoogleAuth + GoogleDrive
       - gspread client
     Returns (gauth, drive, gc)
+    
+    Args:
+        creds: Google OAuth2 credentials object
+        client_id: OAuth2 client ID (if not provided, will try to get from env vars)
+        client_secret: OAuth2 client secret (if not provided, will try to get from env vars)
     """
+    # Get client_id and client_secret from parameters or environment variables
+    if not client_id:
+        client_id = os.getenv("OAUTH_CLIENT_ID")
+    if not client_secret:
+        client_secret = os.getenv("OAUTH_CLIENT_SECRET")
+    
+    # Check if we have valid (non-empty) values
+    if not client_id or not client_secret or not client_id.strip() or not client_secret.strip():
+        raise ValueError("Missing required setting client_id. Please ensure OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET are set in your environment variables.")
     
     # Convert google.oauth2.credentials.Credentials to oauth2client format
     oauth2_creds = OAuth2Credentials(
         access_token=creds.token,
-        client_id=creds.client_id,
-        client_secret=creds.client_secret,
+        client_id=client_id,
+        client_secret=client_secret,
         refresh_token=creds.refresh_token,
         token_expiry=creds.expiry,
         token_uri=creds.token_uri,
@@ -259,7 +369,37 @@ def init_clients_from_credentials(creds: Credentials):
         scopes=creds.scopes
     )
     
-    gauth = GoogleAuth()
+    # Create a persistent temporary config file with absolute path
+    # This prevents PyDrive2 from looking for client_secrets.json in the current working directory
+    # when the working directory changes during long-running workflows
+    client_config = {
+        "installed": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"]
+        }
+    }
+    
+    # Use tempfile.gettempdir() to get a system temp directory with absolute path
+    # This ensures the file path doesn't depend on the current working directory
+    temp_dir = tempfile.gettempdir()
+    config_file_path = os.path.join(temp_dir, "pydrive2_client_config.json")
+    
+    # Write config to temp file (overwrite if exists)
+    with open(config_file_path, 'w') as f:
+        json.dump(client_config, f)
+    
+    settings = {
+        "client_config_backend": "file",
+        "client_config_file": config_file_path,  # Absolute path - won't break if cwd changes
+        "save_credentials_backend": "file",
+        "save_credentials_file": os.path.join(temp_dir, "pydrive2_credentials.json"),
+        "oauth_scope": creds.scopes,
+    }
+    gauth = GoogleAuth(settings=settings)
     gauth.credentials = oauth2_creds
     # Ensure HTTP is authorized for PyDrive2 operations
     gauth.http = AuthorizedHttp(creds)
@@ -274,6 +414,46 @@ def init_clients_from_credentials(creds: Credentials):
 
     gc = gspread.authorize(creds)
     return gauth, drive, gc
+
+
+def try_build_user_drive_for_background_jobs():
+    """
+    Build a PyDrive GoogleDrive client using a user OAuth refresh token from the environment for background jobs.
+
+    - OAUTH_CLIENT_ID / OAUTH_CLIENT_SECRET — same as Streamlit
+    - GOOGLE_OAUTH_REFRESH_TOKEN — refresh token for the Google account that should own uploads
+
+    
+    """
+    refresh = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
+    if not refresh:
+        return None
+    client_id = os.getenv("OAUTH_CLIENT_ID", "").strip()
+    client_secret = os.getenv("OAUTH_CLIENT_SECRET", "").strip()
+    if not client_id or not client_secret:
+        return None
+    try:
+        from google.auth.transport.requests import Request
+
+        creds = Credentials(
+            None,
+            refresh_token=refresh,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=GOOGLE_OAUTH_SCOPES,
+        )
+        creds.refresh(Request())
+        _gauth, drive, _gc = init_clients_from_credentials(
+            creds, client_id=client_id, client_secret=client_secret
+        )
+        if drive is None:
+            print("[WARN] init_clients_from_credentials returned no GoogleDrive instance.")
+            return None
+        return drive
+    except Exception as e:
+        print(f"[WARN] Could not build user Drive from GOOGLE_OAUTH_REFRESH_TOKEN: {e}")
+        return None
 
 
 def share_sheet_with_service_account(sheet, service_account_email: str, creds: Credentials):

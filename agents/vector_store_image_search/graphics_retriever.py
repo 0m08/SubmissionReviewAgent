@@ -1,6 +1,7 @@
 import cohere
 import os
 import requests
+import threading
 from io import BytesIO
 from PIL import Image
 import imagehash
@@ -13,62 +14,72 @@ import base64
 import hashlib
 import tempfile
 
+# Serialize load and cache per root_folder_id to avoid concurrent download/open and SQLite corruption
+GRAPHICS_CHROMA_LOAD_LOCK = threading.Lock()
+GRAPHICS_CHROMA_CACHE = {}
+
 
 def load_central_chroma_db(embedding_function, drive, root_folder_id):
-    """Load the shared Chroma DB collections from Google Drive."""
+    """Load the shared Chroma DB collections from Google Drive. Cached per root_folder_id to avoid concurrent open corruption."""
+    cache_key = root_folder_id
+    with GRAPHICS_CHROMA_LOAD_LOCK:
+        if cache_key in GRAPHICS_CHROMA_CACHE:
+            return GRAPHICS_CHROMA_CACHE[cache_key]
 
-    # Create version-specific local path to avoid cache conflicts
-    local_chroma_root = "/tmp/temp_chroma_folder"
-    local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
-    os.makedirs(local_chroma_root, exist_ok=True)
+        # Create version-specific local path to avoid cache conflicts
+        local_chroma_root = "/tmp/temp_chroma_folder"
+        local_chroma_path = os.path.join(local_chroma_root, f"chroma_graphics_db_{root_folder_id}")
+        os.makedirs(local_chroma_root, exist_ok=True)
 
-    # Locate Vectorstore files folder
-    vectorstore_list = drive.ListFile({
-        'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    }).GetList()
-    if not vectorstore_list:
-        raise FileNotFoundError("'Vectorstore files' folder not found in Drive.")
-    vectorstore_folder_id = vectorstore_list[0]['id']
+        # Locate Vectorstore files folder
+        vectorstore_list = drive.ListFile({
+            'q': f"title='Vectorstore files' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        }).GetList()
+        if not vectorstore_list:
+            raise FileNotFoundError("'Vectorstore files' folder not found in Drive.")
+        vectorstore_folder_id = vectorstore_list[0]['id']
 
-    # Search for chroma db folder
-    print("Searching for 'chroma_graphics_db' in Drive...")
-    file_list = drive.ListFile({
-        'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    }).GetList()
+        # Search for chroma db folder
+        print("Searching for 'chroma_graphics_db' in Drive...")
+        file_list = drive.ListFile({
+            'q': f"title='chroma_graphics_db' and '{vectorstore_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        }).GetList()
 
-    if not file_list:
-        raise FileNotFoundError("'chroma_graphics_db' not found in Drive.")
+        if not file_list:
+            raise FileNotFoundError("'chroma_graphics_db' not found in Drive.")
 
-    chroma_folder_id = file_list[0]['id']
-    print(f"Found Chroma folder ID: {chroma_folder_id}")
+        chroma_folder_id = file_list[0]['id']
+        print(f"Found Chroma folder ID: {chroma_folder_id}")
 
-    if not os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
-        print("⬇Downloading Chroma DB...")
-        download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
-        print(f"Downloaded to: {local_chroma_path}")
-    else:
-        print("Using existing local copy of Chroma DB.")
+        if not os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
+            print("⬇Downloading Chroma DB...")
+            download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
+            print(f"Downloaded to: {local_chroma_path}")
+        else:
+            print("Using existing local copy of Chroma DB.")
 
-    # Load text_embeddings collection
-    text_chroma = Chroma(
-        embedding_function=embedding_function,
-        collection_name="text_embeddings",
-        persist_directory=local_chroma_path
-    )
-    print("Loaded 'text_embeddings' collection.")
+        # Load text_embeddings collection
+        text_chroma = Chroma(
+            embedding_function=embedding_function,
+            collection_name="text_embeddings",
+            persist_directory=local_chroma_path
+        )
+        print("Loaded 'text_embeddings' collection.")
 
-    # Load image_embeddings collection
-    image_chroma = Chroma(
-        embedding_function=None,  # CLIP vectors are precomputed
-        collection_name="image_embeddings",
-        persist_directory=local_chroma_path
-    )
-    print("Loaded 'image_embeddings' collection.")
+        # Load image_embeddings collection
+        image_chroma = Chroma(
+            embedding_function=None,  # CLIP vectors are precomputed
+            collection_name="image_embeddings",
+            persist_directory=local_chroma_path
+        )
+        print("Loaded 'image_embeddings' collection.")
 
-    return {
-        "text": text_chroma,
-        "image": image_chroma
-    }
+        dbs = {
+            "text": text_chroma,
+            "image": image_chroma
+        }
+        GRAPHICS_CHROMA_CACHE[cache_key] = dbs
+        return dbs
     
     
 co = cohere.ClientV2(api_key=os.getenv('COHERE_API_KEY'))
@@ -130,6 +141,7 @@ def _safe_iter_clip_results(clip_results):
 
 def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.Image] = None,
                        drive=None, k: int = 5, filters=None,
+                       load_images: bool = True,
                        root_folder_id: str = '1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH') -> List[Dict[str, any]]:
     assert query or query_image, "Please provide a query or an image."
 
@@ -264,13 +276,6 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
                 if clip_results is None:
                     print("⚠️ clip_results is None — Chroma query failed or returned nothing.")
                 else:
-                    print("clip_results structure:", type(clip_results))
-                    try:
-                        print("metadatas:", clip_results.get("metadatas"))
-                        print("distances:", clip_results.get("distances"))
-                    except Exception as debug_err:
-                        print("❌ Error inspecting clip_results fields:", debug_err)
-
                     for metadata, distance in _safe_iter_clip_results(clip_results):
                         if 'image_id' not in metadata or not match_filters(metadata):
                             continue
@@ -329,57 +334,67 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
         #     seen_topics.add(topic_name)
         
         try:
-            if not image_id:
-                continue
-        
-            pil_image = download_image_from_drive(drive, image_id)
-            if not pil_image:
-                continue
-        
             phash_value = existing_phash
-            if not phash_value:
-                try:
-                    phash_value = str(imagehash.phash(pil_image))
-                except Exception as hash_error:
-                    print(f"Failed to compute pHash for {image_id}: {hash_error}")
-                    phash_value = None
-        
-            if phash_value:
+            pil_image = None
+
+            if load_images:
+                if not image_id:
+                    continue
+
+                pil_image = download_image_from_drive(drive, image_id)
+                if not pil_image:
+                    continue
+
+                if not phash_value:
+                    try:
+                        phash_value = str(imagehash.phash(pil_image))
+                    except Exception as hash_error:
+                        print(f"Failed to compute pHash for {image_id}: {hash_error}")
+                        phash_value = None
+
+                if phash_value:
+                    if phash_value in seen_phashes:
+                        continue
+                    seen_phashes.add(phash_value)
+                    metadata.setdefault('phash', phash_value)
+                else:
+                    try:
+                        content_signature = hashlib.md5(pil_image.tobytes()).hexdigest()
+                    except Exception as digest_error:
+                        print(f"Failed to fingerprint image {image_id}: {digest_error}")
+                        content_signature = None
+
+                    if content_signature:
+                        if content_signature in seen_content_hashes:
+                            continue
+                        seen_content_hashes.add(content_signature)
+            elif phash_value:
                 if phash_value in seen_phashes:
                     continue
                 seen_phashes.add(phash_value)
-                metadata.setdefault('phash', phash_value)
-            else:
-                try:
-                    content_signature = hashlib.md5(pil_image.tobytes()).hexdigest()
-                except Exception as digest_error:
-                    print(f"Failed to fingerprint image {image_id}: {digest_error}")
-                    content_signature = None
-        
-                if content_signature:
-                    if content_signature in seen_content_hashes:
-                        continue
-                    seen_content_hashes.add(content_signature)
-        
-            results.append({
+
+            result_payload = {
                 "similarity": result["similarity"],
-                "image": pil_image,
                 "metadata": {
                     **metadata,
                     "source": result["source"]
                 }
-            })
-        
+            }
+            if pil_image is not None:
+                result_payload["image"] = pil_image
+
+            results.append(result_payload)
+
             if image_id:
                 seen_image_ids.add(image_id)
             if drive_url:
                 seen_drive_urls.add(drive_url)
             if filename:
                 seen_filenames.add(filename)
-        
+
             if len(results) >= k:
                 break
-        
+
         except Exception as e:
             print(f"Failed to load image {metadata.get('image_id')}: {e}")
             continue

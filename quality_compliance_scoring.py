@@ -1,5 +1,8 @@
+import time
+import traceback
 import streamlit as st
 from agents.quality_compliance_scoring.quality_scoring import run_update_quality_scores
+from services.activity_tracking_service import track_tool_action
 import gspread
 
 
@@ -46,7 +49,7 @@ st.info(
 )
 
 # --- Step 1: Input for Course Folder ID ---
-course_folder_id = st.text_input("Enter Course Folder ID")
+course_folder_id = "1aokFJXBP3Ez34DwJjvolRh6M6I1sgjKb"
 
 # --- Step 2: Input for Google Spreadsheet URL ---
 spreadsheet_url = st.text_input("Enter Google Spreadsheet URL")
@@ -64,8 +67,15 @@ if course_folder_id and spreadsheet_url:
 
             # Run scoring logic
             if st.button("Run Quality Scoring"):
-                run_update_quality_scores(spreadsheet, course_folder_id, spreadsheet_url)
-                st.success("Task Logs updated successfully!")
+                _t = time.perf_counter()
+                try:
+                    run_update_quality_scores(spreadsheet, course_folder_id, spreadsheet_url)
+                    track_tool_action("Quality Compliance Scoring", "run_quality_scoring", run_mode="tool", duration_seconds=time.perf_counter() - _t, course_name="", sheet_link=spreadsheet_url)
+                    st.success("Task Logs updated successfully!")
+                except Exception as e:
+                    track_tool_action("Quality Compliance Scoring", "run_quality_scoring", run_mode="tool", error_message=str(e)[:500], course_name="", sheet_link=spreadsheet_url)
+                    st.error(f"Error running quality scoring: {e}")
+                    st.text(traceback.format_exc())
 
         except Exception as e:
             st.error(f"Error loading spreadsheet: {e}")

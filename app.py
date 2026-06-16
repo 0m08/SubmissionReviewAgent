@@ -63,7 +63,7 @@ def main():
                         worksheet_name='Course Outline with LOs',
                         course_name=st.session_state['course_name'],
                         target_audience=st.session_state['target_audience'],
-                        llm='gemini_2_flash'
+                        llm='gemini_3_flash'
                     )
                     st.session_state['retriever_done'] = True
                     st.success("Retriever completed!")
@@ -83,7 +83,7 @@ def main():
                             worksheet_name='Course Outline with LOs',
                             course_name=st.session_state['course_name'],
                             target_audience=st.session_state['target_audience'],
-                            llm='gemini_2_flash'
+                            llm='gemini_3_flash'
                         )
                         st.session_state['research_done'] = True
                         st.success("Researcher completed!")

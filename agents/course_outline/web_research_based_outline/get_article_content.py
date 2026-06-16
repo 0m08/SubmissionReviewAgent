@@ -13,7 +13,7 @@ import html2text
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 import streamlit as st
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_community.document_loaders import AsyncHtmlLoader, PyPDFLoader, AsyncChromiumLoader
 from langchain_community.document_transformers import Html2TextTransformer
 from langchain_community.document_loaders import PyPDFLoader
@@ -245,7 +245,29 @@ def run_fetch_article_content(sheet, worksheet_name):
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 save_to_sheet(worksheet = preliminary_research_sheet, df = preliminary_research_df)
 
-    # Final save to sheet after all tasks
+    # Before final save, drop any rows that have content in article_content_7 and beyond
+    article_cols = [c for c in preliminary_research_df.columns if c.startswith("article_content_")]
+    extra_cols = []
+    for c in article_cols:
+        parts = c.rsplit("_", 1)
+        if len(parts) != 2:
+            continue
+        try:
+            idx = int(parts[1])
+        except ValueError:
+            continue
+        if idx >= 7:
+            extra_cols.append(c)
+
+    rows_before_drop = len(preliminary_research_df)
+    if extra_cols:
+        # Treat non-empty strings in any of the extra_cols as "has extra content"
+        mask_has_extra = preliminary_research_df[extra_cols].astype(str).ne("").any(axis=1)
+        preliminary_research_df = preliminary_research_df[~mask_has_extra].reset_index(drop=True)
+    rows_after_drop = len(preliminary_research_df)
+
+    if rows_after_drop < rows_before_drop:
+        clear_worksheet(preliminary_research_sheet)
     print('All rows processed. Saving final DataFrame to sheet.')
     save_to_sheet(worksheet = preliminary_research_sheet, df = preliminary_research_df)
 

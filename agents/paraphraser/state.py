@@ -71,4 +71,4 @@ class ParaphraserState(MessagesState):
 
     # LangGraph required fields
     remaining_steps: NotRequired[int]
-    """Number of remaining steps for LangGraph agent (required by create_react_agent)"""
+    """Number of remaining steps for LangGraph agent (required by create_agent)"""

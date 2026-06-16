@@ -1,7 +1,9 @@
+import time
 import streamlit as st
 from dotenv import load_dotenv
 from agents.template_sheet_setup.setup_template_sheets import setup_template_sheets, TEMPLATE_COURSE_SHEET_LINK
 from services.sheets_service import get_sheet_data_and_df
+from services.activity_tracking_service import track_tool_action
 import re
 
 def get_template_values(gc, template_link):
@@ -77,10 +79,11 @@ def template_sheet_setup_agent():
         if not drive_folder_id or not course_name:
             st.error("Please provide both Drive folder ID and course name.")
             return
-        
+
+        _t = time.perf_counter()
         try:
             load_dotenv()
-            
+
             # Check for authenticated clients
             if "drive" in st.session_state and "gc" in st.session_state:
                 drive = st.session_state["drive"]
@@ -88,12 +91,13 @@ def template_sheet_setup_agent():
             else:
                 st.error("Please authenticate with Google Drive and Sheets first through the main app.")
                 return
-            
+
             with st.spinner("Setting up template sheets..."):
                 result = setup_template_sheets(drive, gc, drive_folder_id, course_name)
-            
+
+            track_tool_action("Template Sheet Setup", "setup_template_sheets", run_mode="agent", duration_seconds=time.perf_counter() - _t, course_name=course_name, sheet_link=result.get("course_sheet_url", ""))
             st.success("✅ Template sheets setup completed!")
-            
+
             # Store sheet info for persistent display below
             course_status = "Created" if result['course_sheet_created'] else "Already existed"
             checklist_status = "Created" if result['checklist_sheet_created'] else "Already existed"
@@ -105,6 +109,7 @@ def template_sheet_setup_agent():
             st.session_state["checklist_sheet_status"] = checklist_status
             
         except Exception as e:
+            track_tool_action("Template Sheet Setup", "setup_template_sheets", run_mode="agent", error_message=str(e)[:500], course_name=course_name, sheet_link="")
             st.error(f"❌ Error setting up template sheets: {e}")
     
     # Always show sheet links if they exist (keeps consistent layout)
@@ -148,6 +153,7 @@ def template_sheet_setup_agent():
                     st.error(f"Please update these fields: **{', '.join(unchanged_fields)}**")
                     st.info("Make sure all fields are different from template defaults.")
                 else:
+                    track_tool_action("Template Sheet Setup", "validate_changes", run_mode="agent", course_name=course_name, sheet_link=st.session_state.get("course_sheet_url", ""))
                     st.success("✅ All required changes completed! Template setup finished.")
                     st.balloons()
                     # Mark as completed but keep the session state to maintain layout

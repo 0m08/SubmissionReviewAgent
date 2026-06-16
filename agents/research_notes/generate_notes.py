@@ -10,27 +10,21 @@ from services.youtube_video_loader import convert_time_to_sec, get_video_id_from
 import re
 import pandas as pd
 from services.youtube_video_loader import get_transcript_with_fallback, load_video_chunks_from_local_or_drive
+from agents.research_notes.review_revise_research_notes import generate_review_revise_research_notes
+from agents.research_notes.retriever import get_compression_retriever, get_web_search_retriever
 
 
 
-generate_research_notes_prompt = """You are an expert educational content developer tasked with creating comprehensive research notes for a specific subtopic within a larger course. Your goal is to produce well-structured, engaging, and educational notes that align precisely with the given learning objectives while considering the overall course structure and target audience.
-
-Before we begin, please review the following course information:
+generate_research_notes_prompt = """You are an expert educational content developer tasked with creating comprehensive research notes for a specific subtopic within a larger course.
 
 Relevant Documents/Transcripts:
 <relevant_documents_or_transcripts>
 {relevant_documents}
 </relevant_documents_or_transcripts>
 
-Course Name:
-<course_name>
-{course_name}
-</course_name>
+Course Name: {course_name}
 
-Target Audience:
-<target_audience>
-{target_audience}
-</target_audience>
+Target Audience: {target_audience}
 
 Full Course Outline with Learning Objectives:
 <full_course_outline>
@@ -42,68 +36,51 @@ Subtopic and Learning Objectives to Focus On:
 {subtopic_and_los}
 </subtopic_and_los>
 
-Now, follow these steps to generate the research notes. For each step, wrap your work inside the specified XML tags (i.e - objective_analysis, examine_documents, determine_information, propose_framework, create_notes, and review_and_refine) to show your work:
+Follow these Paraphrasing Rules when generating the research notes:
+<paraphrasing_rules>
+1. Use plain language, not corporate jargon
+2. Sound like a real technician, not an AI
+3. Keep all factual information accurate (never add or remove facts)
+4. Use active voice and short sentences
+5. Explain trade terminology when first used
+6. Be conversational but professional
+7. No buzzwords like "optimal," "leverage," "utilize," "facilitate"
+8. No hype or fluff - every sentence adds value
 
-Note:
-   - The input under <relevant_documents_or_transcripts> may consist of either:
-     a) Traditional documents (e.g., articles, manuals, textbook excerpts), or
-     b) Timestamped transcripts (e.g., from video or audio sources).
-   - If transcripts are provided, ignore the timestamps and treat the text as a normal source of information.
-   - Analyze transcript content just like any other document to extract relevant insights for the learning objectives.
-   - Regardless of the format, follow the same structured approach for all steps below and maintain the same output format.
+Examples:
+BAD: "Technicians must de-energize the system to mitigate hazards prior to engaging with components."
+GOOD: "Shut the power off before you touch anything—it keeps you safe."
 
-1. <objective_analysis>
-   - Carefully review the learning objectives for the specific subtopic.
-   - List each learning objective and break it down into key concepts and skills students should master.
-   - Consider how these objectives fit into the broader context of the course.
-</objective_analysis>
+BAD: "Ensure optimal airflow parameters."
+GOOD: "Good airflow keeps the system running right."
 
-2. <examine_documents>
-   - Thoroughly read and analyze the provided relevant documents or transcripts. If working with transcripts, ignore the timestamps and treat the content as a standard document.
-   - Quote key passages that directly support the learning objectives (in case of too many docs, very large quotes, too many quotes, it is okay to present summarized versions.)
-   - Explain the significance of each quoted passage in relation to the learning objectives.
-   - Note any examples, definitions, or explanations that could enhance understanding.
-</examine_documents>
-
-3. <determine_information>
-   - Create a table matching selected information to specific learning objectives.
-   - Review the full course outline to identify topics that will be covered in future sections.
-   - Exclude information that is more appropriate for later sections of the course.
-   - Ensure all selected information is derived from the relevant documents; do not add external information.
-</determine_information>
-
-4. <propose_framework>
-   - Create a logical structure for the notes that aligns with the learning objectives.
-   - Organize the main points and sub-points in a clear, hierarchical manner.
-   - Number each main point and sub-point to ensure a clear hierarchy.
-   - Ensure the framework provides a comprehensive overview of the subtopic.
-   - Consider how to make the structure engaging and interesting for the target audience.
-</propose_framework>
-
-5. <create_notes>
-   - Fill in the proposed framework with detailed information from the relevant documents.
-   - Write in clear, concise paragraphs appropriate for the target audience.
-   - Ensure each paragraph directly supports one or more of the learning objectives.
-   - Include relevant examples, definitions, and explanations as needed.
-   - Maintain a logical flow of information throughout the notes.
-   - Focus on making the content interesting, engaging, and educational.
-</create_notes>
-
-6. <review_and_refine>
-   - Review the notes to ensure they fully address all learning objectives.
-   - Check that all information is derived from the relevant documents.
-   - Verify that the content is comprehensive, engaging, and educational.
-   - Make any necessary refinements to improve clarity, flow, or alignment with objectives.
-</review_and_refine>
+BAD: "Apply pookie to the joints."
+GOOD: "Apply mastic—also called pookie by tradesman—to seal the joints."
+</paraphrasing_rules>
 
 
-Remember:
-- Focus solely on the specific subtopic and learning objectives provided.
-- Consider the broader context of the course and the needs of the target audience.
-- Ensure that your research notes are comprehensive, well-structured, and directly aligned with the learning objectives.
-- Write in clear, engaging paragraphs that will interest and educate the target audience.
-- Do not add any information that is not derived from the provided relevant documents.
-- Ensure that all the XML tags are properly closed and nested.
+Generate research notes for the given subtopic and learning objectives. Always provide your output strictly in the following format:
+
+<output>
+
+<analysis>
+Briefly identify the key concepts from the learning objectives and note which parts of the provided documents are most relevant.
+</analysis>
+
+<research_notes>
+Write well-structured, comprehensive notes that:
+- Directly address each learning objective
+- Use only information from the provided documents (ignore timestamps if transcripts are provided)
+- Are written in clear, engaging paragraphs appropriate for the target audience
+- Include relevant examples and definitions from the source material
+- Exclude information better suited for other sections of the course outline
+</research_notes>
+
+</output>
+
+Inline image links: Any markdown image links (`![alt](url)`) present in the source documents must be preserved verbatim in the generated research notes. Do not delete, rewrite, or modify the URL or alt text of an existing image link. Image-link repositioning is handled by a dedicated pipeline step; treat every `![](...)` you see as load-bearing content to keep intact.
+
+CRITICAL FORMAT REQUIREMENT: Return output wrapped in <output>...</output>. Inside it, use exactly these XML tags in this order and close all tags: <analysis>...</analysis> then <research_notes>...</research_notes>. Do not include any text outside <output>...</output>.
 """
 
 @traceable(metadata={
@@ -125,7 +102,7 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
     :return: The generated research notes.
     """
 
-    generate_research_notes_agent = Chain(llm = llm, tags = ['create_notes'])
+    generate_research_notes_agent = Chain(llm = llm, tags = ['research_notes'])
 
     generate_research_notes_agent.add_message(
         role = 'user',
@@ -140,16 +117,16 @@ def generate_research_notes(course_name, target_audience, course_outline, subtop
 
     response = generate_research_notes_agent.run()
 
-    # Check is research notes is under character limit
-    if len(response['create_notes']) > 50000:
-        print(f'Research notes are too long - {len(response["create_notes"])}. Summarizing...')
+    # Check if research notes is under character limit
+    if len(response['research_notes']) > 50000:
+        print(f'Research notes are too long - {len(response["research_notes"])}. Summarizing...')
         generate_research_notes_agent.add_message(
             role = 'user',
-            content = f"The research notes are too long. The current length is {len(response['create_notes'])} characters. Please summarize them to be under 50000 characters. Make sure to output in the same format as above."
+            content = f"The research notes are too long. The current length is {len(response['research_notes'])} characters. Please summarize them to be under 50000 characters. Make sure to output in the same format as above."
         )
         response = generate_research_notes_agent.run()
 
-    return response['create_notes'] if len(response['create_notes']) < 50000 else response['create_notes'][:49990]
+    return response['research_notes'] if len(response['research_notes']) < 50000 else response['research_notes'][:49990]
 
 
 generate_transcript_chunk_extraction_prompt = """You are an expert educational content developer tasked with analyzing timestamped transcripts from one or more videos to extract the most relevant segments for a specific learning objective within a subtopic of an E-learning course. Your goal is to identify and return the exact transcript chunks that best support the given learning objective.
@@ -339,6 +316,20 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
         # Load all transcripts once
         video_chunks_dict = load_video_chunks_from_local_or_drive(_drive) if _drive else {}
 
+        # Load retrievers once for the review-revise loop
+        compression_retriever = None
+        web_search_retriever = None
+        try:
+            import streamlit as st
+            course_drive_folder_id = st.session_state.get("root_folder_id")
+            compression_retriever = get_compression_retriever(course_name, course_drive_folder_id, _drive, sheet)
+        except Exception as e:
+            print(f"Could not load compression retriever: {e}")
+        try:
+            web_search_retriever = get_web_search_retriever()
+        except Exception as e:
+            print(f"Could not load web search retriever: {e}")
+
         futures_map = {}
         with ThreadPoolExecutor(max_workers=5) as executor:
             for index, row in course_outline_with_lo_df.iterrows():
@@ -370,14 +361,17 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                                 llm=llm
                             )
                         elif ref_usage == "Content":
-                            # Use the context that was already retrieved and processed
                             future = executor.submit(
-                                generate_research_notes,
+                                generate_review_revise_research_notes,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
                                 relevant_documents=context,
+                                row_id=index,
+                                sheet=sheet,
+                                compression_retriever=compression_retriever,
+                                web_search_retriever=web_search_retriever,
                                 llm=llm
                             )
 
@@ -395,37 +389,48 @@ def run_research_notes_agent_for_all_rows(sheet, worksheet_name, course_name, ta
                                 llm=llm
                             )
                         elif ref_usage == "Content":
-                            # Use the context that was already retrieved and processed
                             future = executor.submit(
-                                generate_research_notes,
+                                generate_review_revise_research_notes,
                                 course_name=course_name,
                                 target_audience=target_audience,
                                 course_outline=course_outline_with_lo,
                                 subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
                                 relevant_documents=context,
+                                row_id=index,
+                                sheet=sheet,
+                                compression_retriever=compression_retriever,
+                                web_search_retriever=web_search_retriever,
                                 llm=llm
                             )
 
                     elif ref_type == "Web Article" and ref_usage == "Content":
                         future = executor.submit(
-                            generate_research_notes,
+                            generate_review_revise_research_notes,
                             course_name=course_name,
                             target_audience=target_audience,
                             course_outline=course_outline_with_lo,
                             subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
                             relevant_documents=context,
+                            row_id=index,
+                            sheet=sheet,
+                            compression_retriever=compression_retriever,
+                            web_search_retriever=web_search_retriever,
                             llm=llm,
                         )
 
                 # Fallback when no reference is provided
                 if not future:
                     future = executor.submit(
-                        generate_research_notes,
+                        generate_review_revise_research_notes,
                         course_name=course_name,
                         target_audience=target_audience,
                         course_outline=course_outline_with_lo,
                         subtopic_and_los=row['Subtopic'] + '\n\n' + row['Learning Objectives'],
                         relevant_documents=context,
+                        row_id=index,
+                        sheet=sheet,
+                        compression_retriever=compression_retriever,
+                        web_search_retriever=web_search_retriever,
                         llm=llm
                     )
 

@@ -24,11 +24,14 @@ class SlideChunk(BaseModel):
 
 slide_chunk_parsing_prompt = """You are an expert parser for E-learning slide content. Given a block of text representing a single slide, extract the following fields in a structured way:
 
+- subtopic: The value after 'Subtopic:' (if present, otherwise empty string)
 - slide_type: The value after 'Slide Type:'
 - slide_chunk_title: The value after 'Title:'
 - slide_chunk: For blocks with a 'Content:' field, extract everything after 'Content:'. For blocks with 'Slide Type: Video', extract everything after the 'Slide Type:' line (including Video_Id, Start, End and Transcript.)
 
 Return the output as a structured object with these fields. Do not add or infer any information. Only extract what is present in the block.
+
+Inline image links: If the slide content contains markdown image links in either `[alt](url)` or `![alt](url)` form, preserve them verbatim (same `[` vs `!` prefix, same URL, same alt text, same position relative to the surrounding text) inside the `slide_chunk` field. Do not drop, rewrite, reformat, or reposition them.
 
 Block:
 {block}
@@ -43,13 +46,14 @@ Block:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_slide_chunks_parsing(sheet, worksheet_name="Final Outline", output_sheet_name="Slide Chunks", max_workers=5):
+def run_slide_chunks_parsing(sheet, worksheet_name="Final Outline", output_sheet_name="Slide Chunks", max_workers=5, llm="gemini_3_flash"):
     """
     Parses the slide_chunks column in the Final Outline sheet and outputs a structured Slide Chunks sheet.
     :param sheet: The gspread sheet object.
     :param worksheet_name: The worksheet name to read from.
     :param output_sheet_name: The worksheet name to write to.
     :param max_workers: Number of parallel workers (default 5).
+    :param llm: The language model to use for parsing (default "gemini_3_flash").
     :return: The DataFrame written to the Slide Chunks sheet.
     """
     _, df = get_sheet_data_and_df(sheet, worksheet_name)
@@ -64,7 +68,7 @@ def run_slide_chunks_parsing(sheet, worksheet_name="Final Outline", output_sheet
                 continue  # Skip empty slide_chunks
             topic = row["Topic"]
             subtopic = row["Subtopic"]
-            future = executor.submit(process_slide_chunks_row, topic, subtopic, slide_chunks_cell, index)
+            future = executor.submit(process_slide_chunks_row, topic, subtopic, slide_chunks_cell, index, llm)
             futures_map[future] = index
 
         total_tasks = len(futures_map)
@@ -115,7 +119,7 @@ def run_slide_chunks_parsing(sheet, worksheet_name="Final Outline", output_sheet
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_slide_chunks_row(topic, subtopic, slide_chunks_cell, index):
+def process_slide_chunks_row(topic, subtopic, slide_chunks_cell, index, llm="gemini_3_flash"):
     """
     Parses all blocks in a slide_chunks cell for a single row.
     :param topic: The topic for this row.
@@ -124,11 +128,15 @@ def process_slide_chunks_row(topic, subtopic, slide_chunks_cell, index):
     :param index: The row index (for ordering).
     :return: List of dicts for each parsed slide chunk.
     """
-    blocks = [b.strip() for b in re.split(r"\n\s*\n", slide_chunks_cell) if b.strip()]
-    parsed_blocks = []
-    for block in blocks:
-        # Use LLM + Pydantic to parse and validate
-        agent = Chain(llm="gemini_2_flash")
+    # Split on --- separator (used by v2 generator) with fallback to blank lines
+    if re.search(r'^---\s*$', slide_chunks_cell, re.MULTILINE):
+        blocks = [b.strip() for b in re.split(r'\n---\s*\n', slide_chunks_cell) if b.strip()]
+    else:
+        blocks = [b.strip() for b in re.split(r"\n\s*\n", slide_chunks_cell) if b.strip()]
+
+    def parse_block(block_idx_tuple):
+        block_idx, block = block_idx_tuple
+        agent = Chain(llm=llm)
         agent.add_message(
             role="user",
             content=slide_chunk_parsing_prompt.format(block=block)
@@ -136,10 +144,17 @@ def process_slide_chunks_row(topic, subtopic, slide_chunks_cell, index):
         agent.structured_output = SlideChunk
         response = agent.run()
         parsed = response.model_dump()
-        # Set topic and subtopic from the row, not from the LLM
         parsed['topic'] = topic
-        parsed['subtopic'] = subtopic
-        parsed_blocks.append(parsed)
+        if not parsed.get('subtopic'):
+            parsed['subtopic'] = subtopic
+        return block_idx, parsed
+
+    # Parse all blocks in parallel, then sort by original order
+    parsed_blocks = [None] * len(blocks)
+    with ThreadPoolExecutor(max_workers=5) as block_executor:
+        for block_idx, parsed in block_executor.map(parse_block, enumerate(blocks)):
+            parsed_blocks[block_idx] = parsed
+
     return parsed_blocks
 
 def delete_slide_chunks_sheet(sheet, worksheet_name="Slide Chunks"):

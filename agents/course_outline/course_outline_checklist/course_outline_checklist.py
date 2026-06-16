@@ -21,7 +21,7 @@ from services.smart_progress_bar import SmartProgressBar
 from langsmith import traceable
 
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain.chat_models import init_chat_model
@@ -30,7 +30,7 @@ from langchain.chat_models import init_chat_model
 from pydantic import Field
 # from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
-from langgraph.prebuilt.chat_agent_executor import AgentState
+from langchain.agents import AgentState
 import pandas as pd
 from services.crud_text_block_tools import create_block, read_blocks, update_block, delete_block 
 from services.helper_functions import iterate_scope
@@ -562,7 +562,7 @@ def run_course_outline_reviser_agent(course_outline, checklist_feedback, criteri
         df: pd.DataFrame = Field(default_factory=pd.DataFrame)
 
 
-    graph = create_react_agent(
+    graph = create_agent(
         model=llm_instance,
         tools=[create_block, read_blocks, update_block, delete_block],
         state_schema=BufferState,     # <— includes the dataframe

@@ -1,22 +1,107 @@
 import os
 import pickle
+import json
+import shutil
 import streamlit as st
+import sqlite3
+import tempfile
+import threading
+import time
 from modules.chain import Chain
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_cohere import CohereRerank
-from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 from typing import Any, Dict, List, Optional, Tuple
-from langchain.retrievers import EnsembleRetriever
+from langchain_classic.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from services.embedding_service import get_embedding_model
-from langchain.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from agents.vector_store_image_search.create_vectorstore import download_folder_from_drive
-
+import base64
+import vertexai
+from chromadb import PersistentClient
+from vertexai.vision_models import MultiModalEmbeddingModel
+from vertexai.generative_models import Part
+from langchain_core.runnables import Runnable
+from google.oauth2 import service_account
 
 
 VIDEO_CENTRAL_FOLDER_ID = '1kovlkUd3pN5IGDB16LC2H8grvmQOhXHy'
 
 _VIDEO_VECTOR_DB_CACHE: Dict[str, Tuple[Chroma, Any]] = {}
+
+# Cache for load_new_video_embeddings_chroma_db so we download/load a given resolved Drive vectorstore folder only once per process.
+_NEW_VIDEO_EMBEDDINGS_CACHE: Dict[str, Any] = {}
+# In-process lock so only one thread downloads/loads; others wait and then use cache (avoids WinError 32/5 when many threads run in parallel).
+_NEW_VIDEO_EMBEDDINGS_LOAD_LOCK = threading.Lock()
+_VIDEO_EMBEDDINGS_MODEL_LOCK = threading.Lock()
+_VIDEO_EMBEDDINGS_MODEL = None
+
+
+def _get_service_account_email_from_env():
+    """Extract client_email from GDRIVE_SA_B64 or GDRIVE_SA_JSON for error messages."""
+    try:
+        b64 = os.environ.get("GDRIVE_SA_B64")
+        if b64:
+            key_bytes = base64.b64decode(b64)
+            sa_dict = json.loads(key_bytes.decode())
+            return sa_dict.get("client_email") or None
+        raw = os.environ.get("GDRIVE_SA_JSON")
+        if raw:
+            sa_dict = json.loads(raw)
+            return sa_dict.get("client_email") or None
+    except Exception:
+        pass
+    return None
+
+
+def resolve_video_chroma_db_path(local_chroma_path):
+    """
+    Return the path that contains chroma.sqlite3.
+    create_video_embeddings stores the DB inside a subfolder 'chroma_video_embeddings_db'.
+    """
+    if os.path.exists(os.path.join(local_chroma_path, "chroma.sqlite3")):
+        return local_chroma_path
+    for name in os.listdir(local_chroma_path):
+        if name.startswith("."):
+            continue
+        candidate = os.path.join(local_chroma_path, name)
+        if os.path.isdir(candidate) and os.path.exists(os.path.join(candidate, "chroma.sqlite3")):
+            return candidate
+    return local_chroma_path
+
+
+def _get_video_embeddings_model():
+    """Load the Vertex multimodal embedding model once per process."""
+    global _VIDEO_EMBEDDINGS_MODEL
+
+    if _VIDEO_EMBEDDINGS_MODEL is not None:
+        return _VIDEO_EMBEDDINGS_MODEL
+
+    with _VIDEO_EMBEDDINGS_MODEL_LOCK:
+        if _VIDEO_EMBEDDINGS_MODEL is not None:
+            return _VIDEO_EMBEDDINGS_MODEL
+
+        if "VERTEX_AI_SA_B64" not in os.environ:
+            raise Exception("VERTEX_AI_SA_B64 environment variable not found. Please add it to your .env file.")
+
+        key_bytes = base64.b64decode(os.environ["VERTEX_AI_SA_B64"])
+        sa_json = key_bytes.decode()
+        sa_dict = json.loads(sa_json)
+
+        creds = service_account.Credentials.from_service_account_info(sa_dict)
+        vertexai.init(
+            project="dam-images-tagging",
+            location="us-central1",
+            credentials=creds
+        )
+        print("✅ Vertex AI initialized with project: dam-images-tagging")
+
+        _VIDEO_EMBEDDINGS_MODEL = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
+        print("✅ Loaded multimodalembedding@001 for HVAC video search")
+        return _VIDEO_EMBEDDINGS_MODEL
+
+
 _VIDEO_BM25_CACHE: Dict[str, BM25Retriever] = {}
 _VIDEO_COMPRESSION_CACHE: Dict[str, ContextualCompressionRetriever] = {}
 
@@ -65,7 +150,7 @@ def load_video_chroma_db(embedding_function, drive, central_folder_id):
     return video_chroma
 
 
-def load_video_vector_db_retriever(drive, central_folder_id: str = VIDEO_CENTRAL_FOLDER_ID):
+def load_video_vector_db_retriever(drive, central_folder_id = VIDEO_CENTRAL_FOLDER_ID):
     """
     Load the vector database retriever.
     :param course_name: The name of the course.
@@ -91,6 +176,162 @@ def load_video_vector_db_retriever(drive, central_folder_id: str = VIDEO_CENTRAL
 
     _VIDEO_VECTOR_DB_CACHE[cache_key] = (chroma_db, vector_db_retriever)
     return chroma_db, vector_db_retriever
+
+
+def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video_embeddings_folder_name='Vectorstore for HVAC school video embeddings'):
+    """
+    Load the new multimodal video embeddings Chroma DB from Google Drive.
+    Uses a per-process cache keyed by the resolved Drive vectorstore folder ID, and a process-local directory so multiple processes (e.g. Streamlit workers) never open the same DB path.
+    
+    :param drive: Authenticated PyDrive2 instance.
+    :param video_embeddings_folder_id: Drive folder ID containing the vectorstore folder.
+    :param video_embeddings_folder_name: Name of the vectorstore folder inside the parent folder (default: 'Vectorstore for HVAC school video embeddings').
+    :return: Chroma vectorstore instance.
+    """
+
+    print(f"Searching for '{video_embeddings_folder_name}' in Drive...")
+    file_list = drive.ListFile({
+        'q': f"title='{video_embeddings_folder_name}' and '{video_embeddings_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    }).GetList()
+    if not file_list:
+        raise FileNotFoundError(f"'{video_embeddings_folder_name}' not found in Drive folder {video_embeddings_folder_id}.")
+    chroma_folder_id = file_list[0]['id']
+    print(f"Found Video Embeddings folder ID: {chroma_folder_id}")
+
+    cache_key = chroma_folder_id
+    if cache_key in _NEW_VIDEO_EMBEDDINGS_CACHE:
+        return _NEW_VIDEO_EMBEDDINGS_CACHE[cache_key]
+
+    with _NEW_VIDEO_EMBEDDINGS_LOAD_LOCK:
+        if cache_key in _NEW_VIDEO_EMBEDDINGS_CACHE:
+            return _NEW_VIDEO_EMBEDDINGS_CACHE[cache_key]
+
+        base_path = os.path.join(tempfile.gettempdir(), "HVAC Video Embeddings", str(os.getpid()))
+        local_chroma_path = os.path.join(base_path, chroma_folder_id)
+        os.makedirs(base_path, exist_ok=True)
+        os.makedirs(local_chroma_path, exist_ok=True)
+
+        try:
+            existing_db_path = resolve_video_chroma_db_path(local_chroma_path)
+            if not os.path.exists(os.path.join(existing_db_path, "chroma.sqlite3")):
+                print("⬇ Downloading Video Embeddings Chroma DB from Drive...")
+                download_folder_from_drive(chroma_folder_id, local_chroma_path, drive)
+                print(f"Downloaded Video Embeddings Chroma DB from Drive to {local_chroma_path}")
+            else:
+                print(f"Using cached local Video Embeddings Chroma DB at {existing_db_path}")
+        except Exception as e:
+            if os.path.exists(local_chroma_path):
+                try:
+                    shutil.rmtree(local_chroma_path)
+                except OSError:
+                    pass
+            raise
+
+        db_path = resolve_video_chroma_db_path(local_chroma_path)
+        if db_path != local_chroma_path:
+            print(f"Using Chroma DB subfolder: {os.path.basename(db_path)}")
+
+        # Load video embeddings collection
+        client = PersistentClient(path=db_path)
+
+        try:
+            collections = client.list_collections()
+            print(f"Available collections in vectorstore: {[c.name for c in collections]}")
+
+            if not collections:
+                print("❌ No collections found in vectorstore. The vectorstore is empty.")
+                raise Exception(
+                    "Video embeddings vectorstore is empty. Share the Drive folder with the service account (see GDRIVE_SA_B64)."
+                )
+            
+            collection = client.get_collection("video_embeddings")
+            print("Loaded 'video_embeddings' collection from new vectorstore.")
+            
+            class VideoEmbeddingsChroma:
+                def __init__(self, db_path, collection_name, collection):
+                    self.db_path = db_path
+                    self.collection_name = collection_name
+                    self.collection = collection
+                    self._thread_local = threading.local()
+
+                def _get_thread_local_collection(self):
+                    collection = getattr(self._thread_local, "collection", None)
+                    if collection is not None:
+                        return collection
+
+                    client = PersistentClient(path=self.db_path)
+                    collection = client.get_collection(self.collection_name)
+                    self._thread_local.client = client
+                    self._thread_local.collection = collection
+                    return collection
+
+                def similarity_search(self, query, k=10, **kwargs):
+                    return self._similarity_search_impl(query, k, **kwargs)
+                 
+                def _similarity_search_impl(self, query, k=10, **kwargs):
+                    # Use Vertex AI multimodal embedding model to generate query embeddings
+                    print(f"🔍 Searching video embeddings for query: '{query[:50]}...'")
+                    
+                    try:
+                        model = _get_video_embeddings_model()
+                        result = model.get_embeddings(contextual_text=query)
+                        query_embedding = result.text_embedding
+                        print(f"✅ Using Vertex AI multimodal embeddings for query")
+                        print(f"✅ Query embedding dimension: {len(query_embedding)}")
+                    except Exception as e:
+                        print(f"❌ Error initializing Vertex AI: {str(e)}")
+                        raise
+
+                    # Query the vector store with the embedding
+                    collection = self._get_thread_local_collection()
+                    results = collection.query(
+                        query_embeddings=[query_embedding],
+                        n_results=k
+                    )
+                    
+                    # Convert to LangChain Document format
+                    docs = []
+                    if results['documents'] and results['documents'][0]:
+                        for i, doc_content in enumerate(results['documents'][0]):
+                            metadata = results['metadatas'][0][i] if results['metadatas'] and results['metadatas'][0] else {}
+                            
+                            if doc_content and doc_content.strip():
+                                page_content = doc_content
+                            else:
+                                title = metadata.get('title', 'Unknown Video')
+                                start_time = metadata.get('start_time', 0)
+                                end_time = metadata.get('end_time', 'end')
+                                video_url = metadata.get('video_url', '')
+                                segment_index = metadata.get('segment_index', 0)
+                                page_content = f"Video: {title} | Segment: {segment_index} | Time: {start_time}s-{end_time}s | URL: {video_url}"
+                            
+                            docs.append(Document(page_content=page_content, metadata=metadata))
+                    
+                    return docs
+                    
+                def as_retriever(self, search_kwargs=None):
+                    if search_kwargs is None:
+                        search_kwargs = {"k": 10}
+                    return VideoEmbeddingsRetriever(self, search_kwargs)
+            
+            class VideoEmbeddingsRetriever(Runnable):
+                def __init__(self, chroma_db, search_kwargs):
+                    self.chroma_db = chroma_db
+                    self.search_kwargs = search_kwargs
+                    
+                def invoke(self, input: Any, config: Any = None) -> List[Any]:
+                    return self.chroma_db.similarity_search(input, **self.search_kwargs)
+                
+                def _invoke(self, input: Any, config: Any = None) -> List[Any]:
+                    return self.invoke(input, config)
+            
+            chroma_wrapper = VideoEmbeddingsChroma(db_path, "video_embeddings", collection)
+            _NEW_VIDEO_EMBEDDINGS_CACHE[cache_key] = chroma_wrapper
+            return chroma_wrapper
+            
+        except Exception as e:
+            print(f"Error loading video embeddings collection: {e}")
+            raise
 
 
 def load_bm25_retriever_with_pydrive(central_folder_id: str, drive):
@@ -557,4 +798,3 @@ Candidate videos:
 
     print("Max turns reached. No videos selected.")
     return []
-

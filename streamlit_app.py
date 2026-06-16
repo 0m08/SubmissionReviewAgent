@@ -13,9 +13,10 @@ import json
 import os
 from dotenv import load_dotenv
 from streamlit_clickable_images import clickable_images
-from utils.role_utils import get_user_info, get_user_pages
+from utils.role_utils import get_user_info, get_user_pages, role_requires_oauth
 from config.logging_config import get_logger, setup_logging
 from mcp_ui_app import mcp_ui_page
+from services.activity_tracking_service import track_login, track_page_view
 
 # from jira import JIRA
 
@@ -30,20 +31,55 @@ def load_image_as_base64(path):
 setup_logging()
 logger = get_logger(__name__)
 
+# Sidebar navigation: wrap long page titles instead of ellipsis truncation.
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebarNav"] a {
+        display: flex !important;
+        align-items: baseline !important;
+        gap: 0.35rem !important;
+    }
+    [data-testid="stSidebarNav"] a,
+    [data-testid="stSidebarNav"] a * {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-word !important;
+    }
+    [data-testid="stSidebarNav"] a svg {
+        flex-shrink: 0 !important;
+        margin-top: 0 !important;
+        transform: translateY(0.14rem);
+    }
+    [data-testid="stSidebarNav"] a > span:first-child,
+    [data-testid="stSidebarNav"] a > div:first-child {
+        flex-shrink: 0 !important;
+        align-self: baseline !important;
+        transform: translateY(0.14rem) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # 1) Initialize Session State for user role
 if "role" not in st.session_state:
     st.session_state.role = None
 
 
-# skillcat_logo_image = Image.open("assets/SkillCat-Logo.png")
-# skillcat_helmet_image = Image.open("assets/SkillCat-Helmet.png")
-
-# st.logo(
-#     image = skillcat_logo_image,
-#     size = "medium",
-#     # link = "https://www.skillcatapp.com/",
-#     icon_image = skillcat_helmet_image
-# )
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_logo_path = os.path.join(_APP_DIR, "assets", "SkillCat-Logo.png")
+_helmet_path = os.path.join(_APP_DIR, "assets", "SkillCat-Helmet.png")
+try:
+    if os.path.exists(_logo_path) and os.path.exists(_helmet_path):
+        st.logo(
+            image=_logo_path,
+            size="medium",
+            icon_image=_helmet_path,
+        )
+except Exception:
+    pass  # logo is non-critical; skip silently if anything goes wrong
 
 #######################
 # 2) Define "pages"
@@ -51,6 +87,8 @@ if "role" not in st.session_state:
 
 def login():
     """Direct Google OAuth authentication - no username/password required."""
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=200)
     st.header("SkillCat AI Agents Ecosystem")
     
     # Handle OAuth callback first (when Google redirects back with ?code=...)
@@ -82,7 +120,11 @@ def login():
                 redirect_uri=redirect_uri,
                 code=code,
             )
-            gauth, drive, gc = init_clients_from_credentials(creds)
+            gauth, drive, gc = init_clients_from_credentials(
+                creds,
+                client_id=oauth_client_id,
+                client_secret=oauth_client_secret
+            )
 
             about = drive.GetAbout()
             user_email = about.get('user', {}).get('emailAddress', '')
@@ -96,6 +138,14 @@ def login():
                     st.session_state["role"] = user_info["role"]
                     st.session_state["user_email"] = user_email
                     st.session_state["user_pages"] = user_info["pages"]
+                    if getattr(creds, "refresh_token", None):
+                        st.session_state["google_oauth_refresh_token"] = creds.refresh_token
+                    else:
+                        st.session_state.pop("google_oauth_refresh_token", None)
+
+                    # Track login event
+                    track_login(gc, user_email)
+
                     st.session_state.pop("oauth_state", None)
                     st.query_params.clear()
                     st.rerun()
@@ -202,7 +252,18 @@ def login():
                                 st.session_state["role"] = user_info["role"]
                                 st.session_state["user_email"] = user_email
                                 st.session_state["user_pages"] = user_info["pages"]
-                                
+                                try:
+                                    _rt = getattr(gauth.credentials, "refresh_token", None)
+                                    if _rt:
+                                        st.session_state["google_oauth_refresh_token"] = _rt
+                                    else:
+                                        st.session_state.pop("google_oauth_refresh_token", None)
+                                except Exception:
+                                    st.session_state.pop("google_oauth_refresh_token", None)
+
+                                # Track login event
+                                track_login(gc, user_email)
+
                                 st.success(f"✅ Authentication successful! Welcome {user_info['role']} - {user_email}")
                                 st.rerun()
                             else:
@@ -223,13 +284,35 @@ def login():
                 st.error(f"Authentication failed: {e}")
                 st.session_state["oauth_authenticated"] = False
     
-    # else:
-    #     st.error("Failed to authenticate. Wrong passsword. Try again.")
-    #     time.sleep(2)
-    # else:
-    #     st.error("Failed to authenticate. Wrong user name. Try again.")
-    #     time.sleep(2)
-    # st.rerun()
+    # --- Email-only login for roles that don't need Google OAuth ---
+    st.divider()
+    st.markdown("**External user?** Log in with your email address:")
+    email_input = st.text_input("Email address", key="email_login_input")
+    if st.button("Log in with email"):
+        if email_input:
+            user_info = get_user_info(email_input.strip())
+            if user_info["is_authorized"] and not role_requires_oauth(user_info["role"]):
+                st.session_state["role"] = user_info["role"]
+                st.session_state["user_email"] = email_input.strip()
+                st.session_state["user_pages"] = user_info["pages"]
+                st.session_state["oauth_authenticated"] = False
+
+                # Set up a service-account gspread client for activity tracking
+                try:
+                    load_dotenv()
+                    sa_key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
+                    sa_dict = json.loads(sa_key_bytes.decode())
+                    gc_sa = gspread.service_account_from_dict(sa_dict)
+                    st.session_state["gc"] = gc_sa
+                    track_login(gc_sa, email_input.strip())
+                except Exception:
+                    pass  # tracking is best-effort
+
+                st.rerun()
+            else:
+                st.error("This email is not authorized for email-only login. Please use Google sign-in above.")
+        else:
+            st.warning("Please enter your email address.")
 
 
 def logout():
@@ -240,38 +323,143 @@ def logout():
     st.rerun()
 
 
+PAGE_DESCRIPTIONS = {
+    "template_sheet_setup_page": {
+        "icon": ":material/content_copy:",
+        "title": "Template Sheet Setup",
+        "description": "Set up and validate your template course sheet before running any agentic workflows.",
+        "category": "agent",
+    },
+    "course_outline_page": {
+        "icon": ":material/toc:",
+        "title": "Course Outline",
+        "description": "Generate course outlines using multiple agents for video search, web research, deep research, and outline consolidation.",
+        "category": "agent",
+    },
+    "research_notes_page": {
+        "icon": ":material/quick_reference_all:",
+        "title": "Research Notes",
+        "description": "Run the research notes pipeline including retrieval, generation, review/revision, and checklist validation.",
+        "category": "agent",
+    },
+    "slide_chunks_page": {
+        "icon": ":material/topic:",
+        "title": "Slide Chunks",
+        "description": "Generate slide chunks from research notes, including learning objectives and checklist review.",
+        "category": "agent",
+    },
+    "graphics_definition_v2_page": {
+        "icon": ":material/auto_awesome:",
+        "title": "Graphics Definition",
+        "description": "Create graphics definitions through image/video segmentation, search query generation, and aggregation with review.",
+        "category": "agent",
+    },
+    "assessments_generation_page": {
+        "icon": ":material/quiz:",
+        "title": "Assessment",
+        "description": "Generate and review assessment questions for courses with automated checklist validation.",
+        "category": "agent",
+    },
+    "vectorstore_page": {
+        "icon": ":material/storage:",
+        "title": "Image Search",
+        "description": "Search for relevant images from Google Drive and web sources using vector embeddings.",
+        "category": "tool",
+    },
+    "quality_compliance_scoring_page": {
+        "icon": ":material/check_circle:",
+        "title": "Quality Compliance Scoring",
+        "description": "Analyze reviewed course checklists and generate compliance metrics automatically.",
+        "category": "tool",
+    },
+    "video_search_tool_page": {
+        "icon": ":material/video_library:",
+        "title": "Video Search Tool",
+        "description": "Search HVAC videos by transcript or visual content from YouTube channels.",
+        "category": "tool",
+    },
+    "slideshow_streamlit_page": {
+        "icon": ":material/slideshow:",
+        "title": "Slideshow",
+        "description": "Generate slideshows and videos by combining images, audio narration, and transitions.",
+        "category": "tool",
+    },
+    "slideshow_manifest_video_page": {
+        "icon": ":material/movie:",
+        "title": "Slideshow Video (Manifest)",
+        "description": "Render layout-aware slideshow videos from the slideshow_manifest column with edge-tts narration.",
+        "category": "tool",
+    },
+    "paraphraser_page": {
+        "icon": ":material/edit:",
+        "title": "Paraphraser",
+        "description": "Transform technical text into clear, conversational language for a specific trade context.",
+        "category": "tool",
+    },
+    "image_translation_page": {
+        "icon": ":material/translate:",
+        "title": "Image Translation",
+        "description": "Translate text within images inline while preserving the original layout and composition.",
+        "category": "tool",
+    },
+    "mcp_ui_page": {
+        "icon": ":material/settings:",
+        "title": "MCP Server Manager",
+        "description": "Manage MCP servers and interact with agents that use tools from connected servers.",
+        "category": "tool",
+    },
+    "image_editing_tool_page": {
+        "icon": ":material/palette:",
+        "title": "Image Editing",
+        "description": "Upload and edit images with AI while preserving the original composition.",
+        "category": "tool",
+    },
+    "curriculum_mapping_tool_page": {
+        "icon": ":material/menu_book:",
+        "title": "Curriculum Mapping Tool",
+        "description": "Map course curriculum to external standards (SkillCat, Nextech) and export to PDF.",
+        "category": "tool",
+    },
+    "aggregation_agent_page": {
+        "icon": ":material/slideshow:",
+        "title": "Graphics Definition Review",
+        "description": "Review and provide feedback on graphics assignments with AI suggestions and voiceover generation.",
+        "category": "tool",
+    },
+    "workflow_directory_page": {
+        "icon": ":material/account_tree:",
+        "title": "Workflow Agents",
+        "description": "View visual workflow diagrams for each generation pipeline with interactive navigation.",
+        "category": "agent",
+    },
+}
+
+
 def list_of_agents():
+    if os.path.exists(_logo_path):
+        st.image(_logo_path, width=200)
     st.header("SkillCat AI Agents Ecosystem")
-    st.write("Here's the list of agentic workflows:")
-    st.markdown(
-"""Worflow Name | Informational Course | Instructional Course | Practical Course
-|- | - | - | - |
-:material/toc: Course Outline | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-:material/quick_reference_all: Research Notes | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-:material/topic: Slide Chunks | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-:material/image: Graphics Definition | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable | :material/check_box_outline_blank: Usable
-:material/quiz: Assessment | :material/check_box: Usable | :material/check_box: Usable | :material/check_box: Usable
-"""
-    )
 
-    st.info(""":material/info: To run any of the above agentic workflows, navigate to the corresponding page from the left side panel""")
+    effective_role = st.session_state.get("impersonated_role", st.session_state.get("role"))
+    if effective_role == st.session_state.get("role"):
+        user_page_names = st.session_state.get("user_pages", [])
+    else:
+        user_page_names = get_user_pages(effective_role)
 
-    # # Connect to Jira and fetch issue description
-    # try:
-    #     jira = JIRA(server=os.environ['JIRA_SITE'], 
-    #                 basic_auth=(os.environ['JIRA_EMAIL'], os.environ['JIRA_API_TOKEN']))
-        
-    #     issue = jira.issue('SGP-2789', expand="renderedFields,names,schema")
-    #     desc_html = issue.renderedFields.description
-        
-    #     st.markdown("### Jira Issue Description")
-    #     st.markdown(desc_html, unsafe_allow_html=True)
-    # except Exception as e:
-    #     st.error(f"Error fetching Jira issue: {str(e)}")
+    user_agents = [PAGE_DESCRIPTIONS[p] for p in user_page_names if p in PAGE_DESCRIPTIONS and PAGE_DESCRIPTIONS[p]["category"] == "agent"]
+    user_tools = [PAGE_DESCRIPTIONS[p] for p in user_page_names if p in PAGE_DESCRIPTIONS and PAGE_DESCRIPTIONS[p]["category"] == "tool"]
 
+    if user_agents:
+        st.subheader("Agentic Workflows")
+        for page in user_agents:
+            st.markdown(f"{page['icon']} **{page['title']}** — {page['description']}")
 
-# We can either define Page objects inline (pointing to .py files or callables)
-# or just define them here. For simplicity, let's define some stubs as Page objects.
+    if user_tools:
+        st.subheader("Tools")
+        for page in user_tools:
+            st.markdown(f"{page['icon']} **{page['title']}** — {page['description']}")
+
+    st.info(":material/info: Navigate to any page from the left side panel to get started.")
 
 # --- Account pages ---
 list_of_agents_page = st.Page(list_of_agents, title = "Home", icon = ":material/list:")
@@ -307,11 +495,17 @@ slide_chunks_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
-graphics_definition_page = st.Page(
-    "graphics_definition.py",
-    title="Graphics Definiton",
-    icon=":material/image:",
-    # Optional: default=(role == "Requester") or any logic
+# graphics_definition_page = st.Page(
+#     "graphics_definition.py",
+#     title="Graphics Definiton (Old)",
+#     icon=":material/image:",
+#     # Optional: default=(role == "Requester") or any logic
+# )
+
+graphics_definition_v2_page = st.Page(
+    "graphics_definition_v2.py",
+    title="Graphics Definition",
+    icon=":material/auto_awesome:",
 )
 
 assessments_generation_page = st.Page(
@@ -342,11 +536,11 @@ vectorstore_page = st.Page(
     # Optional: default=True or role-based logic
 )
 
-get_images_page = st.Page(
-    "get_images_from_graphics_definitions.py",
-    title="Image Search with Graphics Definitions",
-    icon=":material/image_search:",
-)
+# get_images_page = st.Page(
+#     "get_images_from_graphics_definitions.py",
+#     title="Image Search with Graphics Definitions",
+#     icon=":material/image_search:",
+# )
 
 quality_compliance_scoring_page = st.Page(
     "quality_compliance_scoring.py",
@@ -360,6 +554,23 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
+# graphics_definition_v2_slideshow_page = st.Page(
+#     "graphics_definition_v2_video_generator.py",
+#     title="Graphics V2 Slideshow",
+#     icon=":material/slideshow:",
+# )
+
+slideshow_streamlit_page = st.Page(
+    "slideshow_streamlit.py",
+    title="Slideshow",
+    icon=":material/slideshow:",
+)
+
+# slideshow_manifest_video_page = st.Page(
+#     "slideshow_manifest_video.py",
+#     title="Slideshow Video (Manifest)",
+#     icon=":material/movie:",
+# )
 
 paraphraser_page = st.Page(
     "paraphraser.py",
@@ -390,6 +601,33 @@ curriculum_mapping_tool_page = st.Page(
     title="Curriculum Mapping Tool",
     icon=":material/menu_book:",
 )
+
+aggregation_agent_page = st.Page(
+    "graphics_definition_v2_slideshow.py",
+    title="View Graphics Definition Agent Outputs and Add Human Feedback",
+    icon=":material/slideshow:",
+)
+
+# pptx_exporter_page = st.Page(
+#     "pptx_exporter.py",
+#     title="PPTX Exporter",
+#     icon=":material/present_to_all:",
+# )
+
+# video_embeddings_page = st.Page(
+#     "video_embeddings.py",
+#     title="Video Embeddings",
+#     icon=":material/menu_book:",
+# )
+
+# video_search_hvac_channels_page = st.Page(
+#     "video_search_hvac_channels.py",
+#     title="Video Search inside 'HVAC School' & 'Love2HVAC with TY' Youtube Channel)",
+#     icon=":material/search:",
+# )
+
+
+
 #######################
 # 3) Common app layout
 #######################
@@ -418,20 +656,27 @@ page_name_to_object = {
     "course_outline_page": course_outline_page,
     "research_notes_page": research_notes_page,
     "slide_chunks_page": slide_chunks_page,
-    "graphics_definition_page": graphics_definition_page,
+    #"graphics_definition_page": graphics_definition_page,
+    "graphics_definition_v2_page": graphics_definition_v2_page,
     "assessments_generation_page": assessments_generation_page,
     "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
     "vectorstore_page": vectorstore_page,
-    "get_images_page": get_images_page,
+    #"get_images_page": get_images_page,
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
+    #"graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
+    "slideshow_streamlit_page": slideshow_streamlit_page,
+    #"slideshow_manifest_video_page": slideshow_manifest_video_page,
     "paraphraser_page": paraphraser_page,
     "image_translation_page": image_translation_page,
     "mcp_ui_page": mcp_ui_page_obj,
     "image_editing_tool_page": image_editing_tool_page,
     "curriculum_mapping_tool_page": curriculum_mapping_tool_page,
+    #"video_embeddings_page": video_embeddings_page,
+    "aggregation_agent_page": aggregation_agent_page,
+    #"pptx_exporter_page": pptx_exporter_page,
 }
 
 # Define which pages belong to which category
@@ -441,19 +686,26 @@ agent_pages = [
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
-    "graphics_definition_page",
-    "assessments_generation_page",
-    "get_images_page"]
+    #"graphics_definition_page",
+    "graphics_definition_v2_page",
+    "assessments_generation_page"]
+    #"get_images_page"]
 tool_pages = [
     # "graphics_search_page",
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
+    #"video_embeddings_page",
+    #"graphics_definition_v2_slideshow_page",
+    "slideshow_streamlit_page",
+    #"slideshow_manifest_video_page",
     "paraphraser_page",
     "image_translation_page",
     "mcp_ui_page",
     "image_editing_tool_page",
     "curriculum_mapping_tool_page",
+    "aggregation_agent_page",
+    #"pptx_exporter_page",
 ]
 
 if st.session_state.role:
@@ -465,10 +717,13 @@ if st.session_state.role:
     
     # Build account pages - include role switch for admins
     account_pages = [
-        list_of_agents_page, 
-        # about_agents_page, 
-        workflow_directory_page,
+        list_of_agents_page,
+        # about_agents_page,
     ]
+
+    # Add workflow directory page only if user has access
+    if "workflow_directory_page" in (st.session_state.get("user_pages", []) if effective_role == st.session_state.get("role") else get_user_pages(effective_role)):
+        account_pages.append(workflow_directory_page)
     
     # Add role switch page only for admins
     if st.session_state.get("role") == "Admin":
@@ -503,6 +758,14 @@ else:
     # Show only the login page
     current_page = st.navigation([st.Page(login, title="Login", icon=":material/login:")])
 
+
+# Track page navigation
+if st.session_state.role and "gc" in st.session_state and "user_email" in st.session_state:
+    track_page_view(
+        st.session_state["gc"],
+        st.session_state["user_email"],
+        current_page.title
+    )
 
 # Finally, call run() on whichever page the user selected in the nav.
 current_page.run()

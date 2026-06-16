@@ -1,4 +1,5 @@
 import pandas as pd
+import threading
 from gspread_formatting import (
     format_cell_range,
     set_row_heights,
@@ -102,6 +103,69 @@ def save_to_sheet(worksheet, df):
     df = df.astype(str)
     worksheet.update([df.columns.values.tolist()] + df.values.tolist())
     return
+
+
+_MERGE_SAVE_LOCK = threading.Lock()
+
+
+@try_n_times(n=5, wait=2, backoff="exponential")
+def merge_and_save_columns(sheet, worksheet_name: str, df_with_updates: pd.DataFrame, columns: list[str]):
+    """
+    Merge-save helper to prevent clobbering other concurrently-written columns.
+
+    This function is intended for scenarios where multiple parallel workers are updating different columns of the SAME worksheet. Each worker may have a stale dataframe; writing the whole dataframe would overwrite other workers' changes.
+
+    Strategy:
+    - Acquire a process-wide lock (threads) to serialize read-modify-write.
+    - Reload latest worksheet into a dataframe.
+    - Copy only the specified columns from df_with_updates into the latest dataframe.
+    - Write the merged dataframe back to the sheet.
+
+    Args:
+        sheet: gspread Spreadsheet handle
+        worksheet_name: target worksheet title
+        df_with_updates: dataframe containing updated values
+        columns: list of column names to merge from df_with_updates
+
+    Returns:
+        None
+    """
+    if not columns:
+        return
+
+    with _MERGE_SAVE_LOCK:
+        worksheet, latest_df = get_sheet_data_and_df(sheet, worksheet_name)
+
+        # Ensure the latest df has the target columns.
+        for col in columns:
+            if col not in latest_df.columns:
+                latest_df[col] = ""
+
+        # Copy over only the requested columns (align by row index).
+        for col in columns:
+            if col in df_with_updates.columns:
+                # Coerce to string to match save_to_sheet behavior.
+                latest_df[col] = df_with_updates[col].astype(str)
+
+        save_to_sheet(worksheet, latest_df)
+
+
+@try_n_times(n=5, wait=2, backoff="exponential")
+def merge_and_save_row_cells(sheet, worksheet_name: str, row_index, cell_updates: dict):
+    """
+    Patch specific cells on one row and save, without copying whole columns from a stale dataframe.
+
+    Uses the same lock as merge_and_save_columns so concurrent row workers do not affect each other.
+    """
+    if not cell_updates:
+        return
+    with _MERGE_SAVE_LOCK:
+        worksheet, latest_df = get_sheet_data_and_df(sheet, worksheet_name)
+        for col, val in cell_updates.items():
+            if col not in latest_df.columns:
+                latest_df[col] = ""
+            latest_df.at[row_index, col] = str(val) if val is not None else ""
+        save_to_sheet(worksheet, latest_df)
 
 
 @try_n_times(n = 5, wait = 2, backoff = 'exponential')

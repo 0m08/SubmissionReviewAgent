@@ -6,6 +6,7 @@
 # - Managers: Access to all pages, but cannot create vectorstore in Image Search and Video Search (tiffany, shalini, ramesh)
 # - Instructional Designer: Access to research notes, slide chunks, graphics definition, assessments, image search, quality compliance, video search (remaining Content Team)
 # - Visual Designer: Access to graphics-related tools, image search, quality compliance, video search (all Visual Designer Team)
+# - HVAC School Users: Access to video search tool only
 
 # Email to Role Mapping
 
@@ -43,6 +44,9 @@ email_to_role_mapping = {
     "sampurna@skillcatapp.com": "Instructional Designer",
     "surabhi@skillcatapp.com": "Instructional Designer",
     "trizah@skillcatapp.com": "Instructional Designer",
+    "vinaypal@skillcatapp.com": "Instructional Designer",
+    "isaac@skillcatapp.com": "Instructional Designer",
+    "nate@skillcatapp.com": "Instructional Designer",
          
     # Visual Designer - Access to graphics-related tools, image search, quality compliance, video search
     "ajay@skillcatapp.com": "Visual Designer",
@@ -53,6 +57,10 @@ email_to_role_mapping = {
     "siddhikumar@skillcatapp.com": "Visual Designer",
     "vaidehi@skillcatapp.com": "Visual Designer",
     "vijay@skillcatapp.com": "Visual Designer",
+
+    # HVAC School Users - Access to video search tool only
+    "dilip.d.pandey1710@gmail.com": "HVAC School Users",
+    "bryan@kalosflorida.com": "HVAC School Users",
 }
 
 # Default role for users not found in email_to_role_mapping
@@ -64,39 +72,46 @@ default_role = None  # No access for users not in email_to_role_mapping
 role_page_access = {
     "Admin": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
-        "graphics_definition_page", "assessments_generation_page",
+        "graphics_definition_page", "graphics_definition_v2_page", "assessments_generation_page",
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page", "paraphraser_page", "image_translation_page",
-        "mcp_ui_page", "image_editing_tool_page",
-        "curriculum_mapping_tool_page",
+        "mcp_ui_page", "slideshow_streamlit_page", "slideshow_manifest_video_page", "image_editing_tool_page", "curriculum_mapping_tool_page", "video_embeddings_page", "aggregation_agent_page", "pptx_exporter_page"
     ],
     "Managers": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
-        "graphics_definition_page", "assessments_generation_page",
+        "graphics_definition_page", "graphics_definition_v2_page", "assessments_generation_page",
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page",
-        "curriculum_mapping_tool_page",
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Instructional Designer": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
-        "assessments_generation_page", "vectorstore_page", "get_images_page",
+        "graphics_definition_v2_page", "assessments_generation_page", "vectorstore_page", "get_images_page",
         "video_search_tool_page", "quality_compliance_scoring_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page"
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Visual Designer": [
-        "template_sheet_setup_page", "workflow_directory_page", "graphics_definition_page", "graphics_search_page", "vectorstore_page", "get_images_page",
+        "template_sheet_setup_page", "workflow_directory_page", "graphics_definition_page", "graphics_definition_v2_page", "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page",
-        "paraphraser_page", "image_translation_page", "image_editing_tool_page"
+        "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Basic User": [
-        "vectorstore_page",
+        "vectorstore_page", "video_search_tool_page",
         "paraphraser_page","image_translation_page", "image_editing_tool_page",
-        "curriculum_mapping_tool_page",
+        "curriculum_mapping_tool_page"
+    ],
+    "HVAC School Users": [
+        "video_search_tool_page"
     ],
     None: [
         # No pages accessible for users with None role (denied access)
     ]
+}
+
+# Roles that do NOT require Google OAuth (Drive/Sheets) permissions.
+# Users with these roles can log in with just their email address.
+no_oauth_roles = {
+    "HVAC School Users",
 }
 
 # Get all available roles (excluding Admin and None)

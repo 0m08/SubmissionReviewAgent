@@ -6,12 +6,20 @@ from typing import Optional, Dict, List
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from config.user_roles import email_to_role_mapping, role_page_access, default_role
+    from config.user_roles import email_to_role_mapping, role_page_access, default_role, no_oauth_roles
 except ImportError:
     # Fallback if config file is not available
     email_to_role_mapping = {}
     role_page_access = {}
     default_role = None
+    no_oauth_roles = set()
+
+
+def role_requires_oauth(role: Optional[str]) -> bool:
+    """Return True if the role requires Google OAuth login, False if email-only login suffices."""
+    if not role:
+        return True
+    return role not in no_oauth_roles
 
 
 def get_user_role(email: str) -> Optional[str]:

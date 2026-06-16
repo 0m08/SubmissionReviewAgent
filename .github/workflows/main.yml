@@ -1,0 +1,70 @@
+name: Weekly repo backup to Google Drive
+
+on:
+  schedule:
+    - cron: "30 2 * * 1"   # Weekly Monday 02:30 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create git bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ts="$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          repo="${GITHUB_REPOSITORY##*/}"
+          bundle="${repo}-${ts}.bundle"
+
+          git bundle create "$bundle" --all
+          sha256sum "$bundle" > "$bundle.sha256"
+
+          echo "BUNDLE=$bundle" >> "$GITHUB_ENV"
+
+      # - name: Encrypt bundle
+      #   shell: bash
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y age
+      #     echo "${{ secrets.BACKUP_PASSPHRASE }}" | \
+      #       age -p -o "$BUNDLE.age" "$BUNDLE"
+      #     sha256sum "$BUNDLE.age" > "$BUNDLE.age.sha256"
+
+      - name: Encrypt bundle (age recipient)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y age
+
+          age -r "${{ secrets.AGE_RECIPIENT }}" -o "$BUNDLE.age" "$BUNDLE"
+          sha256sum "$BUNDLE.age" > "$BUNDLE.age.sha256"
+
+
+      - name: Install rclone
+        run: curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << 'EOF'
+          ${{ secrets.RCLONE_CONF }}
+          EOF
+
+      - name: Upload to Google Drive
+        run: |
+          dest="gdrive:repo-backups/${GITHUB_REPOSITORY}"
+          rclone copy . "$dest/" \
+            --include "*.age*" \
+            --checksum \
+            --progress

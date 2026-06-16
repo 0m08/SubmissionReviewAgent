@@ -44,10 +44,23 @@ from agents.research_notes.revise_topic_notes import (
     run_revise_topic_notes_for_all_rows,
     delete_revised_topic_notes,
 )
-from agents.research_notes.research_notes_checklist import run_research_notes_checklist_and_reviser, delete_research_notes_checklist_and_reviser
+from agents.research_notes.paraphrase_research_notes import (
+    run_paraphrase_research_notes_for_all_rows,
+    delete_paraphrased_research_notes,
+)
+from agents.research_notes.research_notes_checklist_v2 import run_research_notes_checklist_and_reviser, delete_research_notes_checklist_and_reviser
+from agents.research_notes.inline_image_placement import (
+    run_inline_image_placement_for_all_rows,
+    delete_inline_image_placement,
+)
 from agents.research_notes.old_checklist_review_and_revise import (
     run_research_review_revise_checklist,
     delete_research_checklist_review_revise,
+)
+from agents.research_notes.visualize_research_notes_diff import (
+    show_research_notes_diff,
+    manual_review_research_notes_diff,
+    delete_research_notes_diff,
 )
 #from agents.research_notes.load_references import load_references  # New import
 
@@ -100,7 +113,7 @@ pipeline_sections = [
                     "worksheet_name": "Final Outline",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_5_flash",
+                    "llm": "gemini_3_flash",
                 },
                 "estimated_time": "~ 5-10 minutes",
                 "description": "Generates context for rows with provided references.",
@@ -119,7 +132,7 @@ pipeline_sections = [
                     "worksheet_name": "Final Outline",
                     "course_name": "course_name",
                     "target_audience": "target_audience",
-                    "llm": "gemini_2_5_flash",
+                    "llm": "gemini_3_flash",
                 },
                 "estimated_time": "~ 5 minutes",
                 "description": "Uses the context retrived earlier to produce research notes for each subtopic.",
@@ -129,6 +142,25 @@ pipeline_sections = [
                     "worksheet_name": "Final Outline",
                 }
             },
+            # {
+            #     "name": "Paraphraser",
+            #     "func": run_paraphrase_research_notes_for_all_rows,
+            #     "depends_on": ["Researcher"],
+            #     "args": {
+            #         "sheet": "sheet",
+            #         "worksheet_name": "Final Outline",
+            #         "course_name": "course_name",
+            #         "target_audience": "target_audience",
+            #         "llm": "google_genai:gemini-2.5-flash",
+            #     },
+            #     "estimated_time": "~ 5-10 minutes",
+            #     "description": "Paraphrases the research notes to make them more engaging and conversational using parallel processing.",
+            #     "delete_func": delete_paraphrased_research_notes,
+            #     "delete_args": {
+            #         "sheet": "sheet",
+            #         "worksheet_name": "Final Outline",
+            #     }
+            # },
             # {
             #     "name": "Subtopic Context-Aware Review and Revise",
             #     "func": run_subtopic_context_aware_review_and_revise_for_all_rows,
@@ -350,7 +382,7 @@ pipeline_sections = [
                     "checklist_sheet_link": "checklist_sheet_link",
                     "gc": "gc",
                     # "worksheet_name": "Research Notes",
-                    "llm": "gpt5_mini_thinking",
+                    "llm": "gemini_3_flash",
                 },
                 "estimated_time": "~ 10 minutes",
                 "description": "Runs checklist-based review and revision on the final research notes.",
@@ -359,6 +391,49 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "worksheet_name": "Final Outline",
                 }
+            },
+            {
+                "name": "Inline Image Placement",
+                "func": run_inline_image_placement_for_all_rows,
+                "depends_on": ["Checklist Based Review and Revise Agents"],
+                "args": {
+                    "sheet": "sheet",
+                    "course_name": "course_name",
+                    "target_audience": "target_audience",
+                    "llm": "gemini_3_flash",
+                },
+                "estimated_time": "~ 3 minutes",
+                "description": "Agent previews each inline image and repositions the `![](url)` link next to the paragraph it illustrates. URLs and alt text are preserved.",
+                "delete_func": delete_inline_image_placement,
+                "delete_args": {
+                    "sheet": "sheet",
+                    "worksheet_name": "Final Outline",
+                }
+            },
+            {
+                "name": "Visualize Research Notes Diff",
+                "func": manual_review_research_notes_diff,
+                "depends_on": ["Inline Image Placement"],
+                "args": {
+                    "sheet": "sheet",
+                },
+                "instructions": [
+                    "Review the diff visualization showing changes made by the Checklist Based Review and Revise Agents.",
+                    "- **Red highlighted text**: Content that was removed or changed from the previous version.",
+                    "- **Green highlighted text**: Content that was added or modified in the current version.",
+                    "---",
+                    "Once you've reviewed the changes, click the button below to confirm.",
+                ],
+                "is_manual_step": True,
+                "estimated_time": "Manual step",
+                "description": "Shows a side-by-side diff between current research notes (Final Outline) and the backup created before the checklist step.",
+                "pre_exec_func": show_research_notes_diff,
+                "pre_exec_always_run": True,
+                "pre_exec_args": {
+                    "sheet": "sheet",
+                },
+                "delete_func": delete_research_notes_diff,
+                "delete_args": {}
             },
         ]
     }

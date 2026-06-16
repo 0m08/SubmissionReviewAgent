@@ -82,9 +82,21 @@ def time_limit_process(seconds):
     return decorator
 
 
+def _is_youtube_quota_exceeded(error: HttpError) -> bool:
+    """True when YouTube Data API daily search quota is exhausted (403/429)."""
+    error_text = str(error).lower()
+    if any(
+        marker in error_text
+        for marker in ("quotaexceeded", "ratelimitexceeded", "quota exceeded")
+    ):
+        return True
+    status = getattr(getattr(error, "resp", None), "status", None)
+    return status in (403, 429) and "quota" in error_text
+
+
 def cycle_api_keys_decorator(api_keys):
     """
-    Returns a decorator that cycles through `api_keys` if a 'quotaExceeded' error is encountered,
+    Returns a decorator that cycles through `api_keys` on YouTube quota errors,
     remembering the last used key index across multiple calls to the wrapped function.
     """
     # This index will persist between calls to the wrapped function
@@ -103,11 +115,13 @@ def cycle_api_keys_decorator(api_keys):
                 try:
                     return func(*args, **kwargs, developer_key=key)
                 except HttpError as e:
-                    # Check if quota was exceeded
-                    if "quotaExceeded" in str(e):
-                        print(f"Quota exceeded for key {key}. Cycling to next key...")
-                        # Move to next key index (round-robin style)
+                    if _is_youtube_quota_exceeded(e):
+                        exhausted_key_num = current_key_index + 1
                         current_key_index = (current_key_index + 1) % len(api_keys)
+                        next_key_num = current_key_index + 1
+                        print(
+                            f"Key {exhausted_key_num} exhausted, cycling to key {next_key_num}..."
+                        )
                         attempts += 1
                     else:
                         # If it's some other error, re-raise

@@ -1,11 +1,26 @@
-from chonkie import SDPMChunker
+from chonkie import SemanticChunker
+import logging
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import re
 
+logger = logging.getLogger(__name__)
+
 ## Chunkers
 
 ### Semantic Chunker (with Chonkie library)
+
+
+def _plain_text_recursive_chunks(text: str, chunk_size: int = 2000) -> list[dict]:
+    """Fallback when sentence_transformers / embedding model is unavailable."""
+    overlap = min(100, max(0, chunk_size // 10))
+    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+    )
+    splits = text_splitter.split_text(text)
+    return [{"text": s} for s in splits]
+
 
 def semantic_chunker(text, chunk_size = 2000):
     """
@@ -16,18 +31,38 @@ def semantic_chunker(text, chunk_size = 2000):
     Returns:
         chunks: A list of chunks of the given text
     """
-    # Basic initialization with default parameters
-    sdpm_chunker = SDPMChunker(
-        embedding_model="minishlab/potion-base-8M",  # Default model
-        threshold=0.5,                               # Similarity threshold (0-1)
-        chunk_size=chunk_size,                       # Maximum tokens per chunk
-        min_sentences=1,                             # Initial sentences per chunk
-        skip_window=1                                # Number of chunks to skip when looking for similarities
-    )
-
-    chunks = sdpm_chunker.chunk(text)
-
-    return [{"text": chunk.text} for chunk in chunks]
+    # SemanticChunker replaced SDPMChunker in chonkie 1.x (same idea: embedding-based splits).
+    # Requires sentence-transformers (install: pip install "chonkie[st]" or see requirements.txt).
+    try:
+        semantic = SemanticChunker(
+            embedding_model="minishlab/potion-base-8M",
+            threshold=0.5,
+            chunk_size=chunk_size,
+            min_sentences_per_chunk=1,
+            skip_window=1,
+        )
+        chunks = semantic.chunk(text)
+        return [{"text": chunk.text} for chunk in chunks]
+    except (ImportError, ValueError, RuntimeError, TypeError) as e:
+        err = str(e).lower()
+        if any(
+            s in err
+            for s in (
+                "sentence_transformers",
+                "sentence transformer",
+                "sentencetransformer",
+                "chonkie[st]",
+                "failed to load embeddings",
+                "unexpected keyword argument",
+            )
+        ):
+            logger.warning(
+                "SemanticChunker unavailable (%s); using RecursiveCharacterTextSplitter fallback. "
+                'Install embeddings: pip install "chonkie[st]"',
+                e,
+            )
+            return _plain_text_recursive_chunks(text, chunk_size)
+        raise
 
 
 ### Markdown Chunker
