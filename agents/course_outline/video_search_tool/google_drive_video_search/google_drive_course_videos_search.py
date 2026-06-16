@@ -82,8 +82,8 @@ load_dotenv()
 
 # Parent Drive folder that contains your vectorstore folder.
 # Change this to the parent folder ID used by your creation pipeline.
-# GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "15H9thXq02JX3ldADSj1oD78mbV-fXfvu"
-GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "1iv58CUkl-HXkukRTdcfDF1RhG9goYMXn"
+GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "15H9thXq02JX3ldADSj1oD78mbV-fXfvu"
+# GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "1iv58CUkl-HXkukRTdcfDF1RhG9goYMXn"
 
 VECTORSTORE_FOLDER_NAME = "Google Drive Videos Vectorstore"
 
@@ -160,7 +160,7 @@ def get_gemini_client() -> genai.Client:
         if _GEMINI_CLIENT is not None:
             return _GEMINI_CLIENT
 
-        api_key = os.getenv("GOOGLE_API_KEY") 
+        api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise RuntimeError("Missing GOOGLE_API_KEY environment variable.")
 
@@ -316,7 +316,7 @@ def load_gemini_video_chroma_collection(
         chroma_video_embeddings_db/
           chroma.sqlite3
           <uuid-folder>/
-          
+
     :param drive: Authenticated PyDrive2 GoogleDrive instance.
     :param parent_folder_id: Drive folder ID that contains the vectorstore folder.
     :param vectorstore_folder_name: Name of the outer folder created by your embedding pipeline.
@@ -418,28 +418,26 @@ def get_text_query_embedding(query: str) -> List[float]:
     result = client.models.embed_content(
         model=GEMINI_EMBEDDING_MODEL,
         contents=query,
-        config=types.EmbedContentConfig(output_dimensionality=OUTPUT_DIMENSIONALITY),
-        task_type="RETRIEVAL_QUERY",
+        config=types.EmbedContentConfig(
+            output_dimensionality=OUTPUT_DIMENSIONALITY,
+            task_type="RETRIEVAL_QUERY",  
+        ),
     )
     return list(result.embeddings[0].values)
 
 
 def get_image_query_embedding(image_bytes: bytes, mime_type: str = "image/png") -> List[float]:
-    """
-    Create a Gemini Embedding 2 vector for an image query.
-    :param image_bytes: The raw bytes of the image file.
-    :param mime_type: The MIME type of the image (e.g., "image/png", "image/jpeg").
-    :return: A list of floats representing the embedding vector for the image.
-    
-    """
+    """Create a Gemini Embedding 2 vector for an image query."""
     client = get_gemini_client()
     result = client.models.embed_content(
         model=GEMINI_EMBEDDING_MODEL,
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
         ],
-        config=types.EmbedContentConfig(output_dimensionality=OUTPUT_DIMENSIONALITY),
-        task_type="RETRIEVAL_QUERY",
+        config=types.EmbedContentConfig(
+            output_dimensionality=OUTPUT_DIMENSIONALITY,
+            task_type="RETRIEVAL_QUERY",  # Correctly placed inside config
+        ),
     )
     return list(result.embeddings[0].values)
 
@@ -452,8 +450,10 @@ def get_video_query_embedding(video_bytes: bytes, mime_type: str = "video/mp4") 
         contents=[
             types.Part.from_bytes(data=video_bytes, mime_type=mime_type),
         ],
-        config=types.EmbedContentConfig(output_dimensionality=OUTPUT_DIMENSIONALITY),
-        task_type="RETRIEVAL_QUERY",
+        config=types.EmbedContentConfig(
+            output_dimensionality=OUTPUT_DIMENSIONALITY,
+            task_type="RETRIEVAL_QUERY",  # Correctly placed inside config
+        ),
     )
     return list(result.embeddings[0].values)
 
@@ -471,15 +471,12 @@ def trim_query_video_bytes(video_bytes: bytes, mime_type: str = "video/mp4", max
     out_path = src_path + "_trimmed.mp4"
 
     try:
-        # Re-encode video completely to guarantee stable keyframes for the model
         subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-i", src_path,
                 "-t", str(max_seconds),
-                "-c:v", "libx264",  # Re-encode video stream to standard H.264
-                "-c:a", "aac",      # Re-encode audio stream to AAC
-                "-pix_fmt", "yuv420p", # High-compatibility pixel format
+                "-c", "copy",
                 out_path,
             ],
             check=True,
@@ -494,21 +491,8 @@ def trim_query_video_bytes(video_bytes: bytes, mime_type: str = "video/mp4", max
             os.remove(src_path)
         if os.path.exists(out_path):
             os.remove(out_path)
-            
-
-def manual_cosine_distance(v1: List[float], v2: List[float]) -> float:
-    """Returns 0.0 for identical vectors, 2.0 for opposite vectors."""
-    dot_product = sum(a * b for a, b in zip(v1, v2))
-    norm_a = math.sqrt(sum(a * a for a in v1))
-    norm_b = math.sqrt(sum(b * b for b in v2))
-    if norm_a == 0 or norm_b == 0:
-        return 2.0  # Maximum distance
-    cosine_similarity = dot_product / (norm_a * norm_b)
-    # Convert similarity [-1, 1] to distance [0, 2] where lower is closer
-    return 1.0 - cosine_similarity
 
 
-            
 # ============================================================
 # Search helpers
 # ============================================================
@@ -555,7 +539,6 @@ def get_metadata_text(metadata: Dict[str, Any]) -> str:
         if value:
             return str(value)
     return ""
-
 
 
 def chroma_results_to_list(results: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -626,26 +609,13 @@ def apply_diversity_by_video(results: List[Dict[str, Any]], k: int) -> List[Dict
     return out
 
 
-def manual_cosine_distance(v1: List[float], v2: List[float]) -> float:
-    """
-    Calculate the cosine distance between two vectors.
-    Returns 0.0 for identical vectors, 1.0 for orthogonal vectors, and 2.0 for opposites.
-    """
-    dot_product = sum(a * b for a, b in zip(v1, v2))
-    norm_a = math.sqrt(sum(a * a for a in v1))
-    norm_b = math.sqrt(sum(b * b for b in v2))
-    if norm_a == 0 or norm_b == 0:
-        return 2.0  # Safe fallback maximum distance
-    cosine_similarity = dot_product / (norm_a * norm_b)
-    return 1.0 - cosine_similarity
-
-
 def search_gemini_drive_video_embeddings(
     drive: GoogleDrive,
     query_type: str,
     query: Union[str, bytes],
     k: int = 5,
     filters: Optional[Dict[str, Any]] = None,
+    # search_mode: str = "Visual / semantic",
     parent_folder_id: str = GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID,
     vectorstore_folder_name: str = VECTORSTORE_FOLDER_NAME,
     backup_folder_name: str = CHROMA_BACKUP_FOLDER_NAME,
@@ -654,12 +624,15 @@ def search_gemini_drive_video_embeddings(
     query_mime_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Search your Gemini Embedding 2 video vectorstore and re-rank via Cosine Distance.
+    Search your Gemini Embedding 2 video vectorstore.
 
     query_type:
     - "text": semantic text-to-video search.
     - "image": image-to-video visual search.
     - "video": video-clip-to-video visual search.
+
+    search_mode:
+    - "Visual / semantic": vector search only.
     """
     query_type = query_type.lower().strip()
     if query_type not in QUERY_TYPE_OPTIONS:
@@ -684,11 +657,9 @@ def search_gemini_drive_video_embeddings(
         return []
 
     where_filter = build_where_filter(filters)
-    
-    # Fetch a wider candidate pool (up to 200 items) to manually rank with Cosine math
-    fetch_k = min(collection_count, max(k * 15, 200))
+    fetch_k = min(collection_count, max(k * 10, 200))
 
-    # Generate query embedding vector using Gemini Embedding 2
+    # Vector search.
     if query_type == "text":
         query_embedding = get_text_query_embedding(str(query))
     elif query_type == "image":
@@ -698,61 +669,28 @@ def search_gemini_drive_video_embeddings(
         )
     else:
         trimmed_query_video = trim_query_video_bytes(
-            video_bytes=query, # type: ignore[arg-type]
+            video_bytes=query,
             mime_type=query_mime_type or "video/mp4",
             max_seconds=30,
         )
+
         query_embedding = get_video_query_embedding(
             video_bytes=trimmed_query_video,
             mime_type="video/mp4",
         )
 
-    # CRITICAL: We explicitly ask Chroma to return stored "embeddings" along with metadata
     query_kwargs = {
         "query_embeddings": [query_embedding],
         "n_results": fetch_k,
-        "include": ["metadatas", "distances", "documents", "embeddings"],
+        "include": ["metadatas", "distances", "documents"],
     }
     if where_filter:
         query_kwargs["where"] = where_filter
 
     results = collection.query(**query_kwargs)
-    
-    # Extract raw lists from Chroma's batch structure
-    ids = (results.get("ids") or [[]])[0]
-    metadatas = (results.get("metadatas") or [[]])[0]
-    embeddings = (results.get("embeddings") or [[]])[0]
-    documents = (results.get("documents") or [[]])[0]
+    raw = dedupe_results_by_segment(chroma_results_to_list(results))
 
-    processed_candidates: List[Dict[str, Any]] = []
-
-    # Map candidate fields and evaluate true angular closeness
-    for i, metadata in enumerate(metadatas):
-        metadata = dict(metadata or {})
-        item = dict(metadata)
-        item["id"] = ids[i] if i < len(ids) else None
-        item["document"] = documents[i] if i < len(documents) else ""
-
-        # Perform human-accurate visual distance matching fallback
-        if i < len(embeddings) and embeddings[i] is not None and len(embeddings[i]) > 0:
-            item["distance"] = manual_cosine_distance(query_embedding, embeddings[i])
-        else:
-            # Fallback if raw target embeddings weren't saved properly in Chroma
-            item["distance"] = (results.get("distances") or [[]])[0][i] if i < len(results.get("distances") or [[]])[0] else 1.0
-
-        item.setdefault("video_title", item.get("video_name") or item.get("title") or "Unknown Video")
-        item.setdefault("title", item.get("video_title"))
-        item.setdefault("video_url", item.get("video_link") or item.get("video_url") or "")
-        item.setdefault("transcript", get_metadata_text(item))
-
-        processed_candidates.append(item)
-
-    # Re-rank candidates using our clean cosine scores (lowest distance first)
-    processed_candidates.sort(key=lambda x: x.get("distance", 2.0))
-
-    # Deduplicate matching sequence clips and diversify across original video roots
-    raw_deduped = dedupe_results_by_segment(processed_candidates)
-    return apply_diversity_by_video(raw_deduped, k)
+    return apply_diversity_by_video(raw, k)
 
 
 # ============================================================
@@ -791,13 +729,13 @@ def render_drive_video_result(
     st.caption(
         f"Course: {item.get('course_name', 'Unknown')} | "
         f"Topic: {item.get('topic_name', 'Unknown')} | "
-        f"Segment: {start_time}s – {end_time or 'end'}"
+        # f"Segment: {start_time}s – {end_time or 'end'}"
     )
-    if item.get("distance") is not None:
-        try:
-            st.caption(f"Distance: {float(item.get('distance')):.4f}")
-        except Exception:
-            pass
+    # if item.get("distance") is not None:
+    #     try:
+    #         st.caption(f"Distance: {float(item.get('distance')):.4f}")
+    #     except Exception:
+    #         pass
 
     # --- Video display ---
     can_trim = (
@@ -869,7 +807,7 @@ def render_gemini_drive_video_search_tab(
         return
 
     # st.caption(
-    #     "Search your Google Drive videos, or create/update the  Google Drive Vectorstore."
+    #     "Search your Google Drive videos, or create/update the Gemini Embedding 2 vectorstore from a Google Sheet."
     # )
 
     task = st.selectbox(
@@ -903,7 +841,7 @@ def render_gemini_drive_video_search_tab(
             started = time.perf_counter()
 
             try:
-                with st.spinner("Creating/updating Google Drive videos vectorstore. This may take a while..."):
+                with st.spinner("Creating/updating Gemini video vectorstore. This may take a while..."):
                     gemini_client = get_gemini_client()
 
                     if gc is None:
@@ -958,7 +896,7 @@ def render_gemini_drive_video_search_tab(
     # SEARCH VIDEOS
     # ============================================================
 
-    st.subheader("Search Gemini Drive Videos")
+    st.subheader("Search Google Drive Course Videos")
 
     query_type = st.radio(
         "Query type",
@@ -967,7 +905,6 @@ def render_gemini_drive_video_search_tab(
         format_func=lambda x: {"text": "Text", "image": "Image", "video": "Video clip"}[x],
         key="gemini_drive_video_query_type",
     )
-
     query_value: Union[str, bytes, None] = None
     query_mime_type = None
 
@@ -986,20 +923,7 @@ def render_gemini_drive_video_search_tab(
         )
         if uploaded:
             query_value = uploaded.read()
-            
-            # --- UPDATE HAPPENS HERE ---
-            # Enforce clean, standard standard MIME types for the Gemini API
-            detected_mime = uploaded.type or "image/png"
-            if "jpg" in detected_mime or "jpeg" in detected_mime:
-                query_mime_type = "image/jpeg"
-            elif "png" in detected_mime:
-                query_mime_type = "image/png"
-            elif "webp" in detected_mime:
-                query_mime_type = "image/webp"
-            else:
-                query_mime_type = detected_mime
-            # ---------------------------
-
+            query_mime_type = uploaded.type or "image/png"
             st.image(query_value, caption="Query image", use_container_width=True)
 
     else:
@@ -1036,24 +960,22 @@ def render_gemini_drive_video_search_tab(
     if stock_filter != "All":
         filters["stock"] = stock_filter
 
-    if st.button("Search My Drive Videos", type="primary", key="gemini_drive_video_search_btn"):
+    if st.button("Search Google Drive Videos", type="primary", key="gemini_drive_video_search_btn"):
         if query_value is None or (query_type == "text" and not str(query_value).strip()):
             st.warning("Please provide a search query or upload a file.")
         else:
             started = time.perf_counter()
             try:
-                with st.spinner("Getting relevant videos..."):
+                with st.spinner("Searching relevant videos..."):
                     results = search_gemini_drive_video_embeddings(
                         drive=drive,
                         query_type=query_type,
                         query=query_value,
                         k=int(num_results),
                         filters=filters,
-                        # search_mode=search_mode,
                         parent_folder_id=parent_folder_id,
                         vectorstore_folder_name=vectorstore_folder_name,
                         backup_folder_name=backup_folder_name,
-                        # force_download=force_download,
                         query_mime_type=query_mime_type,
                     )
 

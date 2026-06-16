@@ -51,12 +51,15 @@ from chromadb import PersistentClient
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1lV9_52Qicf6yHzn1NCbJ9M9lc5DnT29ODSOK5tXZHfk/edit?usp=sharing"
 
-PARENT_FOLDER_ID = "1mTgsXZRejnYQ7Ssm5HTAFbw5iwtluCxJ"
+PARENT_FOLDER_ID = "1iv58CUkl-HXkukRTdcfDF1RhG9goYMXn"
 VECTORSTORE_FOLDER_NAME = "Google Drive Videos Vectorstore"
 CHROMA_BACKUP_FOLDER_NAME = "chroma_video_embeddings_db"
 
-# Use a normal local folder for VS Code, not /tmp.
-LOCAL_VECTORSTORE_PATH = str(Path.cwd() / "gemini_video_vectorstore")
+LOCAL_VECTORSTORE_PATH = os.getenv(
+    "GEMINI_VIDEO_LOCAL_SEARCH_DB_PATH",
+    os.path.join(tempfile.gettempdir(), "gemini_drive_video_vectorstore_search"),
+)
+
 
 COL_VIDEO_ID = "Video ID"
 COL_VIDEO_NAME = "Video Name"
@@ -566,9 +569,10 @@ def generate_video_embedding(
                     ],
                     config=types.EmbedContentConfig(
                         output_dimensionality=OUTPUT_DIMENSIONALITY,
+                        task_type="RETRIEVAL_DOCUMENT",
                     ),
                 )
-
+    
             if request_semaphore:
                 with request_semaphore:
                     result = _call()
@@ -986,14 +990,4 @@ def inspect_vectorstore(local_path: str = LOCAL_VECTORSTORE_PATH):
             print(f"  - {item}")
 
 
-if __name__ == "__main__":
-    drive, gc, gemini_client = initialize_clients()
 
-
-    create_video_embeddings(
-        drive=drive,
-        gc=gc,
-        gemini_client=gemini_client,
-    )
-
-    inspect_vectorstore()
