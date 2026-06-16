@@ -13,6 +13,7 @@ from services.activity_tracking_service import track_tool_action
 from agents.course_outline.video_search_tool.update_video_vectorstore import update_video_vectorstore
 from agents.course_outline.video_search_tool.video_retriever import video_retriever, video_search_retriever_agent
 from agents.course_outline.video_search_tool.create_video_vectorstore import create_video_vectorstore, chroma_db_exists
+from agents.course_outline.video_search_tool.google_drive_video_search.google_drive_video_search import render_gemini_drive_video_search_tab
 from video_search_hvac_channels import render_hvac_visual_search
 
 llm_model = st.session_state.get("llm_model", "gemini_3_flash") or "gemini_3_flash"
@@ -36,7 +37,11 @@ st.markdown("## Video Search Tool")
 st.markdown(
     "Search HVAC videos by **transcript** or by **visuals** in **HVAC School** & **Love2HVAC with Ty** YouTube channels."
 )
-tab_visuals, tab_transcript = st.tabs(["Search by visuals", "Search by transcript"])
+tab_visuals, tab_transcript, tab_google_drive_videos = st.tabs([
+    "Search by visuals",
+    "Search by transcript",
+    "Search Google Drive(Course) Videos"
+])
 
 with tab_visuals:
     st.caption(
@@ -274,3 +279,11 @@ with tab_transcript:
                         st.markdown("---")
                 else:
                     st.warning("No videos found.")
+                    
+                    
+with tab_google_drive_videos:
+    st.caption(
+        "Search your Google Drive videos, find videos stored in your Drive by text queries, images or video clips."
+        "This tool uses the video metadata, and visual content to help you find the most relevant videos from your Drive."
+    )
+    render_gemini_drive_video_search_tab(drive)
