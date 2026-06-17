@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkillCat AI Agents Ecosystem</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #ffffff;
+      color: #262730;
+      font-family: "Source Sans Pro", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    .top-helmet {
+      position: fixed;
+      top: 14px;
+      left: 18px;
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 72px 24px 48px;
+      text-align: center;
+    }
+
+    .logo {
+      width: 200px;
+      max-width: 72vw;
+      height: auto;
+      margin: 0 0 18px;
+      display: block;
+    }
+
+    h1 {
+      margin: 0 0 28px;
+      font-size: clamp(1.75rem, 4vw, 2.25rem);
+      font-weight: 700;
+      line-height: 1.2;
+      color: #262730;
+    }
+
+    .info-banner {
+      width: min(720px, 92vw);
+      margin: 0 auto 28px;
+      padding: 16px 18px;
+      border-radius: 8px;
+      background: rgba(28, 131, 225, 0.1);
+      color: rgb(7, 89, 165);
+      font-size: 1rem;
+      line-height: 1.5;
+      text-align: left;
+    }
+
+    .button-wrap {
+      width: min(420px, 92vw);
+      margin: 0 auto;
+    }
+
+    .google-image-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 8px 16px;
+      border: 2px solid #dadce0;
+      border-radius: 8px;
+      background: #fff;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .google-image-btn:hover {
+      background: #f8f9fa;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    }
+
+    .google-image-btn img {
+      display: block;
+      height: 60px;
+      width: auto;
+      max-width: 100%;
+      border-radius: 4px;
+    }
+
+    .google-signin {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      min-height: 60px;
+      padding: 8px 16px;
+      border: 2px solid #dadce0;
+      border-radius: 8px;
+      background: #fff;
+      color: #3c4043;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .google-signin:hover {
+      background: #f8f9fa;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    }
+
+    .google-signin svg {
+      flex-shrink: 0;
+    }
+
+    .is-hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <img
+    class="top-helmet"
+    src="/brand-assets/SkillCat-Helmet.png"
+    alt=""
+    onerror="this.onerror=null;this.src='/static/brand/SkillCat-Helmet.svg';"
+  />
+
+  <main class="page">
+    <img
+      class="logo"
+      src="/brand-assets/SkillCat-Logo.png"
+      alt="SkillCat"
+      onerror="this.onerror=null;this.src='/static/brand/SkillCat-Logo.svg';"
+    />
+
+    <h1>SkillCat AI Agents Ecosystem</h1>
+
+    <div class="info-banner">
+      🔐 Click below to authenticate and access the AI Agents
+    </div>
+
+    <div class="button-wrap">
+      <a href="/auth/login" class="google-image-btn is-hidden" id="google-image-link">
+        <img
+          src="/brand-assets/google-login-button.png"
+          alt="Sign in with Google"
+        />
+      </a>
+
+      <a href="/auth/login" class="google-signin" id="google-fallback-link">
+        <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Sign in with Google
+      </a>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      var imageLink = document.getElementById("google-image-link");
+      var fallbackLink = document.getElementById("google-fallback-link");
+      var img = new Image();
+      img.onload = function () {
+        imageLink.classList.remove("is-hidden");
+        fallbackLink.classList.add("is-hidden");
+      };
+      img.onerror = function () {
+        imageLink.classList.add("is-hidden");
+        fallbackLink.classList.remove("is-hidden");
+      };
+      img.src = "/brand-assets/google-login-button.png";
+    })();
+  </script>
+</body>
+</html>
