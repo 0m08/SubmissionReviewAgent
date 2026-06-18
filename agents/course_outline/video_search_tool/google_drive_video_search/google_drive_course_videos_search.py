@@ -82,8 +82,8 @@ load_dotenv()
 
 # Parent Drive folder that contains your vectorstore folder.
 # Change this to the parent folder ID used by your creation pipeline.
-GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "15H9thXq02JX3ldADSj1oD78mbV-fXfvu"
-# GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "1iv58CUkl-HXkukRTdcfDF1RhG9goYMXn"
+# GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "15H9thXq02JX3ldADSj1oD78mbV-fXfvu"
+GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID = "1iv58CUkl-HXkukRTdcfDF1RhG9goYMXn"
 
 VECTORSTORE_FOLDER_NAME = "Google Drive Videos Vectorstore"
 
@@ -412,12 +412,23 @@ def load_gemini_video_chroma_collection(
 # Gemini query embedding helpers
 # ============================================================
 
-def get_text_query_embedding(query: str) -> List[float]:
-    """Create a Gemini Embedding 2 vector for a text query."""
+def get_text_query_embedding(query: str, filters: Optional[Dict[str, Any]] = None) -> List[float]:
+    """Create a Gemini Embedding 2 vector for a text query, matching ingestion text syntax."""
     client = get_gemini_client()
+    
+    # Mirror the ingestion structure exactly using available query filters
+    if filters:
+        text_anchor = (
+            f"Course: {filters.get('course_name', 'All')} | "
+            f"Topic: {filters.get('topic_name', 'All')} | "
+            f"Video: Search Reference | Semantic search query: {query}"
+        )
+    else:
+        text_anchor = f"Semantic search query: {query}"
+
     result = client.models.embed_content(
         model=GEMINI_EMBEDDING_MODEL,
-        contents=query,
+        contents=text_anchor,  # The formatted text anchor acts as the complete query
         config=types.EmbedContentConfig(
             output_dimensionality=OUTPUT_DIMENSIONALITY,
             task_type="RETRIEVAL_QUERY",  
@@ -427,8 +438,9 @@ def get_text_query_embedding(query: str) -> List[float]:
 
 
 def get_image_query_embedding(image_bytes: bytes, mime_type: str = "image/png") -> List[float]:
-    """Create a Gemini Embedding 2 vector for an image query."""
+    """Create a pure visual Gemini Embedding 2 vector for an image query."""
     client = get_gemini_client()
+    
     result = client.models.embed_content(
         model=GEMINI_EMBEDDING_MODEL,
         contents=[
@@ -436,15 +448,16 @@ def get_image_query_embedding(image_bytes: bytes, mime_type: str = "image/png") 
         ],
         config=types.EmbedContentConfig(
             output_dimensionality=OUTPUT_DIMENSIONALITY,
-            task_type="RETRIEVAL_QUERY",  # Correctly placed inside config
+            task_type="RETRIEVAL_QUERY",  
         ),
     )
     return list(result.embeddings[0].values)
 
 
 def get_video_query_embedding(video_bytes: bytes, mime_type: str = "video/mp4") -> List[float]:
-    """Create a Gemini Embedding 2 vector for a short video query clip."""
+    """Create a pure visual Gemini Embedding 2 vector for a video clip query."""
     client = get_gemini_client()
+    
     result = client.models.embed_content(
         model=GEMINI_EMBEDDING_MODEL,
         contents=[
@@ -452,7 +465,7 @@ def get_video_query_embedding(video_bytes: bytes, mime_type: str = "video/mp4") 
         ],
         config=types.EmbedContentConfig(
             output_dimensionality=OUTPUT_DIMENSIONALITY,
-            task_type="RETRIEVAL_QUERY",  # Correctly placed inside config
+            task_type="RETRIEVAL_QUERY",  
         ),
     )
     return list(result.embeddings[0].values)
@@ -471,12 +484,17 @@ def trim_query_video_bytes(video_bytes: bytes, mime_type: str = "video/mp4", max
     out_path = src_path + "_trimmed.mp4"
 
     try:
+        # Added scaling parameters: -vf scale=320:-2 reduces resolution footprint
+        # -r 1 reduces the frame rate to 1 frame per second to avoid over-tokenization drops
         subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-i", src_path,
                 "-t", str(max_seconds),
-                "-c", "copy",
+                "-vf", "scale=320:-2,fps=1",
+                "-c:v", "libx264",
+                "-b:v", "150k",
+                "-an",  # Strip audio track entirely to minimize footprint
                 out_path,
             ],
             check=True,
@@ -661,7 +679,10 @@ def search_gemini_drive_video_embeddings(
 
     # Vector search.
     if query_type == "text":
-        query_embedding = get_text_query_embedding(str(query))
+        query_embedding = get_text_query_embedding(
+            query=str(query),
+            filters=filters,
+        )
     elif query_type == "image":
         query_embedding = get_image_query_embedding(
             image_bytes=query,  # type: ignore[arg-type]
@@ -678,6 +699,7 @@ def search_gemini_drive_video_embeddings(
             video_bytes=trimmed_query_video,
             mime_type="video/mp4",
         )
+
 
     query_kwargs = {
         "query_embeddings": [query_embedding],

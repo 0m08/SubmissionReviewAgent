@@ -49,7 +49,7 @@ from chromadb import PersistentClient
 # CONFIGURATION
 # ============================================================
 
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1lV9_52Qicf6yHzn1NCbJ9M9lc5DnT29ODSOK5tXZHfk/edit?usp=sharing"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1CceOCu-AER_j3KBRZ66F0Er7z3LznF40a2c73xqr_u0/edit?usp=sharing"
 
 PARENT_FOLDER_ID = "1iv58CUkl-HXkukRTdcfDF1RhG9goYMXn"
 VECTORSTORE_FOLDER_NAME = "Google Drive Videos Vectorstore"
@@ -113,10 +113,6 @@ FRAMES_PER_CHUNK_MAX = 32
 PRICE_PER_FRAME_STANDARD = 0.00079
 PRICE_PER_FRAME_BATCH = 0.000395
 USE_BATCH_PRICING_FOR_ESTIMATE = False
-
-# Whether to backup ChromaDB to Drive after every video.
-# True is safer but slower. False backs up once at the end.
-BACKUP_AFTER_EACH_VIDEO = False
 
 
 # ============================================================
@@ -256,38 +252,6 @@ def save_to_sheet(worksheet, df: pd.DataFrame, wait_seconds: float = 2.0):
     time.sleep(wait_seconds)
     worksheet.update([df.columns.tolist()] + df.fillna("").values.tolist())
     time.sleep(wait_seconds)
-
-
-def clear_tracking_columns_all_tabs(gc, sheet_url=SHEET_URL, wait_seconds: float = 5.0):
-    """
-    Clears tracking column values across all tabs.
-    Keeps the headers.
-    """
-    spreadsheet = gc.open_by_url(sheet_url)
-    worksheets = spreadsheet.worksheets()
-
-    for i, worksheet in enumerate(worksheets, start=1):
-        print(f"[{i}/{len(worksheets)}] Clearing tab: {worksheet.title}")
-        df = get_tab_dataframe(worksheet)
-
-        if df.empty:
-            print("  Skipped empty tab.")
-            time.sleep(wait_seconds)
-            continue
-
-        cleared = []
-        for col in TRACKING_COLUMNS:
-            if col in df.columns:
-                df[col] = ""
-                cleared.append(col)
-
-        if not cleared:
-            print("  No tracking columns found.")
-            time.sleep(wait_seconds)
-            continue
-
-        save_to_sheet(worksheet, df, wait_seconds=wait_seconds)
-        print(f"  Cleared: {cleared}")
 
 
 # ============================================================
@@ -503,11 +467,17 @@ def generate_video_embedding(
     video_path: str,
     chunk_start_sec: float,
     chunk_end_sec: float,
+    metadata_context: dict = None,  # Context dict for matching search-side queries
     rate_limiter=None,
     request_semaphore=None,
 ):
     """
     Creates one Gemini Embedding 2 vector for one video chunk.
+
+    Builds an explicit, rich text prefix (course / topic / video / segment)
+    so the embedding is grounded the same way on the document (creation)
+    side as it is on the query (search) side. This is the fix for the
+    search-quality issue caused by ungrounded/mismatched task_type text.
 
     Note: this embeds visual/video content. It does not preserve or store the
     original video file in Chroma, and it does not make audio speech searchable.
@@ -546,10 +516,16 @@ def generate_video_embedding(
         os.remove(compressed_path)
         print(f"    🗜️ Compressed chunk to {len(video_bytes) / 1e6:.1f} MB")
 
-    text_prefix = (
-        f"title: video segment | "
-        f"text: segment from {int(chunk_start_sec)}s to {int(chunk_end_sec)}s"
-    )
+    # --- Build an explicit, rich text prefix for contextual grounding ---
+    if metadata_context:
+        text_prefix = (
+            f"Course: {metadata_context.get('course_name', '')} | "
+            f"Topic: {metadata_context.get('topic_name', '')} | "
+            f"Video: {metadata_context.get('video_name', '')} | "
+            f"Segment: {int(chunk_start_sec)}s to {int(chunk_end_sec)}s"
+        )
+    else:
+        text_prefix = f"Video segment from {int(chunk_start_sec)}s to {int(chunk_end_sec)}s"
 
     last_error = None
     for attempt in range(EMBEDDING_MAX_RETRIES + 1):
@@ -569,10 +545,10 @@ def generate_video_embedding(
                     ],
                     config=types.EmbedContentConfig(
                         output_dimensionality=OUTPUT_DIMENSIONALITY,
-                        task_type="RETRIEVAL_DOCUMENT",
+                        task_type="RETRIEVAL_DOCUMENT",  # Explicitly matching document index
                     ),
                 )
-    
+
             if request_semaphore:
                 with request_semaphore:
                     result = _call()
@@ -753,19 +729,32 @@ def create_video_embeddings(
                 df[col] = ""
                 print(f"  ➕ Added tracking column: {col}")
 
+        # Rows to (re)process: blank/FALSE/FAILED/NO/0/NaN vectorized status.
+        # FAILED rows are retried automatically on every run, not just after
+        # clearing the tracking column — matches the Colab pipeline.
+        vectorized_status = df["vectorized"].astype(str).str.strip().str.upper()
+
         mask_todo = (
-            (df["vectorized"].astype(str).str.upper() != "TRUE") &
-            (df["vectorized"].astype(str).str.upper() != "FAILED") &
+            (
+                (vectorized_status == "") |
+                (vectorized_status == "FALSE") |
+                (vectorized_status == "FAILED") |
+                (vectorized_status == "NO") |
+                (vectorized_status == "0") |
+                (vectorized_status == "NAN")
+            ) &
             (df[COL_VIDEO_ID].notna()) &
             (df[COL_VIDEO_ID].astype(str).str.strip() != "")
         )
 
         videos_to_process = df[mask_todo]
-        already_processed = int((df["vectorized"].astype(str).str.upper() == "TRUE").sum())
-        failed_count = int((df["vectorized"].astype(str).str.upper() == "FAILED").sum())
+        already_processed = int((vectorized_status == "TRUE").sum())
+        failed_count = int((vectorized_status == "FAILED").sum())
+        false_count = int((vectorized_status == "FALSE").sum())
 
         print(f"  📊 Total rows       : {len(df)}")
         print(f"  ✅ Already done     : {already_processed}")
+        print(f"  🔁 Marked FALSE     : {false_count}")
         print(f"  ❌ Previously failed: {failed_count}")
         print(f"  ⏳ To process       : {len(videos_to_process)}")
 
@@ -825,6 +814,14 @@ def create_video_embeddings(
 
                 print(f"    🔄 Embedding {len(segments)} chunk(s)...")
 
+                # Grounding payload passed into every chunk's embedding call
+                # so the text prefix matches what the search side expects.
+                meta_ctx = {
+                    "course_name": course_name,
+                    "topic_name": topic_name,
+                    "video_name": video_name,
+                }
+
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     future_map = {
                         executor.submit(
@@ -833,6 +830,7 @@ def create_video_embeddings(
                             seg_path,
                             start_sec,
                             end_sec,
+                            meta_ctx,
                             rate_limiter,
                             request_semaphore,
                         ): (j, seg_path, start_sec, end_sec)
@@ -880,8 +878,13 @@ def create_video_embeddings(
 
                 upsert_embeddings(collection, video_embeddings)
 
-                if BACKUP_AFTER_EACH_VIDEO:
+                # d2. Backup updated ChromaDB to Drive after every video.
+                # A backup failure is logged but never fails the video itself.
+                try:
                     backup_vectorstore_to_drive(drive, LOCAL_VECTORSTORE_PATH, vectorstore_folder_id)
+                    print("    📤 Drive backup updated after this video.")
+                except Exception as backup_exc:
+                    print(f"    ⚠️ Drive backup failed after this video: {backup_exc}")
 
                 tab_new_embeddings += len(video_embeddings)
                 grand_embeddings += len(video_embeddings)
@@ -891,9 +894,9 @@ def create_video_embeddings(
                 df.at[idx, "vectorized"] = "TRUE"
                 df.at[idx, "embedding_ts"] = datetime.now().isoformat()
                 df.at[idx, "segments_processed"] = str(len(segments))
+                # df.at[idx, "embedding_model"] = GEMINI_MODEL_NAME
+                # df.at[idx, "embedding_dimensionality"] = str(OUTPUT_DIMENSIONALITY)
                 df.at[idx, "estimated_cost_usd"] = str(round(video_cost, 6))
-                df.at[idx, "embedding_model"] = GEMINI_MODEL_NAME
-                df.at[idx, "embedding_dimensionality"] = str(OUTPUT_DIMENSIONALITY)
                 df.at[idx, "error_message"] = ""
 
                 save_to_sheet(worksheet, df)
@@ -942,6 +945,7 @@ def create_video_embeddings(
     elapsed = time.time() - pipeline_start
     mins, sec = divmod(int(elapsed), 60)
     duration_str = f"{mins}m {sec}s" if mins else f"{sec}s"
+    total_done = grand_already_done + grand_newly_processed
     cb = cost_breakdown(grand_embeddings)
 
     stats = {
@@ -952,14 +956,19 @@ def create_video_embeddings(
         "already_processed_before_run": grand_already_done,
         "newly_processed": grand_newly_processed,
         "newly_failed": grand_newly_failed,
+        "total_processed_cumulative": total_done,
         "total_chunks_created": grand_segments,
         "total_chunks_embedded": grand_embeddings,
+        "frames_per_chunk_max": FRAMES_PER_CHUNK_MAX,
+        "total_frames_estimated": cb["total_frames_estimated"],
         "estimated_cost_standard_usd": cb["estimated_cost_standard_usd"],
         "estimated_cost_batch_usd": cb["estimated_cost_batch_usd"],
         "pricing_tier_used": cb["pricing_tier_used"],
         "estimated_total_cost_usd": cb["estimated_cost_usd"],
         "embedding_model": GEMINI_MODEL_NAME,
         "output_dimensionality": OUTPUT_DIMENSIONALITY,
+        "chunk_length_sec": chunk_length,
+        "chunk_overlap_sec": CHUNK_OVERLAP_SEC,
         "collection_name": CHROMA_COLLECTION_NAME,
         "collection_count": collection.count(),
         "local_vectorstore_path": LOCAL_VECTORSTORE_PATH,
@@ -988,6 +997,3 @@ def inspect_vectorstore(local_path: str = LOCAL_VECTORSTORE_PATH):
         print("\nFiles:")
         for item in os.listdir(local_path):
             print(f"  - {item}")
-
-
-
