@@ -39,6 +39,12 @@ window.HFApi = (function () {
         body: JSON.stringify(payload),
       });
     },
+    revert(payload) {
+      return request("/api/visuals/revert", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
     getJob(jobId) {
       return request("/api/jobs/" + encodeURIComponent(jobId));
     },

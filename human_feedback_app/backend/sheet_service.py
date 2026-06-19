@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import pandas as pd
 import re
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.sheets_service import get_sheet_data_and_df, save_to_sheet
+from services.sheets_service import save_to_sheet, try_n_times, get_sheet_data_and_df
 
 from human_feedback_app.backend.constants import (
     ACTION_APPROVE,
@@ -22,6 +24,161 @@ from human_feedback_app.backend.constants import (
     MODE_TO_ACTION,
 )
 from human_feedback_app.backend.sessions import UserSession
+
+
+# This app pins the human-feedback round to a single set of "_1" columns and
+# never advances rounds. Each visual's lifecycle (action, feedback, original ->
+# after_revision -> after_regen_* history) lives inside the keyed JSON of the
+# actions/tracking cells, so we never spawn _2/_3 column sets the way the batch
+# Streamlit flow did.
+ROUND_INDEX = 0
+
+# Serializes the read-modify-write of the worksheet. Because save_to_sheet writes
+# the ENTIRE sheet, every writer must reload the latest data inside this lock and
+# patch only the cells it owns; otherwise concurrent writers clobber each other.
+#
+# NOTE: this lock only guards the (fast) merge-write. The slow part of a revision
+# (LLM calls / AI generation) runs OUTSIDE any lock, so revisions for different
+# visuals — even on the SAME slide/row — execute fully in parallel and only
+# serialize for the brief surgical write at the end.
+_SHEET_WRITE_LOCK = threading.Lock()
+
+
+def _ensure_sheet(session: UserSession):
+    if session.sheet is None:
+        session.sheet = session.gc.open_by_url(session.sheet_link)
+    return session.sheet
+
+
+def _pick_column(df, name: str) -> str:
+    target = name.strip().lower()
+    for col in df.columns:
+        if str(col).strip().lower() == target:
+            return col
+    return name
+
+
+def mutate_row_cells(session: UserSession, row_index: int, mutate) -> None:
+    """Reload the latest worksheet under the global write lock, run ``mutate(df)``
+    (which must patch only this row's owned cells), then persist.
+
+    Reloading inside the lock guarantees every untouched row/column keeps its
+    newest value, so we never overwrite a concurrent writer's changes.
+    """
+    with _SHEET_WRITE_LOCK:
+        sheet = _ensure_sheet(session)
+        ws, latest_df = get_sheet_data_and_df(sheet, session.worksheet_name or DEFAULT_WORKSHEET)
+        latest_df = _sanitize_df(latest_df)
+        mutate(latest_df)
+        save_to_sheet(ws, latest_df)
+
+
+def save_row_cells(session: UserSession, row_index: int, cell_updates: Dict[str, Any]) -> None:
+    """Persist precomputed cell values for a single row, preserving every other
+    cell in the worksheet."""
+    if not cell_updates:
+        return
+
+    def mutate(df):
+        for col, val in cell_updates.items():
+            if col not in df.columns:
+                df[col] = ""
+            df.at[row_index, col] = "" if val is None else str(val)
+
+    mutate_row_cells(session, row_index, mutate)
+
+
+def extract_asset_url(raw_def: str, segment_index: int, step_index: int) -> str:
+    """Return the asset URL for one (segment, step) inside a final_graphics_definition cell."""
+    helpers = _import_slideshow_helpers()
+    parse_graphics_definition = helpers["parse_graphics_definition"]
+    safe_str = helpers["safe_str"]
+    for seg in parse_graphics_definition(raw_def or ""):
+        if seg.get("segment_index") == segment_index:
+            for step in seg.get("steps") or []:
+                if step.get("step_index") == step_index:
+                    return safe_str(step.get("asset", "")).strip()
+    return ""
+
+
+def merge_visual_revision(
+    session: UserSession,
+    *,
+    row_index: int,
+    segment_index: int,
+    step_index: int,
+    visual_id: str,
+    final_url: str,
+    original_url: str,
+    tracking_entry: Optional[Dict[str, Any]],
+    status_value: str = "",
+) -> None:
+    """Merge ONE visual's revision result into the latest sheet, touching only
+    that visual's slice of each shared cell.
+
+    This is what makes within-slide parallelism safe: two revisions on different
+    visuals of the same row each call this with their own (segment, step) /
+    visual_id, so they update disjoint parts of final_graphics_definition,
+    tracking, and the manifest. The (fast) merge is serialized by the global
+    write lock; the slow revision work already ran in parallel beforehand.
+    """
+    from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+        _format_human_feedback_revision_tracking,
+    )
+    from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
+        apply_url_replacements_to_slideshow_manifest_inner_xml,
+    )
+    from graphics_definition_v2_slideshow import _apply_asset_overrides_to_raw
+
+    helpers = _import_slideshow_helpers()
+    parse_graphics_definition = helpers["parse_graphics_definition"]
+    safe_str = helpers["safe_str"]
+    get_round_column_name = helpers["get_round_column_name"]
+
+    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+    status_col = get_round_column_name(HUMAN_FEEDBACK_STATUS_COLUMN, ROUND_INDEX)
+
+    def mutate(df) -> None:
+        # 1) final_graphics_definition: surgical override of just this visual.
+        if final_url:
+            final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+            if final_col in df.columns:
+                raw_def = safe_str(df.at[row_index, final_col])
+                segments = parse_graphics_definition(raw_def)
+                updated = _apply_asset_overrides_to_raw(
+                    raw_def, segments, {(segment_index, step_index): final_url}
+                )
+                df.at[row_index, final_col] = updated
+
+        # 2) tracking: merge only this visual_id's entry.
+        if tracking_entry is not None:
+            if tracking_col not in df.columns:
+                df[tracking_col] = ""
+            tmap = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+            tmap[visual_id] = tracking_entry
+            df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tmap)
+
+        # 3) slideshow_manifest: replace only this visual's URL.
+        if final_url and original_url and final_url != original_url and "slideshow_manifest" in df.columns:
+            manifest = safe_str(df.at[row_index, "slideshow_manifest"])
+            if manifest and manifest != "nan" and not manifest.startswith("ERROR:"):
+                try:
+                    updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
+                        manifest, [(original_url, final_url)]
+                    )
+                    if applied and updated_manifest != manifest:
+                        df.at[row_index, "slideshow_manifest"] = updated_manifest
+                except Exception as exc:  # pragma: no cover - defensive
+                    print(f"[human_feedback] manifest patch failed for row {row_index}: {exc}")
+
+        # 4) status: row-level, last-writer-wins (cosmetic; UI derives per-visual
+        #    state from actions + tracking, not from this).
+        if status_value:
+            if status_col not in df.columns:
+                df[status_col] = ""
+            df.at[row_index, status_col] = status_value
+
+    mutate_row_cells(session, row_index, mutate)
 
 
 def _first_http_url(text: str) -> str:
@@ -113,7 +270,7 @@ def _alternatives_for_segment(
     seen: set[str] = set()
     out: List[Dict[str, Any]] = []
 
-    def add_candidate(title: str, url: str, duration: str = "") -> None:
+    def add_candidate(title: str, url: str, atype: str, duration: str = "") -> None:
         url = (url or "").strip()
         if not url:
             return
@@ -123,7 +280,6 @@ def _alternatives_for_segment(
         if exclude and dedupe_key == exclude:
             return
         seen.add(dedupe_key)
-        atype = "video" if asset_type == "video" else "image"
         out.append(
             {
                 "title": (title or _label_from_asset(url, atype)).strip(),
@@ -134,23 +290,27 @@ def _alternatives_for_segment(
             }
         )
 
-    if asset_type == "video":
-        pool_text = safe_str(row.get("video_pool_filtered", "")).strip()
-        if pool_text and pool_text != "nan":
-            for item in parse_urls_from_video_pool_filtered(pool_text, segment_index):
-                meta = item.get("metadata") or {}
-                add_candidate(
-                    str(meta.get("title") or "Video clip"),
-                    str(item.get("url") or ""),
-                    str(meta.get("duration") or ""),
-                )
-            for item in parse_urls_from_image_pool(pool_text, segment_index):
-                add_candidate(str(item.get("title") or ""), str(item.get("url") or ""))
-    else:
-        pool_text = safe_str(row.get("image_pool", "")).strip()
-        if pool_text and pool_text != "nan":
-            for item in parse_urls_from_image_pool(pool_text, segment_index):
-                add_candidate(str(item.get("title") or ""), str(item.get("url") or ""))
+    # 1. Add all candidates from the image pool
+    image_pool_text = safe_str(row.get("image_pool", "")).strip()
+    if image_pool_text and image_pool_text != "nan":
+        for item in parse_urls_from_image_pool(image_pool_text, segment_index):
+            add_candidate(
+                str(item.get("title") or ""),
+                str(item.get("url") or ""),
+                "image",
+            )
+
+    # 2. Add all candidates from the video pool
+    video_pool_text = safe_str(row.get("video_pool_filtered", "")).strip()
+    if video_pool_text and video_pool_text != "nan":
+        for item in parse_urls_from_video_pool_filtered(video_pool_text, segment_index):
+            meta = item.get("metadata") or {}
+            add_candidate(
+                str(meta.get("title") or "Video clip"),
+                str(item.get("url") or ""),
+                "video",
+                str(meta.get("duration") or ""),
+            )
 
     return out
 
@@ -194,19 +354,57 @@ def _parse_tracking(raw: str) -> Dict[str, Any]:
     return _parse_tracking_column(raw or "")
 
 
+def _sanitize_df(df):
+    """
+    Prevent empty cells from being written back to Sheets as the literal
+    string "nan".
+
+    The shared ``save_to_sheet`` helper does ``df.astype(str)``, which turns
+    pandas ``NaN`` into "nan". Since this app saves the whole worksheet on
+    every revise/approve, any blank cell on untouched rows would otherwise be
+    stamped with "nan". We normalize the dataframe the app holds (and hands to
+    the agent) so this never happens — without modifying the shared service.
+    """
+    if df is None or df.empty:
+        return df
+    df = df.fillna("")
+    # Clean any pre-existing literal artifacts (exact-cell matches only).
+    return df.replace({"nan": "", "NaN": "", "<NA>": "", "None": ""})
+
+
 def load_workbook(session: UserSession) -> Tuple[Any, Any, int]:
     helpers = _import_slideshow_helpers()
     safe_str = helpers["safe_str"]
-    detect_current_round = helpers["detect_current_round"]
 
     if session.sheet is None:
         session.sheet = session.gc.open_by_url(session.sheet_link)
     ws, df = get_sheet_data_and_df(session.sheet, session.worksheet_name or DEFAULT_WORKSHEET)
-    session.current_round = detect_current_round(df)
+    df = _sanitize_df(df)
 
-    _, course_df = get_sheet_data_and_df(session.sheet, "Course info")
-    if not course_df.empty:
-        session.course_name = safe_str(course_df.iloc[0].get("Course Name", ""))
+    session.current_round = ROUND_INDEX
+
+    try:
+        # find worksheet by loosely matching name
+        sheet_titles = {ws.title.strip().lower(): ws for ws in session.sheet.worksheets()}
+        if "course info" in sheet_titles:
+            ws = sheet_titles["course info"]
+            
+            @try_n_times(n=3, wait=1, backoff='exponential')
+            def fetch_values():
+                return ws.get_all_values()
+                
+            values = fetch_values()
+            if values and len(values) > 1:
+                headers = [str(h).strip().lower() for h in values[0]]
+                if "course name" in headers:
+                    idx = headers.index("course name")
+                    # Find the first non-empty value in this column
+                    for row in values[1:]:
+                        if len(row) > idx and str(row[idx]).strip():
+                            session.course_name = str(row[idx]).strip()
+                            break
+    except Exception as e:
+        print(f"Error fetching course info: {e}")
 
     return ws, df, session.current_round
 
@@ -220,6 +418,12 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
 
     _, df, current_round = load_workbook(session)
     cmap = _column_map(df)
+    
+    # Forward-fill the topic column to handle merged or blank cells in the sheet
+    topic_col = cmap.get("topic")
+    if topic_col and topic_col in df.columns:
+        df[topic_col] = df[topic_col].replace(r'^\s*$', None, regex=True).ffill().fillna("")
+        
     slides = build_slides_from_df(df, cmap)
 
     actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, current_round)
@@ -298,17 +502,56 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
             }
         )
 
-    module_label = session.course_name or "Course"
-    if ui_slides and ui_slides[0].get("topic"):
-        module_label = f"{session.course_name or 'Course'} · {ui_slides[0]['topic']}"
+    course_name = session.course_name or "Course"
+    topic_name = ui_slides[0].get("topic") if ui_slides else ""
 
     return {
         "slides": ui_slides,
         "currentRound": current_round,
-        "moduleLabel": module_label,
+        "moduleLabel": course_name,
+        "courseName": course_name,
+        "topicName": topic_name,
         "sheetLink": session.sheet_link,
         "worksheetName": session.worksheet_name,
     }
+
+
+def _normalize_vo(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
+def _split_feedback_blocks(text: str) -> List[str]:
+    if not text or not text.strip():
+        return []
+    parts = re.split(r"(?=^When VO:)", text, flags=re.MULTILINE)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _vo_of_block(block: str) -> str:
+    match = re.match(r"When VO:\s*(.*?)\s*\nHuman Feedback:", block, flags=re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
+def filter_feedback_to_vo(feedback_text: str, target_vo: str) -> str:
+    """Return only the feedback block(s) whose VO matches ``target_vo``.
+
+    The feedback cell holds one block per voiceover part for the whole slide.
+    A per-visual revision must only act on its own block, otherwise the worker
+    would re-revise every visual in the slide that has feedback.
+
+    Returns "" if no block matches (caller decides the fallback).
+    """
+    blocks = _split_feedback_blocks(feedback_text)
+    if not blocks:
+        return ""
+    target = _normalize_vo(target_vo)
+    if not target:
+        return ""
+    matched = [b for b in blocks if _normalize_vo(_vo_of_block(b)) == target]
+    if not matched:
+        # Looser fallback: VO stored with minor differences (punctuation, etc.).
+        matched = [b for b in blocks if target in _normalize_vo(_vo_of_block(b))]
+    return "\n\n".join(matched)
 
 
 def _merge_feedback_block(existing: str, vo: str, feedback: str) -> str:
@@ -341,51 +584,51 @@ def write_visual_action(
     get_round_column_name = helpers["get_round_column_name"]
     safe_str = helpers["safe_str"]
 
-    ws, df, current_round = load_workbook(session)
-    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, current_round)
-    feedback_col = get_round_column_name(HUMAN_FEEDBACK_COLUMN, current_round)
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+    feedback_col = get_round_column_name(HUMAN_FEEDBACK_COLUMN, ROUND_INDEX)
 
-    if actions_col not in df.columns:
-        df[actions_col] = ""
-    if feedback_col not in df.columns:
-        df[feedback_col] = ""
+    def mutate(df) -> None:
+        if actions_col not in df.columns:
+            df[actions_col] = ""
+        if feedback_col not in df.columns:
+            df[feedback_col] = ""
 
-    raw_actions = safe_str(df.at[row_index, actions_col])
-    try:
-        payload = json.loads(raw_actions) if raw_actions else {}
-    except Exception:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-    actions_map = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
-    segment_modes = payload.get("segment_modes") if isinstance(payload.get("segment_modes"), dict) else {}
+        raw_actions = safe_str(df.at[row_index, actions_col])
+        try:
+            payload = json.loads(raw_actions) if raw_actions else {}
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        actions_map = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
+        segment_modes = payload.get("segment_modes") if isinstance(payload.get("segment_modes"), dict) else {}
 
-    actions_map[visual_id] = {
-        "action": action,
-        "feedback": feedback,
-        "vo": vo,
-        "segment": segment_index,
-    }
+        actions_map[visual_id] = {
+            "action": action,
+            "feedback": feedback,
+            "vo": vo,
+            "segment": segment_index,
+        }
 
-    if action in MODE_TO_ACTION.values():
-        seg_key = str(segment_index)
-        seg_mode = "all" if mode in ("all", "ai") or action in (MODE_TO_ACTION["all"], MODE_TO_ACTION["ai"]) else "drive_hvac"
-        existing = segment_modes.get(seg_key, "drive_hvac")
-        segment_modes[seg_key] = "all" if existing == "all" or seg_mode == "all" else "drive_hvac"
+        if action in MODE_TO_ACTION.values():
+            seg_key = str(segment_index)
+            seg_mode = "all" if mode in ("all", "ai") or action in (MODE_TO_ACTION["all"], MODE_TO_ACTION["ai"]) else "drive_hvac"
+            existing = segment_modes.get(seg_key, "drive_hvac")
+            segment_modes[seg_key] = "all" if existing == "all" or seg_mode == "all" else "drive_hvac"
 
-        effective_feedback = feedback
-        if action == MODE_TO_ACTION["ai"] and not effective_feedback:
-            effective_feedback = AI_NO_FEEDBACK_MARKER
-        elif not effective_feedback:
-            effective_feedback = DEFAULT_REJECT_FEEDBACK
+            effective_feedback = feedback
+            if action == MODE_TO_ACTION["ai"] and not effective_feedback:
+                effective_feedback = AI_NO_FEEDBACK_MARKER
+            elif not effective_feedback:
+                effective_feedback = DEFAULT_REJECT_FEEDBACK
 
-        existing_fb = safe_str(df.at[row_index, feedback_col])
-        df.at[row_index, feedback_col] = _merge_feedback_block(existing_fb, vo, effective_feedback)
+            existing_fb = safe_str(df.at[row_index, feedback_col])
+            df.at[row_index, feedback_col] = _merge_feedback_block(existing_fb, vo, effective_feedback)
 
-    payload = {"actions": actions_map, "segment_modes": segment_modes, "round": current_round}
-    df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+        payload = {"actions": actions_map, "segment_modes": segment_modes, "round": ROUND_INDEX}
+        df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
 
-    save_to_sheet(ws, df)
+    mutate_row_cells(session, row_index, mutate)
 
 
 def select_pool_alternative(
@@ -413,47 +656,51 @@ def select_pool_alternative(
     if not asset_url:
         raise ValueError("asset_url is required")
 
-    ws, df, current_round = load_workbook(session)
-    cmap = _column_map(df)
-    final_col = cmap["final_def"]
-    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
+    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
 
-    if final_col not in df.columns:
-        raise ValueError(f"Missing column: {final_col}")
-    if tracking_col not in df.columns:
-        df[tracking_col] = ""
+    def mutate(df) -> None:
+        final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+        if final_col not in df.columns:
+            raise ValueError(f"Missing column: {final_col}")
+        if tracking_col not in df.columns:
+            df[tracking_col] = ""
 
-    raw_def = safe_str(df.at[row_index, final_col])
-    segments = parse_graphics_definition(raw_def)
-    original_url = ""
-    for seg in segments:
-        if seg.get("segment_index") == segment_index:
-            for step in seg.get("steps") or []:
-                if step.get("step_index") == step_index:
-                    original_url = safe_str(step.get("asset", "")).strip()
-                    break
+        raw_def = safe_str(df.at[row_index, final_col])
+        segments = parse_graphics_definition(raw_def)
+        original_url = ""
+        for seg in segments:
+            if seg.get("segment_index") == segment_index:
+                for step in seg.get("steps") or []:
+                    if step.get("step_index") == step_index:
+                        original_url = safe_str(step.get("asset", "")).strip()
+                        break
 
-    override_map = {(segment_index, step_index): asset_url}
-    updated_def = _apply_asset_overrides_to_raw(raw_def, segments, override_map)
+        override_map = {(segment_index, step_index): asset_url}
+        updated_def = _apply_asset_overrides_to_raw(raw_def, segments, override_map)
 
-    tracking_map = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+        tracking_map = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
 
-    if visual_id not in tracking_map:
-        tracking_map[visual_id] = {
-            "original": original_url or None,
-            "manually_selected": None,
-            "after_revision": None,
-            "after_regen_1": None,
-            "after_regen_2": None,
-        }
-    elif not tracking_map[visual_id].get("original"):
-        tracking_map[visual_id]["original"] = original_url or None
+        if visual_id not in tracking_map:
+            tracking_map[visual_id] = {
+                "original": original_url or None,
+                "manually_selected": None,
+                "after_revision": None,
+                "after_regen_1": None,
+                "after_regen_2": None,
+            }
+        elif not tracking_map[visual_id].get("original"):
+            tracking_map[visual_id]["original"] = original_url or None
 
-    tracking_map[visual_id]["manually_selected"] = asset_url
+        tracking_map[visual_id]["manually_selected"] = asset_url
 
-    df.at[row_index, final_col] = updated_def
-    df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tracking_map)
-    save_to_sheet(ws, df)
+        df.at[row_index, final_col] = updated_def
+        df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tracking_map)
+
+    # The mutate runs inside the global write lock against the freshest sheet and
+    # touches only this visual's (segment, step) slice + its tracking key, so it
+    # is safe to run alongside an in-flight revision of a DIFFERENT visual on the
+    # same slide.
+    mutate_row_cells(session, row_index, mutate)
 
     approve_visual(
         session,
@@ -463,6 +710,89 @@ def select_pool_alternative(
         visual_id=visual_id,
         vo=vo,
     )
+
+
+def revert_visual(
+    session: UserSession,
+    *,
+    row_index: int,
+    segment_index: int,
+    step_index: int,
+    visual_id: str,
+    vo: str,
+) -> None:
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    safe_str = helpers["safe_str"]
+    parse_graphics_definition = helpers["parse_graphics_definition"]
+
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+
+    def mutate(df) -> None:
+        # 1. Clear the action so it becomes pending again
+        if actions_col in df.columns:
+            raw_actions = safe_str(df.at[row_index, actions_col])
+            try:
+                payload = json.loads(raw_actions) if raw_actions else {}
+            except Exception:
+                payload = {}
+            if isinstance(payload, dict) and "actions" in payload and visual_id in payload["actions"]:
+                del payload["actions"][visual_id]
+                df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+
+        # 2. Restore the original URL in the graphics definition
+        if tracking_col in df.columns:
+            tmap = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+            tracking_entry = tmap.get(visual_id, {})
+            original_url = tracking_entry.get("original")
+
+            # Find the currently active URL so we can patch the manifest
+            current_url = None
+            final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+            if final_col in df.columns and original_url:
+                raw_def = safe_str(df.at[row_index, final_col])
+                segments = parse_graphics_definition(raw_def)
+                for seg in segments:
+                    if seg.get("segment_index") == segment_index:
+                        for step in seg.get("steps") or []:
+                            if step.get("step_index") == step_index:
+                                current_url = safe_str(step.get("asset", "")).strip()
+                                break
+                
+                from graphics_definition_v2_slideshow import _apply_asset_overrides_to_raw
+                updated = _apply_asset_overrides_to_raw(
+                    raw_def, segments, {(segment_index, step_index): original_url}
+                )
+                df.at[row_index, final_col] = updated
+
+                # Also restore the manifest!
+                if current_url and current_url != original_url and "slideshow_manifest" in df.columns:
+                    manifest = safe_str(df.at[row_index, "slideshow_manifest"])
+                    if manifest and manifest != "nan" and not manifest.startswith("ERROR:"):
+                        from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import apply_url_replacements_to_slideshow_manifest_inner_xml
+                        try:
+                            updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
+                                manifest, [(current_url, original_url)]
+                            )
+                            if applied and updated_manifest != manifest:
+                                df.at[row_index, "slideshow_manifest"] = updated_manifest
+                        except Exception:
+                            pass
+
+            # 3. Wipe the revision history for this visual in tracking!
+            if original_url:
+                tmap[visual_id] = {
+                    "original": original_url,
+                    "manually_selected": None,
+                    "after_revision": None,
+                    "after_regen_1": None,
+                    "after_regen_2": None,
+                }
+                from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import _format_human_feedback_revision_tracking
+                df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tmap)
+
+    mutate_row_cells(session, row_index, mutate)
 
 
 def approve_visual(session: UserSession, row_index: int, segment_index: int, step_index: int, visual_id: str, vo: str) -> None:

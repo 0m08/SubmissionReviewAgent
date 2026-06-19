@@ -54,7 +54,7 @@ def _now() -> str:
 
 
 class RevisionJobQueue:
-    def __init__(self, max_workers: int = 2) -> None:
+    def __init__(self, max_workers: int = 10) -> None:
         self._jobs: Dict[str, RevisionJob] = {}
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -111,4 +111,4 @@ class RevisionJobQueue:
             traceback.print_exc()
 
 
-revision_queue = RevisionJobQueue(max_workers=2)
+revision_queue = RevisionJobQueue(max_workers=10)

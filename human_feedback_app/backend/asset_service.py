@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from human_feedback_app.backend.auth import ensure_google_clients
 from human_feedback_app.backend.sessions import UserSession
 
+_IMAGE_CACHE = {}
 
 def _first_http_url(text: str) -> str:
     if not text:
@@ -27,25 +28,40 @@ def _slideshow_helpers():
     return {"download_image_bytes": download_image_bytes, "is_drive_url": is_drive_url}
 
 
-def fetch_image_bytes(session: UserSession, raw_url: str) -> bytes:
+def fetch_image_bytes(session: UserSession, raw_url: str, use_thumbnail: bool = False) -> bytes:
     ensure_google_clients(session)
     helpers = _slideshow_helpers()
     url = _first_http_url(raw_url)
     if not url:
         raise HTTPException(status_code=400, detail="Missing image URL")
 
-    data = helpers["download_image_bytes"](url, session.drive)
+    cache_key = (url, use_thumbnail)
+    if cache_key in _IMAGE_CACHE:
+        return _IMAGE_CACHE[cache_key]
+
+    data = helpers["download_image_bytes"](url, session.drive, use_thumbnail=use_thumbnail)
     if not data:
         raise HTTPException(status_code=404, detail="Could not load image")
+        
+    # Cache up to 1000 images to prevent memory leaks
+    if len(_IMAGE_CACHE) > 1000:
+        _IMAGE_CACHE.clear()
+    _IMAGE_CACHE[cache_key] = data
+    
     return data
 
 
-def image_response(session: UserSession, raw_url: str) -> Response:
-    data = fetch_image_bytes(session, raw_url)
+def image_response(session: UserSession, raw_url: str, thumb: str = "") -> Response:
+    use_thumbnail = thumb == "1" or thumb.lower() == "true"
+    data = fetch_image_bytes(session, raw_url, use_thumbnail=use_thumbnail)
     image_type = imghdr.what(None, h=data) or "jpeg"
     if image_type == "jpg":
         image_type = "jpeg"
-    return Response(content=data, media_type=f"image/{image_type}")
+    return Response(
+        content=data, 
+        media_type=f"image/{image_type}",
+        headers={"Cache-Control": "public, max-age=86400, immutable"}
+    )
 
 
 def needs_image_proxy(url: str) -> bool:

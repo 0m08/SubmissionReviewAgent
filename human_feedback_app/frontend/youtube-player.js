@@ -105,6 +105,9 @@ window.HFYoutube = (function () {
     const player = players[mountId];
     if (!player) return;
     try {
+      if (player._checkInterval) {
+        clearInterval(player._checkInterval);
+      }
       player.destroy();
     } catch (_) {}
     delete players[mountId];
@@ -130,11 +133,26 @@ window.HFYoutube = (function () {
     el.setAttribute("data-yt-url", url);
     el.innerHTML = "";
 
+    const isSmall = height < 150;
+    const scale = isSmall ? 2.5 : 1.5;
+    const invScale = 1 / scale;
+
+    const playerWrapper = document.createElement("div");
+    playerWrapper.style.width = (scale * 100) + "%";
+    playerWrapper.style.height = (scale * 100) + "%";
+    playerWrapper.style.transform = "scale(" + invScale + ")";
+    playerWrapper.style.transformOrigin = "top left";
+    playerWrapper.style.position = "absolute";
+    playerWrapper.style.top = "0";
+    playerWrapper.style.left = "0";
+    
+    el.appendChild(playerWrapper);
+
     const playerHost = document.createElement("div");
     playerHost.id = mountId + "-player";
     playerHost.style.width = "100%";
     playerHost.style.height = "100%";
-    el.appendChild(playerHost);
+    playerWrapper.appendChild(playerHost);
 
     const start = Math.floor(meta.start || 0);
     const end = meta.end != null ? Math.floor(meta.end) : null;
@@ -143,36 +161,75 @@ window.HFYoutube = (function () {
       const host = document.getElementById(mountId + "-player");
       if (!host) return;
 
+      let parsedUrl = null;
+      try { parsedUrl = new URL(url); } catch (_) {}
+      
+      const urlControls = parsedUrl ? parsedUrl.searchParams.get("controls") : null;
+
       const playerVars = {
         start: start,
         autoplay: 1,
-        controls: 1,
+        controls: urlControls !== null ? parseInt(urlControls) : 1,
         rel: 0,
         playsinline: 1,
         mute: 1,
         enablejsapi: 1,
         modestbranding: 1,
+        disablekb: (parsedUrl && parsedUrl.searchParams.get("disablekb") === "1") ? 1 : 0,
       };
       if (end != null) playerVars.end = end;
 
+      let checkInterval = null;
+      function startChecking(p) {
+        if (end == null) return;
+        if (checkInterval) return;
+        checkInterval = setInterval(function () {
+          try {
+            if (p && typeof p.getCurrentTime === "function" && typeof p.seekTo === "function") {
+              const cur = p.getCurrentTime();
+              if (cur >= end - 0.2) {
+                p.seekTo(start, true);
+                p.playVideo();
+              }
+            }
+          } catch (_) {}
+        }, 150);
+        p._checkInterval = checkInterval;
+      }
+      function stopChecking(p) {
+        if (checkInterval) {
+          clearInterval(checkInterval);
+          checkInterval = null;
+          if (p) p._checkInterval = null;
+        }
+      }
+
       const player = new window.YT.Player(mountId + "-player", {
-        height: String(height || 176),
+        height: String(Math.round(height * scale) || 176),
         width: "100%",
         videoId: meta.videoId,
         playerVars: playerVars,
         events: {
           onReady: function (event) {
             try {
+              event.target.mute();
               event.target.playVideo();
             } catch (_) {}
           },
           onStateChange: function (event) {
-            if (end == null) return;
             try {
-              if (
-                event.data === window.YT.PlayerState.ENDED ||
-                event.target.getCurrentTime() >= end - 0.2
-              ) {
+              if (event.data === window.YT.PlayerState.PLAYING) {
+                const container = document.getElementById(mountId);
+                if (container) {
+                  container.classList.add("is-playing");
+                }
+                startChecking(event.target);
+              } else {
+                stopChecking(event.target);
+              }
+            } catch (_) {}
+            try {
+              if (event.data === window.YT.PlayerState.ENDED) {
                 event.target.seekTo(start, true);
                 event.target.playVideo();
               }

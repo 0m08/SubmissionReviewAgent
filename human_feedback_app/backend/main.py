@@ -62,6 +62,14 @@ class SelectPoolRequest(BaseModel):
     asset_url: str = Field(min_length=8)
 
 
+class RevertRequest(BaseModel):
+    row_index: int
+    segment_index: int
+    step_index: int
+    visual_id: str
+    vo: str
+
+
 def session_dep(request: Request) -> UserSession:
     return get_current_session(request)
 
@@ -101,8 +109,22 @@ def api_slides(session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
 
 
 @api_router.get("/assets/image")
-def api_asset_image(url: str = Query(min_length=8), session: UserSession = Depends(session_dep)):
-    return image_response(session, url)
+def api_asset_image(url: str = Query(min_length=8), thumb: str = Query(""), session: UserSession = Depends(session_dep)):
+    return image_response(session, url, thumb)
+
+
+@api_router.post("/visuals/revert")
+def api_revert(body: RevertRequest, session: UserSession = Depends(session_dep)) -> Dict[str, str]:
+    from human_feedback_app.backend.sheet_service import revert_visual
+    revert_visual(
+        session,
+        row_index=body.row_index,
+        segment_index=body.segment_index,
+        step_index=body.step_index,
+        visual_id=body.visual_id,
+        vo=body.vo,
+    )
+    return {"status": "ok"}
 
 
 @api_router.post("/visuals/approve")
@@ -160,7 +182,14 @@ def api_revise(body: ReviseRequest, session: UserSession = Depends(session_dep))
     label = f"Slide {(slide_idx or 0) + 1} / {body.visual_id}"
 
     def worker() -> Dict[str, Any]:
-        run_row_revision(session, body.row_index)
+        run_row_revision(
+            session,
+            body.row_index,
+            body.vo,
+            segment_index=body.segment_index,
+            step_index=body.step_index,
+            visual_id=body.visual_id,
+        )
         refreshed = slides_to_ui_payload(session)
         return refreshed
 
