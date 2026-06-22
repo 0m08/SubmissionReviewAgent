@@ -62,6 +62,7 @@ from google import genai
 from google.genai import types
 from pydrive2.drive import GoogleDrive
 from agents.course_outline.video_search_tool.google_drive_video_search.create_google_drive_video_vectorstore import create_video_embeddings
+from agents.course_outline.video_search_tool.google_drive_video_search.archive_google_drive_videos import render_archive_tab
 
 try:
     from services.drive_service import login_with_service_account
@@ -833,16 +834,24 @@ def render_gemini_drive_video_search_tab(
     # )
 
     task = st.selectbox(
-        "Choose action",
-        options=["Search Videos", "Create / Update Vectorstore"],
-        key="gemini_drive_video_task",
+    "Choose action",
+    options=[
+        "Archiving Videos",
+        "Create / Update Vectorstore",
+        "Searching Videos",
+    ],
+    key="gemini_drive_video_task",
     )
+
+    if task == "Archiving Videos":
+        render_archive_tab(drive_service=drive, sheets_client=gc)
+        return
 
     # ============================================================
     # CREATE / UPDATE VECTORSTORE
     # ============================================================
     if task == "Create / Update Vectorstore":
-        st.subheader("Create / Update Gemini Video Vectorstore")
+        st.subheader("Create / Update Google Drive Video Vectorstore")
 
         sheet_url = st.text_input(
             "Google Sheet URL",
@@ -863,9 +872,9 @@ def render_gemini_drive_video_search_tab(
             started = time.perf_counter()
 
             try:
-                with st.spinner("Creating/updating Gemini video vectorstore. This may take a while..."):
+                with st.spinner("Creating/updating Google Drive video vectorstore. This may take a while..."):
                     gemini_client = get_gemini_client()
-
+    
                     if gc is None:
                         if "gc" in st.session_state:
                             gc = st.session_state["gc"]
