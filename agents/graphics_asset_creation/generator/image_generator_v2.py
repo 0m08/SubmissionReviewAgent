@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 from langsmith import traceable
 
-from agents.graphics_asset_creation.generator import model_config
+# from agents.graphics_asset_creation.generator import model_config
 
 try:
     from openai import OpenAI
