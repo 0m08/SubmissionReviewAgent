@@ -31,7 +31,7 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     expand_youtube_single_timestamp_clips_in_xml,
     upload_image_to_drive,
 )
-from agents.graphics_asset_creation.generator.image_generator import generate_asset
+from agents.graphics_asset_creation.generator.image_generator_v2 import generate_asset
 
 from agents.graphics_definition_v2.review_agent.review_and_revise import (
     _safe_str,
@@ -55,6 +55,7 @@ from agents.graphics_definition_v2.review_agent.review_and_revise import (
     invoke_gemini_multimodal,
     parse_review_response,
     regenerate_failed_segments,
+    is_youtube_url,
 )
 from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
     apply_url_replacements_to_slideshow_manifest_inner_xml,
@@ -1624,7 +1625,10 @@ def process_human_feedback_row(
                     is_option2_regen = _safe_str(action_entry.get("selected_visual_option", "")).strip().lower() == "option2"
                     reference_asset_for_ai = _infer_reference_asset_for_ai(action_entry, matched_step)
 
-                    if reference_asset_for_ai:
+                    intent = _classify_generation_intent_with_llm(effective_feedback, reference_asset_for_ai)
+                    print(f"[Intent Classifier] Classified action for {visual_id} as: {intent}")
+
+                    if intent == "EDIT":
                         ai_url, ai_err = _generate_ai_visual_replacement_from_reference(
                             slide_title=slide_title,
                             slide_chunk=slide_chunk,
@@ -1638,12 +1642,10 @@ def process_human_feedback_row(
                             skip_accuracy_validation=is_option2_regen,
                         )
                         if ai_err:
-                            print(
-                                f"  WARNING: Reference pipeline failed for {visual_id}; "
-                                "falling back to standard AI generation."
-                            )
+                            print(f"  WARNING: Edit pipeline failed for {visual_id}; falling back to generation from scratch.")
+                            intent = "SCRATCH"
 
-                    if not ai_url:
+                    if intent != "EDIT" or not ai_url:
                         ai_url, ai_err = _generate_ai_visual_replacement(
                             slide_title=slide_title,
                             slide_chunk=slide_chunk,
@@ -2275,6 +2277,80 @@ def _add_ai_generated_label_for_urls(graphics_definition_text: str, ai_urls: Set
     return "\n".join(output_lines)
 
 
+def _classify_generation_intent_with_llm(feedback_text: str, current_visual_url: str) -> str:
+    """
+    Classify the user intent into:
+    - INLINE: Use provided inline reference links to edit/generate
+    - EDIT: Edit/modify the current visual
+    - SCRATCH: Generate from scratch (no reference)
+    """
+    from agents.graphics_asset_creation.generator.image_generator_v2 import _extract_all_drive_ids_from_text
+    
+    feedback_text = _safe_str(feedback_text).strip()
+    current_visual_url = _safe_str(current_visual_url).strip()
+    
+    # 1. First extract any drive/image URLs from the feedback text.
+    drive_ids = _extract_all_drive_ids_from_text(feedback_text)
+    
+    has_web_url = False
+    if any(prefix in feedback_text for prefix in ["http://", "https://"]):
+        # Extract URLs to check if they are valid references and not YouTube videos
+        found_urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', feedback_text)
+        for url in found_urls:
+            if not is_youtube_url(url):
+                # Treat any non-YouTube, non-document URL as a potential inline reference
+                if not any(doc in url for doc in ["docs.google.com/document", "docs.google.com/spreadsheets"]):
+                    has_web_url = True
+                    break
+
+    if drive_ids or has_web_url:
+        return "INLINE"
+
+    # If no current visual is present or if it's not a valid image (e.g. youtube video), we must generate from scratch
+    is_valid_img = (
+        current_visual_url
+        and not is_youtube_url(current_visual_url)
+        and ("drive.google.com" in current_visual_url or "docs.google.com" in current_visual_url or current_visual_url.startswith("http"))
+    )
+    if not is_valid_img:
+        return "SCRATCH"
+
+    # Otherwise, let's call the LLM to classify if the user wants to EDIT the existing image or start from SCRATCH
+    prompt = f"""You are an assistant determining the user's intent for an image generation agent.
+Compare the user's instruction with the current visual state.
+
+Current Visual URL: "{current_visual_url}"
+User Feedback/Instruction: "{feedback_text}"
+
+Choose exactly one of the following classification keys:
+- EDIT: The user wants to modify, adjust, correct, or refine the existing visual (e.g. adding, deleting, or altering components, changing Y label to X, modifying colors, or updating details of the current image). NOTE: This is only for minor surgical updates/corrections to the existing image.
+- SCRATCH: The user wants to generate a brand new image from scratch (e.g., they provide a detailed descriptive prompt of what the image should contain, describe a new layout, specify an architectural schematic, or want to start over). IMPORTANT: If the user provides a detailed descriptive prompt of a full scene/subject (e.g., 'A 3D house cross-section showing...', 'A schematic diagram of...', 'A realistic rendering of...'), it is a clear scratch instruction, NOT an edit.
+
+Output only the classification key (either EDIT or SCRATCH), with no other text, punctuation, or formatting."""
+
+    try:
+        response_text, _ = invoke_gemini_multimodal(
+            parts=[types.Part(text=prompt)],
+            llm="gemini_3_flash",
+            temperature=0.0
+        )
+        verdict = response_text.strip().upper()
+        if "EDIT" in verdict:
+            return "EDIT"
+        if "SCRATCH" in verdict:
+            return "SCRATCH"
+    except Exception as e:
+        print(f"WARNING: LLM intent classification failed: {e}. Defaulting based on feedback content.")
+    
+    # Fallback to simple keyword heuristics
+    feedback_lower = feedback_text.lower()
+    scratch_triggers = ["from scratch", "brand new", "new image", "start over", "fresh generation", "clean slate", "regenerate"]
+    if any(trigger in feedback_lower for trigger in scratch_triggers):
+        return "SCRATCH"
+        
+    return "EDIT"
+
+
 def _generate_ai_visual_replacement(
     slide_title: str,
     slide_chunk: str,
@@ -2300,6 +2376,7 @@ def _generate_ai_visual_replacement(
         voiceover_focus=voiceover_focus,
         aspect_ratio="16:9",
         image_size="1K",
+        human_strategy=feedback_text if (feedback_text and feedback_text != AI_NO_FEEDBACK_MARKER) else None,
     )
     if result.get("error"):
         return None, f"AI generation failed for {visual_id}: {result['error']}"
@@ -2340,22 +2417,15 @@ def _infer_reference_asset_for_ai(action_entry: Dict[str, object], matched_step:
     if not reference_asset:
         reference_asset = _safe_str(matched_step.get("asset_reference", "")).strip()
 
-    selected_option = _safe_str(action_entry.get("selected_visual_option", "")).strip().lower()
     assigned_asset = _safe_str(action_entry.get("assigned_asset", "")).strip()
     current_asset = _safe_str(matched_step.get("asset", "")).strip()
 
+    # If an explicit reference asset is provided, prioritize it
     if reference_asset:
-        if selected_option == "option2":
-            return reference_asset
-        if assigned_asset and assigned_asset == reference_asset:
-            return reference_asset
-        if current_asset and current_asset == reference_asset:
-            return reference_asset
+        return reference_asset
 
-    if selected_option == "option2":
-        return assigned_asset or current_asset
-
-    return ""
+    # Otherwise, fall back to the currently assigned asset or matched step asset as the baseline reference
+    return assigned_asset or current_asset
 
 
 def _generate_ai_visual_replacement_from_reference(
@@ -2378,35 +2448,28 @@ def _generate_ai_visual_replacement_from_reference(
     if not reference_url:
         return None, f"Reference image URL missing for {visual_id}"
 
-    try:
-        from agents.graphics_asset_creation.automated.automated_voiceover_reviewer import (
-            _download_drive_image,
-            review_and_edit_image,
-        )
-    except Exception as e:
-        return None, f"Reference pipeline import failed for {visual_id}: {e}"
+    feedback_text = _safe_str(feedback_text).strip()
+    if feedback_text and feedback_text != AI_NO_FEEDBACK_MARKER:
+        voiceover_focus = f'When VO: "{vo_part}"\nHuman Feedback: {feedback_text}'
+        human_strategy = feedback_text
+    else:
+        voiceover_focus = f'When VO: "{vo_part}"'
+        human_strategy = None
 
-    try:
-        reference_image = _download_drive_image(reference_url, drive=drive)
-    except Exception as e:
-        return None, f"Reference image download failed for {visual_id}: {e}"
-
-    try:
-        _, final_image, _ = review_and_edit_image(
-            reference_image=reference_image,
-            slide_title=slide_title,
-            slide_content=slide_chunk,
-            voiceover=_safe_str(vo_part).strip() or slide_chunk,
-            visual_instruction=_safe_str(feedback_text).strip(),
-            image_size="1K",
-            target_stage="full",
-            skip_accuracy_validation=bool(skip_accuracy_validation),
-        )
-    except Exception as e:
-        return None, f"Reference pipeline generation failed for {visual_id}: {e}"
-
-    if final_image is None:
-        return None, f"Reference pipeline produced no image for {visual_id}"
+    result = generate_asset(
+        slide_title=slide_title,
+        slide_content=slide_chunk,
+        voiceover_focus=voiceover_focus,
+        aspect_ratio="16:9",
+        image_size="1K",
+        human_strategy=human_strategy,
+        reference_url=reference_url,
+    )
+    if result.get("error"):
+        return None, f"AI reference generation failed for {visual_id}: {result['error']}"
+    image = result.get("image")
+    if image is None:
+        return None, f"AI reference generation returned no image for {visual_id}"
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{visual_id}_seg{segment_num}_ai_ref_round{round_index}_{timestamp}.jpg"
@@ -2414,7 +2477,7 @@ def _generate_ai_visual_replacement_from_reference(
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
-        final_image.convert("RGB").save(tmp_path, format="JPEG", quality=92)
+        image.convert("RGB").save(tmp_path, format="JPEG", quality=92)
         drive_url, upload_err = upload_image_to_drive(
             tmp_path, filename, AI_GENERATED_IMAGES_FOLDER_ID, drive
         )
@@ -2423,7 +2486,7 @@ def _generate_ai_visual_replacement_from_reference(
             return None, f"Drive upload failed for {visual_id}: {detail}"
         return drive_url, None
     except Exception as e:
-        return None, f"Reference pipeline upload failed for {visual_id}: {e}"
+        return None, f"AI image upload failed for {visual_id}: {e}"
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:
