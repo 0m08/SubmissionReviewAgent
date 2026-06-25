@@ -294,6 +294,7 @@ def _generate_with_openai_fallback(
     generation_system_instruction: str,
     aspect_ratio: Optional[str],
     image_size: str,
+    reference_image_bytes: Optional[bytes] = None,
 ) -> tuple[Optional[Image.Image], dict]:
     """Final fallback image generation using gpt-image-1.5."""
     client = _get_openai_client()
@@ -316,11 +317,35 @@ def _generate_with_openai_fallback(
                 print(f"[ImageGenerator] OpenAI fallback retry in {wait_s}s ({attempt}/{max_attempts})")
                 time.sleep(wait_s)
 
-            response = client.images.generate(
-                model=OPENAI_FALLBACK_MODEL,
-                prompt=prompt,
-                size=size,
-            )
+            if reference_image_bytes:
+                print(f"[ImageGenerator] Reference image detected. Using OpenAI edit API (image-to-image)...")
+                try:
+                    pil_img = Image.open(BytesIO(reference_image_bytes))
+                    if pil_img.mode not in ('RGB', 'RGBA'):
+                        pil_img = pil_img.convert('RGB')
+                    png_buffered = BytesIO()
+                    pil_img.save(png_buffered, format="PNG")
+                    png_buffered.seek(0)
+                    png_buffered.name = "image.png"
+                    image_file = png_buffered
+                except Exception as e:
+                    print(f"[ImageGenerator] Error preparing reference image for OpenAI edit: {e}")
+                    image_file = BytesIO(reference_image_bytes)
+                    image_file.name = "image.png"
+
+                response = client.images.edit(
+                    model=OPENAI_FALLBACK_MODEL,
+                    image=image_file,
+                    prompt=prompt,
+                    size=size,
+                    extra_body={"input_fidelity": "high"}
+                )
+            else:
+                response = client.images.generate(
+                    model=OPENAI_FALLBACK_MODEL,
+                    prompt=prompt,
+                    size=size,
+                )
             image = _extract_openai_image(response)
             if image is not None:
                 return image, {"fallback": True, "model": OPENAI_FALLBACK_MODEL, "size": size}
@@ -842,11 +867,20 @@ def run_generation_stage(
 
     # Fallback to OpenAI if Gemini fails
     print(f"[ImageGenerator] ⚠️ Gemini failed; calling fallback model ({OPENAI_FALLBACK_MODEL})...")
+    ref_image_bytes = None
+    if b64_images:
+        try:
+            print(f"[ImageGenerator] Decoding reference image for OpenAI fallback...")
+            ref_image_bytes = base64.b64decode(b64_images[0])
+        except Exception as e:
+            print(f"[ImageGenerator] Error decoding reference image for fallback: {e}")
+
     fallback_image, fallback_meta = _generate_with_openai_fallback(
         generation_user_prompt=user_prompt,
         generation_system_instruction=generation_system_instruction,
         aspect_ratio=aspect_ratio,
         image_size=image_size,
+        reference_image_bytes=ref_image_bytes,
     )
 
     if fallback_image is not None:
