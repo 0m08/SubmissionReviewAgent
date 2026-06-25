@@ -355,7 +355,7 @@
                       <div class="hf-subtext" style="font-size: 13px; color: #6b7480; padding: 8px 2px;">No other candidates in the pool for this segment.</div>
                     </sc-if>
                     <sc-if value="{{ step.altHasItems }}" hint-placeholder-val="{{ false }}">
-                      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; max-height: 420px; overflow-y: auto;">
+                      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-height: 480px; overflow-y: auto;">
                         <sc-for list="{{ step.altItems }}" as="alt" hint-placeholder-count="4">
                           <div style="display: flex; flex-direction: column; gap: 6px;">
                             {{ alt.el }}
@@ -1329,7 +1329,7 @@ class Component extends DCLogic {
         const altItems = pool.map((alt, ai) => {
           const v = this.altVisualFromPool({ ...alt, tone: altTones[ai % altTones.length] }, st);
           const href = this.openAssetUrl(v);
-          const rawEl = this.tile(v, { height: 86, ytKey: ytKey + '-alt-' + ai });
+          const rawEl = this.tile(v, { height: 118, ytKey: ytKey + '-alt-' + ai });
           return {
             el: React.createElement('a', {
               href,
