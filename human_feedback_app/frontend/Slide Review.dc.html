@@ -50,6 +50,31 @@
   html[data-theme="dark"] .hf-main-title { color: #e8eaed !important; }
   html[data-theme="dark"] .hf-revised-text { color: #c4cad4 !important; }
   html[data-theme="dark"] .hf-video-clip-hint { color: #9aa3b2 !important; background: #252b38 !important; border-color: #3a4250 !important; }
+  .hf-alt-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #ffffff;
+    border: 1px solid #e4e7ec;
+    border-radius: 14px;
+    padding: 10px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px rgba(16,24,40,0.05);
+  }
+  .hf-alt-card:hover {
+    transform: translateY(-4px);
+    border-color: #4f46e5;
+    box-shadow: 0 12px 20px -4px rgba(16,24,40,0.08), 0 4px 8px -2px rgba(16,24,40,0.03);
+  }
+  html[data-theme="dark"] .hf-alt-card {
+    background: #13171f !important;
+    border-color: #2a303c !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
+  }
+  html[data-theme="dark"] .hf-alt-card:hover {
+    border-color: #4f46e5 !important;
+    box-shadow: 0 12px 20px -4px rgba(0,0,0,0.5), 0 4px 8px -2px rgba(0,0,0,0.3) !important;
+  }
   @keyframes gdspin { to { transform: rotate(360deg); } }
   @keyframes gdpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
   @keyframes gdglow { 0%,100% { box-shadow: 0 0 0 1px rgba(16,185,129,0.55), 0 0 0 4px rgba(16,185,129,0.12); } 50% { box-shadow: 0 0 0 1px rgba(16,185,129,0.85), 0 0 0 7px rgba(16,185,129,0.20); } }
@@ -87,7 +112,7 @@
         <span class="hf-app-title" style="font-weight: 800; font-size: 20px; letter-spacing: -0.02em; color: #4338ca; line-height: 1.1;">Graphics Review</span>
       </div>
       <div style="line-height: 1.35;">
-        <span style="display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; margin-bottom: 3px;">Course Name:</span>
+        <span style="display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; margin-bottom: 3px;">COURSE NAME:</span>
         <span class="hf-course-name" style="display: block; font-size: 15.5px; font-weight: 700; color: #1f2530; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px;">{{ courseName }}</span>
       </div>
     </div>
@@ -355,9 +380,9 @@
                       <div class="hf-subtext" style="font-size: 13px; color: #6b7480; padding: 8px 2px;">No other candidates in the pool for this segment.</div>
                     </sc-if>
                     <sc-if value="{{ step.altHasItems }}" hint-placeholder-val="{{ false }}">
-                      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-height: 480px; overflow-y: auto;">
+                      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-height: 480px; overflow-y: auto; padding: 6px; margin: -6px;">
                         <sc-for list="{{ step.altItems }}" as="alt" hint-placeholder-count="4">
-                          <div style="display: flex; flex-direction: column; gap: 6px;">
+                          <div class="hf-alt-card">
                             {{ alt.el }}
                             {{ alt.sourceChipEl }}
                             <button class="hf-use-btn" onClick="{{ alt.onUse }}" style="height: 30px; border: 1px solid #dce0e6; border-radius: 8px; background: #fff; color: #4f46e5; font-family: inherit; font-weight: 700; font-size: 11.5px; cursor: pointer;" style-hover="background: #eef0fe; border-color: #c7cdf8;">Use this</button>
@@ -1221,13 +1246,13 @@ class Component extends DCLogic {
   renderVals() {
     const isSidebarCollapsed = !!this.sidebarCollapsed;
     const i = this.current;
-    const cur = this.slides[i];
+    const cur = this.slides[i] || { title: '', topic: this.topicName, segments: [] };
     const currentTopic = cur ? cur.topic : this.topicName;
     const total = this.slides.length;
     const statuses = this.slides.map(s => this.slideStatus(s));
     const approvedCount = statuses.filter(s => s === 'approved').length;
     const readyCount = statuses.filter(s => s === 'ready').length;
-    const pct = Math.round((approvedCount / total) * 100);
+    const pct = total ? Math.round((approvedCount / total) * 100) : 0;
 
     // Count only individual ready visuals for the top button
     let totalReadyVisuals = 0;
@@ -1304,7 +1329,7 @@ class Component extends DCLogic {
       currentGroup.items.push(navItem);
     });
 
-    const sm = this.slideMeta(statuses[i]);
+    const sm = this.slideMeta(statuses[i]) || this.slideMeta('unreviewed');
     const fullScript = cur.segments.flatMap(s => s.steps).map(st => st.voiceover).join(' ');
     const cardBg = dark ? '#1c212b' : '#fff';
     const steps = [];
