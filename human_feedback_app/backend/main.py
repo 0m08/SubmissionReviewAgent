@@ -16,6 +16,7 @@ from human_feedback_app.backend.asset_service import image_response
 from human_feedback_app.backend.config import BRAND_ASSETS_DIR, BRAND_FALLBACK_DIR, FRONTEND_DIR
 from human_feedback_app.backend.jobs import revision_queue
 from human_feedback_app.backend.revise_worker import run_row_revision
+from human_feedback_app.backend.segmentation_worker import run_row_segmentation_revision
 from human_feedback_app.backend.sheet_service import (
     approve_visual,
     load_workbook,
@@ -68,6 +69,11 @@ class RevertRequest(BaseModel):
     step_index: int
     visual_id: str
     vo: str
+
+
+class SegmentationReviseRequest(BaseModel):
+    row_index: int
+    feedback: str = Field(min_length=3)
 
 
 def session_dep(request: Request) -> UserSession:
@@ -199,6 +205,36 @@ def api_revise(body: ReviseRequest, session: UserSession = Depends(session_dep))
         slide_index=slide_idx or 0,
         segment_index=body.segment_index,
         step_index=body.step_index,
+    )
+    return job.to_dict()
+
+
+@api_router.post("/slides/revise-segmentation")
+def api_revise_segmentation(
+    body: SegmentationReviseRequest,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    slide_idx = None
+    payload = slides_to_ui_payload(session)
+    for idx, slide in enumerate(payload["slides"]):
+        for seg in slide.get("segments", []):
+            for step in seg.get("steps", []):
+                if step.get("rowIndex") == body.row_index:
+                    slide_idx = idx
+                    break
+
+    label = f"Slide {(slide_idx or 0) + 1} / segmentation"
+
+    def worker() -> Dict[str, Any]:
+        run_row_segmentation_revision(session, body.row_index, body.feedback.strip())
+        return slides_to_ui_payload(session)
+
+    job = revision_queue.submit(
+        label=label,
+        worker=worker,
+        slide_index=slide_idx or 0,
+        segment_index=0,
+        step_index=0,
     )
     return job.to_dict()
 

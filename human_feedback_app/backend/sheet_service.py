@@ -22,6 +22,8 @@ from human_feedback_app.backend.constants import (
     HUMAN_FEEDBACK_TRACKING_COLUMN,
     HUMAN_REVIEW_ACTIONS_COLUMN,
     MODE_TO_ACTION,
+    SEGMENTATION_FEEDBACK_COLUMN,
+    SEGMENTATION_PLAN_COLUMN,
 )
 from human_feedback_app.backend.sessions import UserSession
 
@@ -428,12 +430,15 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
 
     actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, current_round)
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
+    seg_feedback_col = get_round_column_name(SEGMENTATION_FEEDBACK_COLUMN, current_round)
 
     ui_slides: List[Dict[str, Any]] = []
     for slide_idx, slide in enumerate(slides):
         row = df.iloc[slide["row_index"]]
         actions_map = _parse_actions_payload(safe_str(row.get(actions_col, "")))
         tracking_map = _parse_tracking(safe_str(row.get(tracking_col, "")))
+        
+        seg_feedback = safe_str(row.get(seg_feedback_col, "")).strip()
 
         segments_out = []
         for segment in slide.get("segments") or []:
@@ -499,6 +504,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
                 "title": safe_str(slide.get("slide_title", "")) or f"Slide {slide_idx + 1}",
                 "topic": safe_str(slide.get("topic", "")),
                 "segments": segments_out,
+                "segmentationFeedback": seg_feedback,
             }
         )
 
@@ -805,6 +811,93 @@ def approve_visual(session: UserSession, row_index: int, segment_index: int, ste
         vo=vo,
         action=ACTION_APPROVE,
     )
+
+
+def apply_segmentation_revision_to_sheet(
+    session: UserSession,
+    *,
+    row_index: int,
+    feedback: str,
+    raw_plan: str,
+    updated_final_graphics_definition: str,
+    affected_visual_ids: Optional[List[str]] = None,
+    search_tracking: Optional[Dict[str, Dict[str, str]]] = None,
+    events: Optional[List[str]] = None,
+    updated_slideshow_manifest: Optional[str] = None,
+) -> None:
+    """Persist a segmentation revision: write the new graphics definition + audit
+    columns, and reconcile per-visual review state.
+
+    - ``affected_visual_ids`` (structural targets): cleared, since their positional
+      IDs may have been reindexed by merge/split.
+    - ``search_tracking`` (search targets): review action cleared (so the new visual
+      re-enters pending review) AND before/after recorded in the tracking column.
+    """
+    from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+        _format_human_feedback_revision_tracking,
+    )
+
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    safe_str = helpers["safe_str"]
+
+    seg_feedback_col = get_round_column_name(SEGMENTATION_FEEDBACK_COLUMN, ROUND_INDEX)
+    seg_plan_col = get_round_column_name(SEGMENTATION_PLAN_COLUMN, ROUND_INDEX)
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+    affected = {v.strip().upper() for v in (affected_visual_ids or []) if v.strip()}
+    search_map = {k.strip().upper(): v for k, v in (search_tracking or {}).items() if k.strip()}
+    # Search targets also need their (stale) review action cleared.
+    clear_actions = affected | set(search_map.keys())
+
+    def mutate(df) -> None:
+        final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+        if final_col not in df.columns:
+            df[final_col] = ""
+        for col in (seg_feedback_col, seg_plan_col):
+            if col not in df.columns:
+                df[col] = ""
+
+        df.at[row_index, final_col] = updated_final_graphics_definition
+        df.at[row_index, seg_feedback_col] = feedback
+        df.at[row_index, seg_plan_col] = raw_plan
+
+        if updated_slideshow_manifest is not None and "slideshow_manifest" in df.columns:
+            df.at[row_index, "slideshow_manifest"] = updated_slideshow_manifest
+
+        # Clear review actions for affected + search visuals so they re-enter review.
+        if clear_actions and actions_col in df.columns:
+            raw_actions = safe_str(df.at[row_index, actions_col])
+            try:
+                payload = json.loads(raw_actions) if raw_actions else {}
+            except Exception:
+                payload = {}
+            if isinstance(payload, dict) and isinstance(payload.get("actions"), dict):
+                for vid in list(payload["actions"].keys()):
+                    if vid.strip().upper() in clear_actions:
+                        del payload["actions"][vid]
+                df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+
+        # Tracking: drop structural-affected entries (IDs no longer valid); record
+        # before/after for search targets so the UI shows the swap.
+        if (affected or search_map) and tracking_col in df.columns:
+            tmap = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+            for vid in list(tmap.keys()):
+                if vid.strip().upper() in affected and vid.strip().upper() not in search_map:
+                    del tmap[vid]
+            for vid, data in search_map.items():
+                tmap[vid] = {
+                    "original": data.get("original") or None,
+                    "manually_selected": None,
+                    "after_revision": data.get("after_revision") or None,
+                    "after_regen_1": None,
+                    "after_regen_2": None,
+                }
+            df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tmap)
+
+    mutate_row_cells(session, row_index, mutate)
+    if events:
+        print(f"[human_feedback] segmentation revision row {row_index}: " + "; ".join(events))
 
 
 def prepare_visual_revision(

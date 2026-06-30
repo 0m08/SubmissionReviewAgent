@@ -45,7 +45,24 @@
       font-weight: 700;
       cursor: pointer;
     }
-    button:disabled { opacity: 0.6; cursor: wait; }
+    button:disabled { opacity: 0.85; cursor: wait; }
+    button .btn-inner {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid rgba(255, 255, 255, 0.35);
+      border-right-color: #fff;
+      border-radius: 50%;
+      animation: hf-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes hf-spin { to { transform: rotate(360deg); } }
+    input:disabled { background: #f3f4f6; color: #6b7280; cursor: wait; }
     .error { color: #b91c1c; font-size: 13px; margin-top: 10px; min-height: 18px; }
     .meta { margin-top: 16px; font-size: 13px; color: #6b7280; }
     a { color: #4f46e5; }
@@ -58,9 +75,7 @@
     <form id="load-form">
       <label for="sheet_link">Google Sheet URL</label>
       <input id="sheet_link" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." required />
-      <label for="root_folder_id">Course Drive folder ID (optional)</label>
-      <input id="root_folder_id" type="text" placeholder="Drive folder ID for AI uploads" />
-      <button type="submit" id="submit-btn">Load and open review</button>
+      <button type="submit" id="submit-btn"><span class="btn-inner" id="submit-btn-inner">Load and open review</span></button>
       <div class="error" id="error"></div>
     </form>
     <div class="meta" id="user-meta"></div>
@@ -98,18 +113,30 @@
       }
     })();
 
+    function setLoading(loading) {
+      const btn = document.getElementById("submit-btn");
+      const inner = document.getElementById("submit-btn-inner");
+      const input = document.getElementById("sheet_link");
+      btn.disabled = loading;
+      input.disabled = loading;
+      if (loading) {
+        inner.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>Loading…</span>';
+      } else {
+        inner.textContent = "Load and open review";
+      }
+    }
+
     document.getElementById("load-form").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const btn = document.getElementById("submit-btn");
       const err = document.getElementById("error");
       err.textContent = "";
-      btn.disabled = true;
+      setLoading(true);
       try {
         await api("/api/session/load", {
           method: "POST",
           body: JSON.stringify({
             sheet_link: document.getElementById("sheet_link").value.trim(),
-            root_folder_id: document.getElementById("root_folder_id").value.trim(),
+            root_folder_id: "",
           }),
         });
         location.href = "/review";
@@ -120,8 +147,7 @@
           return;
         }
         err.textContent = msg;
-      } finally {
-        btn.disabled = false;
+        setLoading(false);
       }
     });
   </script>

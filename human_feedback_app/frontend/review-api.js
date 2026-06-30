@@ -39,6 +39,12 @@ window.HFApi = (function () {
         body: JSON.stringify(payload),
       });
     },
+    reviseSegmentation(payload) {
+      return request("/api/slides/revise-segmentation", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
     revert(payload) {
       return request("/api/visuals/revert", {
         method: "POST",

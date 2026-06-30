@@ -4,6 +4,8 @@ HUMAN_FEEDBACK_COLUMN = "human_feedback"
 HUMAN_FEEDBACK_STATUS_COLUMN = "human_feedback_status"
 HUMAN_FEEDBACK_TRACKING_COLUMN = "human_feedback_revision_tracking"
 HUMAN_REVIEW_ACTIONS_COLUMN = "human_review_actions"
+SEGMENTATION_FEEDBACK_COLUMN = "segmentation_feedback"
+SEGMENTATION_PLAN_COLUMN = "segmentation_revision_plan"
 
 ACTION_NONE = "unreviewed"
 ACTION_APPROVE = "approve"
