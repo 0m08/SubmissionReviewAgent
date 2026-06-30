@@ -286,4 +286,27 @@ with tab_google_drive_videos:
         "Search your Google Drive videos, find videos stored in your Drive by text queries, images or video clips."
         "This tool uses the video metadata, and visual content to help you find the most relevant videos from your Drive."
     )
-    render_gemini_drive_video_search_tab(drive)
+    # --------------------- Roles & Task Selection --------------------- #
+    if "role" not in st.session_state:
+        st.session_state.role = None
+
+    role = st.session_state.get("impersonated_role", st.session_state.get("role"))
+    task_options = []
+
+    if role == "Admin":
+        task_options = ["Archiving Videos", "Create / Update Vectorstore", "Searching Videos"]
+    elif role == "Managers":
+        task_options = ["Archiving Videos", "Searching Videos"]
+    elif role == "Visual Designer":
+        task_options = ["Searching Videos"]
+    else:
+        task_options = ["Searching Videos"]
+
+    if len(task_options) > 1:
+        task = st.selectbox("Choose a task:", task_options, key="gdrive_video_task")
+    elif task_options:
+        task = task_options[0]
+    else:
+        task = None
+
+    render_gemini_drive_video_search_tab(drive, task=task)

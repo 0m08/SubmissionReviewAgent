@@ -371,26 +371,62 @@ def download_from_drive(drive, file_id: str, output_path: str) -> str:
     return output_path
 
 
+# def backup_vectorstore_to_drive(drive, local_path: str, vectorstore_folder_id: str):
+#     """
+#     Replaces old chroma_video_embeddings_db backup with a fresh recursive upload.
+#     """
+#     print("  📤 Backing up vectorstore to Drive...")
+
+#     old_id = find_drive_folder(drive, vectorstore_folder_id, CHROMA_BACKUP_FOLDER_NAME)
+#     if old_id:
+#         delete_drive_file_or_folder(drive, old_id)
+#         print("  🗑️ Removed old Drive backup.")
+
+#     new_folder_id = create_or_get_drive_folder(
+#         drive,
+#         vectorstore_folder_id,
+#         CHROMA_BACKUP_FOLDER_NAME,
+#     )
+
+#     upload_folder_to_drive(drive, local_path, new_folder_id)
+#     print("  ✅ Drive backup complete.")
+
+
 def backup_vectorstore_to_drive(drive, local_path: str, vectorstore_folder_id: str):
     """
     Replaces old chroma_video_embeddings_db backup with a fresh recursive upload.
+    Uploads to a temp folder first, then swaps — so the old backup is only
+    removed after the new upload completes successfully.
     """
     print("  📤 Backing up vectorstore to Drive...")
 
+    temp_folder_name = CHROMA_BACKUP_FOLDER_NAME + "_tmp"
+
+    # Clean up any leftover temp folder from a previous failed run
+    old_tmp_id = find_drive_folder(drive, vectorstore_folder_id, temp_folder_name)
+    if old_tmp_id:
+        delete_drive_file_or_folder(drive, old_tmp_id)
+        print("  🗑️ Removed stale temp backup folder.")
+
+    # Upload to temp folder first
+    tmp_folder_id = create_or_get_drive_folder(
+        drive,
+        vectorstore_folder_id,
+        temp_folder_name,
+    )
+    upload_folder_to_drive(drive, local_path, tmp_folder_id)
+    print("  ✅ Upload to temp folder complete.")
+
+    # Only now remove the old backup and rename temp to real name
     old_id = find_drive_folder(drive, vectorstore_folder_id, CHROMA_BACKUP_FOLDER_NAME)
     if old_id:
         delete_drive_file_or_folder(drive, old_id)
         print("  🗑️ Removed old Drive backup.")
 
-    new_folder_id = create_or_get_drive_folder(
-        drive,
-        vectorstore_folder_id,
-        CHROMA_BACKUP_FOLDER_NAME,
-    )
-
-    upload_folder_to_drive(drive, local_path, new_folder_id)
+    tmp_folder = drive.CreateFile({"id": tmp_folder_id})
+    tmp_folder["title"] = CHROMA_BACKUP_FOLDER_NAME
+    tmp_folder.Upload()
     print("  ✅ Drive backup complete.")
-
 
 # ============================================================
 # VIDEO + EMBEDDING HELPERS

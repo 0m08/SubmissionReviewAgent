@@ -576,17 +576,15 @@ def _get_or_create_tab(spreadsheet, tab_name: str):
 
 
 def _get_existing_course_state(spreadsheet, course_name: str):
-    """Return (set_of_file_ids, set_of_topic_names) already in the sheet tab."""
+    """Return set of file IDs already in the sheet tab."""
     try:
         ws = retry_call(spreadsheet.worksheet, course_name[:99])
     except WorksheetNotFound:
-        return set(), set()
+        return set()
     rows = retry_call(ws.get_all_values)
     if len(rows) <= 1:
-        return set(), set()
-    file_ids = {r[0] for r in rows[1:] if r and r[0]}
-    topics   = {r[3] for r in rows[1:] if len(r) > 3 and r[3]}
-    return file_ids, topics
+        return set()
+    return {r[0] for r in rows[1:] if r and r[0]}
 
 
 def _safe_write_sheet(ws, df: pd.DataFrame, retries: int = 5):
@@ -723,14 +721,8 @@ def run_archive_pipeline(
     sheets_client,
     creds,
     other_folder_id: str = "",
-    mode: str = "course",          # <-- NEW: "course" | "folder"
+    mode: str = "course",
 ) -> dict:
-    """
-    Full archive pipeline:
-      mode="course"  → Part A only (structured course walk)
-      mode="folder"  → Part B only (ad-hoc folder by ID)
-      Part C (stock classification) always runs.
-    """
     _log("=" * 60)
     _log("📦  VIDEO ARCHIVING PIPELINE")
     _log("=" * 60)
@@ -742,10 +734,9 @@ def run_archive_pipeline(
     total_course_videos = 0
     total_other_videos  = 0
     course_folders      = []
-
-    # ── PART A: Structured course → topic → assets ──────────────────────
     touched_tabs: list[str] = []
 
+    # ── PART A: Structured course → topic → assets ──────────────────────
     if mode == "course":
         _log("=== PART A: Course folders ===")
         course_folders = list_subfolders(drive_service, ASSETS_ARCHIVE_FOLDER_ID)
@@ -754,24 +745,13 @@ def run_archive_pipeline(
         for course in course_folders:
             _log(f"Course: {course['name']}")
 
-            existing_ids, existing_topics = _get_existing_course_state(
-                spreadsheet, course["name"]
-            )
+            existing_ids = _get_existing_course_state(spreadsheet, course["name"])
 
             topic_folders = list_subfolders(drive_service, course["id"])
             _log(f"  {len(topic_folders)} topic folder(s).")
 
-            topic_names_in_drive = {t["name"] for t in topic_folders}
-            if topic_names_in_drive and topic_names_in_drive.issubset(existing_topics):
-                _log(f"  [skip] All topics already logged.\n")
-                continue
-
             course_videos: list = []
             for topic in topic_folders:
-                if topic["name"] in existing_topics:
-                    _log(f"    [skip] Topic already logged: {topic['name']}")
-                    continue
-
                 assets_id = find_assets_folder(drive_service, topic["id"])
                 if not assets_id:
                     _log(f"    [skip] No 'assets' folder in: {topic['name']}")
@@ -783,14 +763,20 @@ def run_archive_pipeline(
                     course_name=course["name"],
                     topic_name=topic["name"],
                 )
+                # Filter out already-logged file IDs
+                videos = [v for v in videos if v["video_id"] not in existing_ids]
+
                 if videos:
-                    _log(f"    Topic '{topic['name']}': {len(videos)} video(s)")
+                    _log(f"    Topic '{topic['name']}': {len(videos)} new video(s)")
+                else:
+                    _log(f"    Topic '{topic['name']}': no new videos")
+
                 course_videos.extend(videos)
 
             if course_videos:
                 logged = log_videos_to_sheet(spreadsheet, course["name"], course_videos)
                 total_course_videos += logged
-                touched_tabs.append(course["name"])   # <-- track it
+                touched_tabs.append(course["name"])
             else:
                 _log("  No new videos to log.")
             _log("")
@@ -806,7 +792,7 @@ def run_archive_pipeline(
             if other_videos:
                 logged = log_videos_to_sheet(spreadsheet, OTHER_VIDEOS_TAB_NAME, other_videos)
                 total_other_videos = logged
-                touched_tabs.append(OTHER_VIDEOS_TAB_NAME)   # <-- track it
+                touched_tabs.append(OTHER_VIDEOS_TAB_NAME)
         else:
             _log("(mode=folder but no folder ID provided — Part B skipped.)")
     else:

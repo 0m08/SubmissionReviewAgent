@@ -812,6 +812,7 @@ def render_drive_video_result(
 def render_gemini_drive_video_search_tab(
     drive: Optional[GoogleDrive] = None,
     gc=None,
+    task: str = "Searching Videos",
     parent_folder_id: str = GEMINI_VIDEO_VECTORSTORE_PARENT_FOLDER_ID,
     vectorstore_folder_name: str = VECTORSTORE_FOLDER_NAME,
     backup_folder_name: str = CHROMA_BACKUP_FOLDER_NAME,
@@ -833,15 +834,15 @@ def render_gemini_drive_video_search_tab(
     #     "Search your Google Drive videos, or create/update the Gemini Embedding 2 vectorstore from a Google Sheet."
     # )
 
-    task = st.selectbox(
-    "Choose action",
-    options=[
-        "Archiving Videos",
-        "Create / Update Vectorstore",
-        "Searching Videos",
-    ],
-    key="gemini_drive_video_task",
-    )
+    # task = st.selectbox(
+    # "Choose action",
+    # options=[
+    #     "Archiving Videos",
+    #     "Create / Update Vectorstore",
+    #     "Searching Videos",
+    # ],
+    # key="gemini_drive_video_task",
+    # )
 
     if task == "Archiving Videos":
         render_archive_tab(drive_service=drive, sheets_client=gc)
