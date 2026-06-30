@@ -13,6 +13,9 @@ from services.sheets_service import save_to_sheet, try_n_times, get_sheet_data_a
 from human_feedback_app.backend.constants import (
     ACTION_APPROVE,
     ACTION_NONE,
+    ACTION_REJECT_AI,
+    ACTION_REJECT_ALL,
+    ACTION_REJECT_DRIVE_HVAC,
     AI_NO_FEEDBACK_MARKER,
     DEFAULT_REJECT_FEEDBACK,
     DEFAULT_WORKSHEET,
