@@ -433,7 +433,7 @@ def apply_segmentation_operations(final_graphics_definition, operations):
 
     steps_by_segment = build_segmentation_map_from_graphics(final_graphics_definition)
     if not steps_by_segment:
-        return final_graphics_definition, ["No segments found in final_graphics_definition."], []
+        return final_graphics_definition, ["No segments found in final_graphics_definition."], [], {}
 
     original_asset_by_id = {}
     original_ids_by_segment = {}

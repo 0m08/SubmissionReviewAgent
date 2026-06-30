@@ -35,7 +35,7 @@ def fetch_image_bytes(session: UserSession, raw_url: str, use_thumbnail: bool = 
     if not url:
         raise HTTPException(status_code=400, detail="Missing image URL")
 
-    cache_key = (url, use_thumbnail)
+    cache_key = (session.user_email or "", url, use_thumbnail)
     if cache_key in _IMAGE_CACHE:
         return _IMAGE_CACHE[cache_key]
 
