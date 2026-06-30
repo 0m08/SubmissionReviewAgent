@@ -1,114 +1,102 @@
 # Graphics Styling Guide
 
 ## Design Tone
-Balance of Informative, Professional, and Energetic.
+Professional, Informative, and highly Dynamic/Energetic. The visual must feel alive, realistic, and three-dimensional. Avoid flat, sterile, dead illustrations. Use rich, vivid textures, realistic lighting (natural sunlight, warm ambient workshop light, or crisp commercial bulb lighting), and natural depth of field to make the scene look authentic and premium.
 
-## Color Scheme (Add-on Elements Prohibited)
-- **Primary Colors:** White (#FFFFFF), Orange (#F05523), Marine Blue (#242052)
-- **Secondary Colors:** Cool Grey (#F2F2F2), Blue Grey (#B9C9D1), Black (#000000)
+## Color Scheme
+- **Primary:** White (#FFFFFF), Orange (#F05523), Marine Blue (#242052)
+- **Secondary:** Cool Grey (#F2F2F2), Blue Grey (#B9C9D1), Black (#000000)
+- Use the brand color scheme (orange / marine blue) for annotations, arrows, labels, and callout frames — NOT for the physical components themselves.
+- Physical components use realistic / functional colors:
+  Blue for cooling/airflow · Red-Orange for heating/danger · Yellow for electrical.
 
 ## Typefaces
-Fira Sans
+Fira Sans (bold for titles/labels; regular for body annotations).
 
-## Visual Appeal
-Carefully select elements based on contrast, placement, angle, clarity, quality, and layout.
-
-- Every image should be enhanced and color-corrected to make it look appealing.
-- To convey the message or concept effectively, use the Principle of Visual Hierarchy.
-
----
-
-## Illustrations-Type Generation Guidelines
-- If a component is highlighted, use the industrial color for the component and use brand color scheme for annotations, arrows or any other element that is not part of the component.
-- They should be visually appealing and convey the message concisely.
-- The illustrations should have a flat treatment while still conveying a sense of depth.
-- The illustrations should not be overly childish, avoiding exaggerated expressions, comic proportions, and overly expressive poses.
-- The illustrations should be simple and clear and should maintain a formal tone.
+## Visual Appeal & Life
+- Prefer rich, tactile textures: For example: metallic gleam on copper/brass piping, matte industrial steel finishes, detailed concrete/wood shop backgrounds, and realistic material reflections.
+- Show active elements to bring life to the scene: For example: physical condensation droplets on cold refrigerant lines, subtle steam/air current paths where airflow is described, illuminated indicators or pressure gauge needles in active positions, and hands-on technician interaction.
+- Apply high dynamic range lighting with soft shadows and sharp highlights. The visual must look premium and professional, capturing a real-world working environment with depth and detail.
 
 ---
 
-## Diagrams and Charts Generation Guidelines
+## Visual Type & Medium Guidelines
+- Choose the most appropriate medium: Use a realistic photograph or high-fidelity 3D render for real-world equipment settings, basement setups, outdoor condensers, and technician tasks. Use clean schematic diagrams or technical visuals ONLY when depicting internal flows, system circuits, or abstract concepts.
+- The image must be professionally detailed, accurately proportioned, and convey the concept with precision. Avoid childish, cartoon-like, or overly flat/clipart styles.
+- Maintain a formal, industrial-professional tone.
 
-- **Choose the Right Chart/Diagram:** Select the visual that best represents the data or concept (e.g., bar chart for comparisons, flow chart for processes).
-- **Keep it Simple:** Avoid clutter; focus on the essential information.
-- **Clear Labels and Titles:** Ensure all elements are clearly labeled and the chart/diagram has a descriptive title.
-- **Consistent Scale and Units:** Use consistent scales and units to prevent misinterpretation.
-- **Highlight Key Data:** Use subject focus, contrast, text labels or framing to draw attention to important components. 
-- **Logical Flow:** If using a diagram with a sequence, ensure the flow is logical and easy to follow using visual arrangement.
-
----
-
-## Icons Generation Guidelines
-
-- Use simple line icons. Use a single color - orange (#F05523).
-- Maintain the thickness and style of the icon.
-- Label each icon with a relevant title in an orange (#F05523) solid base container.
-
----
-
-## Important Notes
-
-- There shouldn't be anything extra on-screen elements except the requirements of the graphics definition. No extra label, No extra graphic element, No unwanted movement
-- The subject or object discussed in the graphics definition should be emphasized and occupy more space in the visual.
+## Annotation Style (STRICTLY RESTRICTED)
+To prevent visual clutter, annotations (text labels, boxes, and arrows) must be kept to an absolute minimum:
+- **Default to ZERO annotations:** Do not include any labels, boxes, captions, or arrows in the image unless they are explicitly requested in the Human Strategy or essential for identifying specific micro-components.
+- **Strict Cap:** Under no circumstances should there be more than 1 or 2 labels/arrows in a single image. Keep the visual clean and uncluttered.
+- **No Obvious Labels:** Never label obvious or generic objects (e.g., do not label a technician, a home exterior, a general tool, or a whole unit).
+- **Brief Text:** Any allowed label text must be extremely concise (1–3 words max), utilizing simple technical component names. No full sentences.
+- **Box & Arrow Styling:**
+  * **The Box:** A solid white rectangle with soft, rounded corners. The box must be small in size. If there are multiple annotation boxes in the image, all boxes must be of the exact same size.
+  * **The Border:** A solid orange (#F05523) outline around the edges of the white box.
+  * **The Text:** Plain, black text in Fira Sans font, centered inside the box.
+  * **The Arrow (Connector):** An orange (#F05523) arrow attached to any side of the box, pointing to the subject. The arrow must match the color and thickness of the box's border.
 
 ---
 
-## Checklist Before the Final Result
-
-1. Check alignments
-2. Check font size and color
-3. Font casing in labels and naming
-4. Correct spacing in a sentence-like space after, = . Etc.
-5. Consistency in the design elements
-6. Use of visual hierarchy principle
-7. Tweak the contrast, clarity, levels, and exposure of any image to increase the appeal.
+## Diagrams and Charts
+- Choose the most effective visual type: bar chart for comparisons, flowchart for processes, schematic for systems.
+- All elements must be clearly labeled with a descriptive title.
+- Use consistent scale and units. Highlight key data with contrast or framing.
+- Logical, left-to-right or top-to-bottom flow for sequential content.
 
 ---
 
-## Master System Instructions
+## Diagonal Split-Screen Composition
+Two related images are combined into a single frame using an angled diagonal mask/divider, creating a dynamic before-and-after or process-comparison visual.
+- **Layout Type:** Split-screen collage
+- **Divider Style:** Diagonal/angular cut (approximately 15–25°)
+- **Image Distribution:** 50/50 visual weight (can vary 40/60)
+- **Transition:** Hard edge mask (no feathering)
+- **Purpose:** Compare two stages, environments, or perspectives of the same process
+- **Visual Flow:** Left image transitions naturally into right image through the angled divider
+- **Content Alignment:** Subjects positioned toward the divider to maintain continuity
+- **No Overlay Elements:** Do not include annotations, text labels, callout boxes, or arrows when using a split-screen collage layout. Keep both halves of the image completely clean.
 
-- **Maximize Stage Utilization:** Eliminate excessive blank space. Graphics must fill the "stage" to provide maximum detail.
-- **Functional Perspective:** Never use obscure or "artistic" angles that hide functionality. Use clear, top-down, or direct angles where screens and labels are legible.
-- **Mobile-First Visibility:** Icons and key elements must be large, bold, and high-contrast enough to be legible on a mobile phone in landscape mode.
-- **Font Consistency:** Maintain uniform font sizes across similar visual elements. Text must be readable on all screen sizes.
-- **Layout Consistency:** Repeated elements (e.g., fuses, boxes) must have identical sizing, alignment, and spacing.
-- **Zero Tolerance for Typos:** Thoroughly spell-check all text layers. (e.g., "Ventilation" not "Vantilation").
-- **Progressive Cognitive Load:** Do not dump complex data at once. Start diagrams with minimal info and reveal details step-by-step.
-- **Text Spacing & Legibility:** Ensure distinct line height and letter spacing. Text must never feel cramped.
-- **No Text Overlays:** Remove all non-functional decoration. If an element does not serve a strict educational purpose through its physical presence, delete it.
-- **Realism Only (No Pedagogical Add-ons):** Use natural, realistic tones for actual components and subjects. Do not use brand colors for anything else as no add-ons are allowed.
+---
+
+## Icons
+- Simple line icons in a single color — orange (#F05523).
+- Label each icon with a title inside an orange solid container.
+
+---
+
+## Master Layout Rules
+- **Fill the frame:** eliminate excessive blank space; the subject occupies the majority of the canvas.
+- **Functional perspective:** clear top-down, direct, first-person, or over-the-shoulder angles so every component and label is legible.
+- **Mobile legibility:** icons and key elements must be large and high-contrast enough to read on a phone in landscape mode.
+- **Font consistency:** uniform sizes for equivalent visual elements; no cramped text.
+- **Zero typos:** spell-check all text labels rigorously.
+- **No decorative clutter:** every element must serve a direct educational purpose.
 
 ---
 
 ## HVAC-Specific Visual Guidelines (MANDATORY)
 
 ### Subject Focus
-The subject must be specific HVAC components (e.g., manifold gauge set, blower motor, evaporator coil) or a technician actively performing a diagnostic or repair task. The focus of the image is the tool or the part being discussed in the voiceover.
+Focus on the specific HVAC component, system assembly, or technician task described in the voiceover. The tool or part being discussed must dominate the frame.
 
 ### Visual Style
-**Industrial Clean:** The aesthetic should feel authentic but polished. Avoid the "gritty" look of a construction site in favor of a professional service environment. For 3D and 2D graphics, use accurate proportions with simplified textures to reduce visual noise.
+**Industrial Clean:** authentic but polished. Accurate proportions with enough texture detail to look real, not toy-like.
 
 ### Perspective and Camera
-Use **first-person or over-the-shoulder (OTS) shots** to mimic what the learner would see in the field. For diagrams, use **isometric views or clean 90-degree side profiles** to clearly show airflow and electrical paths.
+- Use natural, realistic perspectives (eye-level, first-person, natural room angles, or standard professional views) that best explain the concept. Avoid forcing rigid technical styling like "isometric layout" or "flat views" unless it is a schematic circuit diagram.
+- Perfect Geometry & Camera Alignment: The camera must be straight, level, and undistorted. Keep all lines straight, walls plumb, and physical shapes clean and geometrically accurate. Avoid tilted horizons, fish-eye distortion, wide-angle lens warping, or skewed perspectives that make equipment look warped, twisted, or distorted.
+- Cutaways / cross-sections: permitted and encouraged when they reveal internal function that cannot otherwise be shown.
 
-### Lighting and Environment
-**Bright, even lighting** that eliminates deep shadows (which can hide important components). The lighting should ensure all parts and details are clearly visible.
+### Lighting
+Bright, even lighting — eliminate deep shadows that obscure components.
 
-### Background Setting
-**Clean White Background:** The subject should be isolated on a pure white background. No contextual environments, no floors, no walls, no bokeh.
-
-### Color Grading
-**True to Life:** Neutral tones with high saturation on functional elements:
-- **Blue** for cooling/airflow
-- **Red/Orange** for heating/danger
-- **Yellow/Glowing blue** for electrical/caution
-
-Avoid heavy filters; maintain natural skin tones and metallic finishes.
+### Background
+- Contextual Setting: The background should always match the real-world setting and context of the concept being depicted (e.g., a realistic home room/interior for thermostats/humidity/airflow, a basement/attic for furnaces, outdoors for condenser units, a natural outdoor landscape for climate cycles).
+- Default to Solid White: If the background is not explicitly specified or understandable from the prompt/checklist, default to rendering the subject on a solid pure white (#FFFFFF) background.
+- No Contextual Background (Isolated Component): If no contextual background is used (or if the component is isolated), the background MUST be solid pure white (#FFFFFF) only, and no other colors (such as grey, blue-grey, black, or gradient backgrounds).
 
 ### Safety Requirements (CRITICAL)
-**Safety First:** All subjects MUST be shown wearing appropriate Personal Protective Equipment (PPE):
-- Gloves
-- Safety glasses
-- Ear protection (when applicable)
-
-This reinforces industry standards and is non-negotiable for all HVAC training visuals.
+All technician subjects MUST wear appropriate PPE:
+- Gloves · Safety glasses · Ear protection (when applicable).
