@@ -866,7 +866,7 @@ class Component extends DCLogic {
             step.before = this.visualFromStep(st, st.beforeUrl || st.assetUrl);
             step.after = this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
           }
-          if (pending[key]) {
+          if (st.status === 'revising' || pending[key]) {
             step.status = 'revising';
             if (!step.before) step.before = this.visualFromStep(st, st.beforeUrl || st.assetUrl);
           }
@@ -1190,10 +1190,10 @@ class Component extends DCLogic {
     if (!steps.length) return 'unreviewed';
     
     if (steps.every(st => st.status === 'approved')) return 'approved';
+    if (steps.some(st => st.status === 'revising')) return 'revising';
     if (steps.some(st => st.status === 'revised')) return 'ready';
     if (slideRowIndex != null && this._segRevisionsDone && this._segRevisionsDone[slideRowIndex]) return 'ready';
     if (s.segmentationFeedback && s.segmentationFeedback.trim().length > 0) return 'ready';
-    if (steps.some(st => st.status === 'revising')) return 'revising';
     if (steps.some(st => st.status === 'approved')) return 'in_progress';
     return 'unreviewed';
   }

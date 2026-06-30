@@ -329,8 +329,8 @@ def _status_for_visual(
     if tracking.get("after_revision") or tracking.get("after_regen_1") or tracking.get("manually_selected"):
         if action != ACTION_APPROVE:
             return "revised"
-    if action not in (ACTION_NONE, "", "unreviewed"):
-        return "pending"
+    if action in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+        return "revising"
     return "pending"
 
 
