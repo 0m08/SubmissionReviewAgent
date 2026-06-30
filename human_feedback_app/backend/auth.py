@@ -73,7 +73,7 @@ def callback(request: Request, code: str = "", state: str = ""):
     session = session_store.get(_session_id_from_request(request))
     if session is None:
         raise HTTPException(status_code=400, detail="Missing login session")
-    if session.oauth_state and state and state != session.oauth_state:
+    if not session.oauth_state or not state or state != session.oauth_state:
         raise HTTPException(status_code=400, detail="OAuth state mismatch")
 
     creds = exchange_code_for_credentials(

@@ -839,6 +839,7 @@ def apply_segmentation_revision_to_sheet(
     search_tracking: Optional[Dict[str, Dict[str, str]]] = None,
     events: Optional[List[str]] = None,
     updated_slideshow_manifest: Optional[str] = None,
+    id_mapping: Optional[Dict[str, str]] = None,
 ) -> None:
     """Persist a segmentation revision: write the new graphics definition + audit
     columns, and reconcile per-visual review state.
@@ -847,6 +848,8 @@ def apply_segmentation_revision_to_sheet(
       IDs may have been reindexed by merge/split.
     - ``search_tracking`` (search targets): review action cleared (so the new visual
       re-enters pending review) AND before/after recorded in the tracking column.
+    - ``id_mapping``: maps old visual IDs to new reindexed visual IDs, ensuring
+      unrelated approved/reviewed visual states shift seamlessly to their new positional indices.
     """
     from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
         _format_human_feedback_revision_tracking,
@@ -880,35 +883,52 @@ def apply_segmentation_revision_to_sheet(
         if updated_slideshow_manifest is not None and "slideshow_manifest" in df.columns:
             df.at[row_index, "slideshow_manifest"] = updated_slideshow_manifest
 
-        # Clear review actions for affected + search visuals so they re-enter review.
-        if clear_actions and actions_col in df.columns:
+        # Shift / Clear review actions so unaffected visuals stay reviewed under their new IDs
+        if actions_col in df.columns:
             raw_actions = safe_str(df.at[row_index, actions_col])
             try:
                 payload = json.loads(raw_actions) if raw_actions else {}
             except Exception:
                 payload = {}
             if isinstance(payload, dict) and isinstance(payload.get("actions"), dict):
-                for vid in list(payload["actions"].keys()):
-                    if vid.strip().upper() in clear_actions:
-                        del payload["actions"][vid]
+                old_actions = payload["actions"]
+                new_actions = {}
+                for old_vid, action_data in old_actions.items():
+                    old_vid_upper = old_vid.strip().upper()
+                    if old_vid_upper in clear_actions:
+                        # Merged or revised away - clear action completely
+                        continue
+                    new_vid = id_mapping.get(old_vid_upper) if id_mapping else None
+                    if new_vid:
+                        new_actions[new_vid] = action_data
+                    else:
+                        new_actions[old_vid] = action_data
+                payload["actions"] = new_actions
                 df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
 
-        # Tracking: drop structural-affected entries (IDs no longer valid); record
-        # before/after for search targets so the UI shows the swap.
-        if (affected or search_map) and tracking_col in df.columns:
+        # Tracking: drop structural-affected entries; shift unaffected; record search target before/after
+        if tracking_col in df.columns:
             tmap = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
-            for vid in list(tmap.keys()):
-                if vid.strip().upper() in affected and vid.strip().upper() not in search_map:
-                    del tmap[vid]
+            new_tmap = {}
+            for vid, entry in tmap.items():
+                vid_upper = vid.strip().upper()
+                if vid_upper in affected and vid_upper not in search_map:
+                    # Clear/drop structural affected
+                    continue
+                new_vid = id_mapping.get(vid_upper) if id_mapping else None
+                if new_vid:
+                    new_tmap[new_vid] = entry
+                else:
+                    new_tmap[vid] = entry
             for vid, data in search_map.items():
-                tmap[vid] = {
+                new_tmap[vid] = {
                     "original": data.get("original") or None,
                     "manually_selected": None,
                     "after_revision": data.get("after_revision") or None,
                     "after_regen_1": None,
                     "after_regen_2": None,
                 }
-            df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tmap)
+            df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(new_tmap)
 
     mutate_row_cells(session, row_index, mutate)
     if events:

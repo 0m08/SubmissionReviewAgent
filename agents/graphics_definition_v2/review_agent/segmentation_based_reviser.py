@@ -428,7 +428,7 @@ def apply_segmentation_operations(final_graphics_definition, operations):
 
     :param final_graphics_definition: The current final graphics definition text
     :param operations: List of parsed operation dicts
-    :return: Tuple of (updated_final_graphics_definition, event_log, affected_visual_ids)
+    :return: Tuple of (updated_final_graphics_definition, event_log, affected_visual_ids, id_mapping)
     """
 
     steps_by_segment = build_segmentation_map_from_graphics(final_graphics_definition)
@@ -524,7 +524,7 @@ def apply_segmentation_operations(final_graphics_definition, operations):
                     if (s.get("visual_id") or "").upper() not in target_set
                     or (s.get("visual_id") or "").upper() == retain_id
                 ]
-                _flag(original_ids_by_segment.get(s_num, []))
+            _flag(list(target_set))
 
             events.append(
                 f"MERGE_VISUALS | retain={retain_id} | targets={','.join(target_ids)} | reason={reason}"
@@ -603,10 +603,15 @@ def apply_segmentation_operations(final_graphics_definition, operations):
         if steps
     }
 
+    id_mapping = {}
     reindexed_segments = {}
     for new_seg_num, (old_seg_num, steps) in enumerate(sorted(non_empty_segments.items()), start=1):
         for idx, step in enumerate(steps, start=1):
-            step["visual_id"] = f"S{new_seg_num}V{idx}"
+            old_vid = step.get("visual_id")
+            new_vid = f"S{new_seg_num}V{idx}"
+            if old_vid:
+                id_mapping[old_vid.upper()] = new_vid.upper()
+            step["visual_id"] = new_vid
         reindexed_segments[new_seg_num] = steps
 
     new_segments_text = {}
@@ -614,7 +619,7 @@ def apply_segmentation_operations(final_graphics_definition, operations):
         new_segments_text[seg_num] = _build_segment_text_from_steps(seg_num, steps)
 
     updated = build_final_graphics_definition(new_segments_text)
-    return updated, events, affected
+    return updated, events, affected, id_mapping
 
 
 def plan_segmentation_revision(course_name, target_audience, topic_name, subtopic_name, slide_id, slide_title, slide_chunk, final_graphics_definition, human_segmentation_feedback, drive, llm="gemini_3_flash_thinking"):
@@ -1056,7 +1061,7 @@ def run_segmentation_revision_for_row(session, row_index, feedback, llm=None):
         return {"operations": [], "events": [], "raw_plan": raw_plan}
 
     # Phase 1: structural ops.
-    updated_fgd, events, affected_visual_ids = apply_segmentation_operations(
+    updated_fgd, events, affected_visual_ids, id_mapping = apply_segmentation_operations(
         final_graphics_definition, operations
     )
 
@@ -1124,6 +1129,7 @@ def run_segmentation_revision_for_row(session, row_index, feedback, llm=None):
         search_tracking=search_tracking,
         events=events,
         updated_slideshow_manifest=updated_manifest,
+        id_mapping=id_mapping,
     )
     return {
         "operations": operations,

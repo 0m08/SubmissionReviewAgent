@@ -390,7 +390,7 @@
                   </div>
                   <div style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; background: {{ dark ? 'rgba(79, 70, 229, 0.08)' : '#eef2ff' }}; border-radius: 8px; padding: 10px 12px;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 2px; flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                    <span style="font-size: 12.5px; line-height: 1.45; color: {{ dark ? '#cbd5e1' : '#374151' }};">Each highlighted span in the narration above is one part.</span>
+                    <span style="font-size: 12.5px; line-height: 1.45; color: {{ dark ? '#cbd5e1' : '#374151' }};">Each highlighted span in the narration above is one voiceover part.</span>
                   </div>
                   <p class="hf-subtext" style="margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: #6b7280;">Describe how voiceover parts should be merged, split, reassigned, or how a visual&#8217;s narration span should change.</p>
                   <div class="hf-hover-tip-wrap" style="display: block;">
@@ -1229,6 +1229,9 @@ class Component extends DCLogic {
   }
   tile(v, opts) {
     opts = opts || {};
+    if (v.type !== 'video' && opts.ytKey && window.HFYoutube) {
+      window.HFYoutube.destroyPlayer(opts.ytKey);
+    }
     const h = React.createElement;
     const grad = (this.GRADS[v.tone] || this.GRADS.gray);
     const ht = opts.height || this.VISUAL_TILE_H;
@@ -1285,13 +1288,14 @@ class Component extends DCLogic {
       const containerStyle = { ...boxStyle, background: '#111' };
       if (isSmall) containerStyle.pointerEvents = 'none';
 
-      return h('div', { id: mountId, style: containerStyle },
+      return h('div', { key: 'yt-' + mountId, id: mountId, style: containerStyle },
         ytThumb ? h('img', { className: 'yt-thumbnail', src: ytThumb, alt: 'YouTube Cover' }) : null,
         opts.badge ? h('div', { key: 'badge', style: { position: 'absolute', top: '8px', left: '8px', padding: '3px 8px', borderRadius: '7px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.04em', color: '#fff', background: opts.badgeColor || 'rgba(0,0,0,0.5)', zIndex: 12 } }, opts.badge) : null
       );
     }
     if (this.canShowImage(url, v.type)) {
       return h('div', {
+        key: 'img-' + (opts.ytKey || 'img-' + url),
         style: { ...boxStyle, background: 'transparent', boxShadow: 'none', cursor: rawUrl ? 'pointer' : 'default' },
         onClick: () => { if (rawUrl) window.open(rawUrl, '_blank'); }
       },
@@ -1300,6 +1304,7 @@ class Component extends DCLogic {
       );
     }
     return h('div', {
+        key: 'fallback-' + (opts.ytKey || 'fallback'),
         style: { position: 'relative', width: '100%', height: ht + 'px', borderRadius: '12px', overflow: 'hidden', background: `linear-gradient(135deg, ${grad[0]}, ${grad[1]})`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12)', filter: opts.dim ? 'grayscale(0.4) brightness(0.85)' : 'none', boxSizing: 'border-box', cursor: rawUrl ? 'pointer' : 'default' },
         onClick: () => { if (rawUrl) window.open(rawUrl, '_blank'); }
       }, children);

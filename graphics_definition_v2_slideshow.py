@@ -911,9 +911,11 @@ def to_youtube_watch_url(url):
 def detect_asset_type(asset):
     if not asset:
         return "unknown"
+    lowered = asset.lower()
+    if "youtube.com" in lowered or "youtu.be" in lowered:
+        return "video"
     if is_youtube_embed(asset):
         return "video"
-    lowered = asset.lower()
     if is_drive_url(asset):
         return "image"
     if re.search(r"\.(png|jpe?g|gif|webp)(\?|$)", lowered):

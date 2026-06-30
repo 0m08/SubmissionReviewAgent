@@ -256,7 +256,16 @@ window.HFYoutube = (function () {
     mount(mountId, url, height);
   }
 
+  function cleanOrphanedPlayers() {
+    Object.keys(players).forEach(function (mountId) {
+      if (!document.getElementById(mountId)) {
+        destroyPlayer(mountId);
+      }
+    });
+  }
+
   function scheduleMount(mountId, url, height) {
+    cleanOrphanedPlayers();
     window.requestAnimationFrame(function () {
       mountWithRetry(mountId, url, height, 0);
     });
