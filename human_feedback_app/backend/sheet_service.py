@@ -651,6 +651,9 @@ def select_pool_alternative(
     from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
         _format_human_feedback_revision_tracking,
     )
+    from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
+        apply_url_replacements_to_slideshow_manifest_inner_xml,
+    )
     from graphics_definition_v2_slideshow import _apply_asset_overrides_to_raw
 
     helpers = _import_slideshow_helpers()
@@ -701,6 +704,18 @@ def select_pool_alternative(
 
         df.at[row_index, final_col] = updated_def
         df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tracking_map)
+
+        if asset_url and original_url and asset_url != original_url and "slideshow_manifest" in df.columns:
+            manifest = safe_str(df.at[row_index, "slideshow_manifest"])
+            if manifest and manifest != "nan" and not manifest.startswith("ERROR:"):
+                try:
+                    updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
+                        manifest, [(original_url, asset_url)]
+                    )
+                    if applied and updated_manifest != manifest:
+                        df.at[row_index, "slideshow_manifest"] = updated_manifest
+                except Exception as exc:  # pragma: no cover - defensive
+                    print(f"[human_feedback] manifest patch failed for row {row_index}: {exc}")
 
     # The mutate runs inside the global write lock against the freshest sheet and
     # touches only this visual's (segment, step) slice + its tracking key, so it

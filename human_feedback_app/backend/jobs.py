@@ -22,6 +22,7 @@ class JobStatus(str, Enum):
 @dataclass
 class RevisionJob:
     id: str
+    session_id: str
     label: str
     status: JobStatus = JobStatus.PENDING
     result: Optional[Dict[str, Any]] = None
@@ -61,6 +62,7 @@ class RevisionJobQueue:
 
     def submit(
         self,
+        session_id: str,
         label: str,
         worker: Callable[[], Dict[str, Any]],
         slide_index: int,
@@ -70,6 +72,7 @@ class RevisionJobQueue:
         job_id = uuid.uuid4().hex[:12]
         job = RevisionJob(
             id=job_id,
+            session_id=session_id,
             label=label,
             slide_index=slide_index,
             segment_index=segment_index,
@@ -80,13 +83,16 @@ class RevisionJobQueue:
         self._executor.submit(self._run_job, job_id, worker)
         return job
 
-    def get(self, job_id: str) -> Optional[RevisionJob]:
+    def get(self, job_id: str, session_id: str) -> Optional[RevisionJob]:
         with self._lock:
-            return self._jobs.get(job_id)
+            job = self._jobs.get(job_id)
+        if job is None or job.session_id != session_id:
+            return None
+        return job
 
-    def list_jobs(self) -> List[RevisionJob]:
+    def list_jobs(self, session_id: str) -> List[RevisionJob]:
         with self._lock:
-            jobs = list(self._jobs.values())
+            jobs = [j for j in self._jobs.values() if j.session_id == session_id]
         jobs.sort(key=lambda j: j.created_at, reverse=True)
         return jobs
 

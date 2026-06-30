@@ -200,6 +200,7 @@ def api_revise(body: ReviseRequest, session: UserSession = Depends(session_dep))
         return refreshed
 
     job = revision_queue.submit(
+        session_id=session.session_id,
         label=label,
         worker=worker,
         slide_index=slide_idx or 0,
@@ -230,6 +231,7 @@ def api_revise_segmentation(
         return slides_to_ui_payload(session)
 
     job = revision_queue.submit(
+        session_id=session.session_id,
         label=label,
         worker=worker,
         slide_index=slide_idx or 0,
@@ -241,12 +243,12 @@ def api_revise_segmentation(
 
 @api_router.get("/jobs")
 def api_jobs(session: UserSession = Depends(session_dep)) -> Any:
-    return [job.to_dict() for job in revision_queue.list_jobs()]
+    return [job.to_dict() for job in revision_queue.list_jobs(session.session_id)]
 
 
 @api_router.get("/jobs/{job_id}")
 def api_job(job_id: str, session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
-    job = revision_queue.get(job_id)
+    job = revision_queue.get(job_id, session.session_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job.to_dict()
