@@ -907,7 +907,7 @@ def render_gemini_drive_video_search_tab(
                 )
 
                 st.success("Vectorstore created/updated successfully.")
-                st.json(stats)
+                # st.json(stats)
 
             except Exception as exc:
                 track_tool_action(

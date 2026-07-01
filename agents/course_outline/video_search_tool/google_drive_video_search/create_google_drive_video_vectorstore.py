@@ -31,6 +31,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from services.sheets_service import save_to_sheet
 
 import pandas as pd
 from tqdm import tqdm
@@ -247,13 +248,6 @@ def get_tab_dataframe(worksheet) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def save_to_sheet(worksheet, df: pd.DataFrame, wait_seconds: float = 2.0):
-    worksheet.clear()
-    time.sleep(wait_seconds)
-    worksheet.update([df.columns.tolist()] + df.fillna("").values.tolist())
-    time.sleep(wait_seconds)
-
-
 # ============================================================
 # PYDRIVE HELPERS
 # ============================================================
@@ -371,62 +365,26 @@ def download_from_drive(drive, file_id: str, output_path: str) -> str:
     return output_path
 
 
-# def backup_vectorstore_to_drive(drive, local_path: str, vectorstore_folder_id: str):
-#     """
-#     Replaces old chroma_video_embeddings_db backup with a fresh recursive upload.
-#     """
-#     print("  📤 Backing up vectorstore to Drive...")
-
-#     old_id = find_drive_folder(drive, vectorstore_folder_id, CHROMA_BACKUP_FOLDER_NAME)
-#     if old_id:
-#         delete_drive_file_or_folder(drive, old_id)
-#         print("  🗑️ Removed old Drive backup.")
-
-#     new_folder_id = create_or_get_drive_folder(
-#         drive,
-#         vectorstore_folder_id,
-#         CHROMA_BACKUP_FOLDER_NAME,
-#     )
-
-#     upload_folder_to_drive(drive, local_path, new_folder_id)
-#     print("  ✅ Drive backup complete.")
-
-
 def backup_vectorstore_to_drive(drive, local_path: str, vectorstore_folder_id: str):
     """
     Replaces old chroma_video_embeddings_db backup with a fresh recursive upload.
-    Uploads to a temp folder first, then swaps — so the old backup is only
-    removed after the new upload completes successfully.
     """
     print("  📤 Backing up vectorstore to Drive...")
 
-    temp_folder_name = CHROMA_BACKUP_FOLDER_NAME + "_tmp"
-
-    # Clean up any leftover temp folder from a previous failed run
-    old_tmp_id = find_drive_folder(drive, vectorstore_folder_id, temp_folder_name)
-    if old_tmp_id:
-        delete_drive_file_or_folder(drive, old_tmp_id)
-        print("  🗑️ Removed stale temp backup folder.")
-
-    # Upload to temp folder first
-    tmp_folder_id = create_or_get_drive_folder(
-        drive,
-        vectorstore_folder_id,
-        temp_folder_name,
-    )
-    upload_folder_to_drive(drive, local_path, tmp_folder_id)
-    print("  ✅ Upload to temp folder complete.")
-
-    # Only now remove the old backup and rename temp to real name
     old_id = find_drive_folder(drive, vectorstore_folder_id, CHROMA_BACKUP_FOLDER_NAME)
     if old_id:
         delete_drive_file_or_folder(drive, old_id)
         print("  🗑️ Removed old Drive backup.")
 
-    tmp_folder = drive.CreateFile({"id": tmp_folder_id})
-    tmp_folder["title"] = CHROMA_BACKUP_FOLDER_NAME
-    tmp_folder.Upload()
+    new_folder_id = create_or_get_drive_folder(
+        drive,
+        vectorstore_folder_id,
+        CHROMA_BACKUP_FOLDER_NAME,
+    )
+
+    upload_folder_to_drive(drive, local_path, new_folder_id)
     print("  ✅ Drive backup complete.")
+
 
 # ============================================================
 # VIDEO + EMBEDDING HELPERS
@@ -920,7 +878,7 @@ def create_video_embeddings(
                     backup_vectorstore_to_drive(drive, LOCAL_VECTORSTORE_PATH, vectorstore_folder_id)
                     print("    📤 Drive backup updated after this video.")
                 except Exception as backup_exc:
-                    print(f"    ⚠️ Drive backup failed after this video: {backup_exc}")
+                    raise RuntimeError(f"Drive backup failed after embedding — row will not be marked TRUE: {backup_exc}") from backup_exc
 
                 tab_new_embeddings += len(video_embeddings)
                 grand_embeddings += len(video_embeddings)
