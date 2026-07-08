@@ -45,6 +45,12 @@ window.HFApi = (function () {
         body: JSON.stringify(payload),
       });
     },
+    reviseLayout(payload) {
+      return request("/api/slides/revise-layout", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
     revert(payload) {
       return request("/api/visuals/revert", {
         method: "POST",
@@ -56,6 +62,9 @@ window.HFApi = (function () {
     },
     listJobs() {
       return request("/api/jobs");
+    },
+    getManifestSync() {
+      return request("/api/manifest-sync");
     },
   };
 })();

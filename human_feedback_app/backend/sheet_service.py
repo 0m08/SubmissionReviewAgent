@@ -6,9 +6,14 @@ import json
 import pandas as pd
 import re
 import threading
+import uuid
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
+import html
 
-from services.sheets_service import save_to_sheet, try_n_times, get_sheet_data_and_df
+from services.sheets_service import save_to_sheet, get_sheet_data_and_df
+from utils.decorator_helpers import try_n_times
 
 from human_feedback_app.backend.constants import (
     ACTION_APPROVE,
@@ -27,26 +32,59 @@ from human_feedback_app.backend.constants import (
     MODE_TO_ACTION,
     SEGMENTATION_FEEDBACK_COLUMN,
     SEGMENTATION_PLAN_COLUMN,
+    LAYOUT_FEEDBACK_COLUMN,
+    LAYOUT_PLAN_COLUMN,
 )
 from human_feedback_app.backend.sessions import UserSession
 
+from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
+    _format_human_feedback_revision_tracking,
+    _parse_tracking_column,
+)
+from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
+    apply_url_replacements_to_slideshow_manifest_inner_xml,
+    generate_slideshow_manifest_for_row,
+    parse_when_vo_assigned_pairs,
+    urls_match_for_graphics_assignment,
+)
+from graphics_definition_v2_slideshow import (
+    _apply_asset_overrides_to_raw,
+    build_slides_from_df,
+    detect_asset_type,
+    detect_current_round,
+    get_round_column_name,
+    parse_graphics_definition,
+    safe_str,
+)
+from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
+    parse_urls_from_image_pool,
+    parse_urls_from_video_pool_filtered,
+)
 
-# This app pins the human-feedback round to a single set of "_1" columns and
-# never advances rounds. Each visual's lifecycle (action, feedback, original ->
-# after_revision -> after_regen_* history) lives inside the keyed JSON of the
-# actions/tracking cells, so we never spawn _2/_3 column sets the way the batch
-# Streamlit flow did.
+
+# This app pins the human-feedback round to a single set of "_1" columns and never advances rounds. Each visual's lifecycle (action, feedback, original -> after_revision -> after_regen_* history) lives inside the keyed JSON of the actions/tracking cells, so we never spawn _2/_3 column sets.
 ROUND_INDEX = 0
 
-# Serializes the read-modify-write of the worksheet. Because save_to_sheet writes
-# the ENTIRE sheet, every writer must reload the latest data inside this lock and
-# patch only the cells it owns; otherwise concurrent writers clobber each other.
-#
-# NOTE: this lock only guards the (fast) merge-write. The slow part of a revision
-# (LLM calls / AI generation) runs OUTSIDE any lock, so revisions for different
-# visuals — even on the SAME slide/row — execute fully in parallel and only
-# serialize for the brief surgical write at the end.
+# Serializes the read-modify-write of the worksheet. Because save_to_sheet writes the ENTIRE sheet, every writer must reload the latest data inside this lock and patch only the cells it owns; otherwise concurrent writers clobber each other.
 _SHEET_WRITE_LOCK = threading.Lock()
+_MANIFEST_SYNC_LOCK = threading.Lock()
+_MANIFEST_SYNC_STATUS_LOCK = threading.Lock()
+_MANIFEST_SYNC_RUNNING_BY_SESSION: Dict[str, bool] = {}
+MANIFEST_SYNC_MAX_REGEN_ATTEMPTS = 3
+MANIFEST_SYNC_MAX_WORKERS = 15
+MANIFEST_SYNC_LOG_PREFIX = "[manifest_sync]"
+
+
+def _manifest_sync_row_label(row: Any, row_index: int) -> str:
+    """Human-readable row label for manifest sync terminal logs."""
+    title = ""
+    if isinstance(row, dict):
+        title = safe_str(row.get("Slide Chunk Title", "")).strip()
+    else:
+        title = safe_str(row.get("Slide Chunk Title", "")).strip() if hasattr(row, "get") else ""
+    if not title or title == "nan":
+        title = f"Slide {row_index + 1}"
+    return f"row {row_index + 1} ({title})"
 
 
 def _ensure_sheet(session: UserSession):
@@ -55,7 +93,14 @@ def _ensure_sheet(session: UserSession):
     return session.sheet
 
 
-def _pick_column(df, name: str) -> str:
+def _pick_column(df, name):
+    """
+    Pick a column from a DataFrame by name.
+
+    :param df: The DataFrame to search.
+    :param name: The name of the column to pick.
+    :return: The name of the picked column.
+    """
     target = name.strip().lower()
     for col in df.columns:
         if str(col).strip().lower() == target:
@@ -63,12 +108,13 @@ def _pick_column(df, name: str) -> str:
     return name
 
 
-def mutate_row_cells(session: UserSession, row_index: int, mutate) -> None:
-    """Reload the latest worksheet under the global write lock, run ``mutate(df)``
-    (which must patch only this row's owned cells), then persist.
+def mutate_row_cells(session, row_index, mutate):
+    """
+    Reload the latest worksheet under the global write lock, run `mutate(df)` (which must patch only this row's owned cells), then persist.
 
-    Reloading inside the lock guarantees every untouched row/column keeps its
-    newest value, so we never overwrite a concurrent writer's changes.
+    :param session: The session object.
+    :param row_index: The index of the row to mutate.
+    :param mutate: The function to mutate the row.
     """
     with _SHEET_WRITE_LOCK:
         sheet = _ensure_sheet(session)
@@ -78,9 +124,14 @@ def mutate_row_cells(session: UserSession, row_index: int, mutate) -> None:
         save_to_sheet(ws, latest_df)
 
 
-def save_row_cells(session: UserSession, row_index: int, cell_updates: Dict[str, Any]) -> None:
-    """Persist precomputed cell values for a single row, preserving every other
-    cell in the worksheet."""
+def save_row_cells(session, row_index, cell_updates):
+    """
+    Persist precomputed cell values for a single row, preserving every other cell in the worksheet.
+
+    :param session: The session object.
+    :param row_index: The index of the row to save.
+    :param cell_updates: The cell updates to save.
+    """
     if not cell_updates:
         return
 
@@ -93,8 +144,15 @@ def save_row_cells(session: UserSession, row_index: int, cell_updates: Dict[str,
     mutate_row_cells(session, row_index, mutate)
 
 
-def extract_asset_url(raw_def: str, segment_index: int, step_index: int) -> str:
-    """Return the asset URL for one (segment, step) inside a final_graphics_definition cell."""
+def extract_asset_url(raw_def, segment_index, step_index):
+    """
+    Extract the asset URL for one (segment, step) inside a final_graphics_definition cell.
+
+    :param raw_def: The raw final_graphics_definition cell value.
+    :param segment_index: The index of the segment.
+    :param step_index: The index of the step.
+    :return: The asset URL.
+    """
     helpers = _import_slideshow_helpers()
     parse_graphics_definition = helpers["parse_graphics_definition"]
     safe_str = helpers["safe_str"]
@@ -104,6 +162,64 @@ def extract_asset_url(raw_def: str, segment_index: int, step_index: int) -> str:
                 if step.get("step_index") == step_index:
                     return safe_str(step.get("asset", "")).strip()
     return ""
+
+
+def _effective_url_from_tracking_entry(entry: Optional[Dict[str, Any]]) -> str:
+    """Return the latest assigned URL recorded in a tracking entry."""
+    if not isinstance(entry, dict):
+        return ""
+    for key in ("after_regen_2", "after_regen_1", "after_revision", "manually_selected", "original"):
+        val = entry.get(key)
+        if val and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+def _collect_manifest_old_url_candidates(
+    current_fgd_url: str,
+    tracking_entry: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """Build ordered old-URL candidates for patching slideshow_manifest (newest first)."""
+    seen = set()
+    candidates: List[str] = []
+    for url in (
+        (current_fgd_url or "").strip(),
+        _effective_url_from_tracking_entry(tracking_entry),
+        str((tracking_entry or {}).get("original") or "").strip(),
+    ):
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        candidates.append(url)
+    return candidates
+
+
+def _patch_slideshow_manifest_urls(
+    df,
+    row_index: int,
+    new_url: str,
+    old_url_candidates: List[str],
+) -> bool:
+    """Replace the first matching old URL in slideshow_manifest with new_url."""
+    new_url = (new_url or "").strip()
+    if not new_url or "slideshow_manifest" not in df.columns:
+        return False
+    manifest = safe_str(df.at[row_index, "slideshow_manifest"])
+    if not manifest or manifest == "nan" or manifest.startswith("ERROR:"):
+        return False
+    for old_url in old_url_candidates:
+        if not old_url or old_url == new_url:
+            continue
+        try:
+            updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
+                manifest, [(old_url, new_url)]
+            )
+            if applied and updated_manifest != manifest:
+                df.at[row_index, "slideshow_manifest"] = updated_manifest
+                return True
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[human_feedback] manifest patch failed for row {row_index}: {exc}")
+    return False
 
 
 def merge_visual_revision(
@@ -127,14 +243,6 @@ def merge_visual_revision(
     tracking, and the manifest. The (fast) merge is serialized by the global
     write lock; the slow revision work already ran in parallel beforehand.
     """
-    from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
-        _format_human_feedback_revision_tracking,
-    )
-    from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
-        apply_url_replacements_to_slideshow_manifest_inner_xml,
-    )
-    from graphics_definition_v2_slideshow import _apply_asset_overrides_to_raw
-
     helpers = _import_slideshow_helpers()
     parse_graphics_definition = helpers["parse_graphics_definition"]
     safe_str = helpers["safe_str"]
@@ -144,16 +252,23 @@ def merge_visual_revision(
     status_col = get_round_column_name(HUMAN_FEEDBACK_STATUS_COLUMN, ROUND_INDEX)
 
     def mutate(df) -> None:
+        _invalidate_manifest_repair_cache(session, row_index)
+        final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+        current_fgd_url = ""
+        prior_tracking_entry = None
+        if tracking_col in df.columns:
+            prior_tracking_entry = _parse_tracking(safe_str(df.at[row_index, tracking_col])).get(visual_id)
+        if final_col in df.columns:
+            current_fgd_url = extract_asset_url(safe_str(df.at[row_index, final_col]), segment_index, step_index)
+
         # 1) final_graphics_definition: surgical override of just this visual.
-        if final_url:
-            final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
-            if final_col in df.columns:
-                raw_def = safe_str(df.at[row_index, final_col])
-                segments = parse_graphics_definition(raw_def)
-                updated = _apply_asset_overrides_to_raw(
-                    raw_def, segments, {(segment_index, step_index): final_url}
-                )
-                df.at[row_index, final_col] = updated
+        if final_url and final_col in df.columns:
+            raw_def = safe_str(df.at[row_index, final_col])
+            segments = parse_graphics_definition(raw_def)
+            updated = _apply_asset_overrides_to_raw(
+                raw_def, segments, {(segment_index, step_index): final_url}
+            )
+            df.at[row_index, final_col] = updated
 
         # 2) tracking: merge only this visual_id's entry.
         if tracking_entry is not None:
@@ -163,18 +278,14 @@ def merge_visual_revision(
             tmap[visual_id] = tracking_entry
             df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tmap)
 
-        # 3) slideshow_manifest: replace only this visual's URL.
-        if final_url and original_url and final_url != original_url and "slideshow_manifest" in df.columns:
-            manifest = safe_str(df.at[row_index, "slideshow_manifest"])
-            if manifest and manifest != "nan" and not manifest.startswith("ERROR:"):
-                try:
-                    updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
-                        manifest, [(original_url, final_url)]
-                    )
-                    if applied and updated_manifest != manifest:
-                        df.at[row_index, "slideshow_manifest"] = updated_manifest
-                except Exception as exc:  # pragma: no cover - defensive
-                    print(f"[human_feedback] manifest patch failed for row {row_index}: {exc}")
+        # 3) slideshow_manifest: replace the URL currently in use (not the first original).
+        if final_url and final_url != current_fgd_url:
+            old_candidates = _collect_manifest_old_url_candidates(current_fgd_url, prior_tracking_entry)
+            if not _patch_slideshow_manifest_urls(df, row_index, final_url, old_candidates):
+                print(
+                    f"[human_feedback] manifest patch: no slot matched for row {row_index} "
+                    f"visual {visual_id} (tried {len(old_candidates)} candidate URL(s))"
+                )
 
         # 4) status: row-level, last-writer-wins (cosmetic; UI derives per-visual
         #    state from actions + tracking, not from this).
@@ -182,6 +293,14 @@ def merge_visual_revision(
             if status_col not in df.columns:
                 df[status_col] = ""
             df.at[row_index, status_col] = status_value
+
+        ensure_manifest_sync_for_row(
+            session,
+            df,
+            row_index,
+            reason="merge_visual_revision",
+            force_regenerate=False,
+        )
 
     mutate_row_cells(session, row_index, mutate)
 
@@ -194,15 +313,6 @@ def _first_http_url(text: str) -> str:
 
 
 def _import_slideshow_helpers():
-    from graphics_definition_v2_slideshow import (
-        build_slides_from_df,
-        detect_asset_type,
-        detect_current_round,
-        get_round_column_name,
-        parse_graphics_definition,
-        safe_str,
-    )
-
     return {
         "build_slides_from_df": build_slides_from_df,
         "detect_asset_type": detect_asset_type,
@@ -263,11 +373,6 @@ def _alternatives_for_segment(
     exclude_url: str = "",
 ) -> List[Dict[str, Any]]:
     """Parse image_pool / video_pool_filtered candidates for one segment."""
-    from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
-        parse_urls_from_image_pool,
-        parse_urls_from_video_pool_filtered,
-    )
-
     helpers = _import_slideshow_helpers()
     safe_str = helpers["safe_str"]
 
@@ -352,10 +457,6 @@ def _parse_actions_payload(raw: str) -> Dict[str, Any]:
 
 
 def _parse_tracking(raw: str) -> Dict[str, Any]:
-    from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
-        _parse_tracking_column,
-    )
-
     return _parse_tracking_column(raw or "")
 
 
@@ -414,6 +515,817 @@ def load_workbook(session: UserSession) -> Tuple[Any, Any, int]:
     return ws, df, session.current_round
 
 
+# Human-readable names for the manifest layout templates the slideshow agent emits.
+_SCENE_TEMPLATE_LABELS = {
+    "single_visual_hero": "Single visual",
+    "two_item_split_comparison": "Two-item split",
+    "multi_panel_grid": "Multi-panel grid",
+    "main_plus_supporting_inset": "Main + inset",
+}
+
+_SCENE_TEMPLATE_ALIASES = {
+    "single_hero": "single_visual_hero",
+    "hero": "single_visual_hero",
+    "two_item_split": "two_item_split_comparison",
+    "split_comparison": "two_item_split_comparison",
+    "multi_panel": "multi_panel_grid",
+    "grid": "multi_panel_grid",
+    "main_plus_inset": "main_plus_supporting_inset",
+    "main_plus_supporting": "main_plus_supporting_inset",
+    "main_visual_plus_inset": "main_plus_supporting_inset",
+}
+
+
+def _normalize_scene_template(template: str) -> str:
+    """Map manifest template strings to one of the four canonical layout ids."""
+    t = re.sub(r"[\s\-]+", "_", (template or "").strip().lower())
+    return _SCENE_TEMPLATE_ALIASES.get(t, t)
+
+
+def _scene_template_label(template: str, slot_count: int) -> str:
+    normalized = _normalize_scene_template(template)
+    label = _SCENE_TEMPLATE_LABELS.get(normalized)
+    if label:
+        return label
+    if slot_count <= 1:
+        return "Single visual"
+    return f"{slot_count} panels"
+
+
+def _parse_manifest_scenes_fallback(manifest_xml: str) -> List[Dict[str, Any]]:
+
+    text = (manifest_xml or "").strip()
+    if not text or text == "nan" or text.startswith("ERROR:"):
+        return []
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+    # Normalize doubled attribute quotes exported by Sheets (id=""1"" -> id="1").
+    text = re.sub(r'""([^"<>]*)""', r'"\1"', text)
+
+    # Find all <scene ...> ... </scene> blocks
+    scene_pattern = r"<scene\s+([^>]*?)>(.*?)</scene>"
+    scene_matches = re.finditer(scene_pattern, text, re.DOTALL | re.IGNORECASE)
+    
+    scenes: List[Dict[str, Any]] = []
+    for idx, match in enumerate(scene_matches, start=1):
+        attrs_text = match.group(1)
+        body_text = match.group(2)
+        
+        # Parse attributes from scene tag (e.g. id and template)
+        attr_map = {}
+        for attr_match in re.finditer(r'([a-zA-Z0-9_-]+)\s*=\s*["\']([^"\']*)["\']', attrs_text):
+            attr_map[attr_match.group(1).lower()] = attr_match.group(2)
+            
+        scene_id = attr_map.get("id", str(idx)).strip()
+        template = attr_map.get("template", "").strip()
+        
+        # Parse narration_span
+        narr_match = re.search(r"<narration_span[^>]*?>(.*?)</narration_span>", body_text, re.DOTALL | re.IGNORECASE)
+        narration = ""
+        if narr_match:
+            narration = " ".join(narr_match.group(1).split())
+            
+        # Parse slots inside the scene
+        slots = []
+        # Find anything starting with <slot and pull its attributes up to the closing tag character
+        for slot_match in re.finditer(r"<slot\s+([^>]+)", body_text, re.IGNORECASE):
+            slot_attrs_text = slot_match.group(1)
+            slot_attr_map = {}
+            for s_attr_match in re.finditer(r'([a-zA-Z0-9_-]+)\s*=\s*["\']([^"\']*)["\']', slot_attrs_text):
+                slot_attr_map[s_attr_match.group(1).lower()] = s_attr_match.group(2)
+                
+            role = slot_attr_map.get("role", "").strip()
+            asset = slot_attr_map.get("asset", "").strip()
+            
+            # Unescape entities like &amp; to & for proper internal URL processing
+            role = html.unescape(role)
+            asset = html.unescape(asset)
+            
+            if role or asset:
+                slots.append({
+                    "role": role,
+                    "asset": asset,
+                })
+                
+        scenes.append({
+            "id": scene_id,
+            "template": _normalize_scene_template(template),
+            "narration": narration,
+            "slots": slots
+        })
+    return scenes
+
+
+def _parse_manifest_scenes(manifest_xml: str) -> List[Dict[str, Any]]:
+    """Parse the slideshow_manifest cell into ordered scenes.
+
+    Returns a list of dicts: ``{"id", "template", "narration", "slots": [{role, asset}]}``.
+    Falls back to a relaxed regex-based parser if strict XML parsing fails (e.g. on unescaped &).
+    """
+    text = (manifest_xml or "").strip()
+    if not text or text == "nan" or text.startswith("ERROR:"):
+        return []
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+    # Normalize doubled attribute quotes exported by Sheets (id=""1"" -> id="1").
+    text = re.sub(r'""([^"<>]*)""', r'"\1"', text)
+    wrapped = text
+    if "<slideshow_manifest" not in wrapped.lower():
+        wrapped = f"<slideshow_manifest>\n{wrapped}\n</slideshow_manifest>"
+    # Escape bare ampersands that would otherwise break XML parsing.
+    wrapped = re.sub(r"&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9A-Fa-f]+);)", "&amp;", wrapped)
+    try:
+        root = ET.fromstring(wrapped)
+    except ET.ParseError:
+        # Fall back to regex parsing so raw ampersands or malformed XML syntax in Google Sheets
+        # never hides the layout view in the human review app UI.
+        return _parse_manifest_scenes_fallback(manifest_xml)
+
+    tag = (root.tag or "").lower()
+    if tag.endswith("slideshow_manifest"):
+        scene_els = root.findall("scene")
+    elif tag.endswith("scene"):
+        scene_els = [root]
+    else:
+        return _parse_manifest_scenes_fallback(manifest_xml)
+
+    scenes: List[Dict[str, Any]] = []
+    for idx, scene_el in enumerate(scene_els, start=1):
+        narr_el = scene_el.find("narration_span")
+        narration = ""
+        if narr_el is not None and narr_el.text:
+            narration = " ".join(narr_el.text.split())
+        slots = [
+            {
+                "role": (slot_el.get("role") or "").strip(),
+                "asset": (slot_el.get("asset") or "").strip(),
+            }
+            for slot_el in scene_el.findall("slot")
+        ]
+        scenes.append(
+            {
+                "id": (scene_el.get("id") or str(idx)).strip() or str(idx),
+                "template": _normalize_scene_template(scene_el.get("template") or ""),
+                "narration": narration,
+                "slots": slots,
+            }
+        )
+    return scenes
+
+
+def _extract_fgd_urls(final_graphics_definition: str) -> List[str]:
+    pairs = parse_when_vo_assigned_pairs(final_graphics_definition or "")
+    return [str(url or "").strip() for _, url in pairs if str(url or "").strip()]
+
+
+def _extract_manifest_slot_urls(manifest_xml: str) -> List[str]:
+    urls: List[str] = []
+    for scene in _parse_manifest_scenes(manifest_xml):
+        for slot in scene.get("slots") or []:
+            asset = str((slot or {}).get("asset") or "").strip()
+            if asset:
+                urls.append(asset)
+    return urls
+
+
+def _validate_manifest_sync(manifest_xml: str, final_graphics_definition: str) -> Tuple[bool, str]:
+    fgd_urls = _extract_fgd_urls(final_graphics_definition)
+    if not fgd_urls:
+        return True, "No FGD URLs to validate."
+
+    manifest_urls = _extract_manifest_slot_urls(manifest_xml)
+    if not manifest_urls:
+        return False, "Manifest is empty or unparsable."
+    if len(manifest_urls) != len(fgd_urls):
+        return (
+            False,
+            f"Mismatch count: FGD has {len(fgd_urls)} URLs; manifest has {len(manifest_urls)} slots.",
+        )
+
+    remaining = list(fgd_urls)
+    for manifest_url in manifest_urls:
+        match_idx = None
+        for idx, fgd_url in enumerate(remaining):
+            if _urls_match(manifest_url, fgd_url):
+                match_idx = idx
+                break
+        if match_idx is None:
+            return False, f"Manifest URL not present in FGD: {manifest_url}"
+        remaining.pop(match_idx)
+
+    if remaining:
+        return False, f"FGD URL(s) missing in manifest: {remaining}"
+    return True, ""
+
+
+def _regenerate_manifest_for_row(
+    session: UserSession,
+    row,
+    *,
+    final_graphics_definition: str,
+    llm: str = "gemini_3_flash_thinking",
+) -> Tuple[Optional[str], str]:
+    slide_title = safe_str(row.get("Slide Chunk Title", "")).strip()
+    slide_chunk = safe_str(row.get("Slide Chunk", "")).strip()
+    topic_name = safe_str(row.get("Topic", "")).strip()
+    subtopic_name = safe_str(row.get("Subtopic", "")).strip()
+    slide_type = safe_str(row.get("Slide Type", "")).strip()
+    if slide_type == "nan":
+        slide_type = ""
+    layout_plan = safe_str(row.get("layout_plan", "")).strip()
+    storyboard_planning = safe_str(row.get("storyboard_planning", "")).strip()
+    course_name = safe_str(getattr(session, "course_name", "")).strip() or "Course"
+
+    row_index = row.get("_manifest_sync_row_index") if isinstance(row, dict) else None
+    label = _manifest_sync_row_label(row, int(row_index) if row_index is not None else 0)
+    print(f"{MANIFEST_SYNC_LOG_PREFIX} Regenerating slideshow_manifest for {label}...")
+
+    try:
+        manifest_xml, _ = generate_slideshow_manifest_for_row(
+            course_name=course_name,
+            topic_name=topic_name,
+            subtopic_name=subtopic_name,
+            slide_type=slide_type,
+            slide_title=slide_title,
+            slide_content=slide_chunk,
+            layout_plan=layout_plan,
+            storyboard_planning=storyboard_planning,
+            final_graphics_definition=final_graphics_definition,
+            drive=session.drive,
+            llm=llm,
+        )
+        return manifest_xml, ""
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration error for {label}: {exc}")
+        return None, str(exc)
+
+
+def _cache_repaired_manifest(session: UserSession, row_index: int, manifest_xml: str) -> None:
+    """Keep the just-repaired manifest in session so UI reads are instant (Sheets can lag)."""
+    if not manifest_xml:
+        return
+    cache = getattr(session, "manifest_repair_cache", None)
+    if cache is None:
+        session.manifest_repair_cache = {}
+        cache = session.manifest_repair_cache
+    cache[int(row_index)] = manifest_xml
+
+
+def _invalidate_manifest_repair_cache(session: UserSession, row_index: int) -> None:
+    """Drop cached manifest for a row after a user-initiated write so sheet edits win."""
+    cache = getattr(session, "manifest_repair_cache", None)
+    if cache:
+        cache.pop(int(row_index), None)
+
+
+def _manifest_for_ui_row(session: UserSession, row_index: int, row) -> str:
+    """Prefer in-session repaired manifest over a potentially stale Sheets cell."""
+    cache = getattr(session, "manifest_repair_cache", None) or {}
+    cached = cache.get(int(row_index))
+    if cached:
+        return cached
+    return safe_str(row.get("slideshow_manifest", ""))
+
+
+def _set_manifest_sync_status(session: UserSession, **kwargs) -> None:
+    with _MANIFEST_SYNC_STATUS_LOCK:
+        status = dict(getattr(session, "manifest_sync_status", None) or {})
+        status.update(kwargs)
+        session.manifest_sync_status = status
+
+
+def _append_manifest_sync_repaired_row(session: UserSession, row_index: int) -> None:
+    with _MANIFEST_SYNC_STATUS_LOCK:
+        status = dict(getattr(session, "manifest_sync_status", None) or {})
+        repaired = list(status.get("repaired_row_indices") or [])
+        if row_index not in repaired:
+            repaired.append(int(row_index))
+        status["repaired_row_indices"] = repaired
+        status["repaired_rows"] = len(repaired)
+        status["repair_version"] = int(status.get("repair_version") or 0) + 1
+        session.manifest_sync_status = status
+
+
+def _append_manifest_sync_failed_row(session: UserSession, row_index: int) -> None:
+    with _MANIFEST_SYNC_STATUS_LOCK:
+        status = dict(getattr(session, "manifest_sync_status", None) or {})
+        failed = list(status.get("failed_row_indices") or [])
+        if row_index not in failed:
+            failed.append(int(row_index))
+        status["failed_row_indices"] = failed
+        status["failed_rows"] = len(failed)
+        session.manifest_sync_status = status
+
+
+def _persist_slideshow_manifest_cell(
+    session: UserSession,
+    row_index: int,
+    manifest_xml: str,
+) -> None:
+    def mutate(df) -> None:
+        if "slideshow_manifest" not in df.columns:
+            df["slideshow_manifest"] = ""
+        df.at[row_index, "slideshow_manifest"] = manifest_xml
+
+    mutate_row_cells(session, row_index, mutate)
+    _cache_repaired_manifest(session, row_index, manifest_xml)
+
+
+def get_manifest_sync_status(session: UserSession) -> Dict[str, Any]:
+    with _MANIFEST_SYNC_STATUS_LOCK:
+        status = dict(getattr(session, "manifest_sync_status", None) or {})
+    if not status:
+        return {
+            "status": "idle",
+            "checked_rows": 0,
+            "repaired_rows": 0,
+            "failed_rows": 0,
+            "repaired_row_indices": [],
+            "failed_row_indices": [],
+            "repair_version": 0,
+        }
+    status.setdefault("repaired_row_indices", [])
+    status.setdefault("failed_row_indices", [])
+    status.setdefault("repair_version", 0)
+    return status
+
+
+def maybe_trigger_manifest_sync_checker(session: UserSession) -> bool:
+    if not session.sheet_link:
+        return False
+    if getattr(session, "manifest_sync_triggered", False):
+        return False
+    session.manifest_sync_triggered = True
+    return trigger_manifest_sync_checker_background(session)
+
+
+def ensure_manifest_sync_for_row(
+    session: UserSession,
+    df,
+    row_index: int,
+    *,
+    reason: str = "",
+    force_regenerate: bool = False,
+) -> Dict[str, Any]:
+    if "slideshow_manifest" not in df.columns:
+        return {"checked": False, "synced": True, "reason": "missing_manifest_column"}
+
+    final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+    if final_col not in df.columns:
+        return {"checked": False, "synced": True, "reason": "missing_fgd_column"}
+
+    row = df.loc[row_index]
+    final_graphics_definition = safe_str(row.get(final_col, "")).strip()
+    if not final_graphics_definition or final_graphics_definition == "nan":
+        return {"checked": False, "synced": True, "reason": "empty_fgd"}
+
+    current_manifest = safe_str(row.get("slideshow_manifest", "")).strip()
+    is_synced, err = _validate_manifest_sync(current_manifest, final_graphics_definition)
+    if is_synced and not force_regenerate:
+        return {"checked": True, "synced": True, "reason": "already_synced"}
+
+    label = _manifest_sync_row_label(row, row_index)
+    print(
+        f"{MANIFEST_SYNC_LOG_PREFIX} Out of sync for {label} "
+        f"(reason={reason or 'unspecified'}; issue={err or 'forced_regenerate'}) — "
+        f"starting regeneration"
+    )
+    last_error = err or "forced_regenerate"
+    for attempt in range(1, MANIFEST_SYNC_MAX_REGEN_ATTEMPTS + 1):
+        print(
+            f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration attempt {attempt}/"
+            f"{MANIFEST_SYNC_MAX_REGEN_ATTEMPTS} for {label}"
+        )
+        row_for_regen = row.to_dict() if hasattr(row, "to_dict") else row
+        if isinstance(row_for_regen, dict):
+            row_for_regen = dict(row_for_regen)
+            row_for_regen["_manifest_sync_row_index"] = row_index
+        regenerated_manifest, regen_error = _regenerate_manifest_for_row(
+            session,
+            row_for_regen,
+            final_graphics_definition=final_graphics_definition,
+        )
+        if not regenerated_manifest:
+            last_error = regen_error or "regeneration_failed"
+            print(
+                f"{MANIFEST_SYNC_LOG_PREFIX} Attempt {attempt} failed for {label}: {last_error}"
+            )
+            continue
+
+        regenerated_ok, regenerated_err = _validate_manifest_sync(
+            regenerated_manifest,
+            final_graphics_definition,
+        )
+        if regenerated_ok:
+            df.at[row_index, "slideshow_manifest"] = regenerated_manifest
+            _cache_repaired_manifest(session, row_index, regenerated_manifest)
+            print(
+                f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration succeeded for {label} "
+                f"on attempt {attempt}"
+            )
+            return {
+                "checked": True,
+                "synced": True,
+                "reason": "repaired_by_regeneration",
+                "attempts": attempt,
+            }
+
+        last_error = regenerated_err or "regenerated_manifest_invalid"
+        print(
+            f"{MANIFEST_SYNC_LOG_PREFIX} Attempt {attempt} produced invalid manifest "
+            f"for {label}: {last_error}"
+        )
+
+    print(
+        f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration exhausted for {label} after "
+        f"{MANIFEST_SYNC_MAX_REGEN_ATTEMPTS} attempt(s): {last_error}"
+    )
+    return {
+        "checked": True,
+        "synced": False,
+        "reason": "regeneration_exhausted",
+        "error": last_error,
+        "attempts": MANIFEST_SYNC_MAX_REGEN_ATTEMPTS,
+    }
+
+
+def _parallel_manifest_sync_check_task(
+    row_index: int,
+    manifest_xml: str,
+    final_graphics_definition: str,
+) -> Dict[str, Any]:
+    fgd = (final_graphics_definition or "").strip()
+    if not fgd or fgd == "nan":
+        return {"row_index": row_index, "checked": False, "needs_repair": False}
+
+    is_synced, sync_err = _validate_manifest_sync(manifest_xml, fgd)
+    return {
+        "row_index": row_index,
+        "checked": True,
+        "needs_repair": not is_synced,
+        "sync_error": sync_err if not is_synced else "",
+    }
+
+
+def _parallel_manifest_sync_repair_task(
+    session: UserSession,
+    row_index: int,
+    row_snapshot: Dict[str, Any],
+    final_col: str,
+    *,
+    reason: str,
+) -> Dict[str, Any]:
+    final_graphics_definition = safe_str(row_snapshot.get(final_col, "")).strip()
+    if not final_graphics_definition or final_graphics_definition == "nan":
+        return {"row_index": row_index, "synced": False, "reason": "empty_fgd"}
+
+    label = _manifest_sync_row_label(row_snapshot, row_index)
+    print(
+        f"{MANIFEST_SYNC_LOG_PREFIX} Out of sync for {label} "
+        f"(reason={reason}) — starting regeneration"
+    )
+    last_error = "forced_regenerate"
+    row_snapshot = dict(row_snapshot)
+    row_snapshot["_manifest_sync_row_index"] = row_index
+    for attempt in range(1, MANIFEST_SYNC_MAX_REGEN_ATTEMPTS + 1):
+        print(
+            f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration attempt {attempt}/"
+            f"{MANIFEST_SYNC_MAX_REGEN_ATTEMPTS} for {label}"
+        )
+        regenerated_manifest, regen_error = _regenerate_manifest_for_row(
+            session,
+            row_snapshot,
+            final_graphics_definition=final_graphics_definition,
+        )
+        if not regenerated_manifest:
+            last_error = regen_error or "regeneration_failed"
+            print(
+                f"{MANIFEST_SYNC_LOG_PREFIX} Attempt {attempt} failed for {label}: {last_error}"
+            )
+            continue
+
+        regenerated_ok, regenerated_err = _validate_manifest_sync(
+            regenerated_manifest,
+            final_graphics_definition,
+        )
+        if regenerated_ok:
+            print(f"{MANIFEST_SYNC_LOG_PREFIX} Saving regenerated manifest for {label}...")
+            _persist_slideshow_manifest_cell(session, row_index, regenerated_manifest)
+            _append_manifest_sync_repaired_row(session, row_index)
+            print(
+                f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration succeeded for {label} "
+                f"on attempt {attempt}"
+            )
+            return {
+                "row_index": row_index,
+                "synced": True,
+                "reason": "repaired_by_regeneration",
+                "attempts": attempt,
+            }
+        last_error = regenerated_err or "regenerated_manifest_invalid"
+        print(
+            f"{MANIFEST_SYNC_LOG_PREFIX} Attempt {attempt} produced invalid manifest "
+            f"for {label}: {last_error}"
+        )
+
+    _append_manifest_sync_failed_row(session, row_index)
+    print(
+        f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration exhausted for {label} after "
+        f"{MANIFEST_SYNC_MAX_REGEN_ATTEMPTS} attempt(s): {last_error}"
+    )
+    return {
+        "row_index": row_index,
+        "synced": False,
+        "reason": "regeneration_exhausted",
+        "error": last_error,
+        "attempts": MANIFEST_SYNC_MAX_REGEN_ATTEMPTS,
+    }
+
+
+def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str, Any]:
+    worksheet = session.worksheet_name or DEFAULT_WORKSHEET
+    print(
+        f"{MANIFEST_SYNC_LOG_PREFIX} Starting sheet sync check "
+        f"(worksheet={worksheet!r}, max_workers={MANIFEST_SYNC_MAX_WORKERS})"
+    )
+
+    _, df, _ = load_workbook(session)
+    if "slideshow_manifest" not in df.columns:
+        print(f"{MANIFEST_SYNC_LOG_PREFIX} No slideshow_manifest column — skipping sync")
+        return {
+            "checked_rows": 0,
+            "repaired_rows": 0,
+            "failed_rows": 0,
+            "repaired_row_indices": [],
+            "failed_row_indices": [],
+        }
+
+    final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+    if final_col not in df.columns:
+        print(f"{MANIFEST_SYNC_LOG_PREFIX} No final_graphics_definition column — skipping sync")
+        return {
+            "checked_rows": 0,
+            "repaired_rows": 0,
+            "failed_rows": 0,
+            "repaired_row_indices": [],
+            "failed_row_indices": [],
+        }
+
+    total_rows = len(df)
+    print(
+        f"{MANIFEST_SYNC_LOG_PREFIX} Checking {total_rows} row(s) in parallel "
+        f"(max_workers={MANIFEST_SYNC_MAX_WORKERS})..."
+    )
+
+    check_jobs: List[Tuple[int, str, str]] = []
+    repair_snapshots: Dict[int, Dict[str, Any]] = {}
+    for row_index in range(len(df)):
+        row = df.loc[row_index]
+        final_graphics_definition = safe_str(row.get(final_col, "")).strip()
+        manifest_xml = safe_str(row.get("slideshow_manifest", "")).strip()
+        check_jobs.append((row_index, manifest_xml, final_graphics_definition))
+        repair_snapshots[row_index] = row.to_dict()
+
+    rows_needing_repair: List[int] = []
+    repair_reasons: Dict[int, str] = {}
+    checked_rows = 0
+    with ThreadPoolExecutor(max_workers=MANIFEST_SYNC_MAX_WORKERS) as executor:
+        futures = [
+            executor.submit(_parallel_manifest_sync_check_task, row_index, manifest_xml, fgd)
+            for row_index, manifest_xml, fgd in check_jobs
+        ]
+        for future in as_completed(futures):
+            result = future.result()
+            if not result.get("checked"):
+                continue
+            checked_rows += 1
+            if result.get("needs_repair"):
+                row_index = int(result["row_index"])
+                rows_needing_repair.append(row_index)
+                repair_reasons[row_index] = str(result.get("sync_error") or "out_of_sync")
+
+    rows_needing_repair.sort()
+    in_sync_count = checked_rows - len(rows_needing_repair)
+    print(
+        f"{MANIFEST_SYNC_LOG_PREFIX} Check complete: {checked_rows} row(s) checked, "
+        f"{in_sync_count} in sync, {len(rows_needing_repair)} need regeneration"
+    )
+    if rows_needing_repair:
+        for row_index in rows_needing_repair:
+            label = _manifest_sync_row_label(repair_snapshots[row_index], row_index)
+            issue = repair_reasons.get(row_index, "out_of_sync")
+            print(f"{MANIFEST_SYNC_LOG_PREFIX}   NEEDS REPAIR: {label} — {issue}")
+    else:
+        print(f"{MANIFEST_SYNC_LOG_PREFIX} All checked rows are in sync — no regeneration needed")
+
+    _set_manifest_sync_status(
+        session,
+        checked_rows=checked_rows,
+        rows_needing_repair=len(rows_needing_repair),
+    )
+
+    repaired_rows = 0
+    failed_rows = 0
+    if rows_needing_repair:
+        print(
+            f"{MANIFEST_SYNC_LOG_PREFIX} Starting parallel regeneration for "
+            f"{len(rows_needing_repair)} row(s) (max_workers={MANIFEST_SYNC_MAX_WORKERS})..."
+        )
+        with ThreadPoolExecutor(max_workers=MANIFEST_SYNC_MAX_WORKERS) as executor:
+            futures = [
+                executor.submit(
+                    _parallel_manifest_sync_repair_task,
+                    session,
+                    row_index,
+                    repair_snapshots[row_index],
+                    final_col,
+                    reason="sheet_load_checker",
+                )
+                for row_index in rows_needing_repair
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                row_index = int(result.get("row_index", -1))
+                label = _manifest_sync_row_label(
+                    repair_snapshots.get(row_index, {}),
+                    row_index,
+                )
+                if result.get("synced"):
+                    repaired_rows += 1
+                    print(f"{MANIFEST_SYNC_LOG_PREFIX} Repair finished OK: {label}")
+                else:
+                    failed_rows += 1
+                    err = result.get("error") or result.get("reason") or "unknown"
+                    print(f"{MANIFEST_SYNC_LOG_PREFIX} Repair finished FAILED: {label} — {err}")
+
+    status = get_manifest_sync_status(session)
+    summary = {
+        "checked_rows": checked_rows,
+        "repaired_rows": repaired_rows,
+        "failed_rows": failed_rows,
+        "repaired_row_indices": list(status.get("repaired_row_indices") or []),
+        "failed_row_indices": list(status.get("failed_row_indices") or []),
+    }
+    print(f"{MANIFEST_SYNC_LOG_PREFIX} Sheet sync finished: {summary}")
+    return summary
+
+
+def trigger_manifest_sync_checker_background(session: UserSession) -> bool:
+    session_id = str(getattr(session, "session_id", "") or "global")
+    with _MANIFEST_SYNC_LOCK:
+        if _MANIFEST_SYNC_RUNNING_BY_SESSION.get(session_id):
+            return False
+        _MANIFEST_SYNC_RUNNING_BY_SESSION[session_id] = True
+
+    _set_manifest_sync_status(
+        session,
+        status="running",
+        checked_rows=0,
+        repaired_rows=0,
+        failed_rows=0,
+        repaired_row_indices=[],
+        failed_row_indices=[],
+        rows_needing_repair=0,
+        repair_version=0,
+        sync_run_id=uuid.uuid4().hex[:8],
+        error="",
+    )
+    print(f"{MANIFEST_SYNC_LOG_PREFIX} Background sync started for session {session_id}")
+
+    def _runner() -> None:
+        try:
+            summary = run_manifest_sync_checker_for_loaded_sheet(session)
+            _set_manifest_sync_status(session, status="done", error="", **summary)
+        except Exception as exc:  # pragma: no cover - defensive
+            _set_manifest_sync_status(
+                session,
+                status="error",
+                error=str(exc),
+            )
+            print(f"{MANIFEST_SYNC_LOG_PREFIX} Background sync failed: {exc}")
+        finally:
+            with _MANIFEST_SYNC_LOCK:
+                _MANIFEST_SYNC_RUNNING_BY_SESSION[session_id] = False
+
+    threading.Thread(target=_runner, daemon=True).start()
+    return True
+
+
+def _urls_match(u1: str, u2: str) -> bool:
+    if not u1 or not u2:
+        return False
+    u1_clean = u1.strip().lower()
+    u2_clean = u2.strip().lower()
+    if u1_clean == u2_clean:
+        return True
+    try:
+        return urls_match_for_graphics_assignment(u1, u2)
+    except Exception:
+        return u1_clean == u2_clean
+
+
+def _parse_per_scene_layout_feedback(feedback_str: str) -> Dict[str, str]:
+    if not feedback_str:
+        return {}
+    try:
+        data = json.loads(feedback_str)
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items()}
+    except Exception:
+        return {"1": feedback_str}
+    return {}
+
+
+def _build_scenes_payload(
+    manifest_xml: str,
+    flat_steps: List[Dict[str, Any]],
+    layout_feedback_str: str = "",
+) -> List[Dict[str, Any]]:
+    """Map manifest scenes onto the slide's ordered visuals.
+
+    We first try to match each slot asset URL to the step's assetUrl or afterUrl.
+    If we can perfectly map all slots to steps this way, we use that mapping.
+    Otherwise (e.g. if the manifest is stale or mismatching), we fall back
+    to sequential positional matching. If the total slot count does not match,
+    we return [] to fall back to flat list.
+    """
+    manifest_scenes = _parse_manifest_scenes(manifest_xml)
+    if not manifest_scenes:
+        return []
+
+    total_slots = sum(len(sc["slots"]) for sc in manifest_scenes)
+    if total_slots != len(flat_steps) or total_slots == 0:
+        return []
+
+    feedback_map = _parse_per_scene_layout_feedback(layout_feedback_str)
+
+    # Try mapping by URL
+    url_mapping_success = True
+    assigned_vids_by_scene = {}
+    used_step_indices = set()
+
+    for sc in manifest_scenes:
+        assigned_vids = []
+        for slot in sc["slots"]:
+            slot_asset = slot.get("asset") or ""
+            matched_idx = -1
+            # Find an unused step whose URL matches
+            for idx, step in enumerate(flat_steps):
+                if idx in used_step_indices:
+                    continue
+                step_url = step.get("afterUrl") or step.get("assetUrl") or ""
+                if _urls_match(slot_asset, step_url):
+                    matched_idx = idx
+                    break
+            if matched_idx != -1:
+                used_step_indices.add(matched_idx)
+                assigned_vids.append(flat_steps[matched_idx].get("visualId"))
+            else:
+                url_mapping_success = False
+                break
+        if not url_mapping_success:
+            break
+        assigned_vids_by_scene[sc["id"]] = assigned_vids
+
+    out: List[Dict[str, Any]] = []
+    if url_mapping_success and len(used_step_indices) == len(flat_steps):
+        # Successful URL-based match
+        for sc in manifest_scenes:
+            n = len(sc["slots"])
+            out.append(
+                {
+                    "id": sc["id"],
+                    "template": sc["template"],
+                    "templateLabel": _scene_template_label(sc["template"], n),
+                    "narration": sc["narration"],
+                    "slotCount": n,
+                    "visualIds": assigned_vids_by_scene[sc["id"]],
+                    "layoutFeedback": feedback_map.get(sc["id"], ""),
+                }
+            )
+        return out
+
+    # Fallback to positional mapping
+    out = []
+    cursor = 0
+    for sc in manifest_scenes:
+        n = len(sc["slots"])
+        chunk = flat_steps[cursor : cursor + n]
+        cursor += n
+        out.append(
+            {
+                "id": sc["id"],
+                "template": sc["template"],
+                "templateLabel": _scene_template_label(sc["template"], n),
+                "narration": sc["narration"],
+                "slotCount": n,
+                "visualIds": [step.get("visualId") for step in chunk],
+                "layoutFeedback": feedback_map.get(sc["id"], ""),
+            }
+        )
+    return out
+
+
 def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
     helpers = _import_slideshow_helpers()
     build_slides_from_df = helpers["build_slides_from_df"]
@@ -422,6 +1334,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
     safe_str = helpers["safe_str"]
 
     _, df, current_round = load_workbook(session)
+    maybe_trigger_manifest_sync_checker(session)
     cmap = _column_map(df)
     
     # Forward-fill the topic column to handle merged or blank cells in the sheet
@@ -434,6 +1347,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
     actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, current_round)
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, current_round)
     seg_feedback_col = get_round_column_name(SEGMENTATION_FEEDBACK_COLUMN, current_round)
+    layout_feedback_col = get_round_column_name(LAYOUT_FEEDBACK_COLUMN, current_round)
 
     ui_slides: List[Dict[str, Any]] = []
     for slide_idx, slide in enumerate(slides):
@@ -442,6 +1356,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
         tracking_map = _parse_tracking(safe_str(row.get(tracking_col, "")))
         
         seg_feedback = safe_str(row.get(seg_feedback_col, "")).strip()
+        layout_feedback = safe_str(row.get(layout_feedback_col, "")).strip()
 
         segments_out = []
         for segment in slide.get("segments") or []:
@@ -502,12 +1417,22 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
             if steps_out:
                 segments_out.append({"steps": steps_out})
 
+        flat_steps = [step for seg in segments_out for step in seg["steps"]]
+        row_index = int(slide["row_index"])
+        scenes_payload = _build_scenes_payload(
+            _manifest_for_ui_row(session, row_index, row),
+            flat_steps,
+            layout_feedback,
+        )
+
         ui_slides.append(
             {
                 "title": safe_str(slide.get("slide_title", "")) or f"Slide {slide_idx + 1}",
                 "topic": safe_str(slide.get("topic", "")),
                 "segments": segments_out,
                 "segmentationFeedback": seg_feedback,
+                "layoutFeedback": layout_feedback,
+                "scenes": scenes_payload,
             }
         )
 
@@ -651,14 +1576,6 @@ def select_pool_alternative(
     asset_url: str,
 ) -> None:
     """Assign a pool candidate to a visual, persist tracking + graphics definition, then approve."""
-    from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
-        _format_human_feedback_revision_tracking,
-    )
-    from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
-        apply_url_replacements_to_slideshow_manifest_inner_xml,
-    )
-    from graphics_definition_v2_slideshow import _apply_asset_overrides_to_raw
-
     helpers = _import_slideshow_helpers()
     get_round_column_name = helpers["get_round_column_name"]
     parse_graphics_definition = helpers["parse_graphics_definition"]
@@ -671,6 +1588,7 @@ def select_pool_alternative(
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
 
     def mutate(df) -> None:
+        _invalidate_manifest_repair_cache(session, row_index)
         final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
         if final_col not in df.columns:
             raise ValueError(f"Missing column: {final_col}")
@@ -679,46 +1597,45 @@ def select_pool_alternative(
 
         raw_def = safe_str(df.at[row_index, final_col])
         segments = parse_graphics_definition(raw_def)
-        original_url = ""
-        for seg in segments:
-            if seg.get("segment_index") == segment_index:
-                for step in seg.get("steps") or []:
-                    if step.get("step_index") == step_index:
-                        original_url = safe_str(step.get("asset", "")).strip()
-                        break
-
-        override_map = {(segment_index, step_index): asset_url}
-        updated_def = _apply_asset_overrides_to_raw(raw_def, segments, override_map)
+        current_fgd_url = extract_asset_url(raw_def, segment_index, step_index)
 
         tracking_map = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+        prior_tracking_entry = tracking_map.get(visual_id)
 
         if visual_id not in tracking_map:
             tracking_map[visual_id] = {
-                "original": original_url or None,
+                "original": current_fgd_url or None,
                 "manually_selected": None,
                 "after_revision": None,
                 "after_regen_1": None,
                 "after_regen_2": None,
             }
         elif not tracking_map[visual_id].get("original"):
-            tracking_map[visual_id]["original"] = original_url or None
+            tracking_map[visual_id]["original"] = current_fgd_url or None
 
         tracking_map[visual_id]["manually_selected"] = asset_url
+
+        override_map = {(segment_index, step_index): asset_url}
+        updated_def = _apply_asset_overrides_to_raw(raw_def, segments, override_map)
 
         df.at[row_index, final_col] = updated_def
         df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tracking_map)
 
-        if asset_url and original_url and asset_url != original_url and "slideshow_manifest" in df.columns:
-            manifest = safe_str(df.at[row_index, "slideshow_manifest"])
-            if manifest and manifest != "nan" and not manifest.startswith("ERROR:"):
-                try:
-                    updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
-                        manifest, [(original_url, asset_url)]
-                    )
-                    if applied and updated_manifest != manifest:
-                        df.at[row_index, "slideshow_manifest"] = updated_manifest
-                except Exception as exc:  # pragma: no cover - defensive
-                    print(f"[human_feedback] manifest patch failed for row {row_index}: {exc}")
+        if asset_url and asset_url != current_fgd_url:
+            old_candidates = _collect_manifest_old_url_candidates(current_fgd_url, prior_tracking_entry)
+            if not _patch_slideshow_manifest_urls(df, row_index, asset_url, old_candidates):
+                print(
+                    f"[human_feedback] manifest patch: no slot matched for row {row_index} "
+                    f"visual {visual_id} (pool select; tried {len(old_candidates)} candidate URL(s))"
+                )
+
+        ensure_manifest_sync_for_row(
+            session,
+            df,
+            row_index,
+            reason="select_pool_alternative",
+            force_regenerate=False,
+        )
 
     # The mutate runs inside the global write lock against the freshest sheet and
     # touches only this visual's (segment, step) slice + its tracking key, so it
@@ -754,6 +1671,7 @@ def revert_visual(
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
 
     def mutate(df) -> None:
+        _invalidate_manifest_repair_cache(session, row_index)
         # 1. Clear the action so it becomes pending again
         if actions_col in df.columns:
             raw_actions = safe_str(df.at[row_index, actions_col])
@@ -771,38 +1689,19 @@ def revert_visual(
             tracking_entry = tmap.get(visual_id, {})
             original_url = tracking_entry.get("original")
 
-            # Find the currently active URL so we can patch the manifest
-            current_url = None
             final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
             if final_col in df.columns and original_url:
                 raw_def = safe_str(df.at[row_index, final_col])
+                current_url = extract_asset_url(raw_def, segment_index, step_index)
                 segments = parse_graphics_definition(raw_def)
-                for seg in segments:
-                    if seg.get("segment_index") == segment_index:
-                        for step in seg.get("steps") or []:
-                            if step.get("step_index") == step_index:
-                                current_url = safe_str(step.get("asset", "")).strip()
-                                break
-                
-                from graphics_definition_v2_slideshow import _apply_asset_overrides_to_raw
                 updated = _apply_asset_overrides_to_raw(
                     raw_def, segments, {(segment_index, step_index): original_url}
                 )
                 df.at[row_index, final_col] = updated
 
-                # Also restore the manifest!
-                if current_url and current_url != original_url and "slideshow_manifest" in df.columns:
-                    manifest = safe_str(df.at[row_index, "slideshow_manifest"])
-                    if manifest and manifest != "nan" and not manifest.startswith("ERROR:"):
-                        from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import apply_url_replacements_to_slideshow_manifest_inner_xml
-                        try:
-                            updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
-                                manifest, [(current_url, original_url)]
-                            )
-                            if applied and updated_manifest != manifest:
-                                df.at[row_index, "slideshow_manifest"] = updated_manifest
-                        except Exception:
-                            pass
+                if current_url and current_url != original_url:
+                    old_candidates = _collect_manifest_old_url_candidates(current_url, tracking_entry)
+                    _patch_slideshow_manifest_urls(df, row_index, original_url, old_candidates)
 
             # 3. Wipe the revision history for this visual in tracking!
             if original_url:
@@ -813,8 +1712,15 @@ def revert_visual(
                     "after_regen_1": None,
                     "after_regen_2": None,
                 }
-                from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import _format_human_feedback_revision_tracking
                 df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tmap)
+
+        ensure_manifest_sync_for_row(
+            session,
+            df,
+            row_index,
+            reason="revert_visual",
+            force_regenerate=False,
+        )
 
     mutate_row_cells(session, row_index, mutate)
 
@@ -854,10 +1760,6 @@ def apply_segmentation_revision_to_sheet(
     - ``id_mapping``: maps old visual IDs to new reindexed visual IDs, ensuring
       unrelated approved/reviewed visual states shift seamlessly to their new positional indices.
     """
-    from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
-        _format_human_feedback_revision_tracking,
-    )
-
     helpers = _import_slideshow_helpers()
     get_round_column_name = helpers["get_round_column_name"]
     safe_str = helpers["safe_str"]
@@ -872,6 +1774,7 @@ def apply_segmentation_revision_to_sheet(
     clear_actions = affected | set(search_map.keys())
 
     def mutate(df) -> None:
+        _invalidate_manifest_repair_cache(session, row_index)
         final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
         if final_col not in df.columns:
             df[final_col] = ""
@@ -933,6 +1836,14 @@ def apply_segmentation_revision_to_sheet(
                 }
             df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(new_tmap)
 
+        ensure_manifest_sync_for_row(
+            session,
+            df,
+            row_index,
+            reason="apply_segmentation_revision_to_sheet",
+            force_regenerate=False,
+        )
+
     mutate_row_cells(session, row_index, mutate)
     if events:
         print(f"[human_feedback] segmentation revision row {row_index}: " + "; ".join(events))
@@ -962,3 +1873,69 @@ def prepare_visual_revision(
         feedback=feedback,
         mode=mode,
     )
+
+
+def apply_layout_revision_to_sheet(
+    session: UserSession,
+    *,
+    row_index: int,
+    scene_id: str,
+    feedback: str,
+    raw_plan: str,
+    updated_slideshow_manifest: str,
+    events: Optional[List[str]] = None,
+) -> None:
+    """Persist a layout revision: write the new slideshow_manifest and layout feedback + plan columns."""
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    
+    layout_feedback_col = get_round_column_name(LAYOUT_FEEDBACK_COLUMN, ROUND_INDEX)
+    layout_plan_col = get_round_column_name(LAYOUT_PLAN_COLUMN, ROUND_INDEX)
+
+    def mutate(df) -> None:
+        _invalidate_manifest_repair_cache(session, row_index)
+        for col in (layout_feedback_col, layout_plan_col):
+            if col not in df.columns:
+                df[col] = ""
+                
+        if "slideshow_manifest" in df.columns:
+            df.at[row_index, "slideshow_manifest"] = updated_slideshow_manifest
+            
+        # Parse and merge layout feedback dict
+        old_feedback_str = str(df.at[row_index, layout_feedback_col] or "").strip()
+        feedback_dict = {}
+        if old_feedback_str:
+            try:
+                feedback_dict = json.loads(old_feedback_str)
+                if not isinstance(feedback_dict, dict):
+                    feedback_dict = {"1": old_feedback_str}
+            except Exception:
+                feedback_dict = {"1": old_feedback_str}
+        feedback_dict[str(scene_id)] = feedback
+        df.at[row_index, layout_feedback_col] = json.dumps(feedback_dict)
+
+        # Parse and merge layout plan dict
+        old_plan_str = str(df.at[row_index, layout_plan_col] or "").strip()
+        plan_dict = {}
+        if old_plan_str:
+            try:
+                plan_dict = json.loads(old_plan_str)
+                if not isinstance(plan_dict, dict):
+                    plan_dict = {"1": old_plan_str}
+            except Exception:
+                plan_dict = {"1": old_plan_str}
+        plan_dict[str(scene_id)] = raw_plan
+        df.at[row_index, layout_plan_col] = json.dumps(plan_dict)
+
+        ensure_manifest_sync_for_row(
+            session,
+            df,
+            row_index,
+            reason="apply_layout_revision_to_sheet",
+            force_regenerate=False,
+        )
+
+    mutate_row_cells(session, row_index, mutate)
+    if events:
+        print(f"[human_feedback] layout revision row {row_index} scene {scene_id}: " + "; ".join(events))
+

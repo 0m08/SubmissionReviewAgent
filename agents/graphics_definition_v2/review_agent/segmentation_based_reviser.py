@@ -2,6 +2,7 @@ import re
 
 from google.genai import types
 
+from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import generate_slideshow_manifest_for_row
 from agents.graphics_definition_v2.review_agent.review_and_revise import (
     _build_segment_text_from_steps,
     build_asset_parts,
@@ -84,6 +85,7 @@ Instructions:
 
 1. Scope and Responsibility
    - Your task is to understand the human segmentation feedback and convert it into one or more structured operations.
+   - If the human feedback begins with a `[Scope: VO Part X, ...]` indicator, it means the reviewer's feedback is specifically scoped and targeted to those voiceover parts (and their associated visuals). Focus your and changes on those parts.
    - Focus only on segmentation and visual assignment structure within this slide.
    - Segmentation feedback may ask to merge visual parts, reuse one existing visual for another voiceover part, split one visual into multiple voiceover parts, adjust which narration span a visual covers, or search for a new visual.
    - Use the full slide content and the sequence of voiceover segments to understand the reviewer's intent. Do not interpret a short phrase, pronoun, or clause in isolation.
@@ -1094,7 +1096,6 @@ def run_segmentation_revision_for_row(session, row_index, feedback, llm=None):
 
     updated_manifest = None
     if "slideshow_manifest" in df.columns:
-        from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import generate_slideshow_manifest_for_row
         print(f"[segmentation_reviser] Regenerating slideshow manifest for row {row_index + 1}...")
         try:
             slide_type = safe_str(row.get("Slide Type", "")).strip()

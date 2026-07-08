@@ -8,6 +8,11 @@ from typing import Any, Dict, Optional
 
 import streamlit as st
 
+try:
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+except ImportError:
+    get_script_run_ctx = None
+
 
 class ThreadLocalSessionState:
     def __init__(self, original_state):
@@ -15,12 +20,8 @@ class ThreadLocalSessionState:
         self._original_state = original_state
 
     def _get_state(self) -> Any:
-        try:
-            from streamlit.runtime.scriptrunner import get_script_run_ctx
-            if get_script_run_ctx() is not None:
-                return self._original_state
-        except ImportError:
-            pass
+        if get_script_run_ctx is not None and get_script_run_ctx() is not None:
+            return self._original_state
         
         if not hasattr(self._local, "state"):
             self._local.state = {}

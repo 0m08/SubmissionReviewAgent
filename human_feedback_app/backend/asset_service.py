@@ -12,6 +12,7 @@ from fastapi.responses import Response
 
 from human_feedback_app.backend.auth import ensure_google_clients
 from human_feedback_app.backend.sessions import UserSession
+from graphics_definition_v2_slideshow import download_image_bytes, is_drive_url
 
 _IMAGE_CACHE = {}
 
@@ -23,8 +24,6 @@ def _first_http_url(text: str) -> str:
 
 
 def _slideshow_helpers():
-    from graphics_definition_v2_slideshow import download_image_bytes, is_drive_url
-
     return {"download_image_bytes": download_image_bytes, "is_drive_url": is_drive_url}
 
 

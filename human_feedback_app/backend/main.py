@@ -17,10 +17,14 @@ from human_feedback_app.backend.config import BRAND_ASSETS_DIR, BRAND_FALLBACK_D
 from human_feedback_app.backend.jobs import revision_queue
 from human_feedback_app.backend.revise_worker import run_row_revision
 from human_feedback_app.backend.segmentation_worker import run_row_segmentation_revision
+from human_feedback_app.backend.layout_worker import run_row_layout_revision
 from human_feedback_app.backend.sheet_service import (
     approve_visual,
+    get_manifest_sync_status,
     load_workbook,
+    maybe_trigger_manifest_sync_checker,
     prepare_visual_revision,
+    revert_visual,
     select_pool_alternative,
     slides_to_ui_payload,
 )
@@ -76,6 +80,12 @@ class SegmentationReviseRequest(BaseModel):
     feedback: str = Field(min_length=3)
 
 
+class LayoutReviseRequest(BaseModel):
+    row_index: int
+    scene_id: str
+    feedback: str = Field(min_length=3)
+
+
 def session_dep(request: Request) -> UserSession:
     return get_current_session(request)
 
@@ -104,7 +114,12 @@ def api_load_sheet(body: LoadSheetRequest, session: UserSession = Depends(sessio
     session.worksheet_name = body.worksheet_name.strip() or "Slide Chunks"
     session.root_folder_id = (body.root_folder_id or "").strip()
     session.sheet = session.gc.open_by_url(session.sheet_link)
-    return slides_to_ui_payload(session)
+    session.manifest_repair_cache = {}
+    session.manifest_sync_triggered = False
+    session.manifest_sync_status = {}
+    payload = slides_to_ui_payload(session)
+    maybe_trigger_manifest_sync_checker(session)
+    return payload
 
 
 @api_router.get("/slides")
@@ -114,6 +129,14 @@ def api_slides(session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
     return slides_to_ui_payload(session)
 
 
+@api_router.get("/manifest-sync")
+def api_manifest_sync(session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
+    if not session.sheet_link:
+        raise HTTPException(status_code=400, detail="No sheet loaded")
+    maybe_trigger_manifest_sync_checker(session)
+    return get_manifest_sync_status(session)
+
+
 @api_router.get("/assets/image")
 def api_asset_image(url: str = Query(min_length=8), thumb: str = Query(""), session: UserSession = Depends(session_dep)):
     return image_response(session, url, thumb)
@@ -121,7 +144,6 @@ def api_asset_image(url: str = Query(min_length=8), thumb: str = Query(""), sess
 
 @api_router.post("/visuals/revert")
 def api_revert(body: RevertRequest, session: UserSession = Depends(session_dep)) -> Dict[str, str]:
-    from human_feedback_app.backend.sheet_service import revert_visual
     revert_visual(
         session,
         row_index=body.row_index,
@@ -229,6 +251,39 @@ def api_revise_segmentation(
     def worker() -> Dict[str, Any]:
         run_row_segmentation_revision(session, body.row_index, body.feedback.strip())
         return slides_to_ui_payload(session)
+
+    job = revision_queue.submit(
+        session_id=session.session_id,
+        label=label,
+        worker=worker,
+        slide_index=slide_idx or 0,
+        segment_index=0,
+        step_index=0,
+    )
+    return job.to_dict()
+
+
+@api_router.post("/slides/revise-layout")
+def api_revise_layout(
+    body: LayoutReviseRequest,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    slide_idx = None
+    payload = slides_to_ui_payload(session)
+    for idx, slide in enumerate(payload["slides"]):
+        for seg in slide.get("segments", []):
+            for step in seg.get("steps", []):
+                if step.get("rowIndex") == body.row_index:
+                    slide_idx = idx
+                    break
+
+    label = f"Slide {(slide_idx or 0) + 1} / layout / Scene {body.scene_id}"
+
+    def worker() -> Dict[str, Any]:
+        layout_result = run_row_layout_revision(session, body.row_index, body.scene_id, body.feedback.strip())
+        payload = slides_to_ui_payload(session)
+        payload["layoutRevisionResult"] = layout_result
+        return payload
 
     job = revision_queue.submit(
         session_id=session.session_id,
