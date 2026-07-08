@@ -15,7 +15,7 @@ from openai import OpenAI
 from PIL import Image
 
 from agents.graphics_asset_creation.automated.llm_call_tracker import tracker
-from agents.graphics_asset_creation.gac_utils import upload_image_to_drive
+from agents.graphics_asset_creation.gac_utils import upload_image_to_drive, styling_guide
 from agents.graphics_asset_creation.image_editing.image_editing_openai import (
     download_image_from_url,
     image_from_base64,
@@ -170,7 +170,7 @@ Instructions and Guidelines:
    - For ADD_ICON:
      - Add only the icon meaning requested or implied by the edit instruction.
      - Do not use icons that introduce new meaning not present in the edit instruction.
-
+     - Simple line icons in a single color — orange (#F05523).
    - For ADD_EMPHASIS:
      - Apply the specific emphasis described in <target_description>, such as zoom focus, dimming unrelated background, or subtle visual focus.
      - Keep the emphasis effect instructional and restrained.
@@ -188,6 +188,12 @@ Instructions and Guidelines:
    - Use clean, thin-to-medium stroke widths for arrows, circles, and boxes.
    - Keep icons simple, flat, and instructional. Do not use decorative or overly detailed icons.
    - Keep all overlays visually consistent across the image when multiple edits are applied.
+   - Annotation Box & Border Styling:
+     - The Box: A solid white rectangle with soft, rounded corners. The box must be small in size. If there are multiple annotation boxes in the image, all boxes must be of the exact same size.
+     - The Border: A solid orange (#F05523) outline around the edges of the white box.
+     - The Text: Plain, black text in Fira Sans font (bold for titles/labels; regular for body annotations), centered inside the box.
+     - The Arrow (Connector): An orange (#F05523) arrow attached to any side of the box, pointing to the subject. The arrow must match the color and thickness of the box's border.
+   - Split-Screen Collage Rule: Do not include annotations, text labels, callout boxes, or arrows when using a split-screen collage layout. Keep both halves of the image completely clean.
 
 7. Readability and Placement Rules
    - All labels, arrows, icons, highlights, and emphasis effects must be clearly visible and easy to understand at slideshow viewing size.
@@ -198,10 +204,19 @@ Instructions and Guidelines:
    - If the image background is busy or low-contrast, place the label in a readable area and use sufficient contrast so the text remains legible.
    - If multiple edits are applied, arrange them so the learner can still understand the image quickly without visual confusion.
    - Do not make overlays so large or visually dominant that they distract from the original image content.
+
+<styling_guide>
+{styling_guide}
+</styling_guide>
 """
 
 
 image_edit_review_prompt = """You are a senior instructional image edit review agent specializing in HVAC e-learning content. Your task is to review an edited image and determine whether the requested instructional edits were applied correctly, cleanly, and without damaging the original image.
+
+CRITICAL REVIEW GUARDRAIL — READ FIRST AND STRICTLY ENFORCE:
+- REJECT UNNECESSARY OVERLAYS: If the editor added redundant, obvious, or unnecessary labels, arrows, or highlight artifacts to a graphic that was already perfectly clear and instructionally complete in its original state, you MUST mark the image as FAIL.
+- WHAT MAKES A GRAPHIC PERFECT: A graphic is perfect if it is a clean, professional photo, high-fidelity diagram, or realistic rendering that is self-explanatory. Adding arrows, highlight boxes, or basic labels (e.g., labeling an obvious 'air conditioner' or 'pipe') makes the visual look cluttered and amateurish.
+- Revert feedback: In your failures feedback, instruct the editor: "Remove all added overlays/labels/arrows and revert the image back to its original state."
 
 This edited image will be used as a visual asset in a slideshow video, where the image will be placed on the slide canvas while the corresponding voiceover narration span plays in the background. The image must therefore be clear, readable, visually clean, and instructionally useful for the narration moment.
 
@@ -245,6 +260,7 @@ Instructions and Guidelines:
    - A PASS should be given only when the requested edits are applied correctly, the image remains faithful to the original, and the final result is clear, readable, and instructionally useful.
    - A FAIL should be given when the edited image has meaningful problems that should be fixed before use.
    - Do not suggest new edits that were not requested unless they are needed to fix a visible fault introduced during editing.
+   - **No Redundant Overlays**: Strongly reject edits that add unnecessary visual clutter, redundant labels, or extra artifacts to an already perfect and clear graphic.
 
 2. Edit Instruction Compliance
    - Check whether every edit requested in <edit_instructions> was applied.
@@ -287,6 +303,7 @@ Instructions and Guidelines:
    - The final image should be clear enough for the learner to quickly identify the target object, part, condition, action, relationship, or region that the edit was meant to clarify.
    - The image should not become more confusing, cluttered, or visually distracting after editing.
    - The image should remain appropriate for HVAC e-learning content and the target audience.
+   - **Reject Unnecessary Overlays**: If the edit adds redundant, obvious, or unnecessary labels, arrows, or highlight artifacts to a graphic that was already perfectly clear and instructionally complete in its original state, you MUST mark the image as FAIL. In your feedback, instruct the editor: *"Remove all added overlays/labels/arrows and revert the image back to its original state."*
    - Mark the image as FAIL if the edit reduces instructional clarity, makes the image harder to understand, or distracts from the narration intent.
 
 7. Open-Ended Fault Detection
@@ -371,6 +388,10 @@ Provide a detailed actionable feedback for how the editing agent should fix this
 </output>
 
 (Ensure that you strictly follow this exact output format. Do not add any extra text or comments outside the <output>, <evaluation_breakdown>, and <review> sections.)
+
+<styling_guide>
+{styling_guide}
+</styling_guide>
 """
 
 
@@ -1827,6 +1848,7 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                     narration_span=narration_for_prompt,
                     original_asset_url=asset_url or "",
                     edit_instructions=edit_payload,
+                    styling_guide=styling_guide,
                 )
 
                 ref = load_image_from_url(
@@ -1855,6 +1877,7 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                     "narration_span": narration_for_prompt,
                     "original_asset_url": asset_url or "",
                     "edit_instructions": edit_payload,
+                    "styling_guide": styling_guide,
                 }
 
                 tracking_lines, review_lines = _run_edit_review_loop_for_slot(
