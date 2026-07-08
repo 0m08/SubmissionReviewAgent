@@ -65,7 +65,7 @@ def load_bm25_retriever_with_pydrive(root_folder_id: str, drive, all_doc_chunk_l
         # Locate 'Pickle files' folder
         query_pickle_folder = (
             f"title='Pickle files' and '{root_folder_id}' in parents "
-            f"and mimeType='application/vnd.google-apps.folder'"
+            f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
         )
         pickle_folders = drive.ListFile({'q': query_pickle_folder}).GetList()
 
@@ -86,7 +86,7 @@ def load_bm25_retriever_with_pydrive(root_folder_id: str, drive, all_doc_chunk_l
 
         # Locate 'bm25_research_db.pkl' inside 'Pickle files'
         query_bm25 = (
-            f"title='bm25_research_db.pkl' and '{pickle_folder_id}' in parents"
+            f"title='bm25_research_db.pkl' and '{pickle_folder_id}' in parents and trashed=false"
         )
         bm25_files = drive.ListFile({'q': query_bm25}).GetList()
         if not bm25_files:

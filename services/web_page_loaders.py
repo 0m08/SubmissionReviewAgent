@@ -102,11 +102,12 @@ def _extract_drive_file_id(url):
 
 
 def _get_drive_client():
-    """Return an authenticated PyDrive client from Streamlit session state, else None."""
+    """Return an authenticated PyDrive client."""
     try:
-        import streamlit as st
-        return st.session_state.get("drive")
-    except Exception:
+        from services.drive_service import get_authenticated_drive_client
+        return get_authenticated_drive_client()
+    except Exception as e:
+        print(f"Failed to import/retrieve authenticated drive client: {e}")
         return None
 
 
@@ -404,4 +405,3 @@ def get_webpage_title_fallback(url):
     except Exception as e:
         print(f"Error scraping web page title for {url}: {e}")
     return "Unknown Title"
-

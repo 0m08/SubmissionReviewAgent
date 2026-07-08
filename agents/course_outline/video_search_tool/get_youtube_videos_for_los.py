@@ -1,6 +1,7 @@
 import time
 import random
 from tqdm import tqdm
+import streamlit as st
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.helper_functions import create_and_populate_columns
@@ -47,6 +48,22 @@ def task_fn(task, course_name, target_audience, course_outline, drive, max_turns
             print(f"Metadata for doc {doc_index}: {metadata}")
 
             vid_id = metadata.get("video_id")
+            if not vid_id:
+                # Fallback: extract from 'source' or 'video_url'
+                source_url = metadata.get("source") or metadata.get("video_url")
+                if source_url:
+                    import urllib.parse
+                    if "youtube.com" in source_url:
+                        parsed_url = urllib.parse.urlparse(source_url)
+                        query_params = urllib.parse.parse_qs(parsed_url.query)
+                        if "v" in query_params:
+                            vid_id = query_params["v"][0]
+                    elif "youtu.be" in source_url:
+                        parsed_url = urllib.parse.urlparse(source_url)
+                        path_parts = parsed_url.path.strip("/").split("/")
+                        if path_parts:
+                            vid_id = path_parts[0]
+            
             if not vid_id:
                 print(" Skipping: no video_id")
                 continue
@@ -115,9 +132,17 @@ def run_video_search_for_los(
     if "Learning Objectives" not in course_outline_with_lo_df.columns:
         raise ValueError("Sheet must contain a column named 'Learning Objectives'")
 
-    for col in ["youtube_videos", "video_links"]:
-        if col not in course_outline_with_lo_df.columns:
-            course_outline_with_lo_df[col] = ""
+    # Only add video columns when Research Sources includes "Video".
+    # st.session_state["video_research_enabled"] is set by course_outline.py from
+    # the Course info sheet before this function is ever called.
+    _video_enabled = st.session_state.get("video_research_enabled", True)
+    if _video_enabled:
+        for col in ["youtube_videos", "video_links"]:
+            if col not in course_outline_with_lo_df.columns:
+                course_outline_with_lo_df[col] = ""
+    else:
+        print("[run_video_search_for_los] Video research is disabled — skipping youtube_videos/video_links columns.")
+        return []
 
     task_list = []
     for row_index, row in course_outline_with_lo_df.iterrows():
