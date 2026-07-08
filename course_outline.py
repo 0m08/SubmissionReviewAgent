@@ -1064,6 +1064,7 @@ pipeline_sections.append({
             "args": {
                 "sheet": "sheet",
                 "llm": llm_model,
+                "drive": "drive",
             },
             "estimated_time": "~ 2-5 minutes",
             "description": "Loads all reference documents into the vectorstore for faster retrieval.",
