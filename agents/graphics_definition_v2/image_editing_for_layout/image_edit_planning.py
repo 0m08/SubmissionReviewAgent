@@ -743,7 +743,7 @@ def run_scene_edit_planning_for_all_rows(sheet, llm="gemini_3_flash_thinking", m
 
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = str(course_info_df.loc[0, "Course Name"]).strip() if not course_info_df.empty else ""
-    target_audience = str(course_info_df.loc[0, "Target Audience"]).strip() if "Target Audience" in course_info_df.columns and not course_info_df.empty else ""
+    target_audience = str(course_info_df.loc[0, "Target Audience & Industry"]).strip() if not course_info_df.empty else ""
 
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     if "scene_edit_plan" not in df.columns:
