@@ -42,7 +42,10 @@ from moviepy.editor import (
     concatenate_videoclips,
 )
 
-nest_asyncio.apply()
+try:
+    nest_asyncio.apply()
+except (ImportError, ValueError):
+    pass
 
 
 # ---------------------------------------------------------------------------
