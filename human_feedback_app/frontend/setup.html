@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Load Sheet · Human Feedback</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Public Sans', system-ui, sans-serif;
+      background: #eef0f3;
+      color: #11151a;
+    }
+    .card {
+      width: min(560px, 94vw);
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 8px 30px rgba(16, 24, 40, 0.08);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; }
+    p { margin: 0 0 20px; color: #5b6472; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #374151; }
+    input {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid #dce0e6;
+      border-radius: 10px;
+      font: inherit;
+      margin-bottom: 14px;
+    }
+    button {
+      width: 100%;
+      height: 44px;
+      border: none;
+      border-radius: 10px;
+      background: #4f46e5;
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.85; cursor: wait; }
+    button .btn-inner {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid rgba(255, 255, 255, 0.35);
+      border-right-color: #fff;
+      border-radius: 50%;
+      animation: hf-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes hf-spin { to { transform: rotate(360deg); } }
+    input:disabled { background: #f3f4f6; color: #6b7280; cursor: wait; }
+    .error { color: #b91c1c; font-size: 13px; margin-top: 10px; min-height: 18px; }
+    .meta { margin-top: 16px; font-size: 13px; color: #6b7280; }
+    a { color: #4f46e5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Load course sheet</h1>
+    <p>Paste the Google Sheet link for the course you want to review.</p>
+    <form id="load-form">
+      <label for="sheet_link">Google Sheet URL</label>
+      <input id="sheet_link" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." required />
+      <button type="submit" id="submit-btn"><span class="btn-inner" id="submit-btn-inner">Load and open review</span></button>
+      <div class="error" id="error"></div>
+    </form>
+    <div class="meta" id="user-meta"></div>
+  </div>
+  <script>
+    async function api(path, options) {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        ...options,
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) {}
+      if (!res.ok) {
+        throw new Error((data && data.detail) || text || res.statusText);
+      }
+      return data;
+    }
+
+    (async () => {
+      try {
+        const me = await api("/api/me");
+        const meta = document.getElementById("user-meta");
+        meta.textContent = `Signed in as ${me.email} (${me.role}). `;
+        const logoutLink = document.createElement("a");
+        logoutLink.href = "/auth/logout";
+        logoutLink.textContent = "Log out";
+        meta.appendChild(logoutLink);
+        if (me.sheetLink) {
+          document.getElementById("sheet_link").value = me.sheetLink;
+        }
+      } catch (_) {
+        location.href = "/login-page";
+      }
+    })();
+
+    function setLoading(loading) {
+      const btn = document.getElementById("submit-btn");
+      const inner = document.getElementById("submit-btn-inner");
+      const input = document.getElementById("sheet_link");
+      btn.disabled = loading;
+      input.disabled = loading;
+      if (loading) {
+        inner.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>Loading…</span>';
+      } else {
+        inner.textContent = "Load and open review";
+      }
+    }
+
+    document.getElementById("load-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("error");
+      err.textContent = "";
+      setLoading(true);
+      try {
+        await api("/api/session/load", {
+          method: "POST",
+          body: JSON.stringify({
+            sheet_link: document.getElementById("sheet_link").value.trim(),
+            root_folder_id: "",
+          }),
+        });
+        location.href = "/review";
+      } catch (ex) {
+        const msg = ex.message || "Failed to load sheet";
+        if (msg.toLowerCase().includes("session expired") || msg.toLowerCase().includes("log out")) {
+          location.href = "/auth/logout";
+          return;
+        }
+        err.textContent = msg;
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>

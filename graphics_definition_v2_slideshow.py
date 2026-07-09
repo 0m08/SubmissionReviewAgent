@@ -911,9 +911,11 @@ def to_youtube_watch_url(url):
 def detect_asset_type(asset):
     if not asset:
         return "unknown"
+    lowered = asset.lower()
+    if "youtube.com" in lowered or "youtu.be" in lowered:
+        return "video"
     if is_youtube_embed(asset):
         return "video"
-    lowered = asset.lower()
     if is_drive_url(asset):
         return "image"
     if re.search(r"\.(png|jpe?g|gif|webp)(\?|$)", lowered):
@@ -1207,7 +1209,7 @@ def _get_inspector_image_bytes(asset, drive):
     return image_bytes
 
 
-def download_image_bytes(url, drive):
+def download_image_bytes(url, drive, use_thumbnail=False):
     if not url:
         return None
     if is_drive_url(url):
@@ -1215,6 +1217,18 @@ def download_image_bytes(url, drive):
         if file_id and drive is not None:
             try:
                 drive_file = drive.CreateFile({"id": file_id})
+                if use_thumbnail:
+                    drive_file.FetchMetadata(fields="thumbnailLink")
+                    if "thumbnailLink" in drive_file:
+                        thumb_url = drive_file["thumbnailLink"]
+                        thumb_url = re.sub(r'=s\d+$', '=s1000', thumb_url)
+                        try:
+                            response = requests.get(thumb_url, timeout=10)
+                            response.raise_for_status()
+                            return response.content
+                        except Exception:
+                            pass # fallback to full image
+                
                 with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
                     tmp_path = tmp_file.name
                 drive_file.GetContentFile(tmp_path)
