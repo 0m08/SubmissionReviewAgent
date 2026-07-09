@@ -12,12 +12,15 @@ from services.helper_functions import compare_text_versions
 from services.activity_tracking_service import track_tool_action
 import json
 
-# Page config
-st.set_page_config(
-    page_title="Paraphraser Agent",
-    page_icon="✍️",
-    layout="wide"
-)
+
+try:
+    st.set_page_config(
+        page_title="Paraphraser Agent",
+        page_icon="✍️",
+        layout="wide",
+    )
+except Exception:
+    pass
 
 # Title and description
 st.title("✍️ Paraphraser Agent")

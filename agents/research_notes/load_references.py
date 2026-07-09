@@ -2,11 +2,13 @@ from langchain_core.documents import Document
 import json
 from tqdm import tqdm
 from services.web_page_loaders import get_docs_from_url, extract_image_links_from_markdown, get_webpage_title_fallback
-from services.youtube_video_loader import get_video_id_from_url, get_yt_chapters_chunks_as_docs
+from services.youtube_video_loader import get_video_id_from_url, get_yt_chapters_chunks_as_docs, get_transcript_assemblyai_drive
+from services.drive_service import extract_drive_id_from_url, get_authenticated_drive_service
 from services.chunking_service import general_chunker
 from services.helper_functions import create_and_populate_columns
 from services.sheets_service import (
     get_sheet_data_and_df,
+    safe_get_sheet_data_and_df,
     create_or_read_worksheet,
     save_to_sheet,
     format_worksheet,
@@ -270,7 +272,7 @@ def populate_reference_df_from_video_chunks_df(source, source_origin, title, ref
     # If not already chunked
     else:
         # Load and chunk this
-        # docs = get_yt_chapters_chunks_as_docs(video_id = video_id, video_title = row['Reference Title'], llm = 'gemini_2_flash')
+        # docs = get_yt_chapters_chunks_as_docs(video_id = video_id, video_title = row['Reference Title'], llm = 'gemini_2_5_flash')
         # Add to references df
         references_df = pd.concat([references_df, pd.DataFrame({
             'source': [source],
@@ -669,6 +671,134 @@ def list_topic_outline_references(references_df, topic_outline_df, videos_resear
 
     return references_df
 
+
+# MIME type prefixes that indicate a Google Drive file is a video.
+_DRIVE_VIDEO_MIME_PREFIXES = ("video/",)
+
+_DRIVE_URL_PATTERN = (
+    "drive.google.com",
+    "docs.google.com",
+)
+
+
+def _is_drive_url(url: str) -> bool:
+    """Return True if *url* points to a Google Drive or Docs hosted file."""
+    url = (url or "").strip().lower()
+    return any(domain in url for domain in _DRIVE_URL_PATTERN)
+
+# MIME types for Google Workspace documents / other non-video Drive files that
+# should be treated as 'Web Article' (fallthrough) rather than video.
+_DRIVE_NON_VIDEO_MIME_PREFIXES = (
+    "application/vnd.google-apps.",  # Docs, Sheets, Slides, Forms …
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats",
+    "image/",
+    "audio/",
+    "text/",
+)
+
+
+def _classify_drive_url(url: str) -> str:
+    """
+    Classify a Google Drive URL as 'Google Drive Video' or 'Web Article'.
+
+    Uses the service-account Drive API to probe the file's MIME type:
+      - MIME type starts with 'video/'  → 'Google Drive Video'
+      - Any other recognised type        → 'Web Article'
+      - API unavailable / any error      → 'Web Article'  (safe fallback)
+
+    :param url: A Google Drive file URL or bare file ID.
+    :return: 'Google Drive Video' or 'Web Article'
+    """
+    try:
+        file_id = extract_drive_id_from_url(url)
+        if not file_id:
+            print(f"[_classify_drive_url] Could not extract file ID from: {url}")
+            return "Web Article"
+
+        drive_service = get_authenticated_drive_service()
+        if drive_service is None:
+            print("[_classify_drive_url] Drive service unavailable — defaulting to Web Article")
+            return "Web Article"
+
+        meta = drive_service.files().get(
+            fileId=file_id,
+            fields="mimeType,name",
+            supportsAllDrives=True,
+        ).execute()
+
+        mime = meta.get("mimeType", "")
+        name = meta.get("name", url)
+        print(f"[_classify_drive_url] '{name}' → mimeType='{mime}'")
+
+        if mime.startswith(_DRIVE_VIDEO_MIME_PREFIXES):
+            return "Google Drive Video"
+
+        # Explicitly recognised non-video → safe fallback
+        return "Web Article"
+
+    except Exception as exc:
+        print(f"[_classify_drive_url] MIME check failed for {url}: {exc} — defaulting to Web Article")
+        return "Web Article"
+
+
+def _get_drive_video_chunks_as_docs(source: str, title: str = "", llm: str = "gemini_2_5_flash"):
+    """
+    Transcribe a Google Drive video and return chapter-chunked Documents.
+
+    Reuses the existing get_transcript_assemblyai_drive transcription service
+    and passes the result directly into get_yt_chapters_chunks_as_docs via its
+    timestamped_transcript parameter — keeping the chunking pipeline identical
+    to YouTube videos.
+
+    :param source: Google Drive file link or bare file ID.
+    :param title: Optional human-readable title for metadata.
+    :param llm: LLM alias to use for chapter generation.
+    :return: list[Document]
+    """
+    # Fetch actual file name from Google Drive to use as a human-readable title
+    if not title or title == source:
+        try:
+            file_id = extract_drive_id_from_url(source)
+            if file_id:
+                drive_service = get_authenticated_drive_service()
+                if drive_service:
+                    meta = drive_service.files().get(
+                        fileId=file_id,
+                        fields="name",
+                        supportsAllDrives=True,
+                    ).execute()
+                    fetched_name = meta.get("name", "")
+                    if fetched_name:
+                        title = fetched_name
+                        print(f"[_get_drive_video_chunks_as_docs] Resolved real title for {source} -> '{title}'")
+        except Exception as e:
+            print(f"[_get_drive_video_chunks_as_docs] Failed to retrieve file name from Drive API: {e}")
+
+    # Step 1: transcribe via AssemblyAI
+    timestamped_transcript = get_transcript_assemblyai_drive(source)
+    if not timestamped_transcript:
+        print(f"No transcript returned for Drive video: {source}")
+        return []
+
+    # Step 2: reuse YT chapter-chunking pipeline with pre-fetched transcript.
+    # video_id is set to the source URL so metadata references back to Drive.
+    docs = get_yt_chapters_chunks_as_docs(
+        video_id = source,
+        video_title = title or source,
+        timestamped_transcript = timestamped_transcript,
+        llm = llm,
+    )
+
+    # Override the source in each doc's metadata so it points to the Drive URL
+    for doc in docs:
+        doc.metadata["source"] = source
+        doc.metadata.setdefault("reference_type", "Google Drive Video")
+
+    return docs
+
+
 @traceable(metadata={
     "agent_name": "research_notes",
     "step_name": "Load References",
@@ -736,7 +866,13 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
                 for ext_url in external_urls:
                     if ext_url in references_df['source'].values:
                         continue
-                    ext_ref_type = "Youtube Video" if ('youtube.com' in ext_url or 'youtu.be' in ext_url) else "Web Article"
+                    if 'youtube.com' in ext_url or 'youtu.be' in ext_url:
+                        ext_ref_type = "Youtube Video"
+                    elif 'drive.google.com' in ext_url:
+                        # Probe the Drive API to distinguish videos from PDFs/Docs
+                        ext_ref_type = _classify_drive_url(ext_url)
+                    else:
+                        ext_ref_type = "Web Article"
                     new_row = {
                         'source': ext_url,
                         'source_origin': 'External References',
@@ -748,36 +884,43 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
     except Exception as e:
         print(f"Error processing External References from Course info: {e}")
 
+    # Load slide-mapped references from Base Outline sheet (unconditional — mirrors External References behaviour)
     try:
-        _, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
-        outline_stage = course_info_df.loc[0, 'Outline Stage'] if 'Outline Stage' in course_info_df.columns else None
-        if outline_stage == 'Initial':
-            _, base_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
-            # Only process if all required columns exist
-            required_cols = ['References', 'Reference type', 'Reference usage']
-            if all(col in base_outline_df.columns for col in required_cols):
-                for idx, row in tqdm(base_outline_df.iterrows(), total=base_outline_df.shape[0], desc='Base Outline References'):
-                    ref = str(row['References']).strip()
-                    ref_type = str(row['Reference type']).strip()
-                    ref_usage = str(row['Reference usage']).strip()
-                    # Skip if any required value is empty
-                    if not ref or not ref_type or not ref_usage:
-                        continue
-                    # Only process YouTube Video and Web Article
-                    if ref_type not in ['Youtube Video', 'Web Article']:
-                        continue
-                    # Skip if already present
-                    if ref in references_df['source'].values:
-                        continue
-                    # Add row to references_df
-                    new_row = {
-                        'source': ref,
-                        'source_origin': 'References',
-                        'title': '',
-                        'reference_type': ref_type,
-                        'chunks_0': ''
-                    }
-                    references_df = pd.concat([references_df, pd.DataFrame([new_row])], ignore_index=True)
+        _, base_outline_df = get_sheet_data_and_df(sheet, 'Base Outline')
+        # Only process if all required columns exist
+        required_cols = ['References', 'Reference type', 'Reference usage']
+        if all(col in base_outline_df.columns for col in required_cols):
+            for idx, row in tqdm(base_outline_df.iterrows(), total=base_outline_df.shape[0], desc='Base Outline References'):
+                ref = str(row['References']).strip()
+                ref_type = str(row['Reference type']).strip()
+                ref_usage = str(row['Reference usage']).strip()
+                # Skip blank / nan values
+                if not ref or ref == 'nan' or not ref_type or ref_type == 'nan':
+                    continue
+                # Only process known reference types
+                if ref_type not in ['Youtube Video', 'Web Article', 'Google Drive Video']:
+                    continue
+                # If URL already present but under a different source_origin, promote it so
+                # it hits the correct chunking branch (e.g., Google Drive Video transcription).
+                if ref in references_df['source'].values:
+                    existing_mask = references_df['source'] == ref
+                    existing_origin = references_df.loc[existing_mask, 'source_origin'].iloc[0]
+                    if existing_origin != 'References':
+                        # Promote: update source_origin and clear chunks so it gets re-chunked correctly
+                        references_df.loc[existing_mask, 'source_origin'] = 'References'
+                        references_df.loc[existing_mask, 'reference_type'] = ref_type
+                        references_df.loc[existing_mask, 'chunks_0'] = ''
+                        print(f"[Base Outline] Promoted '{ref}' source_origin from '{existing_origin}' → 'References'")
+                    continue
+                # Add row to references_df
+                new_row = {
+                    'source': ref,
+                    'source_origin': 'References',
+                    'title': '',
+                    'reference_type': ref_type,
+                    'chunks_0': ''
+                }
+                references_df = pd.concat([references_df, pd.DataFrame([new_row])], ignore_index=True)
     except Exception as e:
         print(f"Error processing Base Outline references: {e}")
 
@@ -855,8 +998,15 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
                         url = row["source"],
                         query = ""
                     )
+                elif row["reference_type"] == "Google Drive Video":
+                    future = executor.submit(
+                        _get_drive_video_chunks_as_docs,
+                        source = row["source"],
+                        title = row.get("title", ""),
+                        llm = llm
+                    )
                 else:
-                    continue  # skip Google Drive Video or unknown types
+                    continue  # skip unknown types
                 futures_map[future] = index
                 continue
 
@@ -893,17 +1043,17 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
         with tqdm(total=total_tasks, desc="Percent complete") as pbar:
             # Process in small batches until done or stuck
             while pending:
-                # Wait for at least one future to complete, up to 60 seconds
+                # Wait for at least one future to complete, up to 600 seconds
                 done, pending = wait(
                     pending,
-                    timeout=60,
+                    timeout=600,
                     return_when=FIRST_COMPLETED
                 )
                 
                 if not done:
-                    # If no tasks completed within 60s, you can either break,
+                    # If no tasks completed within 600s, you can either break,
                     # or continue waiting, or handle differently.
-                    print("No tasks completed within 60 seconds. Breaking out...")
+                    print("No tasks completed within 600 seconds. Breaking out...")
                     for fut in pending:
                         if not fut.done():
                             fut.cancel()
@@ -941,12 +1091,29 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
                             # Try to get a title from the first doc's metadata
                             title = docs[0].metadata.get('title', '') if hasattr(docs[0], 'metadata') else ''
                             if not title:
-                                # fallback: for YouTube, use video_title; for web, use query or page title
-                                if references_df.at[index, 'reference_type'] == 'Youtube Video':
+                                source_url = references_df.at[index, 'source']
+                                ref_type = references_df.at[index, 'reference_type']
+                                # fallback: for YouTube, use video_title
+                                if ref_type == 'Youtube Video':
                                     title = docs[0].metadata.get('video_title', '')
-                                elif references_df.at[index, 'reference_type'] == 'Web Article':
-                                    # Fallback: scrape the web page title
-                                    title = get_webpage_title_fallback(references_df.at[index, 'source'])
+                                elif ref_type in ('Web Article', 'Google Drive Video') and _is_drive_url(source_url):
+                                    # Google Drive file — fetch the actual file name via API
+                                    try:
+                                        file_id = extract_drive_id_from_url(source_url)
+                                        if file_id:
+                                            drive_svc = get_authenticated_drive_service()
+                                            if drive_svc:
+                                                meta = drive_svc.files().get(
+                                                    fileId=file_id,
+                                                    fields="name",
+                                                    supportsAllDrives=True,
+                                                ).execute()
+                                                title = meta.get("name", "")
+                                    except Exception as _te:
+                                        print(f"[WARN] Could not fetch Drive title for {source_url}: {_te}")
+                                if not title and ref_type == 'Web Article' and not _is_drive_url(source_url):
+                                    # Plain web page — scrape the <title> tag
+                                    title = get_webpage_title_fallback(source_url)
                             references_df.at[index, 'title'] = title
                     except Exception as e:
                         print(f"Error processing index {index}: {e}")
@@ -978,8 +1145,15 @@ def get_all_chunks_as_docs(sheet, worksheet_name = "All References"):
     :param worksheet_name: The name of the sheet containing all references data.
     :return: A list of Document objects representing the chunks.
     """
-    # Load the references sheet
-    references_sheet, references_df = get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
+    # Load the references sheet — use safe variant so a missing sheet returns an empty
+    # DataFrame instead of raising WorksheetNotFound (e.g. after delete_retriever_context
+    # wiped the sheet before Step 1 was re-run).
+    references_sheet, references_df = safe_get_sheet_data_and_df(sheet = sheet, sheet_name = worksheet_name)
+
+    if references_df.empty:
+        print(f"[get_all_chunks_as_docs] '{worksheet_name}' sheet is missing or empty. "
+              "Run 'Get relevant references for Learning Objectives' (Step 1) first.")
+        return []
 
     reference_docs_chunk_list = []
 

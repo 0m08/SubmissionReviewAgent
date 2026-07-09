@@ -1,5 +1,7 @@
 from langchain_chroma import Chroma
 import os
+import shutil
+import streamlit as st
 from services.helper_functions import get_short_name
 from agents.research_notes.load_references import get_all_chunks_as_docs
 from services.drive_service import upload_folder_to_drive, download_folder_from_drive
@@ -27,8 +29,17 @@ def load_vector_db_with_pydrive(course_name: str,
 
     local_chroma_root = os.path.join("/tmp", "temp_chroma_folder")
     local_chroma_path = os.path.join(local_chroma_root, f"{short_course_name}_chroma_research_db")
+
+    # If a fresh path override was set (because the default path was locked during deletion),
+    # redirect this run to the new path so we build a clean DB there instead.
+    path_override = st.session_state.get("chroma_db_path_override")
+    if path_override:
+        print(f"[load_vector_db_with_pydrive] Using fresh override path: {path_override}")
+        local_chroma_path = path_override
+        # Keep the override so subsequent loads within this session reuse the same path.
+
     sqlite_db_path = os.path.join(local_chroma_path, "chroma.sqlite3")
-    
+
     # Initialize all_doc_chunk_list to None
     all_doc_chunk_list = None
 
@@ -41,7 +52,7 @@ def load_vector_db_with_pydrive(course_name: str,
         # Locate or create 'Vectorstore files'
         query_vectorstore = (
             f"title='Vectorstore files' and '{root_folder_id}' in parents "
-            f"and mimeType='application/vnd.google-apps.folder'"
+            f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
         )
         vectorstore_folders = drive.ListFile({'q': query_vectorstore}).GetList()
 
@@ -62,7 +73,7 @@ def load_vector_db_with_pydrive(course_name: str,
         # Locate or create 'chroma_research_db'
         query_chroma = (
             f"title='chroma_research_db' and '{vectorstore_folder_id}' in parents "
-            f"and mimeType='application/vnd.google-apps.folder'"
+            f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
         )
         chroma_folders = drive.ListFile({'q': query_chroma}).GetList()
 
@@ -117,7 +128,6 @@ def load_vector_db_with_pydrive(course_name: str,
                 # Delete corrupted folder and recreate
                 drive.CreateFile({'id': chroma_folder_id}).Delete()
                 # Clear local path and recreate
-                import shutil
                 if os.path.exists(local_chroma_path):
                     shutil.rmtree(local_chroma_path)
                 # Recreate the database

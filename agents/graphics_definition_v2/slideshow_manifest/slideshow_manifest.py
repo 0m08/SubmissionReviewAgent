@@ -89,14 +89,15 @@ Instructions and Guidelines:
    - Each scene must declare which narration span it covers and which existing asset URLs fill which slot roles for that template.
    - Do not output commentary, prose layout descriptions, or fields outside the specified XML schema.
 
-2. Asset URL Rules
+2. Asset URL Rules and Strict 1:1 Mapping
    - Every asset attribute value on every <slot> element must be copied verbatim from an Assigned Asset: value in <final_graphics_definition> for this slide (the URL text only, exactly as given).
    - You must not add, invent, merge, or substitute URLs. You must not paraphrase or shorten URLs.
+   - Strict Cardinality Rule (1:1 Mapping): Every distinct visual URL appearing in <final_graphics_definition> must be assigned to exactly one <slot> in the manifest. A URL must never be omitted from the manifest, and must never appear more than once in the manifest unless that exact URL is used multiple times (under different When VO: beats) in the <final_graphics_definition> input.
 
 3. Parsing the Final Graphics Definition
    - The input is repeating pairs in order: When VO: with its narration, then Assigned Asset: with one URL for that beat.
    - Build scenes so that each scene's <narration_span> is the exact narration text that should be on screen for that composed layout.
-   - Map each Assigned Asset: URL that appears in that scene to exactly one role allowed for that scene's template.
+   - Map each Assigned Asset: URL that appears in that scene to exactly one role allowed for that scene's template, ensuring that every asset from the graphics definition is mapped exactly once (unless duplicated in the input definition).
 
 4. Scene Granularity
    - One scene corresponds to one composed screen layout for one contiguous narration span.

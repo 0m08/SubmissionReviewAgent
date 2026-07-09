@@ -2,7 +2,34 @@ from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.chat_models import ChatPerplexity
+try:
+    from langchain_community.chat_models import ChatPerplexity
+except ImportError:
+    try:
+        from langchain_perplexity import ChatPerplexity
+    except ImportError:
+        from langchain_core.language_models.chat_models import SimpleChatModel
+        from langchain_core.messages import BaseMessage
+        from typing import List as _List, Optional as _Optional, Any as _Any
+
+        class ChatPerplexity(SimpleChatModel):  # type: ignore
+            """
+            Fallback when no Perplexity integration is installed.
+            """
+
+            model: str = "sonar-deep-research"
+
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+
+            @property
+            def _llm_type(self) -> str:
+                return "perplexity-unavailable"
+
+            def _call(self, messages: "_List[BaseMessage]", stop: "_Optional[_List[str]]" = None, run_manager: "_Optional[_Any]" = None, **kwargs: "_Any") -> str:
+                raise ImportError(
+                    "ChatPerplexity is unavailable."
+                )
 from langchain_core.runnables import ConfigurableField
 # Output Parsers
 from langchain_core.output_parsers import StrOutputParser, CommaSeparatedListOutputParser

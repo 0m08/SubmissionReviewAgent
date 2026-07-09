@@ -434,12 +434,20 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
         background_link_key = f"background_job_link::{agent_code_for_state}"
         background_name_key = f"background_job_name::{agent_code_for_state}"
         background_run_id_key = f"background_job_run_id::{agent_code_for_state}"
-        if st.session_state.get(background_link_key):
+        if st.session_state.get(background_link_key) or st.session_state.get(background_name_key):
             st.markdown(
-                f"**Background job:** [{st.session_state[background_link_key]}]({st.session_state[background_link_key]})"
+                f"""
+                <div style='background-color: #1b4636; color: #fff; padding: 1.25em 1.25em; border-radius: 12px; width: 100%; font-weight: 500; margin-bottom: 1.5em; line-height: 1.6;'>
+                    The "{step_name}" agent has started running in the background for your sheet. 
+                    You can now close this agent tab in your browser or even shut down your PC if you want. 
+                    All the updates for this agent will be shared with you via email. 
+                    You will receive an email after 10-15 minutes confirming that the agent has started running successfully in the background. 
+                    You will also get another email once the agent has completed running all its steps successfully so that you can review the outputs. 
+                    (Ensure to check your "Spam" folder in case you dont see any email in your inbox after 10-15 minutes of you pressing this "Run the Agent in Background" button.)
+                </div>
+                """,
+                unsafe_allow_html=True
             )
-        elif st.session_state.get(background_name_key):
-            st.markdown(f"**Background job:** `{st.session_state[background_name_key]}`")
 
         run_id = st.session_state.get(background_run_id_key, "") or ""
         gc_for_status = st.session_state.get("gc")
@@ -639,8 +647,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                     )
                             except Exception:
                                 pass
-                        st.success("Background job submitted.")
-                        st.markdown(f"**Background job:** [{job_link}]({job_link})")
+                        st.rerun()
                     elif job_name:
                         st.session_state[background_name_key] = job_name
                         st.session_state.pop(background_link_key, None)
@@ -660,8 +667,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                                     )
                             except Exception:
                                 pass
-                        st.success("Background job submitted.")
-                        st.markdown(f"**Background job:** `{job_name}`")
+                        st.rerun()
                         with st.expander("Launcher output (no job link found)", expanded=False):
                             st.code(logs[-5000:] if len(logs) > 5000 else logs)
                     else:
@@ -751,6 +757,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             section for section in pipeline_sections
             if any(
                 not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
+                and not (not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False))
                 for step in section["steps"]
             )
         ]
@@ -762,6 +769,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             visible_steps = [
                 step for step in section["steps"]
                 if not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
+                and not (not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False))
             ]
 
             # Skip section if no visible steps remain
@@ -778,6 +786,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         st.session_state.get(f"{dep}_done", False) or (
                             st.session_state.get("outline_finalized", False) and
                             any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
+                        ) or (
+                            not st.session_state.get("video_research_enabled", True) and
+                            any(dep == s["name"] and s.get("hide_if_video_disabled", False) for sec in pipeline_sections for s in sec["steps"])
                         )
                         for dep in step["depends_on"]
                     )
@@ -1159,6 +1170,10 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
                 if st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
                     continue
 
+                # Skip step if it's hidden because video research is disabled
+                if not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False):
+                    continue
+
                 step_key = f"{step['name']}_done"
                 step_global_count += 1
 
@@ -1171,6 +1186,9 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
                     st.session_state.get(f"{dep}_done", False) or (
                         st.session_state.get("outline_finalized", False) and
                         any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
+                    ) or (
+                        not st.session_state.get("video_research_enabled", True) and
+                        any(dep == s["name"] and s.get("hide_if_video_disabled", False) for sec in pipeline_sections for s in sec["steps"])
                     )
                     for dep in step["depends_on"]
                 )                    

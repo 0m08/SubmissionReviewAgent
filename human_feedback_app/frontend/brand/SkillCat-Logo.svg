@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 72" role="img" aria-label="SkillCat">
+  <text x="0" y="52" font-family="Arial, Helvetica, sans-serif" font-size="48" font-weight="700" fill="#F97316">Skill</text>
+  <text x="118" y="52" font-family="Arial, Helvetica, sans-serif" font-size="48" font-weight="700" fill="#1E293B">Cat</text>
+  <g transform="translate(248 8)">
+    <path fill="#F97316" d="M28 8c-10.5 0-19 5.25-19 12.25v3.5c0 1.75.875 3.5 2.625 4.375L14.875 56.875c0 2.625 2.625 4.375 5.25 4.375h19.25c2.625 0 5.25-1.75 5.25-4.375l2.625-15.75c1.75-.875 2.625-2.625 2.625-4.375v-3.5C47.25 13.25 38.5 8 28 8z"/>
+    <path fill="#EA580C" d="M12.25 22.75h31.5v2.625c0 .875-.875 1.75-1.75 1.75H14c-.875 0-1.75-.875-1.75-1.75v-2.625z"/>
+    <rect fill="#FB923C" x="24.5" y="3.5" width="7" height="7" rx="1.75"/>
+  </g>
+</svg>
