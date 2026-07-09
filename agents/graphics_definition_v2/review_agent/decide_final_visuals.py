@@ -673,11 +673,7 @@ def run_decide_final_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", 
     worksheet_name = "Slide Chunks"
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = str(course_info_df.loc[0, "Course Name"]).strip()
-    target_audience = (
-        str(course_info_df.loc[0, "Target Audience"]).strip()
-        if "Target Audience" in course_info_df.columns
-        else ""
-    )
+    target_audience = _safe_str(course_info_df.loc[0, "Target Audience & Industry"]).strip()
 
     drive = get_drive_instance()
     if not drive:
