@@ -624,7 +624,7 @@ def delete_segment_slide(sheet):
         print("ℹ️ 'voiceover_segment' column does not exist.")
 
     # 3. Drop inline-reference helper columns
-    for col in ("slide_chunk_raw", "reference_image_map", "reference_image_processed_url"):
+    for col in ("slide_chunk_raw", "reference_image_map"):
         if col in df.columns:
             df = df.drop(columns=[col])
             print(f"🗑️ Deleted '{col}' column.")
