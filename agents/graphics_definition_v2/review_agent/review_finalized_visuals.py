@@ -582,7 +582,7 @@ def run_review_finalized_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinkin
     worksheet_name = "Slide Chunks"
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = str(course_info_df.loc[0, "Course Name"]).strip()
-    target_audience = str(course_info_df.loc[0, "Target Audience"]).strip() if "Target Audience" in course_info_df.columns else ""
+    target_audience = _safe_str(course_info_df.loc[0, "Target Audience & Industry"]).strip()
 
     drive = get_drive_instance()
     if not drive:
@@ -708,11 +708,7 @@ def run_generate_alternative_visuals_from_web_for_all_rows(sheet, llm="gemini_3_
     # Process rows in parallel
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = str(course_info_df.loc[0, "Course Name"]).strip()
-    target_audience = (
-        str(course_info_df.loc[0, "Target Audience"]).strip()
-        if "Target Audience" in course_info_df.columns
-        else ""
-    )
+    target_audience = _safe_str(course_info_df.loc[0, "Target Audience & Industry"]).strip()
 
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
