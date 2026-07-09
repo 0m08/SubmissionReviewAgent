@@ -743,7 +743,7 @@ def _classify_drive_url(url: str) -> str:
         return "Web Article"
 
 
-def _get_drive_video_chunks_as_docs(source: str, title: str = "", llm: str = "gemini_2_5_flash"):
+def _get_drive_video_chunks_as_docs(source: str, title: str = "", llm: str = "gemini_2_5_flash", drive=None):
     """
     Transcribe a Google Drive video and return chapter-chunked Documents.
 
@@ -762,22 +762,33 @@ def _get_drive_video_chunks_as_docs(source: str, title: str = "", llm: str = "ge
         try:
             file_id = extract_drive_id_from_url(source)
             if file_id:
-                drive_service = get_authenticated_drive_service()
-                if drive_service:
-                    meta = drive_service.files().get(
-                        fileId=file_id,
-                        fields="name",
-                        supportsAllDrives=True,
-                    ).execute()
-                    fetched_name = meta.get("name", "")
-                    if fetched_name:
-                        title = fetched_name
-                        print(f"[_get_drive_video_chunks_as_docs] Resolved real title for {source} -> '{title}'")
+                fetched_name = ""
+                # Prefer the passed-in OAuth PyDrive client (has access to user-shared files)
+                if drive is not None:
+                    try:
+                        file_obj = drive.CreateFile({'id': file_id})
+                        file_obj.FetchMetadata(fields='title')
+                        fetched_name = file_obj.get('title', '')
+                    except Exception as e:
+                        print(f"[_get_drive_video_chunks_as_docs] PyDrive metadata fetch failed: {e}")
+                # Fallback to REST service client (service account)
+                if not fetched_name:
+                    drive_service = get_authenticated_drive_service()
+                    if drive_service:
+                        meta = drive_service.files().get(
+                            fileId=file_id,
+                            fields="name",
+                            supportsAllDrives=True,
+                        ).execute()
+                        fetched_name = meta.get("name", "")
+                if fetched_name:
+                    title = fetched_name
+                    print(f"[_get_drive_video_chunks_as_docs] Resolved real title for {source} -> '{title}'")
         except Exception as e:
             print(f"[_get_drive_video_chunks_as_docs] Failed to retrieve file name from Drive API: {e}")
 
-    # Step 1: transcribe via AssemblyAI
-    timestamped_transcript = get_transcript_assemblyai_drive(source)
+    # Step 1: transcribe via AssemblyAI (pass OAuth drive client so user-shared files are accessible)
+    timestamped_transcript = get_transcript_assemblyai_drive(source, drive=drive)
     if not timestamped_transcript:
         print(f"No transcript returned for Drive video: {source}")
         return []
@@ -943,7 +954,7 @@ def list_references(sheet, videos_research_df, video_chunks_df, client_reference
 def load_references(sheet, video_research_sheet_name = 'Videos Research', video_chunk_sheet_name = 'Video Chunks', 
                           client_reference_sheet_name = 'Client References', web_research_sheet_name = 'Preliminary Research',
                           deep_research_sheet_name = 'Deep Research', topic_outline_sheet_name = 'Topic Outline',
-                          topic_deep_research_sheet_name = 'Topic Deep Research', llm = "gemini_3_flash"):
+                          topic_deep_research_sheet_name = 'Topic Deep Research', llm = "gemini_3_flash", drive=None):
     """
     """
     # Load the sheets and df
@@ -1003,7 +1014,8 @@ def load_references(sheet, video_research_sheet_name = 'Videos Research', video_
                         _get_drive_video_chunks_as_docs,
                         source = row["source"],
                         title = row.get("title", ""),
-                        llm = llm
+                        llm = llm,
+                        drive = drive
                     )
                 else:
                     continue  # skip unknown types

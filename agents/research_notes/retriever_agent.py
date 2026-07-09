@@ -421,7 +421,7 @@ def get_transcript_from_youtube_transcript_csv(video_id):
     "user_id": st.session_state.get("role", "anonymous")
 })
 def process_single_row(index, row, compression_retriever, web_search_retriever,
-                       course_name, target_audience, course_outline, llm):
+                       course_name, target_audience, course_outline, llm, drive=None):
     """
     Processes a single row: runs the retriever agent for each Learning Objective
     and accumulates the context string. Returns (index, context_string, source_links, as_is_sources, content_sources, web_links, video_links)
@@ -660,7 +660,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                         if not found or not video_content:
                             try:
                                 # Assume video_url is a Google Drive file link or ID
-                                transcript = get_transcript_assemblyai_drive(video_url)
+                                transcript = get_transcript_assemblyai_drive(video_url, drive=drive)
                                 # transcript is already formatted for context_n columns (convert timestamp to seconds)
                                 lines = []
                                 for item in transcript:
@@ -906,7 +906,8 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                     course_name,
                     target_audience,
                     course_outline,
-                    llm
+                    llm,
+                    drive
                 )
             )
 
