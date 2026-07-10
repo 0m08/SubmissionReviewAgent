@@ -324,7 +324,10 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 os.environ["GOOGLE_API_KEY"] = st.session_state["google_api_key"]
             try:
                 if os.environ.get('LANGTRACE_ON', 'false') == "true":
-                    langtrace.init(api_key = os.environ.get('LANGTRACE_API_KEY'))
+                    langtrace.init(
+                        api_key = os.environ.get('LANGTRACE_API_KEY'),
+                        disable_instrumentations={"only": ["chromadb"]}
+                    )
 
                 # --- OAuth2 for both Google Drive and Google Sheets ---
                 oauth_client_id = os.environ.get("OAUTH_CLIENT_ID")

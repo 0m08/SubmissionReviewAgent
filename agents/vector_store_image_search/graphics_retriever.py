@@ -1,4 +1,9 @@
 import cohere
+try:
+    from langtrace_python_sdk import langtrace
+    langtrace.init(disable_instrumentations={"only": ["chromadb"]})
+except Exception:
+    pass
 import os
 import requests
 import threading
@@ -217,7 +222,7 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
             raw_image_results = image_db._collection.query(
                 query_embeddings=[query_vector],
                 n_results=50,
-                include=["metadatas", "distances"]
+                include=["metadatas", "distances", "documents", "embeddings"]
             )
            
 
@@ -268,7 +273,7 @@ def graphics_retriever(query: Optional[str] = None, query_image: Optional[Image.
                     clip_results = image_db._collection.query(
                         query_embeddings=[clip_vector],
                         n_results=50,
-                        include=["metadatas", "distances"]
+                        include=["metadatas", "distances", "documents", "embeddings"]
                     )
                 except Exception as query_error:
                     print(f"❌ Chroma .query() failed: {query_error}")
