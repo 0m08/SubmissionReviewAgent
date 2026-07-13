@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="/static/review-api.js?v=6"></script>
-<script src="/static/youtube-player.js?v=5"></script>
+<script src="/static/review-api.js?v=7"></script>
+<script src="/static/youtube-player.js?v=14"></script>
+<script src="/static/player.js?v=18"></script>
 <script src="/static/support.js"></script>
 </head>
 <body>
@@ -238,10 +239,377 @@
   .hf-hover-tip-wrap:has(button[disabled], textarea[disabled], select[disabled]) {
     cursor: not-allowed;
   }
+
+  /* ---- slideshow player ---- */
+  .hf-app-shell--player .hf-header {
+    padding: 6px 16px !important;
+    min-height: 0 !important;
+    gap: 12px !important;
+  }
+  .hf-app-shell--player .hf-header > div:first-child > div:last-child {
+    display: none;
+  }
+  .hf-app-shell--player .hf-header .hf-app-title {
+    font-size: 16px !important;
+  }
+  .hf-app-shell--player .hf-header .hf-course-name {
+    font-size: 13px !important;
+    max-width: 200px !important;
+  }
+  .hf-player-root {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0f1115;
+    color: #f3f4f6;
+  }
+  .hf-player-stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 12px 0;
+    overflow: hidden;
+  }
+  .hf-player-header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .hf-player-slide-meta {
+    flex-shrink: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: #9ca3af;
+    white-space: nowrap;
+  }
+  .hf-player-slide-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: #f3f4f6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .hf-player-frame-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 4px;
+  }
+  .hf-player-frame {
+    position: relative;
+    min-height: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #ffffff;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.06);
+  }
+  .hf-player-frame.hf-player-frame--layout,
+  .hf-player-frame.hf-player-frame--fill {
+    height: 100%;
+    width: auto;
+    max-width: 100%;
+    flex: 0 0 auto;
+    aspect-ratio: 1808 / 748;
+  }
+  .hf-player-frame img,
+  .hf-player-frame .hf-player-yt-mount {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #ffffff;
+  }
+  .hf-player-scene-canvas {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+  }
+  .hf-player-scene-slot {
+    box-sizing: border-box;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.9s ease, visibility 0.9s ease, box-shadow 0.35s ease, outline-color 0.35s ease;
+  }
+  .hf-player-scene-slot.is-revealed {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .hf-player-scene-slot:not(.is-revealed) * {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transition: none !important;
+  }
+  .hf-player-scene-slot.is-active {
+    box-shadow: inset 0 0 0 3px #f97316;
+    outline: none;
+  }
+  .hf-player-scene-slot-inner {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .hf-player-visual-stage {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .hf-player-fade-shell {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 1;
+    transition: opacity 0.9s ease;
+  }
+  .hf-player-fade-shell.is-faded {
+    opacity: 0;
+  }
+  .hf-player-caption {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    max-width: 82%;
+    transform: translateX(-50%);
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(8, 10, 14, 0.88);
+    color: #f8fafc;
+    font-size: 14px;
+    line-height: 1.4;
+    text-align: center;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 31;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    transition: opacity 0.7s ease;
+  }
+  .hf-player-caption.is-caption-fading {
+    opacity: 0;
+  }
+  .hf-player-scene-slot img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #ffffff;
+  }
+  .hf-player-scene-slot .hf-player-yt-mount {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .hf-player-frame > .hf-player-yt-mount {
+    position: absolute;
+    inset: 0;
+  }
+  .hf-player-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    pointer-events: none;
+  }
+  .hf-player-file-label {
+    display: none;
+  }
+  .hf-player-controls {
+    flex-shrink: 0;
+    padding: 6px 16px 8px;
+    background: #0f1115;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .hf-player-progress {
+    height: 3px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.12);
+    overflow: hidden;
+    display: flex;
+    margin-bottom: 8px;
+  }
+  .hf-player-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .hf-player-transport {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .hf-player-transport-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .hf-player-btn-skip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: none;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.07);
+    color: #7c8490;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .hf-player-btn-skip:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.11);
+    color: #c4cad4;
+  }
+  .hf-player-btn-skip:disabled {
+    opacity: 0.32;
+    cursor: default;
+  }
+  .hf-player-btn-play {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 50px;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+    color: #11151a;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .hf-player-btn-play:hover {
+    transform: scale(1.04);
+  }
+  .hf-player-btn-play:active {
+    transform: scale(0.98);
+  }
+  .hf-player-btn-play .hf-player-icon-pause { display: none; }
+  .hf-player-btn-play .hf-player-icon-play { display: block; }
+  .hf-player-btn-play.is-playing .hf-player-icon-pause { display: block; }
+  .hf-player-btn-play.is-playing .hf-player-icon-play { display: none; }
+  .hf-player-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .hf-player-time {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7280;
+    white-space: nowrap;
+    margin-left: 2px;
+  }
+  .hf-player-progress-seg {
+    height: 100%;
+    position: relative;
+    background: rgba(255,255,255,0.08);
+    border-right: 1px solid rgba(0,0,0,0.35);
+  }
+  .hf-player-progress-seg:last-child { border-right: none; }
+  .hf-player-progress-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: #f97316;
+    border-radius: 99px;
+    transition: width 0.14s linear;
+  }
+  .hf-player-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: rgba(8, 10, 14, 0.92);
+    backdrop-filter: blur(6px);
+    color: #f3f4f6;
+    text-align: center;
+    padding: 32px;
+  }
+  .hf-player-loading-bar {
+    width: min(320px, 80%);
+    height: 6px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.12);
+    overflow: hidden;
+  }
+  .hf-player-loading-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4f46e5, #10b981);
+    border-radius: 99px;
+    transition: width 0.2s ease;
+  }
+  .hf-view-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    border-radius: 10px;
+    background: #eceef2;
+    border: 1px solid #e4e7ec;
+    gap: 2px;
+  }
+  html[data-theme="dark"] .hf-view-toggle {
+    background: #1c212b;
+    border-color: #2a303c;
+  }
+  .hf-view-toggle button {
+    height: 32px;
+    padding: 0 14px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #6b7280;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .hf-view-toggle button.is-active {
+    background: #fff;
+    color: #11151a;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.08);
+  }
+  html[data-theme="dark"] .hf-view-toggle button.is-active {
+    background: #e8eaed;
+    color: #11151a;
+  }
 </style>
 </helmet>
 
-<div style="display: flex; flex-direction: column; height: 100vh; overflow: hidden;">
+<div class="{{ appShellClass }}" style="display: flex; flex-direction: column; height: 100vh; overflow: hidden;">
 
   <header class="hf-header" style="display: flex; align-items: center; gap: 24px; padding: 10px 24px; min-height: 64px; background: #ffffff; border-bottom: 1px solid #e4e7ec; flex-shrink: 0; z-index: 5;">
     <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -255,12 +623,22 @@
       </div>
     </div>
 
+    <div class="hf-view-toggle" style="flex-shrink: 0;">
+      <button onClick="{{ onViewReview }}" class="{{ reviewTabClass }}">Review</button>
+      <button onClick="{{ onViewPlayer }}" class="{{ playerTabClass }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        Player
+      </button>
+    </div>
+
+    <sc-if value="{{ isReviewView }}" hint-placeholder-val="{{ false }}">
     <div style="flex: 1; display: flex; align-items: center; gap: 14px; max-width: 520px;">
       <div style="flex: 1; height: 8px; background: #eceef2; border-radius: 99px; overflow: hidden;">
         <div style="{{ progressBarStyle }}"></div>
       </div>
       <span class="hf-progress-text" style="font-size: 13px; color: #4b5563; font-weight: 600; white-space: nowrap;">{{ reviewedCount }} / {{ totalCount }} approved</span>
     </div>
+    </sc-if>
 
     <div style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
       <div style="display: flex; align-items: center; gap: 8px;">
@@ -275,6 +653,8 @@
   </header>
 
   <div style="display: flex; flex: 1; min-height: 0; position: relative;">
+
+  <sc-if value="{{ isReviewView }}" hint-placeholder-val="{{ true }}">
 
     <aside class="hf-aside" style="{{ asideStyle }}">
       <div style="padding: 16px 16px 12px;">
@@ -964,6 +1344,105 @@
         </div>
       </div>
     </main>
+  </sc-if>
+
+  <sc-if value="{{ isPlayerView }}" hint-placeholder-val="{{ false }}">
+    <div class="hf-player-root">
+      <sc-if value="{{ playerEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; color: #9aa3b2; font-size: 15px; font-weight: 600; text-align: center;">
+          No scene layouts are available for playback yet. Slides need manifest scenes with voiceovers.
+        </div>
+      </sc-if>
+      <sc-if value="{{ !playerEmpty }}" hint-placeholder-val="{{ true }}">
+        <div class="hf-player-stage">
+          <div class="hf-player-header">
+            <span class="hf-player-slide-meta">Slide {{ playerSlideNum }} / {{ playerSlideTotal }}</span>
+            <h2 class="hf-player-slide-title">{{ playerSlideTitle }}</h2>
+          </div>
+          <div class="hf-player-frame-wrap">
+            <div class="hf-player-frame {{ playerFrameClass }}" style="{{ playerFrameStyle }}">
+              <sc-if value="{{ playerShowLoading }}" hint-placeholder-val="{{ false }}">
+                <div class="hf-player-loading">
+                  <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.02em;">{{ playerLoadingLabel }}</div>
+                  <div style="font-size: 13px; color: #9aa3b2; max-width: 360px; line-height: 1.5;">Caching voiceovers and visuals so playback stays in sync.</div>
+                  <div class="hf-player-loading-bar">
+                    <div class="hf-player-loading-fill" style="width: {{ playerLoadProgress }}%;"></div>
+                  </div>
+                  <div style="font-size: 12px; font-weight: 600; color: #6b7280;">{{ playerLoadProgress }}%</div>
+                </div>
+              </sc-if>
+              <div class="hf-player-fade-shell">
+              <sc-if value="{{ playerUseSceneLayout }}" hint-placeholder-val="{{ true }}">
+                <div class="hf-player-scene-canvas" data-player-scene="{{ playerSceneKey }}" style="{{ playerCanvasStyle }}">
+                  <sc-for list="{{ playerSceneSlots }}" as="slot" hint-placeholder-count="1">
+                    <div class="hf-player-scene-slot {{ slot.slotClass }}" style="{{ slot.posStyle }}">{{ slot.innerEl }}</div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ !playerUseSceneLayout }}" hint-placeholder-val="{{ false }}">
+              <div class="hf-player-visual-stage" data-player-visual-key="{{ playerVisualKey }}">
+              <sc-if value="{{ playerShowImage }}" hint-placeholder-val="{{ true }}">
+                <img src="{{ playerVisualUrl }}" alt="{{ playerVisualLabel }}" style="width: 100%; height: 100%; object-fit: contain; background: #ffffff;" />
+              </sc-if>
+              <sc-if value="{{ playerShowYtMount }}" hint-placeholder-val="{{ false }}">
+                <div id="hf-player-yt-active" class="hf-player-yt-mount"></div>
+              </sc-if>
+              <sc-if value="{{ playerShowPlaceholder }}" hint-placeholder-val="{{ false }}">
+                <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(145deg, #1a2233 0%, #243352 55%, #1a2233 100%);">
+                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                </div>
+              </sc-if>
+              </div>
+              </sc-if>
+              </div>
+              <div class="hf-player-overlay">
+                <div class="hf-player-caption {{ playerCaptionFadeClass }}" style="{{ playerCaptionStyle }}">{{ playerCaption }}</div>
+              </div>
+              <sc-if value="{{ playerVisualLabel }}" hint-placeholder-val="{{ false }}">
+                <div class="hf-player-file-label">{{ playerVisualLabel }}</div>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+        <div class="hf-player-controls">
+          <div class="hf-player-progress">
+            <sc-for list="{{ playerProgressSegs }}" as="seg" hint-placeholder-count="2">
+              <div class="hf-player-progress-seg" style="width: {{ seg.widthPct }}%;">
+                <div class="hf-player-progress-fill" style="width: {{ seg.fillPct }}%;"></div>
+              </div>
+            </sc-for>
+          </div>
+          <div class="hf-player-toolbar">
+            <div class="hf-player-transport">
+              <div class="hf-player-transport-controls">
+                <button class="hf-player-btn-skip" onClick="{{ onPlayerPrev }}" disabled="{{ playerPrevDisabled }}" title="Previous part">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="2.5" height="14" rx="0.5"/><path d="M20 5v14l-12-7 12-7z"/></svg>
+                </button>
+                <button class="hf-player-btn-play {{ playerPlayBtnClass }}" onClick="{{ onPlayerTogglePlay }}" title="Play / Pause">
+                  <svg class="hf-player-icon-pause" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                  <svg class="hf-player-icon-play" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="margin-left: 2px;"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                <button class="hf-player-btn-skip" onClick="{{ onPlayerNext }}" disabled="{{ playerNextDisabled }}" title="Next part">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5v14l12-7-12-7z"/><rect x="16.5" y="5" width="2.5" height="14" rx="0.5"/></svg>
+                </button>
+              </div>
+              <span style="font-size: 12px; font-weight: 700; color: #d1d5db;">{{ playerPartLabel }}</span>
+              <span class="hf-player-time" data-player-time></span>
+            </div>
+            <div class="hf-player-actions">
+              <button onClick="{{ onPlayerAdjustVisual }}" style="{{ playerAdjustBtnStyle }}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                Adjust visual
+              </button>
+              <button onClick="{{ onPlayerToggleSpeed }}" style="{{ playerChipBtnStyle }}">{{ playerSpeedLabel }}</button>
+              <button onClick="{{ onPlayerToggleCc }}" style="{{ playerCcBtnStyle }}">CC</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
   </div>
 
   <div style="position: fixed; right: 22px; bottom: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 50; align-items: flex-end;">
@@ -1015,6 +1494,17 @@ class Component extends DCLogic {
   _layoutFeedbackForceEdit = {};
   _layoutApproved = {};
   _ytMountSeq = 0;
+  appView = 'review';
+  playerSnap = { hasCues: false, cues: [], playing: false, ccOn: true, pauseForReview: false, speed: 1, cueElapsed: 0, cueDuration: 0, assetsReady: false, preloadProgress: 0, preloading: false };
+  _player = null;
+  _playerSpeeds = [1, 1.25, 1.5];
+  _imgPreloadCache = Object.create(null);
+  _playerPrepareToken = 0;
+  _playerVideoSyncToken = 0;
+  _playerCaptionFadeClass = '';
+  _playerCaptionFadeTimer = null;
+  _playerLastSceneKey = '';
+  _playerLastVisualKey = '';
 
   _isLayoutRevisingForRow(rowIndex) {
     if (rowIndex == null || !this._pendingJobs) return false;
@@ -1292,8 +1782,17 @@ class Component extends DCLogic {
     this._restoreLocalDrafts(this.slides, drafts);
     this.courseName = data.courseName || 'Course';
     this.topicName = data.topicName || '';
+    this._ensurePlayer();
+    if (this._player) {
+      this._player.setSlides(this.slides);
+      this._player.prefetchAll();
+      this._playerPrepareToken += 1;
+    }
     this.forceUpdate();
     this.preloadAllImages();
+    if (this.appView === 'player' && this._player && this._player.cues.length) {
+      this.preparePlayerPlayback().catch(() => {});
+    }
   }
 
   preloadAllImages() {
@@ -1478,6 +1977,11 @@ class Component extends DCLogic {
     this._onKey = (e) => {
       const t = document.activeElement;
       if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+      if (this.appView === 'player' && this._player) {
+        if (e.key === ' ') { e.preventDefault(); this._player.togglePlay(); return; }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); this._player.prev(); return; }
+        if (e.key === 'ArrowRight') { e.preventDefault(); this._player.next(); return; }
+      }
       if (e.key === 'ArrowLeft') { e.preventDefault(); if (this.current > 0) this.go(this.current - 1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); if (this.current < this.slides.length - 1) this.go(this.current + 1); }
     };
@@ -1495,6 +1999,714 @@ class Component extends DCLogic {
     window.removeEventListener('keydown', this._onKey);
     if (this._pollTimer) clearInterval(this._pollTimer);
     if (this._manifestSyncTimer) clearInterval(this._manifestSyncTimer);
+    if (this._player) this._player.stop();
+  }
+
+  _initPlayer() {
+    if (!window.HFPlayer) return;
+    const self = this;
+    this._playerLastCue = -1;
+    this._playerLastPlaying = false;
+    this._playerLastDuration = 0;
+    this._player = new window.HFPlayer.Controller({
+      slides: this.slides,
+      getYtMountId: (cue) => self.ytMountIdForCue(cue),
+      getYtMountHeight: (cue) => self._playerSlotHeightForCue(cue),
+      onBeforeCuePlay: (cue) => self.ensureCueVisualsReady(cue),
+      onState: (snap) => {
+        const cueChanged = self._playerLastCue !== snap.cueIndex;
+        const playChanged = self._playerLastPlaying !== snap.playing;
+        const durationChanged = (self._playerLastDuration || 0) !== (snap.cueDuration || 0);
+        const ccChanged = self.playerSnap.ccOn !== snap.ccOn;
+        const speedChanged = self.playerSnap.speed !== snap.speed;
+        const preloadChanged = self.playerSnap.preloading !== snap.preloading
+          || self.playerSnap.assetsReady !== snap.assetsReady
+          || self.playerSnap.preloadProgress !== snap.preloadProgress;
+        const prevCue = self.playerSnap && self.playerSnap.cue ? self.playerSnap.cue : self._playerPrevCue;
+        self.playerSnap = snap;
+        // Avoid forceUpdate on play/pause or duration ticks — full re-render destroys YouTube iframes.
+        if (cueChanged || ccChanged || speedChanged || preloadChanged) {
+          self._playerLastCue = snap.cueIndex;
+          self._playerLastPlaying = snap.playing;
+          self._playerLastDuration = snap.cueDuration || 0;
+          if (cueChanged) {
+            self._transitionPlayerCue(prevCue, snap);
+          } else {
+            self.forceUpdate();
+            requestAnimationFrame(() => {
+              if (window.HFYoutube && window.HFYoutube.reattachAll) window.HFYoutube.reattachAll();
+              self._patchPlayerProgress(snap);
+              self._patchPlayerPlayButton(snap.playing);
+            });
+          }
+        } else {
+          if (playChanged) self._playerLastPlaying = snap.playing;
+          if (durationChanged) self._playerLastDuration = snap.cueDuration || 0;
+          self._patchPlayerProgress(snap);
+          if (playChanged) self._patchPlayerPlayButton(snap.playing);
+        }
+      },
+    });
+  }
+  _playerCueNeedsShellFade(prevCue, nextCue) {
+    if (!nextCue) return false;
+    if (!prevCue) return true;
+    if (prevCue.slideIdx !== nextCue.slideIdx) return true;
+    if (String(prevCue.sceneId) !== String(nextCue.sceneId)) return true;
+    // Same multi-panel scene: individual slots fade via is-revealed.
+    if ((nextCue.partCount || 0) > 1) return false;
+    return prevCue.visualId !== nextCue.visualId;
+  }
+  _transitionPlayerCue(prevCue, snap) {
+    const nextCue = snap.cue;
+    this._playerPrevCue = nextCue || null;
+    
+    const prevKey = prevCue ? (prevCue.slideIdx + ':' + prevCue.sceneId) : '';
+    const nextKey = nextCue ? (nextCue.slideIdx + ':' + nextCue.sceneId) : '';
+    const sceneChanged = prevKey !== nextKey;
+
+    if (sceneChanged) {
+      this._pulsePlayerCaptionFade();
+    }
+    if (nextCue) this._preloadPlayerSceneImages(nextCue);
+
+    const applyContent = () => {
+      const latestSnap = this.playerSnap || snap;
+      this.forceUpdate();
+      requestAnimationFrame(() => {
+        const shell = document.querySelector('.hf-player-fade-shell');
+        if (shell) shell.classList.remove('is-faded');
+        if (window.HFYoutube && window.HFYoutube.reattachAll) window.HFYoutube.reattachAll();
+        this._patchPlayerProgress(latestSnap);
+        this._patchPlayerPlayButton(latestSnap.playing);
+        if (nextCue) this._schedulePlayerSceneVideoSync(nextCue);
+      });
+    };
+
+    const needsShellFade = this._playerCueNeedsShellFade(prevCue, nextCue);
+    if (!needsShellFade) {
+      applyContent();
+      // Instantly proceed with narration for panel reveals (0ms delay)
+      this._playerVisualFadePromise = Promise.resolve();
+      return this._playerVisualFadePromise;
+    }
+
+    const shell = document.querySelector('.hf-player-fade-shell');
+    if (!shell) {
+      this._playerVisualFadePromise = Promise.resolve();
+      applyContent();
+      return this._playerVisualFadePromise;
+    }
+
+    shell.classList.add('is-faded');
+    if (this._playerVisualFadeTimer) clearTimeout(this._playerVisualFadeTimer);
+    this._playerVisualFadePromise = new Promise((resolve) => {
+      this._playerVisualFadeTimer = setTimeout(() => {
+        applyContent();
+        // Let the fade-in begin before voiceover/visual sync continues.
+        requestAnimationFrame(() => setTimeout(resolve, 420));
+      }, 820);
+    });
+    return this._playerVisualFadePromise;
+  }
+  _pulsePlayerCaptionFade() {
+    if (this._playerCaptionFadeTimer) clearTimeout(this._playerCaptionFadeTimer);
+    this._playerCaptionFadeClass = 'is-caption-fading';
+    const caption = document.querySelector('.hf-player-caption');
+    if (caption) caption.classList.add('is-caption-fading');
+    this._playerCaptionFadeTimer = setTimeout(() => {
+      this._playerCaptionFadeClass = '';
+      this._playerCaptionFadeTimer = null;
+      const el = document.querySelector('.hf-player-caption');
+      if (el) el.classList.remove('is-caption-fading');
+    }, 700);
+  }
+  _playerSceneEnterClass(cue) {
+    return '';
+  }
+  _playerVisualEnterClass(cue) {
+    return '';
+  }
+  ytMountIdForCue(cue) {
+    if (!cue) return 'hf-player-yt-active';
+    // Single-visual cues share one stable host so we can swap clips via loadVideoById
+    // instead of paying a full YouTube remount (~2s) on every cue.
+    if (!cue.partCount || cue.partCount <= 1) return 'hf-player-yt-active';
+    return 'hf-player-yt-' + cue.slideIdx + '-' + cue.sceneId + '-' + (cue.partIdx != null ? cue.partIdx : 0);
+  }
+  _playerSlotHeightForCue(cue) {
+    if (!cue || !this.slides) return 480;
+    const slide = this.slides[cue.slideIdx];
+    if (!slide) return 480;
+    const scenes = slide.scenes || [];
+    let sceneDef = null;
+    for (let si = 0; si < scenes.length; si++) {
+      const sc = scenes[si];
+      const sid = sc.id != null ? String(sc.id) : String(si + 1);
+      if (sid === cue.sceneId) { sceneDef = sc; break; }
+    }
+    if (!sceneDef) sceneDef = scenes[cue.sceneIdx];
+    if (!sceneDef) return 480;
+    const partIdx = cue.partIdx != null ? cue.partIdx : 0;
+    const template = sceneDef.template || '';
+    const layoutN = sceneDef.slotCount || (sceneDef.visualIds || []).length;
+    const rects = this.sceneRects(template, layoutN);
+    const r = rects[partIdx] || rects[0] || [0, 0, this.CANVAS_W, this.CANVAS_H];
+    return this._estimatePlayerSlotHeight(cue, r[3] / this.CANVAS_H);
+  }
+  _preloadImageUrl(url, timeoutMs) {
+    const key = String(url || '').trim();
+    if (!key) return Promise.resolve();
+    if (this._imgPreloadCache[key]) return this._imgPreloadCache[key];
+    const ms = timeoutMs != null ? timeoutMs : 8000;
+    this._imgPreloadCache[key] = new Promise((resolve) => {
+      const img = new Image();
+      img.decoding = 'async';
+      const done = () => resolve();
+      const timer = setTimeout(done, ms);
+      img.onload = () => { clearTimeout(timer); done(); };
+      img.onerror = () => { clearTimeout(timer); done(); };
+      img.src = key;
+    });
+    return this._imgPreloadCache[key];
+  }
+  _collectPlayerImageUrls() {
+    const urls = [];
+    const seen = Object.create(null);
+    const add = (url) => {
+      const key = String(url || '').trim();
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      urls.push(key);
+    };
+    (this.slides || []).forEach((slide) => {
+      (slide.scenes || []).forEach((scene) => {
+        const stepByVisualId = {};
+        (slide.segments || []).forEach((seg) => {
+          (seg.steps || []).forEach((st) => {
+            if (st.visualId) stepByVisualId[st.visualId] = st;
+          });
+        });
+        (scene.visualIds || []).forEach((vid) => {
+          const st = stepByVisualId[vid];
+          if (!st || st.type === 'video') return;
+          let v = this.visualOf(st);
+          if (st.status === 'revised') v = st.after || this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
+          const imgUrl = this.displayImageUrl(v);
+          if (this.canShowImage(imgUrl, st.type)) add(imgUrl);
+        });
+      });
+    });
+    return urls;
+  }
+  _preloadPlayerImages(onProgress) {
+    const urls = this._collectPlayerImageUrls();
+    if (!urls.length) {
+      if (typeof onProgress === 'function') onProgress(100);
+      return Promise.resolve();
+    }
+    let done = 0;
+    const total = urls.length;
+    const tick = () => {
+      done += 1;
+      if (typeof onProgress === 'function') onProgress(Math.round((done / total) * 100));
+    };
+    const concurrency = 6;
+    let cursor = 0;
+    return new Promise((resolve) => {
+      const pump = () => {
+        if (cursor >= urls.length) {
+          resolve();
+          return;
+        }
+        const batch = urls.slice(cursor, cursor + concurrency);
+        cursor += concurrency;
+        Promise.all(batch.map((url) => this._preloadImageUrl(url).then(tick))).then(pump);
+      };
+      pump();
+    });
+  }
+  preparePlayerPlayback() {
+    if (!this._player || !this._player.cues.length) return Promise.resolve();
+    const token = ++this._playerPrepareToken;
+    return this._player.prepareAssets((onImgProgress) => this._preloadPlayerImages(onImgProgress)).then(() => {
+      if (token !== this._playerPrepareToken) return;
+      const cue = this._player.cues[this._player.cueIndex];
+      if (cue) return this.ensureCueVisualsReady(cue);
+    });
+  }
+  ensureCueVisualsReady(cue) {
+    const fadeWait = this._playerVisualFadePromise || Promise.resolve();
+    return fadeWait.then(() => this._ensureCueVisualsReadyAfterFade(cue));
+  }
+  _ensureCueVisualsReadyAfterFade(cue) {
+    if (!cue || !this.slides) return Promise.resolve();
+    const slide = this.slides[cue.slideIdx];
+    if (!slide) return Promise.resolve();
+    const scenes = slide.scenes || [];
+    let sceneDef = null;
+    for (let si = 0; si < scenes.length; si++) {
+      const sc = scenes[si];
+      const sid = sc.id != null ? String(sc.id) : String(si + 1);
+      if (sid === cue.sceneId) { sceneDef = sc; break; }
+    }
+    if (!sceneDef) sceneDef = scenes[cue.sceneIdx];
+    const jobs = [];
+    const videoJob = this._mountPlayerCueVideo(cue);
+    if (videoJob) jobs.push(videoJob);
+    if (!sceneDef) {
+      const st = cue.step;
+      if (!st || st.type === 'video') {
+        return jobs.length ? Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, 2500))]) : Promise.resolve();
+      }
+      const v = this.visualOf(st);
+      const imgUrl = this.displayImageUrl(v);
+      if (this.canShowImage(imgUrl, st.type)) jobs.push(this._preloadImageUrl(imgUrl, 3000));
+      if (!jobs.length) return Promise.resolve();
+      return Promise.race([
+        Promise.all(jobs),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
+    }
+    const visualIds = sceneDef.visualIds || [];
+    const stepByVisualId = {};
+    (slide.segments || []).forEach((seg) => {
+      (seg.steps || []).forEach((st) => {
+        if (st.visualId) stepByVisualId[st.visualId] = st;
+      });
+    });
+    const activePartIdx = cue.partIdx != null ? cue.partIdx : 0;
+    visualIds.forEach((vid, k) => {
+      if (k > activePartIdx) return;
+      const st = stepByVisualId[vid];
+      if (!st || st.type === 'video') return;
+      let v = this.visualOf(st);
+      if (st.status === 'revised') v = st.after || this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
+      const imgUrl = this.displayImageUrl(v);
+      if (this.canShowImage(imgUrl, st.type)) jobs.push(this._preloadImageUrl(imgUrl, 3000));
+    });
+    this._syncPlayerSceneVideos(cue);
+    if (!jobs.length) return Promise.resolve();
+    return Promise.race([
+      Promise.all(jobs),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+  }
+  _mountPlayerCueVideo(cue) {
+    if (!cue || !window.HFYoutube || !window.HFYoutube.mountPausedAtStartAsync) return null;
+    const st = cue.step;
+    if (!st || st.type !== 'video') return null;
+    const raw = st.assetUrl || st.url || this.rawAssetUrl(st);
+    if (!window.HFYoutube.isYoutubeUrl(raw)) return null;
+    const mountId = this.ytMountIdForCue(cue);
+    const heightPx = this._playerSlotHeightForCue(cue) || 480;
+    return window.HFYoutube.mountPausedAtStartAsync(mountId, raw, heightPx, {
+      cover: true,
+      timeoutMs: 4500,
+    }).catch(() => {});
+  }
+  _playerSceneKey(cue) {
+    if (!cue) return '';
+    return cue.slideIdx + ':' + cue.sceneId;
+  }
+  _estimatePlayerSlotHeight(cue, slotHeightRatio) {
+    const sceneKey = this._playerSceneKey(cue);
+    const canvas = document.querySelector('[data-player-scene="' + sceneKey + '"]');
+    if (canvas && canvas.clientHeight) {
+      return Math.max(80, Math.round(canvas.clientHeight * slotHeightRatio));
+    }
+    const wrap = document.querySelector('.hf-player-frame--layout, .hf-player-frame--fill');
+    const w = (wrap && wrap.clientWidth) || 900;
+    return Math.max(80, Math.round(w * (this.CANVAS_H / this.CANVAS_W) * slotHeightRatio));
+  }
+  _schedulePlayerSceneVideoSync(cue) {
+    if (!cue || !window.HFYoutube) return;
+    const token = ++this._playerVideoSyncToken;
+    const run = () => {
+      if (token !== this._playerVideoSyncToken) return;
+      this._syncPlayerSceneVideos(cue);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+    setTimeout(run, 120);
+    setTimeout(run, 400);
+  }
+  _syncPlayerSceneVideos(cue) {
+    if (!cue || !this.slides || !window.HFYoutube) return;
+    const slide = this.slides[cue.slideIdx];
+    if (!slide) return;
+    const scenes = slide.scenes || [];
+    let sceneDef = null;
+    for (let si = 0; si < scenes.length; si++) {
+      const sc = scenes[si];
+      const sid = sc.id != null ? String(sc.id) : String(si + 1);
+      if (sid === cue.sceneId) { sceneDef = sc; break; }
+    }
+    if (!sceneDef) sceneDef = scenes[cue.sceneIdx];
+    if (!sceneDef) return;
+    const template = sceneDef.template || '';
+    const layoutN = sceneDef.slotCount || (sceneDef.visualIds || []).length;
+    const rects = this.sceneRects(template, layoutN);
+    const stepByVisualId = {};
+    (slide.segments || []).forEach((seg) => {
+      (seg.steps || []).forEach((st) => {
+        if (st.visualId) stepByVisualId[st.visualId] = st;
+      });
+    });
+    const activePartIdx = cue.partIdx != null ? cue.partIdx : 0;
+    (sceneDef.visualIds || []).forEach((vid, k) => {
+      if (k > activePartIdx + 1) return;
+      const st = stepByVisualId[vid];
+      if (!st || st.type !== 'video') return;
+      const raw = st.assetUrl || st.url || this.rawAssetUrl(st);
+      if (!window.HFYoutube.isYoutubeUrl(raw)) return;
+      const mountId = this.ytMountIdForCue({
+        slideIdx: cue.slideIdx,
+        sceneId: cue.sceneId,
+        partIdx: k,
+        partCount: (sceneDef.visualIds || []).length,
+      });
+      if (!document.getElementById(mountId)) return;
+      const r = rects[k] || [0, 0, this.CANVAS_W, this.CANVAS_H];
+      const heightPx = this._estimatePlayerSlotHeight(cue, r[3] / this.CANVAS_H);
+      if (k < activePartIdx && window.HFYoutube.mountFrozenAtEndAsync) {
+        window.HFYoutube.mountFrozenAtEndAsync(mountId, raw, heightPx, { cover: true }).catch(() => {});
+      } else if (k === activePartIdx + 1 && window.HFYoutube.mountPausedAtStartAsync) {
+        // Prefetch next panel only — never touch the active playing panel here.
+        window.HFYoutube.mountPausedAtStartAsync(mountId, raw, heightPx, { cover: true }).catch(() => {});
+      }
+    });
+  }
+  _preloadPlayerSceneImages(cue) {
+    if (!cue || !this.slides) return;
+    const slide = this.slides[cue.slideIdx];
+    if (!slide) return;
+    const scenes = slide.scenes || [];
+    let sceneDef = null;
+    for (let si = 0; si < scenes.length; si++) {
+      const sc = scenes[si];
+      const sid = sc.id != null ? String(sc.id) : String(si + 1);
+      if (sid === cue.sceneId) { sceneDef = sc; break; }
+    }
+    if (!sceneDef) sceneDef = scenes[cue.sceneIdx];
+    if (!sceneDef) return;
+    const stepByVisualId = {};
+    (slide.segments || []).forEach((seg) => {
+      (seg.steps || []).forEach((st) => {
+        if (st.visualId) stepByVisualId[st.visualId] = st;
+      });
+    });
+    (sceneDef.visualIds || []).forEach((vid) => {
+      const st = stepByVisualId[vid];
+      if (!st || st.type === 'video') return;
+      const v = this.visualOf(st);
+      const url = this.displayImageUrl(v);
+      if (!this.canShowImage(url, st.type)) return;
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    });
+  }
+  _patchPlayerProgress(snap) {
+    const fills = document.querySelectorAll('.hf-player-progress-fill');
+    if (!fills.length) return;
+    const sceneCues = snap.sceneCues || [];
+    const cue = snap.cue;
+    const currentSceneIdx = cue ? sceneCues.findIndex((sc) => sc.visualId === cue.visualId) : -1;
+    fills.forEach((el, idx) => {
+      let fillPct = 0;
+      if (currentSceneIdx >= 0) {
+        if (idx < currentSceneIdx) fillPct = 100;
+        else if (idx === currentSceneIdx && snap.cueDuration > 0) {
+          fillPct = Math.min(100, (snap.cueElapsed / snap.cueDuration) * 100);
+        }
+      }
+      
+      // If a segment just reset to 0%, disable transition temporarily to prevent backwards animation flicker
+      const currentWidth = parseFloat(el.style.width || '0');
+      if (fillPct === 0 && currentWidth > 50) {
+        el.style.transition = 'none';
+        el.style.width = '0%';
+        // Force layout flush so disable-transition applies immediately
+        void el.offsetHeight;
+        el.style.transition = '';
+      } else {
+        el.style.width = fillPct.toFixed(2) + '%';
+      }
+    });
+    const timeEl = document.querySelector('.hf-player-time[data-player-time]');
+    if (timeEl) {
+      timeEl.textContent = this.formatPlayerTime(snap.cueElapsed) + ' / ' + this.formatPlayerTime(snap.cueDuration);
+    }
+  }
+  _patchPlayerPlayButton(playing) {
+    const btn = document.querySelector('.hf-player-btn-play');
+    if (!btn) return;
+    btn.classList.toggle('is-playing', !!playing);
+  }
+  _ensurePlayer() {
+    if (!this._player) this._initPlayer();
+    else this._player.setSlides(this.slides);
+  }
+  formatPlayerTime(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+  setAppView(view) {
+    if (view === 'player') {
+      if (window.HFYoutube) window.HFYoutube.destroyAll();
+      this._ensurePlayer();
+      this.appView = 'player';
+      if (this._player && this._player.cues.length) {
+        this._player.jumpToSlide(this.current);
+        this._player.prefetchVoiceovers(this._player.cueIndex, 8);
+        const cue = this._player.cues[this._player.cueIndex];
+        if (cue) this._preloadPlayerSceneImages(cue);
+        this.forceUpdate();
+        this.preparePlayerPlayback().then(() => {
+          if (this._player && this._player.cues.length) {
+            const cue = this._player.cues[this._player.cueIndex];
+            if (cue) this._schedulePlayerSceneVideoSync(cue);
+          }
+        }).catch(() => {});
+      } else {
+        this.forceUpdate();
+      }
+      return;
+    }
+    if (this._player) this._player.stop();
+    this.appView = 'review';
+    this.forceUpdate();
+  }
+  exitPlayerAdjustVisual() {
+    const cue = this.playerSnap && this.playerSnap.cue;
+    if (this._player) this._player.stop();
+    this.appView = 'review';
+    if (!cue) { this.forceUpdate(); return; }
+    this._sceneCollapsed[this.sceneKey(cue.rowIndex, cue.sceneId)] = false;
+    let j = 0, k = 0;
+    const slide = this.slides[cue.slideIdx];
+    if (slide) {
+      (slide.segments || []).forEach((seg, sj) => {
+        (seg.steps || []).forEach((st, sk) => {
+          if (st.visualId === cue.visualId) { j = sj; k = sk; }
+        });
+      });
+    }
+    const stepKey = cue.rowIndex + ':' + cue.visualId;
+    this.go(cue.slideIdx, stepKey);
+    setTimeout(() => this.focusStep(cue.slideIdx, j, k), 200);
+  }
+  buildPlayerRenderData(snap, total) {
+    const self = this;
+    const cue = snap.cue;
+    let visualType = 'empty';
+    let visualUrl = '';
+    let visualLabel = '';
+    let showYtMount = false;
+    if (cue && cue.step) {
+      const st = cue.step;
+      const raw = self.rawAssetUrl(st);
+      visualLabel = st.label || '';
+      if (st.type === 'video' && window.HFYoutube && window.HFYoutube.isYoutubeUrl(raw)) {
+        visualType = 'video';
+        showYtMount = true;
+      } else {
+        visualType = 'image';
+        const v = self.visualOf(st);
+        visualUrl = self.displayImageUrl(v);
+        if (!self.canShowImage(visualUrl, st.type)) visualUrl = '';
+      }
+    }
+    const sceneCues = snap.sceneCues || [];
+    const currentSceneIdx = cue ? sceneCues.findIndex((sc) => sc.visualId === cue.visualId) : -1;
+    const progressSegs = sceneCues.map((sc, idx) => {
+      let fillPct = 0;
+      if (currentSceneIdx >= 0) {
+        if (idx < currentSceneIdx) fillPct = 100;
+        else if (idx === currentSceneIdx && snap.cueDuration > 0) {
+          fillPct = Math.min(100, (snap.cueElapsed / snap.cueDuration) * 100);
+        }
+      }
+      return {
+        widthPct: (100 / Math.max(1, sceneCues.length)).toFixed(4),
+        fillPct: fillPct.toFixed(2),
+      };
+    });
+    const chipBase = {
+      height: '30px', padding: '0 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)',
+      background: 'rgba(255,255,255,0.06)', color: '#f3f4f6', fontFamily: 'inherit', fontWeight: 700,
+      fontSize: '12px', cursor: 'pointer',
+    };
+    return {
+      playerEmpty: !snap.hasCues,
+      playerShowLoading: !!snap.preloading || (!snap.assetsReady && snap.hasCues),
+      playerLoadProgress: snap.preloadProgress || 0,
+      playerLoadingLabel: snap.preloading ? 'Preparing playback...' : 'Loading assets...',
+      playerSlideNum: cue ? cue.slideIdx + 1 : 1,
+      playerSlideTotal: total,
+      playerSlideTitle: cue ? cue.slideTitle : '',
+      playerVisualKey: cue ? (cue.slideIdx + ':' + cue.sceneId + ':' + cue.visualId) : '',
+      playerCaptionFadeClass: self._playerCaptionFadeClass || '',
+      playerShowImage: visualType === 'image' && !!visualUrl,
+      playerShowYtMount: showYtMount,
+      playerYtMountId: cue ? self.ytMountIdForCue(cue) : 'hf-player-yt-mount',
+      playerShowPlaceholder: (visualType === 'image' && !visualUrl) || (visualType === 'video' && !showYtMount),
+      playerVisualUrl: visualUrl,
+      playerVisualLabel: visualLabel,
+      playerCaption: cue ? (cue.voiceover || '') : '',
+      playerCaptionStyle: {
+        display: (snap.ccOn && cue && cue.voiceover) ? 'block' : 'none',
+        left: '50%',
+        maxWidth: '78%',
+        transform: 'translateX(-50%)',
+        bottom: '20px',
+      },
+      playerShowCaption: !!snap.ccOn && !!cue && !!cue.voiceover,
+      playerProgressSegs: progressSegs,
+      playerPartLabel: cue ? ('Part ' + (cue.partIdx + 1) + ' / ' + cue.partCount) : '',
+      playerPlaying: !!snap.playing,
+      playerPlayBtnClass: snap.playing ? 'is-playing' : '',
+      playerPrevDisabled: !snap.hasCues || snap.cueIndex <= 0,
+      playerNextDisabled: !snap.hasCues || snap.cueIndex >= (snap.cues || []).length - 1,
+      playerAdjustBtnStyle: {
+        ...chipBase, display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '0 10px',
+      },
+      playerChipBtnStyle: chipBase,
+      playerCcBtnStyle: {
+        ...chipBase,
+        background: snap.ccOn ? '#2563eb' : 'rgba(255,255,255,0.06)',
+        borderColor: snap.ccOn ? '#2563eb' : 'rgba(255,255,255,0.14)',
+      },
+      playerTimeCurrent: self.formatPlayerTime(snap.cueElapsed),
+      playerTimeTotal: self.formatPlayerTime(snap.cueDuration),
+      playerSpeedLabel: snap.speed === 1 ? '1x' : (snap.speed + 'x'),
+      onPlayerTogglePlay: () => { if (self._player) self._player.togglePlay(); },
+      onPlayerPrev: () => { if (self._player) self._player.prev(); },
+      onPlayerNext: () => { if (self._player) self._player.next(); },
+      onPlayerAdjustVisual: () => self.exitPlayerAdjustVisual(),
+      onPlayerToggleSpeed: () => {
+        if (!self._player) return;
+        const speeds = self._playerSpeeds;
+        const idx = speeds.indexOf(self._player.speed);
+        self._player.setSpeed(speeds[(idx < 0 ? 0 : idx + 1) % speeds.length]);
+      },
+      onPlayerToggleCc: () => { if (self._player) self._player.toggleCc(); },
+    };
+  }
+  buildPlayerSceneSlots(cue, snap) {
+    const empty = { playerUseSceneLayout: false, playerSceneSlots: [], playerFrameStyle: {}, playerFrameClass: 'hf-player-frame--fill' };
+    if (!cue) return empty;
+    const slide = this.slides[cue.slideIdx];
+    if (!slide) return empty;
+    const scenes = slide.scenes || [];
+    let sceneDef = null;
+    for (let si = 0; si < scenes.length; si++) {
+      const sc = scenes[si];
+      const sid = sc.id != null ? String(sc.id) : String(si + 1);
+      if (sid === cue.sceneId) { sceneDef = sc; break; }
+    }
+    if (!sceneDef) sceneDef = scenes[cue.sceneIdx];
+    if (!sceneDef) return empty;
+
+    const visualIds = sceneDef.visualIds || [];
+    const stepByVisualId = {};
+    (slide.segments || []).forEach((seg, j) => {
+      (seg.steps || []).forEach((st, k) => {
+        if (st.visualId) stepByVisualId[st.visualId] = { st, j, k };
+      });
+    });
+    const refs = visualIds.map((vid) => stepByVisualId[vid]).filter(Boolean);
+    if (!refs.length) return empty;
+
+    const template = sceneDef.template || '';
+    const layoutN = sceneDef.slotCount || refs.length;
+    const rects = this.sceneRects(template, layoutN);
+    const h = React.createElement;
+    const activePartIdx = cue.partIdx != null
+      ? cue.partIdx
+      : Math.max(0, refs.findIndex((ref) => ref.st.visualId === cue.visualId));
+
+    const slots = refs.map((ref, k) => {
+      const st = ref.st;
+      const isRevealed = k <= activePartIdx;
+      const isActive = k === activePartIdx;
+      const r = rects[k] || [0, 0, this.CANVAS_W, this.CANVAS_H];
+      const x = r[0], y = r[1], w = r[2], ht = r[3];
+      let v = this.visualOf(st);
+      if (st.status === 'revised') v = st.after || this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
+      const raw = v.assetUrl || v.url || this.rawAssetUrl(st);
+      const isVideo = v.type === 'video' && window.HFYoutube && window.HFYoutube.isYoutubeUrl(raw);
+      const slotMountId = this.ytMountIdForCue({
+        slideIdx: cue.slideIdx,
+        sceneId: cue.sceneId,
+        partIdx: k,
+        partCount: refs.length,
+      });
+      let inner = null;
+      if (isVideo) {
+        inner = h('div', { className: 'hf-player-scene-slot-inner', key: 'slot-inner-' + k },
+          h('div', { id: slotMountId, className: 'hf-player-yt-mount', style: { width: '100%', height: '100%' } })
+        );
+      } else {
+        const imgUrl = this.displayImageUrl(v);
+        if (this.canShowImage(imgUrl, v.type)) {
+          inner = h('div', { className: 'hf-player-scene-slot-inner', key: 'slot-inner-' + k },
+            h('img', { src: imgUrl, alt: v.label || 'visual', loading: 'eager', decoding: 'async', style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' } })
+          );
+        } else {
+          const grad = this.GRADS[v.tone] || this.GRADS.gray;
+          inner = h('div', {
+            className: 'hf-player-scene-slot-inner',
+            key: 'slot-inner-' + k,
+            style: {
+              width: '100%', height: '100%',
+              background: 'linear-gradient(135deg, ' + grad[0] + ', ' + grad[1] + ')',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            },
+          }, this.iconFor(v.type, 22));
+        }
+      }
+      const slotClass = (isRevealed ? 'is-revealed ' : '') + (isActive ? 'is-active' : '');
+      const posStyle = {
+        position: 'absolute',
+        left: (x / this.CANVAS_W * 100) + '%',
+        top: (y / this.CANVAS_H * 100) + '%',
+        width: (w / this.CANVAS_W * 100) + '%',
+        height: (ht / this.CANVAS_H * 100) + '%',
+        borderRadius: '11px',
+        overflow: 'hidden',
+        background: '#ffffff',
+        outline: isActive ? 'none' : '1px solid rgba(0,0,0,0.06)',
+        outlineOffset: '-1px',
+        zIndex: isActive ? 2 : 1,
+      };
+      return { posStyle, innerEl: inner, slotClass: slotClass.trim() };
+    });
+
+    const sceneCaptionText = refs
+      .map((ref) => String(ref.st.voiceover || '').trim())
+      .filter(Boolean)
+      .join(' ');
+
+    return {
+      playerUseSceneLayout: true,
+      playerSceneSlots: slots,
+      playerSceneKey: cue.slideIdx + ':' + cue.sceneId,
+      playerCanvasStyle: {},
+      playerFrameClass: 'hf-player-frame--layout',
+      playerFrameStyle: {},
+      playerCaption: sceneCaptionText,
+      playerCaptionStyle: {
+        display: (snap && snap.ccOn && sceneCaptionText) ? 'block' : 'none',
+        left: '50%',
+        maxWidth: '78%',
+        transform: 'translateX(-50%)',
+        bottom: '20px',
+      },
+      playerShowCaption: !!(snap && snap.ccOn && sceneCaptionText),
+    };
   }
 
   // ---- helpers ----
@@ -1743,7 +2955,7 @@ class Component extends DCLogic {
     const h = React.createElement;
     opts = opts || {};
     const text = opts.mode === 'ai' ? 'Generating with AI\u2026' : 
-                 opts.mode === 'drive' ? 'Searching the asset library\u2026' : 'Finding a better visual\u2026';
+                 opts.mode === 'drive' ? 'Searching the asset library\u2026' : 'Finding a better visual from Web\u2026';
     return h('div', { style: { position: 'relative', width: '100%' } },
       this.tile(v, { ...opts, dim: true }),
       h('div', { style: { position: 'absolute', inset: 0, borderRadius: '12px', background: 'rgba(17,21,26,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '11px' } },
@@ -1982,15 +3194,66 @@ class Component extends DCLogic {
       const ytKey = 'scene-' + canvasKey + '-' + k;
       const isVideo = v.type === 'video' && window.HFYoutube && window.HFYoutube.isYoutubeUrl(v.assetUrl || v.url || '');
       const overlays = [h('div', { key: 'inner', style: { position: 'absolute', inset: 0 } }, this.sceneSlotInner(v, { ytKey, heightPx }))];
-      overlays.push(h('span', { key: 'num', style: { position: 'absolute', top: '8px', left: '8px', minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '7px', background: accent, color: accentColor, fontSize: '12px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.4)' } }, k + 1));
-      if (st.status === 'approved') overlays.push(h('span', { key: 'ok', style: { position: 'absolute', top: '8px', right: '8px', width: '24px', height: '24px', borderRadius: '99px', background: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.4)' } }, h('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: '#fff', strokeWidth: 3, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d: 'M20 6L9 17l-5-5' }))));
-      else if (st.status === 'revised') overlays.push(h('span', { key: 'new', style: { position: 'absolute', top: '8px', right: '8px', padding: '3px 8px', borderRadius: '7px', background: '#059669', color: '#fff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.04em', boxShadow: '0 2px 6px rgba(0,0,0,0.4)' } }, 'NEW'));
-      else if (st.status === 'revising') overlays.push(h('span', { key: 'sp', style: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '30px', height: '30px', border: '3px solid rgba(255,255,255,0.35)', borderRightColor: '#fff', borderRadius: '99px', animation: 'gdspin 0.7s linear infinite' } }));
-      const posStyle = { position: 'absolute', left: (x / this.CANVAS_W * 100) + '%', top: (y / this.CANVAS_H * 100) + '%', width: (w / this.CANVAS_W * 100) + '%', height: (ht / this.CANVAS_H * 100) + '%', zIndex: k + 1, border: 'none', padding: 0, borderRadius: '11px', overflow: 'hidden', cursor: isVideo ? 'default' : 'pointer', background: this.themeMode === 'dark' ? '#0f1115' : '#fff', boxShadow: '0 0 0 1px rgba(16,24,40,0.1)' };
+      overlays.push(h('span', { key: 'num', style: { position: 'absolute', top: '8px', left: '8px', minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '7px', background: accent, color: accentColor, fontSize: '12px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.4)', zIndex: 11 } }, k + 1));
+      if (st.status === 'approved') overlays.push(h('span', { key: 'ok', style: { position: 'absolute', top: '8px', right: '8px', width: '24px', height: '24px', borderRadius: '99px', background: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.4)', zIndex: 11 } }, h('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: '#fff', strokeWidth: 3, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d: 'M20 6L9 17l-5-5' }))));
+      else if (st.status === 'revised') overlays.push(h('span', { key: 'new', style: { position: 'absolute', top: '8px', right: '8px', padding: '3px 8px', borderRadius: '7px', background: '#059669', color: '#fff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.04em', boxShadow: '0 2px 6px rgba(0,0,0,0.4)', zIndex: 11 } }, 'NEW'));
+      else if (st.status === 'revising') {
+        const text = st.mode === 'ai' ? 'Generating with AI\u2026' : 
+                     st.mode === 'drive' ? 'Searching the asset library\u2026' : 'Finding a better visual from Web\u2026';
+        overlays.push(h('div', {
+          key: 'revising-overlay',
+          style: {
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(17,21,26,0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            zIndex: 11,
+            pointerEvents: 'none'
+          }
+        }, [
+          h('div', {
+            style: {
+              width: '28px',
+              height: '28px',
+              border: '3px solid rgba(255,255,255,0.3)',
+              borderRightColor: '#fff',
+              borderRadius: '99px',
+              animation: 'gdspin 0.7s linear infinite'
+            }
+          }),
+          h('span', {
+            style: {
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#fff',
+              letterSpacing: '0.01em',
+              textAlign: 'center',
+              padding: '0 8px',
+              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+              lineHeight: '1.2'
+            }
+          }, text)
+        ]));
+      }
+      
+      // Invisible click shield on top of iframe so click events bubble up and focus the step card for review
+      if (isVideo) {
+        overlays.push(h('div', {
+          key: 'click-shield',
+          style: { position: 'absolute', inset: 0, zIndex: 10, cursor: 'pointer' },
+          onClick: () => this.focusStep(i, ref.j, ref.k)
+        }));
+      }
+
+      const posStyle = { position: 'absolute', left: (x / this.CANVAS_W * 100) + '%', top: (y / this.CANVAS_H * 100) + '%', width: (w / this.CANVAS_W * 100) + '%', height: (ht / this.CANVAS_H * 100) + '%', zIndex: k + 1, border: 'none', padding: 0, borderRadius: '11px', overflow: 'hidden', cursor: 'pointer', background: this.themeMode === 'dark' ? '#0f1115' : '#fff', boxShadow: '0 0 0 1px rgba(16,24,40,0.1)' };
       return {
         posStyle,
-        title: isVideo ? ('Panel ' + (k + 1) + ' \u2014 video preview') : ('Panel ' + (k + 1) + ' \u2014 open to review'),
-        onClick: isVideo ? undefined : () => this.focusStep(i, ref.j, ref.k),
+        title: 'Panel ' + (k + 1) + ' \u2014 open to review',
+        onClick: () => this.focusStep(i, ref.j, ref.k),
         innerEl: h(React.Fragment, {}, overlays),
       };
     });
@@ -2919,6 +4182,18 @@ class Component extends DCLogic {
 
     return {
       courseName: this.courseName || 'Course',
+      appView: this.appView,
+      appShellClass: this.appView === 'player' ? 'hf-app-shell hf-app-shell--player' : 'hf-app-shell',
+      isReviewView: this.appView === 'review',
+      isPlayerView: this.appView === 'player',
+      reviewTabClass: this.appView === 'review' ? 'is-active' : '',
+      playerTabClass: this.appView === 'player' ? 'is-active' : '',
+      onViewReview: () => this.setAppView('review'),
+      onViewPlayer: () => this.setAppView('player'),
+      ...this.buildPlayerRenderData(this.playerSnap, total),
+      ...this.buildPlayerSceneSlots(this.playerSnap.cue, this.playerSnap),
+      playerSceneEnterClass: this.appView === 'player' ? this._playerSceneEnterClass(this.playerSnap.cue) : '',
+      playerVisualEnterClass: this.appView === 'player' ? this._playerVisualEnterClass(this.playerSnap.cue) : '',
       dark, narrationSegments, segVoPills,
       sharedFeedbackStyle, sharedFeedbackLabelStyle, sharedFeedbackTextStyle,
       topicName: currentTopic || '',
