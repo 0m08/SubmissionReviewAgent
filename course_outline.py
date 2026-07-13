@@ -110,12 +110,8 @@ deep_research_enabled = True
 
 RESEARCH_SOURCE_ALIASES = {
     "video": "video",
-    "video research": "video",
-    "videos": "video",
-    "web": "web",
-    "web research": "web",
-    "deep": "deep",
-    "deep research": "deep",
+    "web":   "web",
+    "deep":  "deep",
 }
 
 
@@ -148,24 +144,36 @@ def _parse_research_sources(df, col="Research Sources"):
 
 
 if "sheet" in st.session_state:
-    _, course_info_df = get_sheet_data_and_df(st.session_state["sheet"], "Course info")
-    flag_raw = course_info_df.loc[0, "Outline Topic Deep Research"]
-    topic_deep_research_enabled = (
-        str(flag_raw).strip().lower() != "false"
-        if pd.notna(flag_raw)
-        else True
-    )
+    try:
+        _, course_info_df = get_sheet_data_and_df(st.session_state["sheet"], "Course info")
 
-    # Research-type toggles driven by the "Research Sources" column in Course info.
-    _enabled_sources = _parse_research_sources(course_info_df)
-    video_research_enabled = "video" in _enabled_sources
-    web_research_enabled = "web" in _enabled_sources
-    deep_research_enabled = "deep" in _enabled_sources
+        if "Outline Topic Deep Research" in course_info_df.columns:
+            flag_raw = course_info_df.loc[0, "Outline Topic Deep Research"]
+            topic_deep_research_enabled = (
+                str(flag_raw).strip().lower() != "false"
+                if pd.notna(flag_raw)
+                else True
+            )
 
-    # Check the status of the oultine
-    if "Outline Stage" in course_info_df.columns:
-        status = course_info_df.loc[0, "Outline Stage"]
-        outline_finalized = isinstance(status, str) and status.strip().lower() == "final"
+        # Research-type toggles driven by the "Research Sources" column in Course info.
+        _enabled_sources = _parse_research_sources(course_info_df)
+        video_research_enabled = "video" in _enabled_sources
+        web_research_enabled = "web" in _enabled_sources
+        deep_research_enabled = "deep" in _enabled_sources
+
+        # Persist into session state so agent_ui_template can gate video steps.
+        st.session_state["video_research_enabled"] = video_research_enabled
+
+        # Check the status of the outline
+        if "Outline Stage" in course_info_df.columns:
+            status = course_info_df.loc[0, "Outline Stage"]
+            outline_finalized = isinstance(status, str) and status.strip().lower() == "final"
+
+    except Exception as _e:
+        print(f"[WARNING] Could not read Course info sheet to configure pipeline flags: {_e}. "
+              f"Falling back to defaults: video={video_research_enabled}, "
+              f"web={web_research_enabled}, deep={deep_research_enabled}")
+
 
 # --- 1) Define pipeline as sections, each with its own steps ---
 pipeline_sections = [
@@ -1056,6 +1064,7 @@ pipeline_sections.append({
             "args": {
                 "sheet": "sheet",
                 "llm": llm_model,
+                "drive": "drive",
             },
             "estimated_time": "~ 2-5 minutes",
             "description": "Loads all reference documents into the vectorstore for faster retrieval.",
@@ -1084,6 +1093,9 @@ pipeline_sections.append({
             "delete_args": {
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",
+                "drive": "drive",
+                "root_folder_id": "root_folder_id",
+                "course_name": "course_name",
             }
         },
         
@@ -1091,6 +1103,7 @@ pipeline_sections.append({
             "name": "Retrieve relevant HVAC Videos for Learning Objectives",
             "func": run_video_search_for_los,
             "depends_on": ["Retrieve relevant references for Learning Objectives"],
+            "hide_if_video_disabled": True,
             "args": {
                 "course_name": "course_name",
                 "target_audience": "target_audience",
@@ -1112,6 +1125,7 @@ pipeline_sections.append({
             "name": "Validate Video References",
             "func": run_validate_video_references,
             "depends_on": ["Retrieve relevant HVAC Videos for Learning Objectives"],
+            "hide_if_video_disabled": True,
             "args": {
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",
@@ -1131,6 +1145,7 @@ pipeline_sections.append({
             "name": "Preview Video References",
             "func": manual_preview_video_references,
             "depends_on": ["Validate Video References"],
+            "hide_if_video_disabled": True,
             "args": {
                 "sheet": "sheet",
                 "worksheet_name": "Final Outline",

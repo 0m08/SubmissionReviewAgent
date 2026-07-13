@@ -1,3 +1,4 @@
+import os
 import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 from google.genai import types
 from langsmith import traceable
 
+from agents.graphics_asset_creation.gac_utils import styling_guide
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     convert_watch_url_to_embed_url,
     get_drive_instance,
@@ -31,6 +33,11 @@ from services.smart_progress_bar import SmartProgressBar
 load_dotenv()
 
 image_edit_planning_prompt = """You are a senior graphics designer specializing in HVAC e-learning content. Your task is to review the selected visual assets for a single slideshow scene and create a structured edit plan that specifies whether each asset needs any instructional image edits before it is used in the final slideshow video.
+
+CRITICAL GUARDRAILS — READ FIRST AND STRICTLY ENFORCE:
+1. DEFAULT TO NO_EDIT: Your primary goal is to protect clean, high-quality graphics from unnecessary overlays. NO_EDIT is a highly successful outcome. If a graphic is already clear, high-quality, or self-explanatory, you MUST choose NO_EDIT. Do not invent edits just to produce a plan.
+2. RESPECT GRAPHICS DEFINITION: Always prioritize user-defined constraints in the graphics definition. If the definition indicates the graphic is already finalized or explicitly requests no annotations/labels/arrows, you must output NO_EDIT.
+3. PRESERVE PROFESSIONAL LOOK (NO CLUTTER): A graphic is considered perfect and complete if it is a clean, professional photo, high-fidelity diagram, or realistic rendering that is self-explanatory. Adding arrows, highlight boxes, or basic labels (e.g., labeling an obvious 'air conditioner' or 'pipe') makes the visual look cluttered and amateurish. Only suggest edits if the visual is otherwise ambiguous, confusing, or fails to show the specific technical concept discussed in the narration.
 
 In the final slideshow video, the selected visuals will be placed on the slide canvas according to the scene layout while the voiceover narration of the slide content plays in the background. Your edit decisions should therefore support what the learner needs to notice at that exact moment in the narration.
 
@@ -63,6 +70,10 @@ Narration Span: {narration_span}
 {scene_slots}
 </scene_slots>
 
+<styling_guide>
+{styling_guide}
+</styling_guide>
+
 Instructions and Guidelines:
 
 1. Core Responsibility
@@ -73,6 +84,8 @@ Instructions and Guidelines:
    - Use only the allowed edit types listed in this prompt.
    - Do not request edits that are decorative, unnecessary, or unrelated to learner understanding.
    - Prefer keeping the original asset unchanged when it already supports the narration clearly.
+   - **NO_EDIT is a successful outcome**: You are evaluated on protecting clean, high-quality graphics from unnecessary overlays. Do not feel pressured to suggest edits just to fill the output. If a graphic is already high-quality, clear, self-explanatory, or the main subject is already the obvious focal point, you MUST choose NO_EDIT.
+   - Respect Graphics Definition: Always prioritize user-defined constraints in the graphics definition. If the definition indicates the graphic is already finalized or explicitly requests no annotations/labels/arrows, you must output NO_EDIT.
 
 2. Layout Template Reference
    The layout template has already been assigned for this scene by an upstream layout agent. Use the reference below to understand the intended role of each slot and how editing decisions should respect the assigned layout.
@@ -85,7 +98,7 @@ Instructions and Guidelines:
    b) two_item_split_comparison
       - Description: Two visuals are shown side-by-side for direct comparison or paired explanation.
       - Slot roles: left_visual, right_visual
-      - Editing implication: Edits should preserve the comparison. If labels, arrows, or highlights are needed, they should be balanced and consistent across both visuals when appropriate.
+      - Editing implication: Edits should preserve the comparison. **No Overlay Elements**: Do not include annotations, text labels, callout boxes, or arrows when using a split-screen collage layout. Keep both halves of the image completely clean.
 
    c) multi_panel_grid
       - Description: Three or four visuals are shown as equal or near-equal panels.
@@ -139,6 +152,13 @@ Instructions and Guidelines:
       - Label text must be short, direct, and instructional.
      - Do not add labels for obvious objects or decorative purposes.
      - Do not add too many labels if they would clutter the visual or make the final scene harder to understand.
+     - Panel/Icon Concept Labels: If the edit plan requests a text label for a panel icon/concept (e.g., "HEAT", "AIR", "MOISTURE"), it MUST follow these rules:
+        - Sizing and Shape: Draw a solid orange (#F05523) rectangular badge with soft, rounded corners (border radius: ~8-12% of height). The badge must be horizontally centered at the bottom of the image frame.
+        - Dimensions: The badge must occupy roughly 50-60% of the image width and 15-20% of the image height. It must be identical in width, height, and padding for all sibling panels.
+        - Border: No border outline; it is a solid filled container.
+        - Text: The label text must be written in bold, uppercase, pure white (#FFFFFF) text in Fira Sans font, centered horizontally and vertically inside the orange badge.
+        - Position: The badge must sit exactly at the lower edge of the image canvas, leaving a small, uniform margin (~5% of height) at the bottom.
+        - Do NOT draw arrows, leader lines, or white boxes for panel/concept labels. They must look like a clean, solid orange title bar under the subject icon.
 
    d) CROP_IMAGE
       - Use when removing unnecessary surrounding area would make the relevant object or region easier to see.
@@ -167,7 +187,8 @@ Instructions and Guidelines:
 6. Purposeful Editing and Clarity Rules
    - Plan edits when they can make the asset clearer, more instructionally useful, or easier to understand during the narration span.
    - Prefer edits that help the learner quickly notice the specific object, part, condition, action, or relationship being described.
-   - Use NO_EDIT when the asset already communicates the narration clearly without modification.
+   - Use NO_EDIT when the asset already communicates the narration clearly without modification. If the graphic is already "perfect" (clear, high-quality, and instructionally sufficient), do not add any labels, arrows, highlights, or other artifacts.
+   - Avoid adding unnecessary labels or extra artifacts (like arrows, boxes, icons) to a clean, high-quality graphic. Over-labeling or adding redundant annotations to a self-explanatory visual degrades its quality and creates cognitive clutter.
    - Use multiple edits when they are genuinely needed, but make sure each edit has a clear instructional purpose.
    - Avoid decorative edits that only make the asset look more polished but do not improve learner understanding.
    - Avoid edits that create unnecessary clutter or make the important visual information harder to see.
@@ -603,6 +624,7 @@ def generate_scene_edit_plan_for_scene(course_name, target_audience, topic_name,
         layout_template=layout_template,
         narration_span=narration_span,
         scene_slots=scene_slots or "",
+        styling_guide=styling_guide,
     )
 
     parts = []
@@ -728,7 +750,7 @@ def run_scene_edit_planning_for_all_rows(sheet, llm="gemini_3_flash_thinking", m
 
     _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
     course_name = str(course_info_df.loc[0, "Course Name"]).strip() if not course_info_df.empty else ""
-    target_audience = str(course_info_df.loc[0, "Target Audience"]).strip() if "Target Audience" in course_info_df.columns and not course_info_df.empty else ""
+    target_audience = str(course_info_df.loc[0, "Target Audience & Industry"]).strip() if not course_info_df.empty else ""
 
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     if "scene_edit_plan" not in df.columns:

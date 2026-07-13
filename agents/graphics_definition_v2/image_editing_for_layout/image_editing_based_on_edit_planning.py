@@ -15,7 +15,7 @@ from openai import OpenAI
 from PIL import Image
 
 from agents.graphics_asset_creation.automated.llm_call_tracker import tracker
-from agents.graphics_asset_creation.gac_utils import upload_image_to_drive
+from agents.graphics_asset_creation.gac_utils import upload_image_to_drive, styling_guide
 from agents.graphics_asset_creation.image_editing.image_editing_openai import (
     download_image_from_url,
     image_from_base64,
@@ -34,7 +34,11 @@ from agents.graphics_definition_v2.image_editing_for_layout.image_edit_planning 
 )
 from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
     make_slot_narration_resolver_from_fgd,
+    _normalize_manifest_attribute_quotes,
+    _escape_manifest_bare_ampersands,
 )
+from agents.graphics_definition_v2.slideshow_manifest.slideshow_video import compute_slot_rectangles
+
 from services.sheets_service import (
     clear_worksheet,
     format_worksheet,
@@ -170,13 +174,13 @@ Instructions and Guidelines:
    - For ADD_ICON:
      - Add only the icon meaning requested or implied by the edit instruction.
      - Do not use icons that introduce new meaning not present in the edit instruction.
-
+     - Simple line icons in a single color — orange (#F05523).
    - For ADD_EMPHASIS:
      - Apply the specific emphasis described in <target_description>, such as zoom focus, dimming unrelated background, or subtle visual focus.
      - Keep the emphasis effect instructional and restrained.
      - Do not distort the technical meaning or appearance of the image.
 
-6. Visual Styling Rules
+6. Visual Styling & Sizing Rules
    - Use a clean instructional overlay style that is easy to read in an e-learning slideshow.
    - For all text labels, use Fira Sans.
    - Use the exact label text provided in <label_text>.
@@ -188,6 +192,30 @@ Instructions and Guidelines:
    - Use clean, thin-to-medium stroke widths for arrows, circles, and boxes.
    - Keep icons simple, flat, and instructional. Do not use decorative or overly detailed icons.
    - Keep all overlays visually consistent across the image when multiple edits are applied.
+   - Sibling panels must use the exact same background (solid pure white, #FFFFFF).
+
+   - Panel/Icon Concept Label Styling (only when explicitly requested in the edit plan):
+     - Apply ONLY when the edit plan explicitly includes an ADD_TEXT_LABEL edit for a panel concept (e.g., "HEAT", "AIR", "MOISTURE"). Do NOT add any label if it is not listed in the edit instructions.
+     - If a label is requested:
+       * Sizing and Shape: Draw a solid orange (#F05523) rectangular badge with soft, rounded corners (border radius: ~8-12% of height). The badge must be horizontally centered at the bottom of the image frame.
+       * Dimensions: The badge must occupy roughly 50-60% of the image width and 15-20% of the image height. It must be identical in width, height, and padding for all sibling panels.
+       * Border: No border outline; it is a solid filled container.
+       * Text: The label text must be written in bold, uppercase, pure white (#FFFFFF) text in Fira Sans font, centered horizontally and vertically inside the orange badge.
+       * Position: The badge must sit exactly at the lower edge of the image canvas, leaving a small, uniform margin (~5% of height) at the bottom.
+       * Do NOT draw arrows, leader lines, or white boxes for panel/concept labels. They must look like a clean, solid orange title bar under the subject icon.
+
+   - Annotation Box & Border Styling:
+     * The Box: A solid white rectangle with soft, rounded corners. The box must be small in size. If there are multiple annotation boxes in the image, all boxes must be of the exact same size.
+     * The Border: A solid orange (#F05523) outline around the edges of the white box.
+     * The Text: Plain, black text in Fira Sans font (bold for titles/labels; regular for body annotations), centered inside the box.
+     * The Arrow (Connector): An orange (#F05523) arrow attached to any side of the box, pointing to the subject. The arrow must match the color and thickness of the box's border.
+
+   - Sizing and Margins for Visuals (apply only when explicitly requested in the edit plan or [Style Harmonization] instructions):
+     * Do NOT resize, rescale, reframe, or add background shapes to an image unless the edit plan or harmonization instructions explicitly request it.
+     * When a resize or scale correction is explicitly requested: aim for the subject to occupy a clear, balanced portion of the image frame, centered with even margins on a clean white background.
+     * When a background shape addition is explicitly requested: match the shape, color, and size specified in the instructions.
+
+   - Split-Screen Collage Rule: Do not include annotations, text labels, callout boxes, or arrows when using a split-screen collage layout. Keep both halves of the image completely clean.
 
 7. Readability and Placement Rules
    - All labels, arrows, icons, highlights, and emphasis effects must be clearly visible and easy to understand at slideshow viewing size.
@@ -198,10 +226,19 @@ Instructions and Guidelines:
    - If the image background is busy or low-contrast, place the label in a readable area and use sufficient contrast so the text remains legible.
    - If multiple edits are applied, arrange them so the learner can still understand the image quickly without visual confusion.
    - Do not make overlays so large or visually dominant that they distract from the original image content.
+
+<styling_guide>
+{styling_guide}
+</styling_guide>
 """
 
 
 image_edit_review_prompt = """You are a senior instructional image edit review agent specializing in HVAC e-learning content. Your task is to review an edited image and determine whether the requested instructional edits were applied correctly, cleanly, and without damaging the original image.
+
+CRITICAL REVIEW GUARDRAIL — READ FIRST AND STRICTLY ENFORCE:
+- REJECT UNNECESSARY OVERLAYS: If the editor added redundant, obvious, or unnecessary labels, arrows, or highlight artifacts to a graphic that was already perfectly clear and instructionally complete in its original state, you MUST mark the image as FAIL.
+- WHAT MAKES A GRAPHIC PERFECT: A graphic is perfect if it is a clean, professional photo, high-fidelity diagram, or realistic rendering that is self-explanatory. Adding arrows, highlight boxes, or basic labels (e.g., labeling an obvious 'air conditioner' or 'pipe') makes the visual look cluttered and amateurish.
+- Revert feedback: In your failures feedback, instruct the editor: "Remove all added overlays/labels/arrows and revert the image back to its original state."
 
 This edited image will be used as a visual asset in a slideshow video, where the image will be placed on the slide canvas while the corresponding voiceover narration span plays in the background. The image must therefore be clear, readable, visually clean, and instructionally useful for the narration moment.
 
@@ -245,13 +282,16 @@ Instructions and Guidelines:
    - A PASS should be given only when the requested edits are applied correctly, the image remains faithful to the original, and the final result is clear, readable, and instructionally useful.
    - A FAIL should be given when the edited image has meaningful problems that should be fixed before use.
    - Do not suggest new edits that were not requested unless they are needed to fix a visible fault introduced during editing.
+   - **No Redundant Overlays**: Strongly reject edits that add unnecessary visual clutter, redundant labels, or extra artifacts to an already perfect and clear graphic.
 
-2. Edit Instruction Compliance
-   - Check whether every edit requested in <edit_instructions> was applied.
+2. Edit Instruction & Harmonization Compliance
+   - Check whether every edit requested in <edit_instructions> was applied, including any target instructions under `[Style Harmonization]`.
+   - Evaluate whether the visual styling aligns with style parameters (such as illustration style, realism level, container usage, gradients, line weights, alignment, color saturation, and branding).
+   - Ensure the visual styling is consistent and does not introduce mismatched aesthetics (e.g., mixing flat outline icons with 3D shaded icons, or introducing dark backgrounds if the slide style calls for clean white).
    - Check whether each edit was applied to the correct visible target described in <target_description>.
    - Check whether edits were applied in a way that supports the stated <reason_for_edit>.
    - Check whether all <must_preserve> requirements were respected.
-   - If a requested edit is missing, applied to the wrong target, incomplete, or visibly different from what was requested, mark the image as FAIL.
+   - If a requested edit or style harmonization instruction is missing, incomplete, or incorrectly applied, mark the image as FAIL.
    - If the edited image includes extra labels, arrows, highlights, icons, crops, or emphasis effects that were not requested, mark the image as FAIL unless the extra change is negligible and does not affect clarity.
 
 3. Original Image Preservation
@@ -270,8 +310,14 @@ Instructions and Guidelines:
    - If CROP_IMAGE was not requested, the image should not be cropped or reframed in a meaningful way.
    - Mark the image as FAIL if the crop is too aggressive, cuts off important content, removes necessary context, or was applied when not requested.
 
-5. Overlay Review Rules
+5. Overlay & Panel Label Review Rules
    - Review any labels, arrows, highlight circles/boxes, icons, or emphasis effects added to the image.
+   - **Panel/Concept Label Verification (CRITICAL):** If a label was requested for a concept or panel (e.g. "HEAT", "AIR", "MOISTURE"):
+     * The label MUST be a solid orange (#F05523) rectangular badge with soft rounded corners.
+     * The text MUST be centered inside the badge, written in bold, uppercase, pure white (#FFFFFF).
+     * The badge MUST be centered at the bottom of the image frame.
+     * There MUST NOT be any arrows, connector lines, pointer lines, or white background boxes for panel/concept labels.
+     * If the label shape is flat, sharp-cornered, contains black text, uses mismatched sizing/padding, or is placed elsewhere, you MUST mark the image as FAIL.
    - Overlays must be placed on or near the correct target.
    - Overlays must be readable, clean, and visually clear at slideshow viewing size.
    - Overlays must not cover important technical details unless the requested edit specifically requires marking that exact area.
@@ -287,13 +333,29 @@ Instructions and Guidelines:
    - The final image should be clear enough for the learner to quickly identify the target object, part, condition, action, relationship, or region that the edit was meant to clarify.
    - The image should not become more confusing, cluttered, or visually distracting after editing.
    - The image should remain appropriate for HVAC e-learning content and the target audience.
+   - **Reject Unnecessary Overlays**: If the edit adds redundant, obvious, or unnecessary labels, arrows, or highlight artifacts to a graphic that was already perfectly clear and instructionally complete in its original state, you MUST mark the image as FAIL. In your feedback, instruct the editor: *"Remove all added overlays/labels/arrows and revert the image back to its original state."*
    - Mark the image as FAIL if the edit reduces instructional clarity, makes the image harder to understand, or distracts from the narration intent.
 
-7. Open-Ended Fault Detection
+7. Open-Ended Fault & Style Cohesion Detection
    - In addition to the specific checks above, look for any other visible problem in the edited image that would make it unsuitable for use.
-   - This includes but is not limited to unnatural artifacts, unexpected object changes, poor alignment, strange shapes, broken text, inconsistent styling, low readability, excessive visual clutter, or any issue that would make the image look unprofessional.
+   - Compare the style and layout constraints of the target image against its siblings:
+     * Are the backgrounds identical (pure solid white)?
+     * Do the panel subjects align properly when placed side-by-side?
+     * Is the visual weight and stroke width of the outlines consistent across panels?
+     * Are the labels identical in badge size, shape, rounding, and font size?
+     * This includes but is not limited to unnatural artifacts, unexpected object changes, poor alignment, strange shapes, broken text, inconsistent styling, low readability, excessive visual clutter, or any issue that would make the image look unprofessional.
 
-8. Failure Reporting and Revision Guidance
+8. Absolute Image Quality Check
+   - Beyond comparing with the original, assess the edited image on its own absolute quality merits.
+   - Ask: "Is this image genuinely good enough to appear in a professional e-learning slideshow?" — not just "Was the edit applied?"
+   - Reject if the image is blurry, low-resolution, or pixelated to the point where labels or subjects are unclear.
+   - Reject if the overall rendering style (flat icon, photo, 3D render, diagram) is inappropriate for the slide type or looks inconsistent with what a professional HVAC e-learning course would use.
+   - Reject if the image is too dark, too bright, washed out, or has a background color or tonal quality that would look out-of-place on a slide canvas.
+   - Reject if any text visible in the image (original or added) contains typos, broken characters, or is too small to read at slide-viewing size.
+   - **Important scope constraint:** Subject sizing, centering, and background shape consistency are NOT grounds for a FAIL verdict unless a resize or background shape correction was explicitly requested in the edit instructions. Do not fail an image for these properties if they were not part of the edit plan.
+   - This check does NOT require a comparison with the original. These are absolute standards the image must meet on its own.
+
+9. Failure Reporting and Revision Guidance
    - If the edited image has any meaningful issue(s), the verdict must be FAIL.
    - When giving a FAIL verdict, clearly describe the issue(s) that should be fixed before the image can be approved.
    - For each issue, explain what is wrong, why it is a problem, and what should be changed in the next revision.
@@ -329,7 +391,14 @@ Use this section as a structured reasoning and scratchpad space to compare the o
 6. Visual Quality and Readability Review
 - Explain whether edits like labels, arrows, highlights, icons, crops, or emphasis effects are clean, readable, correctly placed, and visually appropriate.
 
-7. Additional Analysis
+7. Absolute Image Quality Review
+- Independently assess whether the edited image meets absolute professional quality standards for a slideshow video — not just relative to the original.
+- Is the image sharp, clear, and properly exposed?
+- Does the rendering style (photo, icon, diagram) look appropriate for a professional HVAC e-learning course?
+- Is any text in the image (original or added) legible at slide-viewing size with no typos or broken characters?
+- Does the image background, tone, and saturation look appropriate for placement on a slide canvas?
+
+8. Additional Analysis
 - Note any additional observations, visible faults, edge cases, or quality concerns that affect the verdict. It is ok for this section to be quite verbose and detailed as long as it allows you to do a thorough analysis and provide the correct output.
 
 </evaluation_breakdown>
@@ -371,6 +440,10 @@ Provide a detailed actionable feedback for how the editing agent should fix this
 </output>
 
 (Ensure that you strictly follow this exact output format. Do not add any extra text or comments outside the <output>, <evaluation_breakdown>, and <review> sections.)
+
+<styling_guide>
+{styling_guide}
+</styling_guide>
 """
 
 
@@ -408,6 +481,8 @@ def _sanitize_filename_component(name, fallback="slide"):
     if not name:
         return fallback
     safe = re.sub(r"[^A-Za-z0-9._\-]+", "_", str(name)).strip("._")
+    if len(safe) > 30:
+        safe = safe[:30].strip("_")
     return safe or fallback
 
 
@@ -855,6 +930,171 @@ def _narration_by_scene_id(manifest_text):
     return out
 
 
+def _closest_gemini_aspect_ratio(w, h):
+    """
+    Map target dimensions to the closest supported Gemini ImageConfig aspect_ratio string.
+    """
+    if w <= 0 or h <= 0:
+        return "1:1"
+    ratio = w / h
+    candidates = [
+        (1.0, "1:1"),
+        (4/3, "4:3"),
+        (16/9, "16:9"),
+        (21/9, "21:9"),
+        (3/4, "3:4"),
+        (4/5, "4:5"),
+        (9/16, "9:16"),
+        (3/2, "3:2"),
+        (2/3, "2:3"),
+        (5/4, "5:4"),
+    ]
+    return min(candidates, key=lambda ch: abs(ratio - ch[0]))[1]
+
+
+def _parse_manifest_for_slots(manifest_text):
+    """
+    Parse slideshow manifest XML into structured list of scenes.
+    """
+    import xml.etree.ElementTree as ET
+    scenes = []
+    text = (manifest_text or "").strip()
+    if not text:
+        return scenes
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+
+    wrapped = text
+    if "<slideshow_manifest" not in wrapped.lower():
+        wrapped = f"<slideshow_manifest>\n{wrapped}\n</slideshow_manifest>"
+    safe = _escape_manifest_bare_ampersands(_normalize_manifest_attribute_quotes(wrapped))
+
+    try:
+        root = ET.fromstring(safe)
+        tag = (root.tag or "").lower()
+        scene_elements = []
+        if tag.endswith("slideshow_manifest"):
+            scene_elements = root.findall("scene")
+        elif tag.endswith("scene"):
+            scene_elements = [root]
+        for scene_el in scene_elements:
+            scene_id = scene_el.attrib.get("id", "")
+            template = scene_el.attrib.get("template", "")
+            slots = []
+            for slot_el in scene_el.findall("slot"):
+                slots.append({
+                    "role": slot_el.attrib.get("role", ""),
+                    "asset": slot_el.attrib.get("asset", "")
+                })
+            scenes.append({
+                "id": scene_id,
+                "template": template,
+                "slots": slots
+            })
+    except Exception as e:
+        print(f"Error parsing slideshow manifest XML: {e}")
+    return scenes
+
+
+def _get_slot_target_dimensions(manifest_text, scene_id, slot_index_1based):
+    """
+    Compute target slot width and height for a specific scene and slot index.
+    """
+    try:
+        scenes = _parse_manifest_for_slots(manifest_text)
+        for scene in scenes:
+            if str(scene.get("id", "")).strip() == str(scene_id).strip():
+                slots = scene.get("slots", [])
+                template = scene.get("template", "")
+                rects = compute_slot_rectangles(template, slots)
+                idx = slot_index_1based - 1
+                if 0 <= idx < len(rects):
+                    _, _, w, h = rects[idx]
+                    return int(w), int(h)
+    except Exception as e:
+        print(f"Error getting slot target dimensions: {e}")
+    return 0, 0
+
+
+def _fallback_crop_or_pad_image(pil_image, target_w, target_h):
+    """
+    Programmatic fallback: Crop/pad the PIL image to target dimensions.
+    Detects if the image has a white background to pad with white; otherwise crops.
+    """
+    if pil_image is None:
+        return None
+    if target_w <= 0 or target_h <= 0:
+        return pil_image
+
+    src_w, src_h = pil_image.size
+    src_ratio = src_w / src_h
+    tgt_ratio = target_w / target_h
+
+    try:
+        border_pixels = []
+        for x in range(src_w):
+            border_pixels.append(pil_image.getpixel((x, 0)))
+            border_pixels.append(pil_image.getpixel((x, src_h - 1)))
+        for y in range(src_h):
+            border_pixels.append(pil_image.getpixel((0, y)))
+            border_pixels.append(pil_image.getpixel((src_w - 1, y)))
+
+        white_count = 0
+        for p in border_pixels:
+            if isinstance(p, tuple):
+                if len(p) == 4 and p[3] == 0:  # fully transparent
+                    white_count += 1
+                    continue
+                r, g, b = p[:3]
+            else:
+                r, g, b = p, p, p
+            if r > 245 and g > 245 and b > 245:
+                white_count += 1
+        is_white = (white_count / len(border_pixels)) > 0.8
+    except Exception:
+        is_white = False
+
+    if is_white:
+        new_img = Image.new("RGB", (target_w, target_h), (255, 255, 255))
+        scale = min(target_w / src_w, target_h / src_h)
+        new_w = int(src_w * scale)
+        new_h = int(src_h * scale)
+        resized = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        new_img.paste(resized, ((target_w - new_w) // 2, (target_h - new_h) // 2))
+        return new_img
+    else:
+        scale = max(target_w / src_w, target_h / src_h)
+        new_w = int(src_w * scale)
+        new_h = int(src_h * scale)
+        resized = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        left = (new_w - target_w) // 2
+        top = (new_h - target_h) // 2
+        return resized.crop((left, top, left + target_w, top + target_h))
+
+
+def _normalize_image_to_exact_dimensions(pil_image, target_w, target_h):
+    """
+    Perform a final programmatic resize to the exact target slot dimensions.
+    """
+    if pil_image is None:
+        return None
+    if target_w <= 0 or target_h <= 0:
+        return pil_image
+
+    src_w, src_h = pil_image.size
+    if src_w == target_w and src_h == target_h:
+        return pil_image
+
+    src_ratio = src_w / src_h
+    tgt_ratio = target_w / target_h
+
+    if abs(src_ratio - tgt_ratio) / max(tgt_ratio, 1e-6) < 0.15:
+        return pil_image.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+    return _fallback_crop_or_pad_image(pil_image, target_w, target_h)
+
+
+
 # =====================================================================
 # Review-regenerate loop for Scene Edit Execution
 # =====================================================================
@@ -1151,13 +1391,15 @@ def _gemini_review_call_with_contents(client, model, contents):
     return response_text, model_content
 
 
-def _gemini_edit_first_turn(reference_image, full_prompt, *, model):
+def _gemini_edit_first_turn(reference_image, full_prompt, *, model, target_aspect_ratio=None, sibling_images=None):
     """
     Begin a Gemini edit chat (Chat 1, turn 1).
 
     :param reference_image: PIL reference image to edit.
     :param full_prompt: Full image_edit_execution_prompt text for this slot.
     :param model: Gemini image model id.
+    :param target_aspect_ratio: Optional aspect ratio string (e.g. "16:9").
+    :param sibling_images: Optional list of tuples (slot_index, PIL Image, URL) of sibling panels for context.
     :return: Tuple of edited PIL image and history list of user and model Content turns.
     """
     client = _get_gemini_client()
@@ -1165,14 +1407,26 @@ def _gemini_edit_first_turn(reference_image, full_prompt, *, model):
         raise ValueError("Missing Google GenAI client (GOOGLE_API_KEY).")
 
     image_bytes = prepare_image_for_gemini(reference_image)
-    aspect_ratio = _approx_gemini_aspect_ratio(reference_image)
-    parts = [
+    aspect_ratio = target_aspect_ratio or _approx_gemini_aspect_ratio(reference_image)
+    
+    parts = []
+    if sibling_images:
+        parts.append(types.Part.from_text(
+            text="For visual style context, here are the other panel images assigned to the same slide. "
+                 "You MUST make the target edited image visually cohesive and style-harmonized with these siblings "
+                 "(matching background colors, stroke weights, illustration styles, and label/arrow appearance):"
+        ))
+        for sib_idx, sib_img, sib_url in sibling_images:
+            parts.append(types.Part.from_text(text=f"Sibling Image for slot {sib_idx} (URL: {sib_url}):"))
+            parts.append(types.Part.from_bytes(data=prepare_image_for_gemini(sib_img), mime_type="image/jpeg"))
+
+    parts.extend([
         types.Part.from_text(
-            text="Original Image: Apply all requested edits from the edit plan to this image."
+            text="Original Target Image to edit: Apply all requested edits from the edit plan to this image."
         ),
         types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
         types.Part.from_text(text=full_prompt),
-    ]
+    ])
     user_content = types.Content(role="user", parts=parts)
     edited_pil, model_content = _gemini_image_edit_call_with_contents(
         client, model, [user_content], aspect_ratio=aspect_ratio
@@ -1181,7 +1435,7 @@ def _gemini_edit_first_turn(reference_image, full_prompt, *, model):
     return edited_pil, history
 
 
-def _gemini_edit_followup_turn(history, follow_up_text, *, model, original_image, last_edited_image, original_image_url, last_edited_image_url, follow_up_edit_loop_num, aspect_ratio=None):
+def _gemini_edit_followup_turn(history, follow_up_text, *, model, original_image, last_edited_image, original_image_url, last_edited_image_url, follow_up_edit_loop_num, aspect_ratio=None, sibling_images=None):
     """
     Continue a Gemini edit chat with a multimodal follow-up turn.
 
@@ -1194,6 +1448,7 @@ def _gemini_edit_followup_turn(history, follow_up_text, *, model, original_image
     :param last_edited_image_url: URL string for the last edited upload.
     :param follow_up_edit_loop_num: 1-based edit loop number for this regeneration.
     :param aspect_ratio: Optional aspect ratio for ImageConfig (defaults from original_image).
+    :param sibling_images: Optional list of sibling images for style context.
     :return: Tuple of edited PIL image and updated history list.
     """
     client = _get_gemini_client()
@@ -1204,16 +1459,26 @@ def _gemini_edit_followup_turn(history, follow_up_text, *, model, original_image
         aspect_ratio = _approx_gemini_aspect_ratio(original_image)
     orig_bytes = prepare_image_for_gemini(original_image)
     edit_bytes = prepare_image_for_gemini(last_edited_image)
-    parts = [
+    
+    parts = []
+    if sibling_images:
+        parts.append(types.Part.from_text(
+            text="For visual style reference, here are the other panel images on the same slide:"
+        ))
+        for sib_idx, sib_img, sib_url in sibling_images:
+            parts.append(types.Part.from_text(text=f"Sibling Image for slot {sib_idx} (URL: {sib_url}):"))
+            parts.append(types.Part.from_bytes(data=prepare_image_for_gemini(sib_img), mime_type="image/jpeg"))
+
+    parts.extend([
         types.Part.from_text(
             text=f"Follow-up prompt (edit loop {follow_up_edit_loop_num})."
         ),
-        types.Part.from_text(text=f"Original Image: {original_image_url}"),
+        types.Part.from_text(text=f"Original Target Image: {original_image_url}"),
         types.Part.from_bytes(data=orig_bytes, mime_type="image/jpeg"),
-        types.Part.from_text(text=f"Edited Image: {last_edited_image_url}"),
+        types.Part.from_text(text=f"Last Edited Image (failed review): {last_edited_image_url}"),
         types.Part.from_bytes(data=edit_bytes, mime_type="image/jpeg"),
         types.Part.from_text(text=follow_up_text),
-    ]
+    ])
     user_content = types.Content(
         role="user",
         parts=parts,
@@ -1274,22 +1539,24 @@ def _openai_edit_followup_turn(reference_image, state, follow_up_text, *, model,
     return edited, state
 
 
-def _edit_chat_first_turn(reference_image, full_prompt, *, model):
+def _edit_chat_first_turn(reference_image, full_prompt, *, model, target_aspect_ratio=None, sibling_images=None):
     """
     Dispatch the first edit-chat turn to OpenAI or Gemini based on model id.
 
     :param reference_image: PIL reference image to edit.
     :param full_prompt: Full execution prompt for this slot.
     :param model: Edit model id (SCENE_IMAGE_EDIT_MODEL).
+    :param target_aspect_ratio: Optional aspect ratio string.
+    :param sibling_images: Optional list of sibling images for style context.
     :return: Tuple of edited PIL image and history or state object for follow-up turns.
     """
     provider = _scene_image_edit_provider(model)
     if provider == "openai":
         return _openai_edit_first_turn(reference_image, full_prompt, model=model)
-    return _gemini_edit_first_turn(reference_image, full_prompt, model=model)
+    return _gemini_edit_first_turn(reference_image, full_prompt, model=model, target_aspect_ratio=target_aspect_ratio, sibling_images=sibling_images)
 
 
-def _edit_chat_followup_turn(reference_image, history_or_state, follow_up_text, *, model, original_image_url=None, last_edited_image=None, last_edited_image_url=None, follow_up_edit_loop_num=None):
+def _edit_chat_followup_turn(reference_image, history_or_state, follow_up_text, *, model, original_image_url=None, last_edited_image=None, last_edited_image_url=None, follow_up_edit_loop_num=None, target_aspect_ratio=None, sibling_images=None):
     """
     Dispatch a follow-up edit-chat turn to OpenAI or Gemini.
 
@@ -1301,6 +1568,8 @@ def _edit_chat_followup_turn(reference_image, history_or_state, follow_up_text, 
     :param last_edited_image: PIL of the edit output that failed review (Gemini only).
     :param last_edited_image_url: Drive URL for that edited image.
     :param follow_up_edit_loop_num: Edit loop number for this follow-up (e.g. 2, 3).
+    :param target_aspect_ratio: Optional aspect ratio string.
+    :param sibling_images: Optional list of sibling images for style context.
     :return: Tuple of edited PIL image and updated history or state.
     """
     provider = _scene_image_edit_provider(model)
@@ -1323,10 +1592,12 @@ def _edit_chat_followup_turn(reference_image, history_or_state, follow_up_text, 
         original_image_url=original_image_url or "",
         last_edited_image_url=last_edited_image_url or "",
         follow_up_edit_loop_num=follow_up_edit_loop_num or 0,
+        aspect_ratio=target_aspect_ratio,
+        sibling_images=sibling_images,
     )
 
 
-def _review_chat_first_turn(original_image, edited_image, full_review_prompt, *, model):
+def _review_chat_first_turn(original_image, edited_image, full_review_prompt, *, model, sibling_images=None):
     """
     Begin the reviewer chat (Chat 2, turn 1) on Gemini with multimodal inputs.
 
@@ -1334,6 +1605,7 @@ def _review_chat_first_turn(original_image, edited_image, full_review_prompt, *,
     :param edited_image: PIL first edited image to review.
     :param full_review_prompt: Full image_edit_review_prompt text for this slot.
     :param model: Gemini review model id.
+    :param sibling_images: Optional list of sibling images for context.
     :return: Tuple of verdict string, failures XML string, raw response text, and history list.
     """
     client = _get_gemini_client()
@@ -1342,17 +1614,27 @@ def _review_chat_first_turn(original_image, edited_image, full_review_prompt, *,
 
     orig_bytes = prepare_image_for_gemini(original_image)
     edit_bytes = prepare_image_for_gemini(edited_image)
-    parts = [
+    
+    parts = []
+    if sibling_images:
+        parts.append(types.Part.from_text(
+            text="For visual context and style alignment check, here are the other panel images on the same slide:"
+        ))
+        for sib_idx, sib_img, sib_url in sibling_images:
+            parts.append(types.Part.from_text(text=f"Sibling Image for slot {sib_idx} (URL: {sib_url}):"))
+            parts.append(types.Part.from_bytes(data=prepare_image_for_gemini(sib_img), mime_type="image/jpeg"))
+
+    parts.extend([
         types.Part.from_text(
             text="Image 1 (ORIGINAL reference image, before any edits)."
         ),
         types.Part.from_bytes(data=orig_bytes, mime_type="image/jpeg"),
         types.Part.from_text(
-            text="Image 2 (EDITED image to review, after applying the edit instructions)."
+            text="Image 2 (EDITED target image to review, after applying the edit instructions)."
         ),
         types.Part.from_bytes(data=edit_bytes, mime_type="image/jpeg"),
         types.Part.from_text(text=full_review_prompt),
-    ]
+    ])
     user_content = types.Content(role="user", parts=parts)
     response_text, model_content = _gemini_review_call_with_contents(
         client, model, [user_content]
@@ -1362,7 +1644,7 @@ def _review_chat_first_turn(original_image, edited_image, full_review_prompt, *,
     return verdict, failures, raw, history
 
 
-def _review_chat_followup_turn(new_edited_image, history, follow_up_text, *, model):
+def _review_chat_followup_turn(new_edited_image, history, follow_up_text, *, model, sibling_images=None):
     """
     Continue the reviewer chat with a new revised edited image (Chat 2, later turns).
 
@@ -1370,6 +1652,7 @@ def _review_chat_followup_turn(new_edited_image, history, follow_up_text, *, mod
     :param history: Existing list of Content objects, mutated in place.
     :param follow_up_text: Short follow-up prompt.
     :param model: Gemini review model id.
+    :param sibling_images: Optional list of sibling images for context.
     :return: Tuple of verdict string, failures XML string, raw response text, and history list.
     """
     client = _get_gemini_client()
@@ -1377,13 +1660,23 @@ def _review_chat_followup_turn(new_edited_image, history, follow_up_text, *, mod
         raise ValueError("Missing Google GenAI client (GOOGLE_API_KEY).")
 
     edit_bytes = prepare_image_for_gemini(new_edited_image)
-    parts = [
+    
+    parts = []
+    if sibling_images:
+        parts.append(types.Part.from_text(
+            text="For visual context and style alignment check, here are the other panel images on the same slide:"
+        ))
+        for sib_idx, sib_img, sib_url in sibling_images:
+            parts.append(types.Part.from_text(text=f"Sibling Image for slot {sib_idx} (URL: {sib_url}):"))
+            parts.append(types.Part.from_bytes(data=prepare_image_for_gemini(sib_img), mime_type="image/jpeg"))
+
+    parts.extend([
         types.Part.from_text(
-            text="Revised edited image, replacing the previously reviewed edited image."
+            text="Revised edited target image, replacing the previously reviewed edited image."
         ),
         types.Part.from_bytes(data=edit_bytes, mime_type="image/jpeg"),
         types.Part.from_text(text=follow_up_text),
-    ]
+    ])
     user_content = types.Content(role="user", parts=parts)
     contents = list(history) + [user_content]
     response_text, model_content = _gemini_review_call_with_contents(
@@ -1486,7 +1779,13 @@ def _format_slot_outputs(loops, asset_url, image_index):
     return tracking_lines, review_lines
 
 
-def _run_edit_review_loop_for_slot(scene_id, image_index, asset_url, reference_image, full_edit_prompt, review_prompt_template, review_prompt_kwargs, edit_model, review_model, drive, safe_title, time_part):
+def _run_edit_review_loop_for_slot(
+    scene_id, image_index, asset_url, reference_image,
+    full_edit_prompt, review_prompt_template, review_prompt_kwargs,
+    edit_model, review_model, drive, safe_title, time_part,
+    target_slot_w=0, target_slot_h=0, target_aspect_ratio=None,
+    sibling_images=None
+):
     """
     Run edit, review, and optional regenerate loops for one instructional slot.
 
@@ -1502,17 +1801,17 @@ def _run_edit_review_loop_for_slot(scene_id, image_index, asset_url, reference_i
     :param drive: Google Drive client for uploads.
     :param safe_title: Sanitized slide title fragment for filenames.
     :param time_part: Time string fragment for filenames.
+    :param sibling_images: Sibling panel details for style alignment context.
     :return: Tuple of tracking_lines and review_lines from _format_slot_outputs.
     """
     loops = []
+    last_edited_pil = None
 
-    # print("=" * 80)
-    # print("Image edit execution — image_edit_execution_prompt (formatted)")
-    # print(f"Scene ID {scene_id} | Image {image_index} | Initial editor turn (loop 1)")
-    # print("=" * 80)
-    # print(full_edit_prompt)
-    # print("=" * 80)
-    # print()
+    needs_edit = full_edit_prompt is not None
+
+    if not needs_edit:
+        track, rev = _format_slot_outputs(loops, asset_url, image_index)
+        return track, rev, reference_image, None
 
     rec = {
         "loop_num": 1,
@@ -1526,210 +1825,426 @@ def _run_edit_review_loop_for_slot(scene_id, image_index, asset_url, reference_i
 
     try:
         edited_pil, edit_state = _edit_chat_first_turn(
-            reference_image, full_edit_prompt, model=edit_model
+            reference_image, full_edit_prompt, model=edit_model, target_aspect_ratio=target_aspect_ratio, sibling_images=sibling_images
         )
+        last_edited_pil = edited_pil
     except Exception as e:
         traceback.print_exc()
         rec["edit_error"] = f"{e}"
-        loops.append(rec)
-        return _format_slot_outputs(loops, asset_url, image_index)
+        if target_slot_w > 0 and target_slot_h > 0:
+            print(f"  [AR-normalize] Edit failed: {e}. Falling back to programmatic crop/pad.")
+            last_edited_pil = _fallback_crop_or_pad_image(reference_image, target_slot_w, target_slot_h)
+            rec["edit_error"] = f"{e} (Fell back to programmatic crop/pad)"
 
-    fname = (
-        f"{safe_title}_{time_part}_{uuid.uuid4().hex[:8]}"
-        f"_S{scene_id}_I{image_index}_L{rec['loop_num']}.png"
-    )
-    edited_url = upload_image_to_drive(
-        edited_pil, fname, drive, folder_id=EDITED_IMAGE_DRIVE_FOLDER_ID
-    )
-    if not edited_url:
-        rec["edit_error"] = "Edited image upload to Drive failed"
-        loops.append(rec)
-        return _format_slot_outputs(loops, asset_url, image_index)
-    rec["edit_url"] = edited_url
-
-    print("=" * 80)
-    print("Image edit execution — editor model output (after image_edit_execution_prompt)")
-    print(f"Scene ID {scene_id} | Image {image_index} | Loop 1")
-    print("=" * 80)
-    print(f"Edited image URL: {edited_url}")
-    print("=" * 80)
-    print()
-
-    review_history = None
-    full_review_prompt = review_prompt_template.format(
-        **review_prompt_kwargs,
-        edited_asset_url=edited_url,
-    )
-    # print("=" * 80)
-    # print("Image edit execution — image_edit_review_prompt (formatted)")
-    # print(f"Scene ID {scene_id} | Image {image_index} | Initial reviewer turn (loop 1)")
-    # print("=" * 80)
-    # print(full_review_prompt)
-    # print("=" * 80)
-    # print()
-    try:
-        verdict, failures, raw, review_history = _review_chat_first_turn(
-            reference_image,
-            edited_pil,
-            full_review_prompt,
-            model=review_model,
-        )
-        rec["verdict"] = verdict
-        rec["failures"] = failures
-        rec["raw_review"] = raw
-        print(f"\n{'─'*80}")
-        print(
-            f"📤 Scene edit execution — reviewer LLM response "
-            f"(Scene {scene_id}, Image {image_index}, loop 1; "
-        )
-        print(f"{'─'*80}")
-        output_match = re.search(
-            r"<output\b[^>]*>(.*?)</output>",
-            (raw or ""),
-            re.DOTALL | re.IGNORECASE,
-        )
-        if output_match:
-            inner = output_match.group(1).strip()
-            print(inner if inner else "(empty inside <output>)")
-        else:
-            print("⚠️  No <output>...</output> in response; full text below.")
-            print((raw or "").strip() or "(empty reviewer response)")
-        print(f"{'─'*80}")
-        print(f"Parsed verdict: {verdict or '(none)'}")
-        print()
-    except Exception as e:
-        traceback.print_exc()
-        rec["review_error"] = f"{e}"
-        loops.append(rec)
-        return _format_slot_outputs(loops, asset_url, image_index)
-
-    loops.append(rec)
-
-    for _cycle in range(1, MAX_EDIT_REVIEW_LOOPS + 1):
-        last = loops[-1]
-        if (last.get("verdict") or "").upper() == "PASS":
-            break
-        if last.get("edit_error") or last.get("review_error"):
-            break
-
-        loop_num = last["loop_num"] + 1
-        rec = {
-            "loop_num": loop_num,
-            "edit_url": None,
-            "edit_error": None,
-            "verdict": None,
-            "failures": "",
-            "review_error": None,
-            "raw_review": "",
-        }
-
-        follow_up_edit_text = edit_revision_followup_template.format(
-            failures_xml=_failures_for_followup(
-                last.get("failures") or "",
-                last.get("raw_review") or "",
-            )
-        )
-        # print("=" * 80)
-        # print("Image edit execution — edit_revision_followup_template (formatted)")
-        # print(
-        #     f"Scene ID {scene_id} | Image {image_index} | "
-        #     f"Editor follow-up before loop {loop_num} edit (after loop {last['loop_num']} FAIL)"
-        # )
-        # print("=" * 80)
-        # print(follow_up_edit_text)
-        # print("=" * 80)
-        # print()
-        try:
-            edited_pil, edit_state = _edit_chat_followup_turn(
-                reference_image,
-                edit_state,
-                follow_up_edit_text,
-                model=edit_model,
-                original_image_url=asset_url,
-                last_edited_image=edited_pil,
-                last_edited_image_url=last.get("edit_url") or "",
-                follow_up_edit_loop_num=loop_num,
-            )
-        except Exception as e:
-            traceback.print_exc()
-            rec["edit_error"] = f"{e}"
-            loops.append(rec)
-            break
+    if last_edited_pil is not None:
+        if target_slot_w > 0 and target_slot_h > 0:
+            last_edited_pil = _normalize_image_to_exact_dimensions(last_edited_pil, target_slot_w, target_slot_h)
 
         fname = (
             f"{safe_title}_{time_part}_{uuid.uuid4().hex[:8]}"
-            f"_S{scene_id}_I{image_index}_L{loop_num}.png"
+            f"_S{scene_id}_I{image_index}_L1.png"
         )
         edited_url = upload_image_to_drive(
-            edited_pil, fname, drive, folder_id=EDITED_IMAGE_DRIVE_FOLDER_ID
+            last_edited_pil, fname, drive, folder_id=EDITED_IMAGE_DRIVE_FOLDER_ID
         )
         if not edited_url:
             rec["edit_error"] = "Edited image upload to Drive failed"
             loops.append(rec)
-            break
+            track, rev = _format_slot_outputs(loops, asset_url, image_index)
+            return track, rev, last_edited_pil or reference_image, edit_state
         rec["edit_url"] = edited_url
 
-        print("=" * 80)
-        print(
-            "Image edit execution — editor model output "
-            "(after edit_revision_followup_template)"
-        )
-        print(f"Scene ID {scene_id} | Image {image_index} | Loop {loop_num}")
-        print("=" * 80)
-        print(f"Edited image URL: {edited_url}")
-        print("=" * 80)
-        print()
-
-        # print("=" * 80)
-        # print("Image edit execution — review_revision_followup_template")
-        # print(
-        #     f"Scene ID {scene_id} | Image {image_index} | "
-        #     f"Reviewer follow-up re-review after loop {loop_num} edit"
-        # )
-        # print("=" * 80)
-        # print(review_revision_followup_template)
-        # print("=" * 80)
-        # print()
-        try:
-            verdict, failures, raw, review_history = _review_chat_followup_turn(
-                edited_pil,
-                review_history,
-                review_revision_followup_template,
-                model=review_model,
-            )
-            rec["verdict"] = verdict
-            rec["failures"] = failures
-            rec["raw_review"] = raw
-            print(f"\n{'─'*80}")
-            print(
-                f"📤 Scene edit execution — reviewer LLM response "
-                f"(Scene {scene_id}, Image {image_index}, loop {loop_num}; "
-                "content inside <output>...</output> when present)"
-            )
-            print(f"{'─'*80}")
-            output_match = re.search(
-                r"<output\b[^>]*>(.*?)</output>",
-                (raw or ""),
-                re.DOTALL | re.IGNORECASE,
-            )
-            if output_match:
-                inner = output_match.group(1).strip()
-                print(inner if inner else "(empty inside <output>)")
-            else:
-                print("⚠️  No <output>...</output> in response; full text below.")
-                print((raw or "").strip() or "(empty reviewer response)")
-            print(f"{'─'*80}")
-            print(f"Parsed verdict: {verdict or '(none)'}")
-            print()
-        except Exception as e:
-            traceback.print_exc()
-            rec["review_error"] = f"{e}"
+        is_only_ar = review_prompt_kwargs is None
+        if is_only_ar:
+            rec["verdict"] = "PASS"
             loops.append(rec)
-            break
+        else:
+            print("=" * 80)
+            print("Image edit execution — editor model output (after image_edit_execution_prompt)")
+            print(f"Scene ID {scene_id} | Image {image_index} | Loop 1")
+            print("=" * 80)
+            print(f"Edited image URL: {edited_url}")
+            print("=" * 80)
+            print()
 
+            review_history = None
+            full_review_prompt = review_prompt_template.format(
+                **review_prompt_kwargs,
+                edited_asset_url=edited_url,
+            )
+            try:
+                verdict, failures, raw, review_history = _review_chat_first_turn(
+                    reference_image,
+                    last_edited_pil,
+                    full_review_prompt,
+                    model=review_model,
+                    sibling_images=sibling_images,
+                )
+                rec["verdict"] = verdict
+                rec["failures"] = failures
+                rec["raw_review"] = raw
+                print(f"Parsed verdict: {verdict or '(none)'}")
+            except Exception as e:
+                traceback.print_exc()
+                rec["review_error"] = f"{e}"
+                loops.append(rec)
+                track, rev = _format_slot_outputs(loops, asset_url, image_index)
+                return track, rev, last_edited_pil or reference_image, edit_state
+
+            loops.append(rec)
+
+            for _cycle in range(1, MAX_EDIT_REVIEW_LOOPS + 1):
+                last = loops[-1]
+                if (last.get("verdict") or "").upper() == "PASS":
+                    break
+                if last.get("edit_error") or last.get("review_error"):
+                    break
+
+                loop_num = last["loop_num"] + 1
+                rec = {
+                    "loop_num": loop_num,
+                    "edit_url": None,
+                    "edit_error": None,
+                    "verdict": None,
+                    "failures": "",
+                    "review_error": None,
+                    "raw_review": "",
+                }
+
+                follow_up_edit_text = edit_revision_followup_template.format(
+                    failures_xml=_failures_for_followup(
+                        last.get("failures") or "",
+                        last.get("raw_review") or "",
+                    )
+                )
+                try:
+                    edited_pil, edit_state = _edit_chat_followup_turn(
+                        reference_image,
+                        edit_state,
+                        follow_up_edit_text,
+                        model=edit_model,
+                        original_image_url=asset_url,
+                        last_edited_image=last_edited_pil,
+                        last_edited_image_url=last.get("edit_url"),
+                        follow_up_edit_loop_num=loop_num,
+                        target_aspect_ratio=target_aspect_ratio,
+                        sibling_images=sibling_images,
+                    )
+                    last_edited_pil = edited_pil
+                except Exception as e:
+                    traceback.print_exc()
+                    rec["edit_error"] = f"{e}"
+                    if target_slot_w > 0 and target_slot_h > 0:
+                        print(f"  [AR-normalize] Edit followup failed: {e}. Falling back to programmatic crop/pad.")
+                        last_edited_pil = _fallback_crop_or_pad_image(reference_image, target_slot_w, target_slot_h)
+                        rec["edit_error"] = f"{e} (Fell back to programmatic crop/pad)"
+
+                if last_edited_pil is not None:
+                    if target_slot_w > 0 and target_slot_h > 0:
+                        last_edited_pil = _normalize_image_to_exact_dimensions(last_edited_pil, target_slot_w, target_slot_h)
+
+                    fname = (
+                        f"{safe_title}_{time_part}_{uuid.uuid4().hex[:8]}"
+                        f"_S{scene_id}_I{image_index}_L{loop_num}.png"
+                    )
+                    edited_url = upload_image_to_drive(
+                        last_edited_pil, fname, drive, folder_id=EDITED_IMAGE_DRIVE_FOLDER_ID
+                    )
+                    if not edited_url:
+                        rec["edit_error"] = "Edited image upload to Drive failed"
+                        loops.append(rec)
+                        break
+                    rec["edit_url"] = edited_url
+
+                    try:
+                        verdict, failures, raw, review_history = _review_chat_followup_turn(
+                            last_edited_pil,
+                            review_history,
+                            review_revision_followup_template,
+                            model=review_model,
+                            sibling_images=sibling_images,
+                        )
+                        rec["verdict"] = verdict
+                        rec["failures"] = failures
+                        rec["raw_review"] = raw
+                        print(f"Parsed verdict: {verdict or '(none)'}")
+                    except Exception as e:
+                        traceback.print_exc()
+                        rec["review_error"] = f"{e}"
+                        loops.append(rec)
+                        break
+
+                    loops.append(rec)
+    else:
         loops.append(rec)
 
-    return _format_slot_outputs(loops, asset_url, image_index)
+    track, rev = _format_slot_outputs(loops, asset_url, image_index)
+    return track, rev, (last_edited_pil if last_edited_pil is not None else reference_image), edit_state
+
+
+_style_harmonization_prompt = """You are a senior visual style harmonization agent specializing in e-learning slideshow content. The images provided below will be placed side-by-side in a single multi-panel slide. Your task is to analyze all images together and produce per-slot edit instructions that make every image look like it belongs to the same visual set — without changing the subject, content, or instructional meaning of any image.
+
+CRITICAL GUARDRAIL — EDUCATIONAL INTEGRITY — READ FIRST AND STRICTLY ENFORCE:
+- Your changes are purely cosmetic. You must NEVER alter, remove, distort, or obscure any element that carries educational value.
+- Educational elements include but are not limited to: subject identity, technical components, labels, annotations, arrows, diagrams, equipment parts, process steps, and any text embedded in the image.
+- Do NOT change what the image is communicating. Only change how it looks visually relative to its siblings.
+- If applying a style change (e.g. background removal, rendering conversion, scaling) would damage or hide any educational element, you must skip that change for that slot and explain why.
+- A harmonized but educationally broken image is worse than a non-harmonized but educationally intact one.
+
+This is the context for the slide:
+<course_information>
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<slide_information>
+Slide Type: {slide_type}
+Slide Title: {slide_title}
+Slide Content: {slide_content}
+</slide_information>
+
+Instructions and Guidelines:
+
+1. Style Consistency Evaluation Parameters
+   Examine all provided images together and evaluate them across the following key style parameters to identify core styling and aesthetic issues:
+   - Illustration Style & Realism: Are they a mix of photos, line art, flat icons, or 3D renders? Identify the dominant style.
+   - Use of Containers: Do some images use borders, background circles/squares, while others float freely?
+   - Level of Complexity & Detail: Do they have vastly different levels of visual complexity or curve detail?
+   - Color Palette & Saturation: Are color temperatures, saturation levels, or accent colors inconsistent?
+   - Gradients, Lighting, & Shadows: Do some use flat fills while others use radial gradients, highlights, or drop shadows?
+   - Stroke & Line Weight: Do some use monoline strokes of varying weights, while others use filled paths?
+   - Geometry & Visual Weight: Do some silhouettes look circular while others are wide or tall, causing an unequal balance of visual mass?
+   - Typography & Labels: Are text label formatting, font size, placement, contrast, or callout containers inconsistent?
+   - Alignment & Spacing: Are margins, baseline offsets, spacing between icons and text, or widths unequal?
+   - Slide Title/Brand Context: Do the graphics match the clean, flat corporate branding context of the overall slide presentation?
+
+2. Instruction Generation Rule & Sizing
+   - The parameters above are reference guidelines. Not all parameters apply to every visual set.
+   - If any core styling/aesthetic issues or mismatches are found for a parameter, generate concise, target-specific edit instructions to resolve the mismatch and align the panels.
+   - If a visual is already aligned with the dominant visual style or a parameter is not relevant, do NOT request edits for it.
+   - Keep instructions minimal: edit only what is necessary to achieve style harmony. Avoid cosmetic clutter.
+   - **NO style changes needed** is the default and highly appreciated outcome. The model must judge if edits are actually required, and only suggest them for panels that have active style clashes.
+
+3. Sizing and Frame Guidelines (only when a jarring visual size disparity is observed)
+   - Only suggest resize or reframe instructions if there is a clearly visible and jarring size disparity between sibling panels (e.g. one subject appears roughly half the visual size of another).
+   - Do NOT suggest sizing changes for minor differences — approximate visual balance is sufficient.
+   - If resizing is genuinely needed: suggest scaling and padding only, never cropping. Aim for visual balance across siblings, not a rigid pixel-height target.
+   - If subjects look broadly balanced when viewed side-by-side, output "No style changes needed" for this parameter.
+
+4. Background & Palette Rules
+   - Align background treatments (default to clean white backgrounds unless dominant style dictates otherwise).
+   - Normalize color saturation, brightness, and accent usage (e.g. brand orange accent usage) while preserving core identity colors (like red for a heater/thermometer).
+
+5. Panel/Icon Concept Label Styling (only when a label edit is already part of the plan for that slot):
+   - Do NOT suggest adding concept labels to a slot unless that slot's edit plan already includes an ADD_TEXT_LABEL edit for a panel concept. Label addition is not a harmonization task.
+   - If a label is already requested and you are specifying how it should look:
+      * The Container/Badge: A solid orange (#F05523) rectangular badge with soft, rounded corners (border radius: ~8-12% of container height).
+      * Border: No border outline; it is a solid filled container.
+      * The Text: The label text must be written in bold, uppercase, pure white (#FFFFFF) text in Fira Sans font, centered horizontally and vertically inside the orange badge.
+      * Dimensions & Consistency: For multi-panel slides or sibling panels shown side-by-side, all labels/badges must be identical in width, height, padding, corner rounding, font size, and baseline position.
+      * Position: The badge must sit exactly at the lower edge of the image canvas, leaving a small, uniform margin (~5% of height) at the bottom.
+      * No Connectors: Do NOT draw arrows, leader lines, pointer lines, or white background boxes for these icon/concept labels.
+
+6. Master Graphics Styling Guide (Reference Only)
+   Use the master graphics styling guide below purely as a reference helper to guide styling choices, resolve styling conflicts, or clear up confusion on parameters. Do NOT mandate its rules if an image is already visually clear and aligned.
+
+   <styling_guide>
+   {styling_guide}
+   </styling_guide>
+
+Output:
+
+Provide one block per image slot in the following format. Do not add any text outside the <slot> blocks.
+
+<slot index="N">
+Concise actionable edit instructions for this slot. If no changes are needed, write: No style changes needed.
+</slot>
+"""
+
+
+def _generate_style_harmonization_instructions(
+    scene_image_slots, topic_name="", subtopic_name="", slide_title="", slide_content="", slide_type=""
+):
+    """
+    Call Gemini text-only with all scene images to get per-slot style harmonization instructions.
+
+    :param scene_image_slots: List of (slot_index, pil_image, asset_url).
+    :return: Dict slot_index -> instruction string. Empty if < 2 images or on error.
+    """
+    if len(scene_image_slots) < 2:
+        return {}
+    client = _get_gemini_client()
+    if client is None:
+        return {}
+    model = _resolve_scene_image_edit_review_model(SCENE_IMAGE_EDIT_REVIEW_MODEL)
+    
+    prompt_text = _style_harmonization_prompt.replace("{styling_guide}", styling_guide)
+    prompt_text = prompt_text.format(
+        topic_name=topic_name or "",
+        subtopic_name=subtopic_name or "",
+        slide_title=slide_title or "",
+        slide_content=slide_content or "",
+        slide_type=slide_type or "",
+    )
+    parts = [types.Part.from_text(text=prompt_text)]
+    for slot_index, pil_image, _url in scene_image_slots:
+        parts.append(types.Part.from_text(text=f"Image for slot {slot_index}:"))
+        parts.append(
+            types.Part.from_bytes(data=prepare_image_for_gemini(pil_image), mime_type="image/jpeg")
+        )
+    try:
+        with tracker.call(model, "Style Harmonization (Gemini)") as usage:
+            response = call_llm_with_retry(
+                client.models.generate_content,
+                model=model,
+                contents=[types.Content(role="user", parts=parts)],
+                config=types.GenerateContentConfig(response_modalities=["TEXT"]),
+            )
+            usage.set_response(response)
+        text = ""
+        if hasattr(response, "candidates") and response.candidates and response.candidates[0].content:
+            chunks = [
+                part.text
+                for part in (response.candidates[0].content.parts or [])
+                if hasattr(part, "text") and part.text
+            ]
+            text = "\n".join(chunks).strip()
+        if not text:
+            text = (getattr(response, "text", None) or "").strip()
+    except Exception as e:
+        print(f"Style harmonization: LLM call failed: {e}")
+        return {}
+    out = {}
+    for m in re.finditer(
+        r'<slot\s+index=["\']?(\d+)["\']?>(.*?)</slot>', text, re.DOTALL | re.IGNORECASE
+    ):
+        idx = int(m.group(1))
+        instr = m.group(2).strip()
+        if instr.lower() not in ("no style changes needed.", "no style changes needed"):
+            out[idx] = instr
+    return out
+
+
+scene_cohesion_review_prompt = """You are a senior visual style cohesion review agent specializing in e-learning slideshow content. The images provided below are placed side-by-side in a single multi-panel slide. Your task is to analyze all images together and determine whether they are visually cohesive, style-harmonized, and ready to be shown together on a slide.
+
+Examine the provided final edited images together and evaluate them against these style parameters:
+- **Panel/Concept Labeling Consistency (CRITICAL):**
+  * Are labels present for all panels?
+  * **Decide on Label Necessity (All-or-Nothing)**: If there is a labeling inconsistency (e.g. some sibling panels have concept labels and others do not), you MUST decide whether labels are instructionally necessary for all panels or whether they introduce clutter. Make a decisive choice:
+    1. If they are instructionally useful, output a FAIL verdict instructing to ADD matching concept labels to all sibling panels currently lacking them.
+    2. If they are unnecessary or cluttering, output a FAIL verdict instructing to REMOVE the labels from the panels that currently have them (so that all panels remain clean without labels).
+    Never permit a mixed state where some have labels and others do not. Either all have them or none have them.
+  * Do they all use a solid orange (#F05523) rectangular badge with soft, rounded corners?
+  * Is the text uppercase, bold, pure white, and centered?
+  * Are there any arrows, pointer lines, or white/black borders on the badges? (If yes, fail the review).
+  * Do the badges align perfectly on a shared horizontal baseline?
+  * Are the text size, padding, badge dimensions, and aspect ratio identical across all panels?
+- **Subject Sizing & Scale Balance:**
+  * Do the main subjects look approximately balanced in visual scale when placed side-by-side? Minor sizing differences are acceptable — only flag as FAIL if the disparity is large enough that one panel looks clearly disproportionate relative to its siblings.
+  * Are they roughly centered within their frames?
+  * Is the visual weight, line weight, and stroke density grossly mismatched in a way that is immediately obvious?
+- **Use of Containers:** Do they consistently use or avoid background shapes (e.g. colored background circles)? Only flag as FAIL if one panel uses a bold, visually prominent container (e.g. a large colored circle) while another completely omits it, creating an immediately jarring imbalance. Minor or subtle differences in container style are acceptable and should not be flagged.
+- **Illustration Style & Realism:** Do they look consistent (e.g. all photos, all line art, all flat icons) or do they clash?
+
+
+Master Graphics Styling Guide (Reference Only):
+Use the master graphics styling guide below purely as a reference helper to guide styling choices, resolve styling conflicts, or clear up confusion on parameters. Do NOT fail the visuals for minor stylistic variations if they are already visually clear and aligned.
+
+<styling_guide>
+{styling_guide}
+</styling_guide>
+
+Provide your output strictly in the following format:
+
+<output>
+<evaluation_breakdown>
+Provide a step-by-step comparative analysis of all the panels, highlighting any styling mismatches, relative sizing differences, baseline alignment offsets, or label discrepancies found between them.
+</evaluation_breakdown>
+
+<review>
+<verdict>PASS | FAIL</verdict>
+(If the verdict is FAIL, list the specific issues and actionable feedback for each panel that needs revision to achieve style cohesion. Group failures by slot index.)
+<failures>
+<failure>
+<slot_index>N</slot_index>
+<issue>Describe the style consistency issue.</issue>
+<revision_feedback>Provide instructions on how to revise slot N to match the other panels.</revision_feedback>
+</failure>
+</failures>
+</review>
+</output>
+"""
+
+
+def _run_scene_cohesion_review(scene_image_slots, review_model, drive):
+    """
+    Evaluate the style cohesion of all final edited panel images for a scene.
+    """
+    if len(scene_image_slots) < 2:
+        return ""
+    client = _get_gemini_client()
+    if client is None:
+        return ""
+        
+    prompt_text = scene_cohesion_review_prompt.replace("{styling_guide}", styling_guide)
+    parts = [types.Part.from_text(text=prompt_text)]
+    for slot_index, pil_image, _url in scene_image_slots:
+        parts.append(types.Part.from_text(text=f"Final Edited Image for slot {slot_index}:"))
+        parts.append(
+            types.Part.from_bytes(data=prepare_image_for_gemini(pil_image), mime_type="image/jpeg")
+        )
+    try:
+        with tracker.call(review_model, "Scene Cohesion Review (Gemini)") as usage:
+            response = call_llm_with_retry(
+                client.models.generate_content,
+                model=review_model,
+                contents=[types.Content(role="user", parts=parts)],
+                config=types.GenerateContentConfig(response_modalities=["TEXT"]),
+            )
+            usage.set_response(response)
+        text = ""
+        if hasattr(response, "candidates") and response.candidates and response.candidates[0].content:
+            chunks = [
+                part.text
+                for part in (response.candidates[0].content.parts or [])
+                if hasattr(part, "text") and part.text
+            ]
+            text = "\n".join(chunks).strip()
+        if not text:
+            text = (getattr(response, "text", None) or "").strip()
+        return text
+    except Exception as e:
+        print(f"Scene cohesion review: LLM call failed: {e}")
+        return f"ERROR: Cohesion review failed: {e}"
+
+
+def parse_cohesion_failures(cohesion_output):
+    """
+    Parse verdict and failures from scene cohesion review output.
+    """
+    verdict_match = re.search(r"<verdict>\s*(PASS|FAIL)\s*</verdict>", cohesion_output, re.IGNORECASE)
+    verdict = verdict_match.group(1).upper() if verdict_match else "PASS"
+    if verdict == "PASS":
+        return "PASS", {}
+    
+    failures = {}
+    for m in re.finditer(r"<failure>(.*?)</failure>", cohesion_output, re.DOTALL | re.IGNORECASE):
+        content = m.group(1)
+        idx_match = re.search(r"<slot_index>\s*(\d+)\s*</slot_index>", content, re.IGNORECASE)
+        feedback_match = re.search(r"<revision_feedback>\s*(.*?)\s*</revision_feedback>", content, re.DOTALL | re.IGNORECASE)
+        issue_match = re.search(r"<issue>\s*(.*?)\s*</issue>", content, re.DOTALL | re.IGNORECASE)
+        
+        if idx_match and feedback_match:
+            slot_idx = int(idx_match.group(1))
+            feedback = feedback_match.group(1).strip()
+            issue = issue_match.group(1).strip() if issue_match else ""
+            
+            failures[slot_idx] = {
+                "issue": issue,
+                "feedback": feedback,
+                "xml": f"<failure>\n  <issue>{issue}</issue>\n  <revision_feedback>{feedback}</revision_feedback>\n</failure>"
+            }
+    return "FAIL", failures
 
 
 @traceable(
@@ -1761,6 +2276,7 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
 
         manifest_text = str(row.get("slideshow_manifest", "")).strip()
         narration_map = _narration_by_scene_id(manifest_text)
+        manifest_scenes = _parse_manifest_for_slots(manifest_text)
 
         fgd_text = str(row.get("final_graphics_definition", "")).strip()
         slot_vo_resolve = None
@@ -1796,20 +2312,168 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
             scene_tracking = [header]
             scene_review = [header]
             slots = extract_slot_edit_blocks(scene_body)
+            _final_edited_slots = []
+            slot_states = {}
+            _slot_ref_cache_original = {}
+            slot_upload_urls = {}
+
+            # Retrieve template and slot count for this scene from the pre-parsed list
+            scene_manifest = next((s for s in manifest_scenes if str(s.get("id", "")).strip() == str(scene_id).strip()), {})
+            scene_template = str(scene_manifest.get("template", "")).strip()
+            scene_slots_count = len(scene_manifest.get("slots", []))
+
+            # Detect video: manifest slots contain ALL slots (including video), so check there first.
+            # Edit plan only includes image slots, so checking it alone always returns False.
+            _video_url_patterns = ("youtube.com", "youtu.be", ".mp4", ".webm", ".mov")
+            scene_has_video = any(
+                any(p in str(s.get("asset", "")).lower() for p in _video_url_patterns)
+                for s in scene_manifest.get("slots", [])
+            )
+            # Fallback: also check edit plan Asset Type in case video appears there
+            if not scene_has_video:
+                scene_has_video = any(
+                    _parse_multiline_field(s, "Asset Type").lower() == "video"
+                    for s in slots
+                )
+
+            # Pre-load all non-video image refs and generate scene-level style harmonization
+            _slot_ref_cache = {}
+            _harm_slots = []
+            for _ki, _sxi in enumerate(slots, start=1):
+                _a_url = _parse_multiline_field(_sxi, "Asset URL")
+                if not _a_url or _parse_multiline_field(_sxi, "Asset Type").lower() == "video":
+                    continue
+                _r = load_image_from_url(_a_url, drive, title=f"harm_s{scene_id}_img{_ki}")
+                if _r is not None:
+                    _slot_ref_cache[_ki] = _r
+                    _harm_slots.append((_ki, _r, _a_url))
+            any_needs_instructional = any(slot_needs_instructional_image_edit(sxi) for sxi in slots)
+            if any_needs_instructional and len(_harm_slots) >= 2:
+                scene_style_instructions = _generate_style_harmonization_instructions(
+                    _harm_slots,
+                    topic_name=topic_name,
+                    subtopic_name=subtopic_name,
+                    slide_title=slide_title,
+                    slide_content=slide_content,
+                    slide_type=slide_type,
+                )
+            else:
+                scene_style_instructions = {}
 
             for k, slot_xml in enumerate(slots, start=1):
                 asset_url = _parse_multiline_field(slot_xml, "Asset URL")
+                asset_type = _parse_multiline_field(slot_xml, "Asset Type").lower()
 
-                if not slot_needs_instructional_image_edit(slot_xml):
+                needs_instructional_edit = slot_needs_instructional_image_edit(slot_xml)
+
+                # Check aspect ratio target dimensions and deviation
+                target_slot_w, target_slot_h = _get_slot_target_dimensions(manifest_text, scene_id, k)
+
+                # Edge-case fix #1: _get_slot_target_dimensions returns (0,0) when manifest
+                # parsing fails or slot index is misaligned. Fall back to computing
+                # rectangles directly from the already-loaded scene_manifest.
+                if (target_slot_w == 0 or target_slot_h == 0) and scene_manifest:
+                    try:
+                        _manifest_slots = scene_manifest.get("slots", [])
+                        _rects = compute_slot_rectangles(scene_manifest.get("template", ""), _manifest_slots)
+                        _idx = k - 1
+                        if 0 <= _idx < len(_rects):
+                            _, _, _fw, _fh = _rects[_idx]
+                            if _fw > 0 and _fh > 0:
+                                target_slot_w, target_slot_h = int(_fw), int(_fh)
+                    except Exception as _dim_err:
+                        print(f"  [dim-fallback] scene {scene_id} slot {k}: {_dim_err}")
+
+                needs_ar_adjustment = False
+                target_aspect_ratio = None
+
+                ref = _slot_ref_cache.get(k)
+                if ref is None and asset_url:
+                    ref = load_image_from_url(
+                        asset_url,
+                        drive,
+                        title=f"edit_exec_row{index}_s{scene_id}_img{k}",
+                    )
+
+                if ref is not None:
+                    _slot_ref_cache_original[k] = ref
+
+                if ref is not None and asset_type != "video" and target_slot_w > 0 and target_slot_h > 0:
+                    is_hero_or_grid4 = (scene_template == "single_visual_hero") or (scene_template == "multi_panel_grid" and scene_slots_count == 4)
+                    if is_hero_or_grid4 or scene_has_video:
+                        if target_slot_w / max(target_slot_h, 1) >= 16 / 9:
+                            target_slot_w = int(target_slot_h * 16 / 9)
+                        else:
+                            target_slot_h = int(target_slot_w * 9 / 16)
+                        target_aspect_ratio = "16:9"
+                    else:
+                        target_aspect_ratio = _closest_gemini_aspect_ratio(target_slot_w, target_slot_h)
+
+                    # Always route through Gemini for AR/dimension correction.
+                    # PIL post-normalization is retained as a final pixel-snap AFTER Gemini returns,
+                    # but Gemini is the primary AR correction engine for all image slots.
+                    if ref.width != target_slot_w or ref.height != target_slot_h:
+                        needs_ar_adjustment = True
+                    else:
+                        # Image is already at exact target dimensions — no correction needed.
+                        target_aspect_ratio = None
+
+                harm_instr_for_slot = scene_style_instructions.get(k, "")
+                if not needs_instructional_edit and not needs_ar_adjustment:
                     scene_tracking.append(f"Image {k}:")
-                    scene_tracking.append("No Edits made")
+                    if asset_type == "video":
+                        scene_tracking.append("Skipped (video asset)")
+                        scene_review.append(f"Image {k}:")
+                        scene_review.append("Skipped (video asset)")
+                    else:
+                        # Image is already at exact target dimensions with no edits needed.
+                        scene_tracking.append("No Edits made (already at target dimensions)")
+                        if ref is not None:
+                            _final_edited_slots.append((k, ref, asset_url))
+                        scene_review.append(f"Image {k}:")
+                        scene_review.append("No Edits made")
                     scene_tracking.append("")
-                    scene_review.append(f"Image {k}:")
-                    scene_review.append("No Edits made")
                     scene_review.append("")
                     continue
 
-                edit_payload = build_edit_instructions_payload(slot_xml)
+
+                if ref is None:
+                    err_line = f"ERROR: Could not load image from URL: {asset_url}"
+                    scene_tracking.append(f"Image {k}:")
+                    scene_tracking.append(err_line)
+                    scene_tracking.append("")
+                    scene_review.append(f"Image {k}:")
+                    scene_review.append(err_line)
+                    scene_review.append("")
+                    continue
+
+                if needs_instructional_edit:
+                    edit_payload = build_edit_instructions_payload(slot_xml)
+                    if harm_instr_for_slot:
+                        edit_payload += f"\n\n[Style Harmonization]\n{harm_instr_for_slot}"
+                    if needs_ar_adjustment:
+                        edit_payload += (
+                            f"\n\n[Aspect Ratio Adjustment]\n"
+                            f"Adjust, extend, or outpaint the image to fit the target aspect ratio: {target_aspect_ratio}.\n"
+                            f"- For photographic scenes or drawings with detailed backgrounds: Extend and outpaint the scene naturally (e.g. extending walls, skies, floors, or tables) to fill the aspect ratio frame cleanly. Do NOT add white or black border bars.\n"
+                            f"- For clean diagrams/graphics on solid white backgrounds: Pad with matching white (#FFFFFF) background margins to fit the target ratio.\n"
+                            f"Preserve all existing content."
+                        )
+                else:
+                    # AR-only call — harmonization notes are NOT included for NO_EDIT slots.
+                    # The ONLY permitted operation is aspect ratio / canvas correction.
+                    edit_payload = (
+                        f"[Canvas / Aspect Ratio Correction — No Content Changes Permitted]\n"
+                        f"IMPORTANT: Do NOT modify, add, remove, or alter ANY visual content, "
+                        f"subjects, colors, text, labels, icons, shapes, or styling in this image. "
+                        f"The ONLY permitted operation is adjusting the canvas dimensions to match "
+                        f"the target aspect ratio: {target_aspect_ratio}.\n"
+                        f"Execution Guidelines:\n"
+                        f"- For photographic scenes or drawings with detailed backgrounds: Extend and outpaint the scene naturally (e.g. extending walls, skies, floors, or background scenery) to fill the aspect ratio frame cleanly. Do NOT add white or black border bars.\n"
+                        f"- For clean diagrams/graphics on solid white backgrounds: Pad with matching uniform white (#FFFFFF) background margins to fit the target ratio.\n"
+                        f"Do NOT crop or remove any part of the original image content."
+                    )
+
                 slot_narration = ""
                 if slot_vo_resolve:
                     slot_narration = slot_vo_resolve(asset_url) or ""
@@ -1827,50 +2491,62 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                     narration_span=narration_for_prompt,
                     original_asset_url=asset_url or "",
                     edit_instructions=edit_payload,
+                    styling_guide=styling_guide,
                 )
 
-                ref = load_image_from_url(
-                    asset_url,
-                    drive,
-                    title=f"edit_exec_row{index}_s{scene_id}_img{k}",
-                )
-                if ref is None:
-                    err_line = f"ERROR: Could not load image from URL: {asset_url}"
-                    scene_tracking.append(f"Image {k}:")
-                    scene_tracking.append(err_line)
-                    scene_tracking.append("")
-                    scene_review.append(f"Image {k}:")
-                    scene_review.append(err_line)
-                    scene_review.append("")
-                    continue
+                if needs_instructional_edit:
+                    review_prompt_kwargs = {
+                        "course_name": course_name or "",
+                        "target_audience": target_audience or "",
+                        "topic_name": topic_name or "",
+                        "subtopic_name": subtopic_name or "",
+                        "slide_type": slide_type or "",
+                        "slide_title": slide_title or "",
+                        "slide_content": slide_content or "",
+                        "narration_span": narration_for_prompt,
+                        "original_asset_url": asset_url or "",
+                        "edit_instructions": edit_payload,
+                        "styling_guide": styling_guide,
+                    }
+                    review_prompt_template = image_edit_review_prompt
+                else:
+                    review_prompt_kwargs = None
+                    review_prompt_template = None
 
-                review_prompt_kwargs = {
-                    "course_name": course_name or "",
-                    "target_audience": target_audience or "",
-                    "topic_name": topic_name or "",
-                    "subtopic_name": subtopic_name or "",
-                    "slide_type": slide_type or "",
-                    "slide_title": slide_title or "",
-                    "slide_content": slide_content or "",
-                    "narration_span": narration_for_prompt,
-                    "original_asset_url": asset_url or "",
-                    "edit_instructions": edit_payload,
-                }
+                # Gather original sibling images to provide visual style context
+                sibling_images = []
+                for sib_k, sib_ref in _slot_ref_cache.items():
+                    if sib_k != k and sib_ref is not None:
+                        sib_url = _parse_multiline_field(slots[sib_k - 1], "Asset URL")
+                        sibling_images.append((sib_k, sib_ref, sib_url))
 
-                tracking_lines, review_lines = _run_edit_review_loop_for_slot(
+                tracking_lines, review_lines, final_edited_image, edit_state = _run_edit_review_loop_for_slot(
                     scene_id,
                     k,
                     asset_url or "",
                     ref,
                     full_edit_prompt,
-                    image_edit_review_prompt,
+                    review_prompt_template,
                     review_prompt_kwargs,
                     edit_model,
                     review_model,
                     drive,
                     safe_title,
                     time_part,
+                    target_slot_w=target_slot_w,
+                    target_slot_h=target_slot_h,
+                    target_aspect_ratio=target_aspect_ratio,
+                    sibling_images=sibling_images,
                 )
+
+                if edit_state is not None:
+                    slot_states[k] = edit_state
+                latest_url = None
+                for line in tracking_lines:
+                    if "Edited Image after loop" in line and "http" in line:
+                        latest_url = line.split(":", 1)[1].strip()
+                if latest_url:
+                    slot_upload_urls[k] = latest_url
 
                 scene_tracking.append(f"Image {k}:")
                 scene_tracking.extend(tracking_lines)
@@ -1878,7 +2554,162 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
 
                 scene_review.extend(review_lines)
                 scene_review.append("")
+                if final_edited_image is not None and asset_type != "video":
+                    _final_edited_slots.append((k, final_edited_image, asset_url))
+                    _slot_ref_cache[k] = final_edited_image
 
+            if len(_final_edited_slots) >= 2:
+                MAX_COHESION_LOOPS = 2
+                for cohesion_loop in range(1, MAX_COHESION_LOOPS + 1):
+                    cohesion_output = _run_scene_cohesion_review(_final_edited_slots, review_model, drive)
+                    scene_review.append(f"--- Global Scene Cohesion QA (Loop {cohesion_loop}) ---")
+                    scene_review.append(cohesion_output)
+                    scene_review.append("--------------------------------------------------")
+                    scene_review.append("")
+                    
+                    verdict, cohesion_failures = parse_cohesion_failures(cohesion_output)
+                    if verdict == "PASS" or not cohesion_failures:
+                        break
+                    
+                    print(f"Global cohesion failed for scene {scene_id}. Revise slots: {list(cohesion_failures.keys())}")
+                    
+                    # Revise each failed slot
+                    for fk in cohesion_failures:
+                        # Edge-case fix #2: LLM-parsed fk could be out of range for the
+                        # slots list. Guard before any index access.
+                        if fk < 1 or fk > len(slots):
+                            print(f"  [cohesion] scene {scene_id}: fk={fk} out of slots range (1-{len(slots)}), skipping")
+                            continue
+
+                        fail_info = cohesion_failures[fk]
+                        feedback_text = fail_info["feedback"]
+
+                        slot_xml = slots[fk - 1]
+                        # Edge-case fix #5: use a local variable so outer asset_url is
+                        # not polluted after the cohesion loop ends.
+                        fk_asset_url = _parse_multiline_field(slot_xml, "Asset URL")
+                        fk_asset_type = _parse_multiline_field(slot_xml, "Asset Type").lower()
+                        if fk_asset_type == "video":
+                            continue
+
+                        orig_ref = _slot_ref_cache_original.get(fk)
+                        if orig_ref is None:
+                            continue
+
+                        target_slot_w, target_slot_h = _get_slot_target_dimensions(manifest_text, scene_id, fk)
+                        # Edge-case fix #1 (cohesion path): same dim fallback
+                        if (target_slot_w == 0 or target_slot_h == 0) and scene_manifest:
+                            try:
+                                _manifest_slots = scene_manifest.get("slots", [])
+                                _rects = compute_slot_rectangles(scene_manifest.get("template", ""), _manifest_slots)
+                                _idx = fk - 1
+                                if 0 <= _idx < len(_rects):
+                                    _, _, _fw, _fh = _rects[_idx]
+                                    if _fw > 0 and _fh > 0:
+                                        target_slot_w, target_slot_h = int(_fw), int(_fh)
+                            except Exception as _dim_err:
+                                print(f"  [cohesion dim-fallback] scene {scene_id} slot {fk}: {_dim_err}")
+
+                        # Edge-case fix #7: apply hero/grid4 AR logic in cohesion
+                        # revision, same as in the main per-slot loop.
+                        target_aspect_ratio = None
+                        if target_slot_w > 0 and target_slot_h > 0:
+                            _is_hero_or_grid4_coh = (scene_template == "single_visual_hero") or (scene_template == "multi_panel_grid" and scene_slots_count == 4)
+                            if _is_hero_or_grid4_coh or scene_has_video:
+                                if target_slot_w / max(target_slot_h, 1) >= 16 / 9:
+                                    target_slot_w = int(target_slot_h * 16 / 9)
+                                else:
+                                    target_slot_h = int(target_slot_w * 9 / 16)
+                                target_aspect_ratio = "16:9"
+                            else:
+                                target_aspect_ratio = _closest_gemini_aspect_ratio(target_slot_w, target_slot_h)
+
+                        # Edge-case fix #3: guard sib_k against slots list bounds
+                        sibling_images = []
+                        for sib_k, sib_img in _slot_ref_cache.items():
+                            if sib_k != fk and sib_img is not None:
+                                if 1 <= sib_k <= len(slots):
+                                    sib_url = _parse_multiline_field(slots[sib_k - 1], "Asset URL")
+                                else:
+                                    sib_url = ""
+                                sibling_images.append((sib_k, sib_img, sib_url))
+
+                        if fk in slot_states:
+                            follow_up_edit_text = edit_revision_followup_template.format(
+                                failures_xml=fail_info["xml"]
+                            )
+                            try:
+                                # Edge-case fix #4: _slot_ref_cache[fk] may be missing
+                                # if the prior edit result was never stored; use .get().
+                                edited_pil, new_state = _edit_chat_followup_turn(
+                                    orig_ref,
+                                    slot_states[fk],
+                                    follow_up_edit_text,
+                                    model=edit_model,
+                                    original_image_url=fk_asset_url,
+                                    last_edited_image=_slot_ref_cache.get(fk),
+                                    last_edited_image_url=slot_upload_urls.get(fk),
+                                    follow_up_edit_loop_num=cohesion_loop + MAX_EDIT_REVIEW_LOOPS,
+                                    target_aspect_ratio=target_aspect_ratio,
+                                    sibling_images=sibling_images,
+                                )
+                                slot_states[fk] = new_state
+                                if edited_pil is not None:
+                                    _slot_ref_cache[fk] = edited_pil
+                            except Exception as e:
+                                print(f"Error in cohesion revision for slot {fk}: {e}")
+                                continue
+                        else:
+                            # Slot was never edited (NO_EDIT in plan, no AR adjustment needed).
+                            # The edit plan is the authority — do not force a new Gemini edit here.
+                            # Log the cohesion discrepancy for visibility and skip.
+                            print(
+                                f"  [cohesion] scene {scene_id} slot {fk}: NO_EDIT in plan, "
+                                f"cohesion discrepancy noted but not re-edited."
+                            )
+                            scene_tracking.append(
+                                f"Image {fk} cohesion note (loop {cohesion_loop}, no re-edit — "
+                                f"slot was NO_EDIT per plan): {fail_info.get('issue', '')}"
+                            )
+                            continue
+
+                        final_img = _slot_ref_cache.get(fk)  # fix #4: .get() not []
+                        if final_img is None:
+                            print(f"  [cohesion] slot {fk} edit produced no image, skipping upload")
+                            continue
+                        if target_slot_w > 0 and target_slot_h > 0:
+                            final_img = _normalize_image_to_exact_dimensions(final_img, target_slot_w, target_slot_h)
+                            _slot_ref_cache[fk] = final_img
+
+                        # Edge-case fix #6: guard against None before upload
+                        if final_img is None:
+                            continue
+                        fname = f"{safe_title}_{time_part}_{uuid.uuid4().hex[:8]}_S{scene_id}_I{fk}_cohesion_L{cohesion_loop}.png"
+                        revised_url = upload_image_to_drive(final_img, fname, drive, folder_id=EDITED_IMAGE_DRIVE_FOLDER_ID)
+                        if revised_url:
+                            slot_upload_urls[fk] = revised_url
+                            
+                            # Find the block for this slot inside scene_tracking and insert the revision line
+                            found_header = False
+                            inserted = False
+                            target_header = f"Image {fk}:"
+                            for idx_line, line_str in enumerate(scene_tracking):
+                                if line_str.strip() == target_header:
+                                    found_header = True
+                                    continue
+                                if found_header:
+                                    # Insert before the next slot header or the empty spacer line
+                                    if line_str.strip() == "" or line_str.strip().startswith("Image "):
+                                        scene_tracking.insert(idx_line, f"Edited Image after loop cohesion_L{cohesion_loop}: {revised_url}")
+                                        inserted = True
+                                        break
+                            if not inserted:
+                                scene_tracking.append(f"Edited Image after loop cohesion_L{cohesion_loop}: {revised_url}")
+
+                            for idx, (slot_num, _, _url) in enumerate(_final_edited_slots):
+                                if slot_num == fk:
+                                    _final_edited_slots[idx] = (fk, final_img, fk_asset_url)
+                                    break
             tracking_sections.append("\n".join(scene_tracking).rstrip())
             review_sections.append("\n".join(scene_review).rstrip())
 

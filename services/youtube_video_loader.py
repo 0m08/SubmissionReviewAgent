@@ -1106,44 +1106,10 @@ def get_transcript_assemblyai_drive(file_link_or_id, drive=None):
     file_id = match.group(1) if match else file_link_or_id
     # Auth if needed
     if drive is None:
-        sa_json = os.environ.get("GDRIVE_SA_JSON")
-        if sa_json:
-            sa_dict = json.loads(sa_json) if isinstance(sa_json, str) else sa_json
-        
-            # Write the service account JSON to a temp file
-            with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.json') as tmp:
-                json.dump(sa_dict, tmp)
-                tmp_path = tmp.name
-            settings = {
-                "client_config_backend": "service",
-                "service_config": {
-                    "client_json_file_path": tmp_path,
-                }
-            }
-            gauth = GoogleAuth(settings=settings)
-            gauth.ServiceAuth()
-            drive = GoogleDrive(gauth)
-            os.remove(tmp_path)
-        else:
-            sa_b64 = os.environ.get("GDRIVE_SA_B64")
-            if sa_b64:
-                sa_dict = json.loads(base64.b64decode(sa_b64).decode())
-                
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.json') as tmp:
-                    json.dump(sa_dict, tmp)
-                    tmp_path = tmp.name
-                settings = {
-                    "client_config_backend": "service",
-                    "service_config": {
-                        "client_json_file_path": tmp_path,
-                    }
-                }
-                gauth = GoogleAuth(settings=settings)
-                gauth.ServiceAuth()
-                drive = GoogleDrive(gauth)
-                os.remove(tmp_path)
-            else:
-                raise Exception("No service account credentials found in environment variables.")
+        from services.drive_service import get_authenticated_drive_client
+        drive = get_authenticated_drive_client()
+        if drive is None:
+            raise Exception("No authenticated Google Drive client available.")
     with tempfile.TemporaryDirectory() as temp_dir:
         local_video_path = os.path.join(temp_dir, "video.mp4")
         local_audio_path = os.path.join(temp_dir, "audio.wav")

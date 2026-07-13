@@ -760,6 +760,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             section for section in pipeline_sections
             if any(
                 not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
+                and not (not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False))
                 for step in section["steps"]
             )
         ]
@@ -771,6 +772,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             visible_steps = [
                 step for step in section["steps"]
                 if not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
+                and not (not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False))
             ]
 
             # Skip section if no visible steps remain
@@ -787,6 +789,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         st.session_state.get(f"{dep}_done", False) or (
                             st.session_state.get("outline_finalized", False) and
                             any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
+                        ) or (
+                            not st.session_state.get("video_research_enabled", True) and
+                            any(dep == s["name"] and s.get("hide_if_video_disabled", False) for sec in pipeline_sections for s in sec["steps"])
                         )
                         for dep in step["depends_on"]
                     )
@@ -1168,6 +1173,10 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
                 if st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
                     continue
 
+                # Skip step if it's hidden because video research is disabled
+                if not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False):
+                    continue
+
                 step_key = f"{step['name']}_done"
                 step_global_count += 1
 
@@ -1180,6 +1189,9 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
                     st.session_state.get(f"{dep}_done", False) or (
                         st.session_state.get("outline_finalized", False) and
                         any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
+                    ) or (
+                        not st.session_state.get("video_research_enabled", True) and
+                        any(dep == s["name"] and s.get("hide_if_video_disabled", False) for sec in pipeline_sections for s in sec["steps"])
                     )
                     for dep in step["depends_on"]
                 )                    

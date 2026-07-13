@@ -27,9 +27,11 @@ from services.web_page_loaders import get_docs_from_url
 from services.youtube_video_loader import get_video_id_from_url, convert_time, get_transcript_with_fallback, get_transcript_assemblyai_drive
 import json
 import os
+import shutil
 import gspread
 import base64
 import re
+from services.helper_functions import get_short_name
 
 
 retriver_agent_system_prompt = """You are a retriever agent with access to a knowledge base. Your task is to retrieve the best results for a given query.
@@ -286,7 +288,7 @@ Provide your output strictly in the following format:
 """
 
 
-def relevant_link_selection_if_multiple_matching_reference_links(course_name, target_audience, topic, subtopic, learning_objective, candidate_links_and_content, llm = 'gemini_2_flash'):
+def relevant_link_selection_if_multiple_matching_reference_links(course_name, target_audience, topic, subtopic, learning_objective, candidate_links_and_content, llm = 'gemini_2_5_flash'):
     """
     This function runs the relevant link selection prompt for multiple matching reference links for a single Learning Objective
     :param course_name: The name of the course.
@@ -419,7 +421,7 @@ def get_transcript_from_youtube_transcript_csv(video_id):
     "user_id": st.session_state.get("role", "anonymous")
 })
 def process_single_row(index, row, compression_retriever, web_search_retriever,
-                       course_name, target_audience, course_outline, llm):
+                       course_name, target_audience, course_outline, llm, drive=None):
     """
     Processes a single row: runs the retriever agent for each Learning Objective
     and accumulates the context string. Returns (index, context_string, source_links, as_is_sources, content_sources, web_links, video_links)
@@ -604,7 +606,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
             context_combined = "\n\n".join(context_chunks)
             return index, context_combined, "", "", "", "", ""
         # --- Google Drive Video logic ---
-        if ref and ref_type == "Google Drive Video" and ref_usage:
+        elif ref and ref_type == "Google Drive Video" and ref_usage and ref_usage != 'nan':
             context_chunks = []
             try:
                 # Split references by newline to handle multiple videos
@@ -658,7 +660,7 @@ def process_single_row(index, row, compression_retriever, web_search_retriever,
                         if not found or not video_content:
                             try:
                                 # Assume video_url is a Google Drive file link or ID
-                                transcript = get_transcript_assemblyai_drive(video_url)
+                                transcript = get_transcript_assemblyai_drive(video_url, drive=drive)
                                 # transcript is already formatted for context_n columns (convert timestamp to seconds)
                                 lines = []
                                 for item in transcript:
@@ -904,7 +906,8 @@ def run_retriever_agent_for_all_rows(root_folder_id, drive, sheet, worksheet_nam
                     course_name,
                     target_audience,
                     course_outline,
-                    llm
+                    llm,
+                    drive
                 )
             )
 
@@ -1206,6 +1209,31 @@ def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sh
         sheet=sheet,
         sheet_name=worksheet_name
     )
+
+    # Load Base Outline once so we can inject reference columns per-row at submission time.
+    # (Final Outline does not carry References / Reference type / Reference usage — those live
+    # in Base Outline.  We do NOT merge them into the DataFrame because pandas merge resets
+    # the index, breaking all subsequent .at[index, col] writes.)
+    ref_cols = ["References", "Reference type", "Reference usage"]
+    base_outline_ref_lookup = {}   # keyed by (Topic, Subtopic) → dict of ref values
+    try:
+        _, base_outline_df = get_sheet_data_and_df(sheet=sheet, sheet_name="Base Outline")
+        has_ref_cols = all(c in base_outline_df.columns for c in ref_cols)
+        has_keys = "Subtopic" in base_outline_df.columns and "Topic" in base_outline_df.columns
+        if has_ref_cols and has_keys:
+            for _, bo_row in base_outline_df.iterrows():
+                key = (str(bo_row.get("Topic", "")).strip(), str(bo_row.get("Subtopic", "")).strip())
+                if key[1]:  # only if Subtopic is non-empty
+                    ref_val = str(bo_row.get("References", "")).strip()
+                    if ref_val and ref_val != "nan":
+                        base_outline_ref_lookup[key] = {
+                            "References": ref_val,
+                            "Reference type": str(bo_row.get("Reference type", "")).strip(),
+                            "Reference usage": str(bo_row.get("Reference usage", "")).strip(),
+                        }
+            print(f"[run_reference_based_context_generator] Built Base Outline ref lookup with {len(base_outline_ref_lookup)} entries.")
+    except Exception as e:
+        print(f"[run_reference_based_context_generator] Could not load Base Outline references: {e}")
     
     # BACKUP: Store current context_n state for ALL rows
     backup_data = []
@@ -1225,9 +1253,19 @@ def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sh
         format_worksheet(backup_ws)
         hide_worksheet_by_name(sheet, "Context Column Backup")
     
-    # Check if there are any rows with references
+    # Check if there are any rows with references — check both the sheet's own columns
+    # and the Base Outline lookup we built above.
+    def _has_reference(row):
+        # Check columns already present in the target sheet
+        ref_in_sheet = str(row.get("References", "")).strip()
+        if ref_in_sheet and ref_in_sheet != "nan":
+            return True
+        # Check Base Outline lookup
+        key = (str(row.get("Topic", "")).strip(), str(row.get("Subtopic", "")).strip())
+        return key in base_outline_ref_lookup
+
     rows_with_refs = course_outline_with_lo_df[
-        course_outline_with_lo_df["References"].astype(str).str.strip() != ""
+        course_outline_with_lo_df.apply(_has_reference, axis=1)
     ]
     
     if rows_with_refs.empty:
@@ -1263,6 +1301,16 @@ def run_reference_based_context_generator_for_all_rows(root_folder_id, drive, sh
     with ThreadPoolExecutor(max_workers=5) as executor:
         # Submit tasks for each row that needs processing
         for index, row in rows_needing_processing.iterrows():
+            # Inject reference columns from Base Outline if not already in this row
+            row = row.copy()
+            ref_in_row = str(row.get("References", "")).strip()
+            if (not ref_in_row or ref_in_row == "nan"):
+                key = (str(row.get("Topic", "")).strip(), str(row.get("Subtopic", "")).strip())
+                bo_refs = base_outline_ref_lookup.get(key, {})
+                if bo_refs:
+                    for col, val in bo_refs.items():
+                        row[col] = val
+                    print(f"[run_reference_based_context_generator] Injected refs for row {index}: {bo_refs.get('Reference type')} / {bo_refs.get('References', '')[:60]}")
             futures.append(
                 executor.submit(
                     process_single_row,
@@ -1359,8 +1407,16 @@ def delete_reference_based_context(sheet, worksheet_name="Final Outline"):
     save_to_sheet(ws, df)
 
 
-def delete_retriever_context(sheet, worksheet_name="Final Outline"):
-    """Remove context columns and reference links from Final Outline sheet."""
+def delete_retriever_context(sheet, worksheet_name="Final Outline", drive=None, root_folder_id=None, course_name=None):
+    """Remove context columns and reference links from Final Outline sheet.
+
+    Also deletes:
+    - 'All References' sheet — so the next run of Step 1 rebuilds it from current
+      External References / Base Outline references (avoids stale vector DB).
+    - 'Vectorstore files' and 'Pickle files' folders from Google Drive (if drive + root_folder_id provided)
+    - Local /tmp Chroma DB folder for the course
+    - Local /tmp BM25 pickle file
+    """
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     # Check Outline Stage
     try:
@@ -1379,3 +1435,95 @@ def delete_retriever_context(sheet, worksheet_name="Final Outline"):
         df = df.drop(columns=cols)
         clear_worksheet(ws)
         save_to_sheet(ws, df)
+
+    # Delete the All References sheet so Step 1 must regenerate it from current
+    # External References / Base Outline references on the next run.
+    # Without this, re-running Step 2 would rebuild the same stale vector DB from
+    # an unchanged All References sheet, ignoring any edits to External References.
+    try:
+        delete_worksheet(sheet, "All References")
+        print("[delete_retriever_context] Deleted 'All References' sheet — will be rebuilt fresh on next run.")
+    except Exception as e:
+        print(f"[delete_retriever_context] Could not delete 'All References' sheet (may not exist): {e}")
+
+
+    if drive is not None and root_folder_id:
+        for folder_name in ["Vectorstore files", "Pickle files"]:
+            try:
+                query = (
+                    f"title='{folder_name}' and '{root_folder_id}' in parents "
+                    f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                )
+                folders = drive.ListFile({'q': query}).GetList()
+                if not folders:
+                    print(f"[delete_retriever_context] '{folder_name}' folder not found in Drive — skipping.")
+                    continue
+                for folder in folders:
+                    drive.CreateFile({'id': folder['id']}).Delete()
+                    print(f"[delete_retriever_context] Deleted Drive folder: '{folder_name}' (id={folder['id']})")
+            except Exception as e:
+                print(f"[delete_retriever_context] Failed to delete '{folder_name}' from Drive: {e}")
+
+    # Clear local /tmp Chroma DB
+    try:
+        if course_name:
+            short_name = get_short_name(course_name)
+            local_chroma_path = os.path.join("/tmp", "temp_chroma_folder", f"{short_name}_chroma_research_db")
+        else:
+            local_chroma_path = os.path.join("/tmp", "temp_chroma_folder")
+
+        if os.path.exists(local_chroma_path):
+            # Step 1: Try to release ChromaDB file handles by clearing its singleton cache.
+            # The internal attribute name varies across chromadb versions.
+            try:
+                import gc
+                from chromadb.api.client import SharedSystemClient
+                # Try known attribute names across different chromadb versions
+                released = False
+                for attr in ("_identifer_to_system", "_identifier_to_system", "_instances", "_system_cache"):
+                    cache = getattr(SharedSystemClient, attr, None)
+                    if cache is not None:
+                        cache.clear()
+                        released = True
+                        break
+                gc.collect()
+                print(
+                    f"[delete_retriever_context] ChromaDB singleton cache cleared (released={released})."
+                )
+            except Exception as _e:
+                print(f"[delete_retriever_context] Could not release ChromaDB handles: {_e}")
+
+            # Step 2: Attempt deletion
+            try:
+                shutil.rmtree(local_chroma_path)
+                st.session_state.pop("chroma_db_path_override", None)
+                print(f"[delete_retriever_context] Cleared local Chroma DB at: {local_chroma_path}")
+            except OSError as e:
+                if getattr(e, "winerror", None) == 32 or "WinError 32" in str(e):
+                    # Still locked — store a fresh path in session state for the next run
+                    import time
+                    fresh_path = local_chroma_path + f"_fresh_{int(time.time())}"
+                    st.session_state["chroma_db_path_override"] = fresh_path
+                    print(f"[delete_retriever_context] DB locked — next run uses: {fresh_path}")
+                    st.warning(
+                        "⚠️ The local vector DB is in use and could not be deleted. "
+                        "It will be **rebuilt fresh** on the next run automatically."
+                    )
+                else:
+                    raise
+        else:
+            st.session_state.pop("chroma_db_path_override", None)
+            print(f"[delete_retriever_context] Local Chroma DB not found — skipping.")
+    except Exception as e:
+        print(f"[delete_retriever_context] Failed to clear local Chroma DB: {e}")
+
+    # Clear local /tmp BM25 pickle file
+    try:
+        local_pickle_path = "/tmp/bm25_retriever.pkl"
+        if os.path.exists(local_pickle_path):
+            os.remove(local_pickle_path)
+            print(f"[delete_retriever_context] Cleared local BM25 pickle at: {local_pickle_path}")
+        else:
+            print(f"[delete_retriever_context] Local BM25 pickle not found — skipping.")
+    except Exception as e:
+        print(f"[delete_retriever_context] Failed to clear local BM25 pickle: {e}")
