@@ -66,5 +66,8 @@ window.HFApi = (function () {
     getManifestSync() {
       return request("/api/manifest-sync");
     },
+    ttsUrl(voiceover) {
+      return "/api/tts?voiceover=" + encodeURIComponent(voiceover || "");
+    },
   };
 })();

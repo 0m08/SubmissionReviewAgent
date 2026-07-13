@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,7 @@ from human_feedback_app.backend.auth import ensure_google_clients, get_current_s
 from human_feedback_app.backend.asset_service import image_response
 from human_feedback_app.backend.config import BRAND_ASSETS_DIR, BRAND_FALLBACK_DIR, FRONTEND_DIR
 from human_feedback_app.backend.jobs import revision_queue
+from human_feedback_app.backend.tts_service import synthesize_tts_mp3_bytes
 from human_feedback_app.backend.revise_worker import run_row_revision
 from human_feedback_app.backend.segmentation_worker import run_row_segmentation_revision
 from human_feedback_app.backend.layout_worker import run_row_layout_revision
@@ -140,6 +141,21 @@ def api_manifest_sync(session: UserSession = Depends(session_dep)) -> Dict[str, 
 @api_router.get("/assets/image")
 def api_asset_image(url: str = Query(min_length=8), thumb: str = Query(""), session: UserSession = Depends(session_dep)):
     return image_response(session, url, thumb)
+
+
+@api_router.get("/tts")
+def api_tts(voiceover: str = Query(min_length=1), session: UserSession = Depends(session_dep)) -> Response:
+    try:
+        data, _ = synthesize_tts_mp3_bytes(voiceover)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
+    return Response(
+        content=data,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @api_router.post("/visuals/revert")
