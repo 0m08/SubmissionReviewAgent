@@ -1,4 +1,9 @@
 import streamlit as st
+try:
+    from langtrace_python_sdk import langtrace
+    langtrace.init(disable_instrumentations={"only": ["chromadb"]})
+except Exception:
+    pass
 import time
 from services.drive_service import (
     login_with_oauth2,  # kept for legacy CLI/local usage
