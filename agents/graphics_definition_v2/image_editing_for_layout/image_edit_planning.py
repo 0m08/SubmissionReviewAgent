@@ -152,6 +152,13 @@ Instructions and Guidelines:
       - Label text must be short, direct, and instructional.
      - Do not add labels for obvious objects or decorative purposes.
      - Do not add too many labels if they would clutter the visual or make the final scene harder to understand.
+     - Panel/Icon Concept Labels: If the edit plan requests a text label for a panel icon/concept (e.g., "HEAT", "AIR", "MOISTURE"), it MUST follow these rules:
+        - Sizing and Shape: Draw a solid orange (#F05523) rectangular badge with soft, rounded corners (border radius: ~8-12% of height). The badge must be horizontally centered at the bottom of the image frame.
+        - Dimensions: The badge must occupy roughly 50-60% of the image width and 15-20% of the image height. It must be identical in width, height, and padding for all sibling panels.
+        - Border: No border outline; it is a solid filled container.
+        - Text: The label text must be written in bold, uppercase, pure white (#FFFFFF) text in Fira Sans font, centered horizontally and vertically inside the orange badge.
+        - Position: The badge must sit exactly at the lower edge of the image canvas, leaving a small, uniform margin (~5% of height) at the bottom.
+        - Do NOT draw arrows, leader lines, or white boxes for panel/concept labels. They must look like a clean, solid orange title bar under the subject icon.
 
    d) CROP_IMAGE
       - Use when removing unnecessary surrounding area would make the relevant object or region easier to see.
