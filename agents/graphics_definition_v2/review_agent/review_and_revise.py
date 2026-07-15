@@ -3961,6 +3961,9 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
     subtopic_name = _safe_str(row.get("Subtopic", ""))
     voiceover_text = _safe_str(row.get("voiceover_segment", ""))
     final_graphics_definition = _safe_str(row.get("final_graphics_definition", ""))
+    layout_plan = _safe_str(row.get("layout_plan", "")).strip()
+    if layout_plan == "nan":
+        layout_plan = ""
     
     # Get visual assignment strategy
     visual_assignment_strategy = str(row.get("Visual Assignment Strategy", "Flexible, let the agent decide")).strip()
@@ -4390,6 +4393,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                 topic_name=topic_name,
                 subtopic_name=subtopic_name,
                 storyboard="",
+                layout_plan=layout_plan,
                 drive=drive,
                 llm=llm,
                 feedback=feedback,

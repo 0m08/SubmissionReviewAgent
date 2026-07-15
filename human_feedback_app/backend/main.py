@@ -25,6 +25,7 @@ from human_feedback_app.backend.sheet_service import (
     load_workbook,
     maybe_trigger_manifest_sync_checker,
     prepare_visual_revision,
+    replace_visual_with_url,
     revert_visual,
     select_pool_alternative,
     slides_to_ui_payload,
@@ -48,6 +49,15 @@ class ReviseRequest(BaseModel):
     visual_id: str
     vo: str
     mode: str
+    feedback: str = ""
+
+
+class ReplaceRequest(BaseModel):
+    row_index: int
+    segment_index: int
+    step_index: int
+    visual_id: str
+    vo: str
     feedback: str = ""
 
 
@@ -196,6 +206,24 @@ def api_select_pool(body: SelectPoolRequest, session: UserSession = Depends(sess
         asset_url=body.asset_url,
     )
     return {"status": "ok"}
+
+
+@api_router.post("/visuals/replace")
+def api_replace(body: ReplaceRequest, session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
+    try:
+        replaced_url = replace_visual_with_url(
+            session,
+            row_index=body.row_index,
+            segment_index=body.segment_index,
+            step_index=body.step_index,
+            visual_id=body.visual_id,
+            vo=body.vo,
+            feedback=body.feedback,
+        )
+        payload = slides_to_ui_payload(session)
+        return {"status": "ok", "replaced_url": replaced_url, "payload": payload}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @api_router.post("/visuals/revise")
