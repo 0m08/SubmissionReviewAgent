@@ -78,7 +78,7 @@ ASSETS_FOLDER_NAME = "assets"
 
 HEADERS = [
     "Video ID", "Video Name", "Course Name", "Topic Name",
-    "MimeType", "Duration", "File Size", "Video Link", "Stock/Non Stock",
+    "MimeType", "Duration", "File Size", "Video Link", "Stock/Non Stock", "Source Tag"
 ]
 
 SHEETS_WRITE_DELAY_SECONDS = 1.2
@@ -422,6 +422,7 @@ def list_videos_in_folder(
     folder_id: str,
     course_name: str,
     topic_name: str,
+    source_tag: str = "",
 ) -> list:
     """Return video dicts for all videos directly inside folder_id."""
     videos = []
@@ -444,6 +445,7 @@ def list_videos_in_folder(
             "file_size":   format_size(f.get("size")),
             "video_link":  f.get("webViewLink", ""),
             "stock":       classify_stock(f["name"], f["mimeType"]),
+            "source_tag":  source_tag,
         })
     return videos
 
@@ -453,6 +455,7 @@ def find_videos_recursive(
     creds,
     folder_id: str,
     depth: int = 0,
+    source_tag: str = "",
 ) -> list:
     """Recursively walk folder_id and return every video found."""
     videos = []
@@ -460,7 +463,7 @@ def find_videos_recursive(
         indent = "  " * (depth + 1)
         if f["mimeType"] == "application/vnd.google-apps.folder":
             _log(f"{indent}↳ subfolder: {f['name']}")
-            videos.extend(find_videos_recursive(drive_service, creds, f["id"], depth + 1))
+            videos.extend(find_videos_recursive(drive_service, creds, f["id"], depth + 1, source_tag=source_tag))
             continue
 
         is_video = (
@@ -479,6 +482,7 @@ def find_videos_recursive(
                 "file_size":   format_size(f.get("size")),
                 "video_link":  f.get("webViewLink", ""),
                 "stock":       classify_stock(f["name"], f["mimeType"]),
+                "source_tag":  source_tag,
             })
     return videos
 
@@ -646,6 +650,7 @@ def log_videos_to_sheet(spreadsheet, tab_name: str, videos: list) -> int:
             v["file_size"],
             v["video_link"],
             v["stock"],
+            v.get("source_tag", ""),
         ])
 
     if new_rows:
@@ -717,11 +722,12 @@ def run_stock_classification_pass(spreadsheet, tab_names: list[str]) -> dict:
 # ============================================================
 
 def run_archive_pipeline(
+    spreadsheet,
     drive_service,
-    sheets_client,
     creds,
     other_folder_id: str = "",
     mode: str = "course",
+    source_tag: str = "",
 ) -> dict:
     _log("=" * 60)
     _log("📦  VIDEO ARCHIVING PIPELINE")
@@ -762,6 +768,7 @@ def run_archive_pipeline(
                     folder_id=assets_id,
                     course_name=course["name"],
                     topic_name=topic["name"],
+                    source_tag=source_tag,
                 )
                 # Filter out already-logged file IDs
                 videos = [v for v in videos if v["video_id"] not in existing_ids]
@@ -787,7 +794,7 @@ def run_archive_pipeline(
     if mode == "folder":
         if other_folder_id.strip():
             _log(f"=== PART B: Other Videos folder ({other_folder_id}) ===")
-            other_videos = find_videos_recursive(drive_service, creds, other_folder_id.strip())
+            other_videos = find_videos_recursive(drive_service, creds, other_folder_id.strip(), source_tag=source_tag)
             _log(f"  Found {len(other_videos)} video(s) total.")
             if other_videos:
                 logged = log_videos_to_sheet(spreadsheet, OTHER_VIDEOS_TAB_NAME, other_videos)
@@ -841,6 +848,20 @@ def render_archive_tab(
     """
     global _st_log_placeholder
 
+    # If drive_service is a PyDrive2 GoogleDrive object, convert it to raw v3 client and auth sheets_client if needed
+    from pydrive2.drive import GoogleDrive
+    if isinstance(drive_service, GoogleDrive):
+        if hasattr(drive_service.auth, "credentials") and drive_service.auth.credentials:
+            creds = drive_service.auth.credentials
+            if sheets_client is None:
+                sheets_client = gspread.authorize(creds)
+            drive_service = build("drive", "v3", credentials=creds, cache_discovery=False)
+
+    # Fallback to extract credentials from sheets_client if creds is None
+    if creds is None and sheets_client is not None:
+        if hasattr(sheets_client, "auth") and sheets_client.auth:
+            creds = sheets_client.auth
+
     # ── Auth: fall back to env-var init if callers didn't provide clients ──
     if drive_service is None or sheets_client is None:
         try:
@@ -879,6 +900,13 @@ def render_archive_tab(
             "no input required."
         )
 
+    source_tag = st.text_input(
+        "Source Tag",
+        value="",
+        placeholder="Enter a source tag to associate with these videos (optional)",
+        key="archive_source_tag",
+    ).strip()
+
     if st.button("▶️  Run Archive Pipeline", type="primary", key="run_archive_btn"):
         # Validate folder mode before starting
         if archive_mode == "Process a specific folder by ID" and not other_folder_id.strip():
@@ -900,6 +928,7 @@ def render_archive_tab(
                     creds=creds,
                     other_folder_id=other_folder_id,
                     mode=pipeline_mode,
+                    source_tag=source_tag,
                 )
             st.success("✅ Archive pipeline complete.")
             st.markdown(f"[Open Google Sheet]({SHEET_LINK})")

@@ -409,6 +409,27 @@ def load_gemini_video_chroma_collection(
         return collection
 
 
+def get_unique_source_tags(collection) -> List[str]:
+    """Return sorted unique non-empty source tags from collection metadata."""
+    if not collection:
+        return []
+    try:
+        data = collection.get(include=["metadatas"])
+        metadatas = data.get("metadatas", []) or []
+        tags = set()
+        for meta in metadatas:
+            if meta and isinstance(meta, dict):
+                tag = str(meta.get("source_tag", "")).strip()
+                if tag and tag.lower() not in ("none", "nan", "null"):
+                    tags.add(tag)
+        result = sorted(list(tags))
+        print(f"🏷️ Pulled {len(result)} unique source tag(s) from collection '{collection.name}': {result}")
+        return result
+    except Exception as e:
+        print(f"Error fetching source tags: {e}")
+        return []
+
+
 # ============================================================
 # Gemini query embedding helpers
 # ============================================================
@@ -978,9 +999,25 @@ def render_gemini_drive_video_search_tab(
         key="gemini_drive_video_num_results",
     )
 
+    # Pre-fetch collection if cached to extract source_tag options
+    available_source_tags = []
+    try:
+        col = load_gemini_video_chroma_collection(
+            drive,
+            parent_folder_id=parent_folder_id,
+            vectorstore_folder_name=vectorstore_folder_name,
+            backup_folder_name=backup_folder_name,
+            collection_name=CHROMA_COLLECTION_NAME,
+        )
+        available_source_tags = get_unique_source_tags(col)
+    except Exception as exc:
+        print(f"⚠️ Could not pre-fetch source tags: {exc}")
+
     with st.expander("Optional filters"):
         course_filter = st.text_input("Course name", placeholder="All courses", key="gemini_course_filter")
         topic_filter = st.text_input("Topic name", placeholder="All topics", key="gemini_topic_filter")
+        source_tag_options = ["All"] + available_source_tags
+        source_tag_filter = st.selectbox("Source tag", options=source_tag_options, key="gemini_source_tag_filter")
         stock_filter = st.selectbox("Stock/Non Stock", ["All", "Stock", "Non Stock"], key="gemini_stock_filter")
     
 
@@ -989,6 +1026,8 @@ def render_gemini_drive_video_search_tab(
         filters["course_name"] = course_filter.strip()
     if topic_filter.strip():
         filters["topic_name"] = topic_filter.strip()
+    if source_tag_filter and source_tag_filter != "All":
+        filters["source_tag"] = source_tag_filter
     if stock_filter != "All":
         filters["stock"] = stock_filter
 

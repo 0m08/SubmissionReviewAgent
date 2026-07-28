@@ -22,6 +22,7 @@ Before running:
 import os
 import json
 import time
+import base64
 import shutil
 import random
 import tempfile
@@ -44,6 +45,10 @@ from pydrive2.drive import GoogleDrive
 from google import genai
 from google.genai import types
 from chromadb import PersistentClient
+from services.drive_service import login_with_service_account
+import streamlit as st
+from dotenv import load_dotenv
+from services.drive_service import upload_folder_to_drive, download_folder_from_drive
 
 
 # ============================================================
@@ -58,7 +63,7 @@ CHROMA_BACKUP_FOLDER_NAME = "chroma_video_embeddings_db"
 
 LOCAL_VECTORSTORE_PATH = os.getenv(
     "GEMINI_VIDEO_LOCAL_SEARCH_DB_PATH",
-    os.path.join(tempfile.gettempdir(), "gemini_drive_video_vectorstore_search"),
+    os.path.join(tempfile.gettempdir(), "gemini_drive_video_vectorstore_search", "chroma_video_embeddings_db"),
 )
 
 
@@ -90,8 +95,8 @@ TRACKING_COLUMNS = [
     "segments_processed",
     "estimated_cost_usd",
     "error_message",
-    "embedding_model",
-    "embedding_dimensionality",
+    # "embedding_model",
+    # "embedding_dimensionality",
 ]
 
 CHUNK_LENGTH_SEC = 60
@@ -120,51 +125,26 @@ USE_BATCH_PRICING_FOR_ESTIMATE = False
 # AUTH
 # ============================================================
 
-def initialize_clients():
-    """
-    Authenticates PyDrive, gspread, and Gemini.
+ # --------------------- Auth --------------------- #
+load_dotenv()
+key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
+sa_json = key_bytes.decode()
+sa_dict = json.loads(sa_json)
 
-    Requires client_secrets.json for Google OAuth.
-    Requires GOOGLE_API_KEY environment variable.
-    """
-    google_auth = GoogleAuth()
+gauth = login_with_service_account(json_str=sa_json)
+gauth.ServiceAuth()
+drive = GoogleDrive(gauth)
+gc = gspread.service_account_from_dict(sa_dict)
 
-    # Saves/loads OAuth token locally so you do not need to log in every run.
-    google_auth.LoadCredentialsFile("mycreds.txt")
-
-    if google_auth.credentials is None:
-        google_auth.LocalWebserverAuth()
-    elif google_auth.access_token_expired:
-        google_auth.Refresh()
-    else:
-        google_auth.Authorize()
-
-    google_auth.SaveCredentialsFile("mycreds.txt")
-
-    drive = GoogleDrive(google_auth)
-
-    try:
-        gc = gspread.authorize(google_auth.credentials)
-    except Exception as exc:
-        raise RuntimeError(
-            "Could not authorize gspread using PyDrive credentials. "
-            "Make sure your OAuth app has Drive/Sheets scopes and try deleting mycreds.txt, "
-            "then rerun to authorize again."
-        ) from exc
-
-    google_api_key = os.environ.get("GOOGLE_API_KEY")
-    if not google_api_key:
-        raise RuntimeError(
-            "Missing GOOGLE_API_KEY. Set it before running this script."
-        )
-
-    gemini_client = genai.Client(api_key=google_api_key)
-
-    print("✅ PyDrive ready.")
-    print("✅ Google Sheets ready.")
-    print("✅ Gemini client ready.")
-
-    return drive, gc, gemini_client
+# st.session_state["drive"] = drive
+# st.session_state["gc"] = gc
+#
+# if "drive" in st.session_state and "gc" in st.session_state:
+#     drive = st.session_state["drive"]
+#     gc = st.session_state["gc"]
+# else:
+#     st.error("❌ Authentication not found. Please log out and log in again.")
+#     st.stop()
 
 
 # ============================================================
@@ -300,58 +280,58 @@ def delete_drive_file_or_folder(drive, file_id: str):
     item.Delete()
 
 
-def upload_folder_to_drive(drive, local_folder_path: str, parent_folder_id: str):
-    """
-    Recursively upload a local folder's contents into an existing Drive folder.
+# def upload_folder_to_drive(drive, local_folder_path: str, parent_folder_id: str):
+#     """
+#     Recursively upload a local folder's contents into an existing Drive folder.
 
-    Important for ChromaDB:
-    uploads both chroma.sqlite3 and the UUID subfolder.
-    """
-    local_folder_path = str(local_folder_path)
+#     Important for ChromaDB:
+#     uploads both chroma.sqlite3 and the UUID subfolder.
+#     """
+#     local_folder_path = str(local_folder_path)
 
-    for item_name in os.listdir(local_folder_path):
-        item_path = os.path.join(local_folder_path, item_name)
+#     for item_name in os.listdir(local_folder_path):
+#         item_path = os.path.join(local_folder_path, item_name)
 
-        if os.path.isdir(item_path):
-            folder = drive.CreateFile({
-                "title": item_name,
-                "parents": [{"id": parent_folder_id}],
-                "mimeType": "application/vnd.google-apps.folder",
-            })
-            folder.Upload()
-            print(f"    📁 Created Drive subfolder: {item_name}")
-            upload_folder_to_drive(drive, item_path, folder["id"])
+#         if os.path.isdir(item_path):
+#             folder = drive.CreateFile({
+#                 "title": item_name,
+#                 "parents": [{"id": parent_folder_id}],
+#                 "mimeType": "application/vnd.google-apps.folder",
+#             })
+#             folder.Upload()
+#             print(f"    📁 Created Drive subfolder: {item_name}")
+#             upload_folder_to_drive(drive, item_path, folder["id"])
 
-        elif os.path.isfile(item_path):
-            file_obj = drive.CreateFile({
-                "title": item_name,
-                "parents": [{"id": parent_folder_id}],
-            })
-            file_obj.SetContentFile(item_path)
-            file_obj.Upload()
-            print(f"    ⬆️ Uploaded: {item_name}")
+#         elif os.path.isfile(item_path):
+#             file_obj = drive.CreateFile({
+#                 "title": item_name,
+#                 "parents": [{"id": parent_folder_id}],
+#             })
+#             file_obj.SetContentFile(item_path)
+#             file_obj.Upload()
+#             print(f"    ⬆️ Uploaded: {item_name}")
 
 
-def download_folder_from_drive(drive, folder_id: str, local_path: str):
-    """
-    Recursively download a Drive folder to local disk.
-    Restores both chroma.sqlite3 and Chroma UUID folders.
-    """
-    os.makedirs(local_path, exist_ok=True)
-    items = drive.ListFile({"q": f"'{folder_id}' in parents and trashed=false"}).GetList()
+# def download_folder_from_drive(drive, folder_id: str, local_path: str):
+#     """
+#     Recursively download a Drive folder to local disk.
+#     Restores both chroma.sqlite3 and Chroma UUID folders.
+#     """
+#     os.makedirs(local_path, exist_ok=True)
+#     items = drive.ListFile({"q": f"'{folder_id}' in parents and trashed=false"}).GetList()
 
-    for item in items:
-        title = item["title"]
-        mime_type = item.get("mimeType")
-        item_id = item["id"]
-        destination = os.path.join(local_path, title)
+#     for item in items:
+#         title = item["title"]
+#         mime_type = item.get("mimeType")
+#         item_id = item["id"]
+#         destination = os.path.join(local_path, title)
 
-        if mime_type == "application/vnd.google-apps.folder":
-            print(f"    📁 Downloading Drive subfolder: {title}")
-            download_folder_from_drive(drive, item_id, destination)
-        else:
-            item.GetContentFile(destination)
-            print(f"    ⬇️ Downloaded: {title}")
+#         if mime_type == "application/vnd.google-apps.folder":
+#             print(f"    📁 Downloading Drive subfolder: {title}")
+#             download_folder_from_drive(drive, item_id, destination)
+#         else:
+#             item.GetContentFile(destination)
+#             print(f"    ⬇️ Downloaded: {title}")
 
 
 def download_from_drive(drive, file_id: str, output_path: str) -> str:
@@ -365,25 +345,7 @@ def download_from_drive(drive, file_id: str, output_path: str) -> str:
     return output_path
 
 
-def backup_vectorstore_to_drive(drive, local_path: str, vectorstore_folder_id: str):
-    """
-    Replaces old chroma_video_embeddings_db backup with a fresh recursive upload.
-    """
-    print("  📤 Backing up vectorstore to Drive...")
 
-    old_id = find_drive_folder(drive, vectorstore_folder_id, CHROMA_BACKUP_FOLDER_NAME)
-    if old_id:
-        delete_drive_file_or_folder(drive, old_id)
-        print("  🗑️ Removed old Drive backup.")
-
-    new_folder_id = create_or_get_drive_folder(
-        drive,
-        vectorstore_folder_id,
-        CHROMA_BACKUP_FOLDER_NAME,
-    )
-
-    upload_folder_to_drive(drive, local_path, new_folder_id)
-    print("  ✅ Drive backup complete.")
 
 
 # ============================================================
@@ -625,6 +587,7 @@ def upsert_embeddings(collection, embeddings_data: list):
             "segment_index": int(item["segment_index"]),
             "start_time": float(item["start_time"]),
             "end_time": float(item["end_time"]),
+            "source_tag": str(item.get("source_tag", "")),
         })
 
     collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas)
@@ -633,6 +596,28 @@ def upsert_embeddings(collection, embeddings_data: list):
     print(f"  📊 Collection count is now: {collection.count()}")
 
 
+def backup_vectorstore_to_drive(drive, local_path: str, vectorstore_folder_id: str):
+    print("  📤 Backing up vectorstore to Drive...")
+    
+    old_id = find_drive_folder(drive, vectorstore_folder_id, CHROMA_BACKUP_FOLDER_NAME)
+    if old_id:
+        print("  🗑️ Removing old Drive backup...")
+        drive.CreateFile({"id": old_id}).Delete()
+        print("  🗑️ Old backup removed.")
+
+    print("  📁 Creating fresh backup folder...")
+    chroma_folder = drive.CreateFile({
+        "title": CHROMA_BACKUP_FOLDER_NAME,
+        "parents": [{"id": vectorstore_folder_id}],
+        "mimeType": "application/vnd.google-apps.folder",
+    })
+    chroma_folder.Upload()
+    new_folder_id = chroma_folder["id"]
+    print(f"  📁 Created folder '{CHROMA_BACKUP_FOLDER_NAME}': {new_folder_id}")
+
+    upload_folder_to_drive(drive, local_path, new_folder_id)
+    print("  ✅ Drive backup complete.")
+    
 # ============================================================
 # MAIN PIPELINE
 # ============================================================
@@ -676,7 +661,7 @@ def create_video_embeddings(
         )
         if chroma_folder_id:
             print("  📥 Downloading existing ChromaDB backup from Drive...")
-            download_folder_from_drive(drive, chroma_folder_id, LOCAL_VECTORSTORE_PATH)
+            download_folder_from_drive(chroma_folder_id, LOCAL_VECTORSTORE_PATH, drive)
             print("  ✅ Download complete.")
         else:
             print("  📝 No existing ChromaDB backup found. Starting fresh.")
@@ -712,11 +697,18 @@ def create_video_embeddings(
             tabs_skipped.append(tab_name)
             continue
 
-        missing_required = [col for col in REQUIRED_COLUMNS if col not in df.columns]
-        if missing_required:
-            print(f"  ⚠️ Missing required columns: {missing_required}. Skipping.")
+        essential_columns = [COL_VIDEO_ID, COL_VIDEO_NAME]
+        missing_essential = [col for col in essential_columns if col not in df.columns]
+        if missing_essential:
+            print(f"  ⚠️ Missing essential columns: {missing_essential}. Skipping tab.")
             tabs_skipped.append(tab_name)
             continue
+
+        # Optional columns — add as empty if missing so processing can continue
+        missing_optional = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+        for col in missing_optional:
+            df[col] = ""
+            print(f"  ➕ Column '{col}' not found in tab — added as empty.")
 
         for col in TRACKING_COLUMNS:
             if col not in df.columns:
@@ -781,6 +773,11 @@ def create_video_embeddings(
             file_size = str(row.get(COL_FILE_SIZE, ""))
             video_link = str(row.get(COL_VIDEO_LINK, ""))
             stock = str(row.get(COL_STOCK, ""))
+            raw_source_tag = row.get("Source Tag")
+            if pd.isna(raw_source_tag) or raw_source_tag is None or str(raw_source_tag).strip().lower() in ("", "nan", "none"):
+                source_tag = ""
+            else:
+                source_tag = str(raw_source_tag).strip()
 
             print(f"\n  🎥 [{video_idx}/{len(videos_to_process)}] {video_name}")
             print(f"     Tab: {tab_name} | Course: {course_name} | Topic: {topic_name}")
@@ -851,6 +848,7 @@ def create_video_embeddings(
                                 "start_time": emb["start_time"],
                                 "end_time": emb["end_time"],
                                 "embedding": emb["vector"],
+                                "source_tag": source_tag,
                             }
 
                             with lock:
@@ -872,13 +870,13 @@ def create_video_embeddings(
 
                 upsert_embeddings(collection, video_embeddings)
 
-                # d2. Backup updated ChromaDB to Drive after every video.
-                # A backup failure is logged but never fails the video itself.
-                try:
-                    backup_vectorstore_to_drive(drive, LOCAL_VECTORSTORE_PATH, vectorstore_folder_id)
-                    print("    📤 Drive backup updated after this video.")
-                except Exception as backup_exc:
-                    raise RuntimeError(f"Drive backup failed after embedding — row will not be marked TRUE: {backup_exc}") from backup_exc
+                # # d2. Backup updated ChromaDB to Drive after every video.
+                # # A backup failure is logged but never fails the video itself.
+                # try:
+                #     backup_vectorstore_to_drive(drive, LOCAL_VECTORSTORE_PATH, vectorstore_folder_id)
+                #     print("    📤 Drive backup updated after this video.")
+                # except Exception as backup_exc:
+                #     raise RuntimeError(f"Drive backup failed after embedding — row will not be marked TRUE: {backup_exc}") from backup_exc
 
                 tab_new_embeddings += len(video_embeddings)
                 grand_embeddings += len(video_embeddings)
@@ -932,9 +930,17 @@ def create_video_embeddings(
     print("\n📤 Step 5: Final Drive backup...")
     try:
         backup_vectorstore_to_drive(drive, LOCAL_VECTORSTORE_PATH, vectorstore_folder_id)
+        print("  ✅ Drive backup complete.")
     except Exception as exc:
-        print(f"  ⚠️ Drive backup failed: {exc}")
-        print(f"  Local vectorstore is still at: {LOCAL_VECTORSTORE_PATH}")
+        st.error("❌ Drive backup FAILED — but all embeddings are safely stored locally.")
+        st.info(
+            f"📂 **Local vectorstore path:** `{LOCAL_VECTORSTORE_PATH}`\n\n"
+            f"👉 **To back up manually:**\n"
+            f"1. Open Google Drive\n"
+            f"2. Navigate to the folder: **{VECTORSTORE_FOLDER_NAME}**\n"
+            f"3. Upload the entire folder from: `{LOCAL_VECTORSTORE_PATH}`\n\n"
+            f"**Error:** {exc}"
+        )
 
     elapsed = time.time() - pipeline_start
     mins, sec = divmod(int(elapsed), 60)

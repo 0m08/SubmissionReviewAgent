@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import base64
 import time
@@ -20,17 +20,22 @@ llm_model = st.session_state.get("llm_model", "gemini_3_flash") or "gemini_3_fla
 
 # --------------------- Auth --------------------- #
 load_dotenv()
-key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
-sa_json = key_bytes.decode()
-sa_dict = json.loads(sa_json)
 
-gauth = login_with_service_account(json_str=sa_json)
-gauth.ServiceAuth()
-drive = GoogleDrive(gauth)
-gc = gspread.service_account_from_dict(sa_dict)
+if "drive" in st.session_state and "gc" in st.session_state:
+    drive = st.session_state["drive"]
+    gc = st.session_state["gc"]
+else:
+    key_bytes = base64.b64decode(os.environ["GDRIVE_SA_B64"])
+    sa_json = key_bytes.decode()
+    sa_dict = json.loads(sa_json)
 
-st.session_state["drive"] = drive
-st.session_state["gc"] = gc
+    gauth = login_with_service_account(json_str=sa_json)
+    gauth.ServiceAuth()
+    drive = GoogleDrive(gauth)
+    gc = gspread.service_account_from_dict(sa_dict)
+
+    st.session_state["drive"] = drive
+    st.session_state["gc"] = gc
 
 # --------------------- App Header --------------------- #
 st.markdown("## Video Search Tool")
@@ -195,7 +200,7 @@ with tab_transcript:
             options=["All", "HVAC School", "LOVE2HVAC with Ty Branaman"],
         )
         if channel_filter and channel_filter != "All":
-                filters["channel"] = channel_filter
+            filters["channel"] = channel_filter
 
         # use_agent = st.toggle("Agent Mode", value=False)
         use_agent = False
@@ -309,4 +314,4 @@ with tab_google_drive_videos:
     else:
         task = None
 
-    render_gemini_drive_video_search_tab(drive, task=task)
+    render_gemini_drive_video_search_tab(drive, gc=gc, task=task)

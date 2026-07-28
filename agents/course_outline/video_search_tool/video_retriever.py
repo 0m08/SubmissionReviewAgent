@@ -244,8 +244,13 @@ def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video
                     "Video embeddings vectorstore is empty. Share the Drive folder with the service account (see GDRIVE_SA_B64)."
                 )
             
-            collection = client.get_collection("video_embeddings")
-            print("Loaded 'video_embeddings' collection from new vectorstore.")
+            collection_name = "video_embeddings"
+            if "video_embeddings" not in [c.name for c in collections]:
+                collection_name = collections[0].name
+                print(f"⚠️ 'video_embeddings' collection not found. Falling back to first available: '{collection_name}'")
+            
+            collection = client.get_collection(collection_name)
+            print(f"Loaded '{collection_name}' collection from new vectorstore.")
             
             class VideoEmbeddingsChroma:
                 def __init__(self, db_path, collection_name, collection):
@@ -269,25 +274,49 @@ def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video
                     return self._similarity_search_impl(query, k, **kwargs)
                  
                 def _similarity_search_impl(self, query, k=10, **kwargs):
-                    # Use Vertex AI multimodal embedding model to generate query embeddings
-                    print(f"🔍 Searching video embeddings for query: '{query[:50]}...'")
+                    # Determine which embedding model to use based on collection name/dimensions
+                    is_gemini_db = (self.collection_name == "gemini_video_visual_embeddings")
                     
                     try:
-                        model = _get_video_embeddings_model()
-                        result = model.get_embeddings(contextual_text=query)
-                        query_embedding = result.text_embedding
-                        print(f"✅ Using Vertex AI multimodal embeddings for query")
+                        if is_gemini_db:
+                            print("🔮 Using Gemini embedding-2 (3072 dims) to match collection format")
+                            from google import genai
+                            from google.genai import types
+                            api_key = os.getenv("GOOGLE_API_KEY")
+                            if not api_key:
+                                raise RuntimeError("Missing GOOGLE_API_KEY environment variable.")
+                            g_client = genai.Client(api_key=api_key)
+                            res = g_client.models.embed_content(
+                                model="gemini-embedding-2",
+                                contents=query,
+                                config=types.EmbedContentConfig(
+                                    output_dimensionality=3072,
+                                    task_type="RETRIEVAL_QUERY"
+                                )
+                            )
+                            query_embedding = list(res.embeddings[0].values)
+                        else:
+                            model = _get_video_embeddings_model()
+                            result = model.get_embeddings(contextual_text=query)
+                            query_embedding = result.text_embedding
+                        
+                        print(f"✅ Using {'Gemini' if is_gemini_db else 'Vertex AI'} embeddings for query")
                         print(f"✅ Query embedding dimension: {len(query_embedding)}")
                     except Exception as e:
-                        print(f"❌ Error initializing Vertex AI: {str(e)}")
+                        print(f"❌ Error generating embedding: {str(e)}")
                         raise
 
                     # Query the vector store with the embedding
                     collection = self._get_thread_local_collection()
-                    results = collection.query(
-                        query_embeddings=[query_embedding],
-                        n_results=k
-                    )
+                    query_kwargs = {
+                        "query_embeddings": [query_embedding],
+                        "n_results": k,
+                    }
+                    # Forward optional metadata filter (e.g. source_tag) as a Chroma `where` clause
+                    chroma_filter = kwargs.get("filter")
+                    if chroma_filter:
+                        query_kwargs["where"] = chroma_filter
+                    results = collection.query(**query_kwargs)
                     
                     # Convert to LangChain Document format
                     docs = []
@@ -309,6 +338,24 @@ def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video
                     
                     return docs
                     
+                def get_available_source_tags(self) -> List[str]:
+                    try:
+                        col = self._get_thread_local_collection()
+                        data = col.get(include=["metadatas"])
+                        metadatas = data.get("metadatas", []) or []
+                        tags = set()
+                        for meta in metadatas:
+                            if meta and isinstance(meta, dict):
+                                tag = str(meta.get("source_tag", "")).strip()
+                                if tag and tag.lower() not in ("none", "nan", "null"):
+                                    tags.add(tag)
+                        result = sorted(list(tags))
+                        print(f"🏷️ Pulled {len(result)} unique source tag(s) from collection '{self.collection_name}': {result}")
+                        return result
+                    except Exception as e:
+                        print(f"Error extracting source tags from Chroma: {e}")
+                        return []
+
                 def as_retriever(self, search_kwargs=None):
                     if search_kwargs is None:
                         search_kwargs = {"k": 10}
@@ -325,13 +372,24 @@ def load_new_video_embeddings_chroma_db(drive, video_embeddings_folder_id, video
                 def _invoke(self, input: Any, config: Any = None) -> List[Any]:
                     return self.invoke(input, config)
             
-            chroma_wrapper = VideoEmbeddingsChroma(db_path, "video_embeddings", collection)
+            chroma_wrapper = VideoEmbeddingsChroma(db_path, collection_name, collection)
             _NEW_VIDEO_EMBEDDINGS_CACHE[cache_key] = chroma_wrapper
             return chroma_wrapper
             
         except Exception as e:
             print(f"Error loading video embeddings collection: {e}")
             raise
+
+
+def get_vectorstore_source_tags(drive=None) -> List[str]:
+    """Retrieve unique non-empty source tags available in the loaded vectorstore."""
+    try:
+        chroma = load_new_video_embeddings_chroma_db(drive=drive)
+        if chroma and hasattr(chroma, "get_available_source_tags"):
+            return chroma.get_available_source_tags()
+    except Exception as e:
+        print(f"Could not load source tags from vectorstore: {e}")
+    return []
 
 
 def load_bm25_retriever_with_pydrive(central_folder_id: str, drive):

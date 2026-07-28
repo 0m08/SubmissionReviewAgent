@@ -548,7 +548,8 @@ def create_or_update_vector_store(embeddings_data, local_path, drive, parent_fol
                 "title": item["title"],
                 "segment_index": item["segment_index"],
                 "start_time": item["start_time"],
-                "end_time": item["end_time"]
+                "end_time": item["end_time"],
+                "source_tag": str(item.get("source_tag", ""))
             }]
         )
     
@@ -772,6 +773,11 @@ def create_video_embeddings(
             video_url = str(row["video_url"]).strip()
             video_id = str(row["video_id"]).strip()
             title = str(row.get("title", "")).strip()
+            raw_source_tag = row.get("Source Tag")
+            if pd.isna(raw_source_tag) or raw_source_tag is None or str(raw_source_tag).strip().lower() in ("", "nan", "none"):
+                source_tag = ""
+            else:
+                source_tag = str(raw_source_tag).strip()
             
             print(f"\n🎥 Processing video {video_idx+1}/{len(videos_to_process)}: {video_url}")
             
@@ -825,7 +831,8 @@ def create_video_embeddings(
                                         "segment_index": j,
                                         "embedding": e["vector"],
                                         "start_time": original_start_time + e["start"],  # Original video timestamp
-                                        "end_time": original_start_time + e["end"]        # Original video timestamp
+                                        "end_time": original_start_time + e["end"],        # Original video timestamp
+                                        "source_tag": source_tag
                                     }
                                     current_video_embeddings.append(embedding_item)
                         except Exception as e:
