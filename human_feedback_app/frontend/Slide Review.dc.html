@@ -1377,6 +1377,9 @@
               <sc-if value="{{ playerShowYtMount }}" hint-placeholder-val="{{ false }}">
                 <div id="hf-player-yt-active" class="hf-player-yt-mount"></div>
               </sc-if>
+              <sc-if value="{{ playerShowDriveVideo }}" hint-placeholder-val="{{ false }}">
+                <video id="{{ playerDriveVideoId }}" src="{{ playerDriveVideoUrl }}" poster="{{ playerDriveVideoPoster }}" muted playsinline preload="auto" style="width: 100%; height: 100%; object-fit: contain; background: #000000;"></video>
+              </sc-if>
               <sc-if value="{{ playerShowPlaceholder }}" hint-placeholder-val="{{ false }}">
                 <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(145deg, #1a2233 0%, #243352 55%, #1a2233 100%);">
                   <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
@@ -1540,11 +1543,12 @@ class Component extends DCLogic {
   };
 
   SOURCES = {
-    drive:    { label: 'Drive image',     bg: '#e8f0fe', color: '#1a56db' },
-    hvac_yt:  { label: 'HVAC YouTube',    bg: '#fdeaea', color: '#c01919' },
-    web:      { label: 'Web image',       bg: '#e3f5ec', color: '#0f7a4f' },
-    other_yt: { label: 'Other YouTube',   bg: '#efe9fd', color: '#6d28d9' },
-    ai:       { label: 'Generated with AI', bg: '#fde7d8', color: '#9a3412' },
+    drive:       { label: 'Drive image',     bg: '#e8f0fe', color: '#1a56db' },
+    drive_video: { label: 'Drive video',     bg: '#e0f2fe', color: '#0369a1' },
+    hvac_yt:     { label: 'HVAC YouTube',    bg: '#fdeaea', color: '#c01919' },
+    web:         { label: 'Web image',       bg: '#e3f5ec', color: '#0f7a4f' },
+    other_yt:    { label: 'Other YouTube',   bg: '#efe9fd', color: '#6d28d9' },
+    ai:          { label: 'Generated with AI', bg: '#fde7d8', color: '#9a3412' },
   };
 
   VISUAL_TILE_H = 280;
@@ -1707,8 +1711,19 @@ class Component extends DCLogic {
   }
 
   isVideoUrl(url) {
+    if (this.isDriveVideoUrl(url)) return true;
     const u = String(url || '').toLowerCase();
     return u.includes('youtube.com') || u.includes('youtu.be') || u.endsWith('.mp4') || u.endsWith('.mov');
+  }
+
+  isDriveVideoUrl(url) {
+    const u = String(url || '');
+    return u.toLowerCase().includes('drive.google.com') && /\(start=\d+(?:&end=\d+)?\)/.test(u);
+  }
+
+  proxyVideoUrl(raw) {
+    if (!raw) return raw;
+    return '/api/assets/video?url=' + encodeURIComponent(raw);
   }
 
   visualFromStep(st, url, extraOpts) {
@@ -1743,7 +1758,7 @@ class Component extends DCLogic {
   inferSourceFromUrl(url, type) {
     const u = (url || '').toLowerCase();
     if (!u) return type === 'video' ? 'hvac_yt' : 'drive';
-    if (u.includes('drive.google.com') || u.includes('docs.google.com')) return 'drive';
+    if (u.includes('drive.google.com') || u.includes('docs.google.com')) return type === 'video' ? 'drive_video' : 'drive';
     if (u.includes('youtube.com') || u.includes('youtu.be')) return type === 'video' ? 'hvac_yt' : 'other_yt';
     if (u.startsWith('http')) return 'web';
     return 'drive';
@@ -2012,6 +2027,7 @@ class Component extends DCLogic {
     this._player = new window.HFPlayer.Controller({
       slides: this.slides,
       getYtMountId: (cue) => self.ytMountIdForCue(cue),
+      getDriveVideoId: (cue) => self.driveVideoIdForCue(cue),
       getYtMountHeight: (cue) => self._playerSlotHeightForCue(cue),
       onBeforeCuePlay: (cue) => self.ensureCueVisualsReady(cue),
       onState: (snap) => {
@@ -2134,6 +2150,12 @@ class Component extends DCLogic {
     // instead of paying a full YouTube remount (~2s) on every cue.
     if (!cue.partCount || cue.partCount <= 1) return 'hf-player-yt-active';
     return 'hf-player-yt-' + cue.slideIdx + '-' + cue.sceneId + '-' + (cue.partIdx != null ? cue.partIdx : 0);
+  }
+  driveVideoIdForCue(cue) {
+    // Deterministic DOM id for a native Drive-video <video> so the HFPlayer controller can drive it imperatively (play/pause/freeze) in lockstep with narration — mirrors ytMountIdForCue's per-slot scheme.
+    if (!cue) return 'hf-player-drivevid-active';
+    if (!cue.partCount || cue.partCount <= 1) return 'hf-player-drivevid-active';
+    return 'hf-player-drivevid-' + cue.slideIdx + '-' + cue.sceneId + '-' + (cue.partIdx != null ? cue.partIdx : 0);
   }
   _playerSlotHeightForCue(cue) {
     if (!cue || !this.slides) return 480;
@@ -2506,6 +2528,9 @@ class Component extends DCLogic {
     let visualUrl = '';
     let visualLabel = '';
     let showYtMount = false;
+    let showDriveVideo = false;
+    let driveVideoUrl = '';
+    let driveVideoPoster = '';
     if (cue && cue.step) {
       const st = cue.step;
       const raw = self.rawAssetUrl(st);
@@ -2513,6 +2538,12 @@ class Component extends DCLogic {
       if (st.type === 'video' && window.HFYoutube && window.HFYoutube.isYoutubeUrl(raw)) {
         visualType = 'video';
         showYtMount = true;
+      } else if (st.type === 'video' && self.isDriveVideoUrl(raw)) {
+        // Native looping clip: the proxy serves a pre-trimmed start->end segment.
+        visualType = 'drivevideo';
+        showDriveVideo = true;
+        driveVideoUrl = self.proxyVideoUrl(raw);
+        driveVideoPoster = self.proxyImageUrlThumb(raw, 'image');
       } else {
         visualType = 'image';
         const v = self.visualOf(st);
@@ -2553,7 +2584,11 @@ class Component extends DCLogic {
       playerShowImage: visualType === 'image' && !!visualUrl,
       playerShowYtMount: showYtMount,
       playerYtMountId: cue ? self.ytMountIdForCue(cue) : 'hf-player-yt-mount',
-      playerShowPlaceholder: (visualType === 'image' && !visualUrl) || (visualType === 'video' && !showYtMount),
+      playerShowDriveVideo: showDriveVideo && !!driveVideoUrl,
+      playerDriveVideoId: cue ? self.driveVideoIdForCue(cue) : 'hf-player-drivevid-active',
+      playerDriveVideoUrl: driveVideoUrl,
+      playerDriveVideoPoster: driveVideoPoster,
+      playerShowPlaceholder: (visualType === 'image' && !visualUrl) || (visualType === 'video' && !showYtMount) || (visualType === 'drivevideo' && !driveVideoUrl),
       playerVisualUrl: visualUrl,
       playerVisualLabel: visualLabel,
       playerCaption: cue ? (cue.voiceover || '') : '',
@@ -2649,6 +2684,20 @@ class Component extends DCLogic {
       if (isVideo) {
         inner = h('div', { className: 'hf-player-scene-slot-inner', key: 'slot-inner-' + k },
           h('div', { id: slotMountId, className: 'hf-player-yt-mount', style: { width: '100%', height: '100%' } })
+        );
+      } else if (v.type === 'video' && this.isDriveVideoUrl(raw)) {
+        // Native clip (pre-trimmed start->end) for Drive videos in scene layout. No autoplay/loop: the HFPlayer controller drives play/pause/freeze in sync with narration via the deterministic per-slot id below.
+        inner = h('div', { className: 'hf-player-scene-slot-inner', key: 'slot-inner-' + k },
+          h('video', {
+            id: this.driveVideoIdForCue({ slideIdx: cue.slideIdx, sceneId: cue.sceneId, partIdx: k, partCount: refs.length }),
+            src: this.proxyVideoUrl(raw),
+            poster: this.proxyImageUrlThumb(raw, 'image'),
+            muted: true,
+            playsInline: true,
+            preload: 'auto',
+            ref: (el) => { if (el) el.muted = true; },
+            style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000' },
+          })
         );
       } else {
         const imgUrl = this.displayImageUrl(v);
@@ -2768,8 +2817,23 @@ class Component extends DCLogic {
     return s === 0 ? (m + 'm') : (m + 'm' + s + 's');
   }
   videoClipHint(st) {
-    if (st.type !== 'video' || !window.HFYoutube) return '';
+    if (st.type !== 'video') return '';
     const raw = st.assetUrl || st.url || this.rawAssetUrl(st);
+    if (this.isDriveVideoUrl(raw)) {
+      const m = String(raw).match(/\(start=(\d+)(?:&end=(\d+))?\)/);
+      if (m) {
+        const dStart = parseInt(m[1], 10) || 0;
+        const dEnd = m[2] != null ? parseInt(m[2], 10) : null;
+        if (dEnd != null && dEnd > dStart) {
+          return 'Use the video from ' + this.formatVideoTime(dStart) + ' to ' + this.formatVideoTime(dEnd);
+        }
+        if (dStart > 0) {
+          return 'Use the video from ' + this.formatVideoTime(dStart);
+        }
+      }
+      return '';
+    }
+    if (!window.HFYoutube) return '';
     const meta = window.HFYoutube.parseYoutubeEmbed(raw);
     if (!meta) return '';
     const start = Math.floor(meta.start || 0);
@@ -2798,7 +2862,7 @@ class Component extends DCLogic {
   }
   sourceIcon(srcKey, color, sz) {
     const h = React.createElement; sz = sz || 13;
-    if (srcKey === 'hvac_yt' || srcKey === 'other_yt') return h('svg', { width: sz, height: sz, viewBox: '0 0 24 24', fill: color }, h('rect', { x: 2, y: 5, width: 20, height: 14, rx: 4 }), h('path', { d: 'M10 9l5 3-5 3z', fill: '#fff' }));
+    if (srcKey === 'hvac_yt' || srcKey === 'other_yt' || srcKey === 'drive_video') return h('svg', { width: sz, height: sz, viewBox: '0 0 24 24', fill: color }, h('rect', { x: 2, y: 5, width: 20, height: 14, rx: 4 }), h('path', { d: 'M10 9l5 3-5 3z', fill: '#fff' }));
     if (srcKey === 'web') return h('svg', { width: sz, height: sz, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 2 }, h('circle', { cx: 12, cy: 12, r: 9 }), h('path', { d: 'M3 12h18' }), h('path', { d: 'M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18' }));
     if (srcKey === 'ai') return h('svg', { width: sz, height: sz, viewBox: '0 0 24 24', fill: color }, h('path', { d: 'M12 2l1.9 5.1L19 9l-5.1 1.9L12 16l-1.9-5.1L5 9l5.1-1.9z' }));
     return h('svg', { width: sz, height: sz, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('rect', { x: 3, y: 3, width: 18, height: 18, rx: 3 }), h('circle', { cx: 8.5, cy: 8.5, r: 1.5 }), h('path', { d: 'M21 15l-5-5L5 21' }));
@@ -2906,6 +2970,28 @@ class Component extends DCLogic {
       filter: opts.dim ? 'grayscale(0.4) brightness(0.85)' : 'none',
       boxSizing: 'border-box',
     };
+    if (v.type === 'video' && this.isDriveVideoUrl(rawUrl)) {
+      // Drive clip proxy serves a pre-trimmed segment, so a looping muted
+      // <video> plays exactly start->end and repeats natively.
+      const isSmall = ht < 150;
+      const containerStyle = { ...boxStyle, background: '#111' };
+      if (isSmall) containerStyle.pointerEvents = 'none';
+      return h('div', { key: 'drivevid-' + (opts.ytKey || rawUrl), style: containerStyle },
+        h('video', {
+          src: this.proxyVideoUrl(rawUrl),
+          autoPlay: true,
+          loop: true,
+          muted: true,
+          playsInline: true,
+          controls: !isSmall,
+          preload: 'metadata',
+          // React does not reliably set the muted attribute; force it via ref so autoplay is allowed.
+          ref: (el) => { if (el) el.muted = true; },
+          style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#111', borderRadius: '12px' },
+        }),
+        opts.badge ? h('div', { key: 'badge', style: { position: 'absolute', top: '8px', left: '8px', padding: '3px 8px', borderRadius: '7px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.04em', color: '#fff', background: opts.badgeColor || 'rgba(0,0,0,0.5)', zIndex: 12 } }, opts.badge) : null
+      );
+    }
     if (v.type === 'video' && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl)) {
       const isSmall = ht < 150;
       const mountId = opts.ytKey || ('yt-' + (++this._ytMountSeq));

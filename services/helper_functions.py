@@ -3,11 +3,27 @@ import math
 import difflib
 import streamlit as st
 import re
+import os
+import tempfile
+import subprocess
+import threading
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple, Optional
 from langsmith import traceable
 from google.genai import types
 
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, delete_worksheet
+
+# Cache full Drive video downloads so parallel segment scoring reuses the same file.
+_DRIVE_VIDEO_BYTES_CACHE = {}
+_DRIVE_VIDEO_BYTES_LOCK = threading.Lock()
+_MIME_BY_EXT = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+    ".avi": "video/x-msvideo",
+}
 
 # Get outline as text with topic, subtopic and los (if present)
 def get_outline_with_los(df, include_learning_objectives = False, include_prefix = True):
@@ -973,3 +989,154 @@ def build_video_part(clip_url, start_seconds, end_seconds):
             end_offset=f"{end_seconds}s" if end_seconds is not None else None,
         )
     return types.Part(**part_kwargs)
+
+
+def parse_drive_file_id_from_url(drive_url):
+    """
+    Extract a Google Drive file id from a Drive URL.
+
+    :param drive_url: Drive URL string
+    :return: File id string or None
+    """
+    if not drive_url:
+        return None
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", drive_url)
+    return match.group(1) if match else None
+
+
+def parse_drive_clip_timestamps(drive_url):
+    """
+    Extract (start_seconds, end_seconds) from a Drive clip URL suffix.
+
+    :param drive_url: URL like .../view?usp=drivesdk (start=50&end=110)
+    :return: Tuple (start_seconds, end_seconds); either may be None
+    """
+    if not drive_url:
+        return None, None
+    match = re.search(r"\(start=(\d+)&end=(\d+)\)\s*$", drive_url)
+    if not match:
+        return None, None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _download_drive_video_bytes(drive, file_id):
+    """
+    Download a Drive video once and cache the full-file bytes.
+
+    :param drive: Authenticated PyDrive2 GoogleDrive instance
+    :param file_id: Google Drive file id
+    :return: Tuple (raw_bytes, file_extension)
+    """
+    with _DRIVE_VIDEO_BYTES_LOCK:
+        cached = _DRIVE_VIDEO_BYTES_CACHE.get(file_id)
+        if cached is not None:
+            return cached
+
+    f = drive.CreateFile({"id": file_id})
+    f.FetchMetadata(fields="title,mimeType")
+    title = f.get("title", "video.mp4")
+    ext = os.path.splitext(title)[-1].lower() or ".mp4"
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        tmp_path = tmp.name
+    try:
+        f.GetContentFile(tmp_path)
+        with open(tmp_path, "rb") as fh:
+            data = fh.read()
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    with _DRIVE_VIDEO_BYTES_LOCK:
+        _DRIVE_VIDEO_BYTES_CACHE[file_id] = (data, ext)
+    return data, ext
+
+
+def _trim_video_bytes(video_bytes, start_seconds, end_seconds, suffix=".mp4"):
+    """
+    Trim video bytes to [start_seconds, end_seconds] with ffmpeg stream copy.
+
+    :param video_bytes: Full video file bytes
+    :param start_seconds: Clip start in seconds
+    :param end_seconds: Clip end in seconds
+    :param suffix: File extension including the leading dot
+    :return: Trimmed video bytes
+    """
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as src:
+        src.write(video_bytes)
+        src_path = src.name
+
+    out_path = src_path.replace(suffix, f"_seg{suffix}")
+    try:
+        duration = max(0.1, float(end_seconds) - float(start_seconds))
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", str(float(start_seconds)),
+                "-i", src_path,
+                "-t", str(duration),
+                "-c", "copy",
+                out_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        with open(out_path, "rb") as fh:
+            return fh.read()
+    finally:
+        if os.path.exists(src_path):
+            os.remove(src_path)
+        if os.path.exists(out_path):
+            os.remove(out_path)
+
+
+def build_drive_video_part(drive_video_url, drive):
+    """
+    Build a Gemini video Part from a Google Drive clip URL.
+
+    Downloads the Drive file, trims to the (start, end) segment when timestamps
+    are present, and attaches the actual clip bytes.
+
+    :param drive_video_url: URL like https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=110)
+    :param drive: Authenticated PyDrive2 GoogleDrive instance
+    :return: Gemini Part with inline video bytes, or None on failure
+    """
+    if not drive_video_url or drive is None:
+        return None
+
+    file_id = parse_drive_file_id_from_url(drive_video_url)
+    if not file_id:
+        print(f"⚠️ Could not parse Drive file id from URL: {drive_video_url}")
+        return None
+
+    start_seconds, end_seconds = parse_drive_clip_timestamps(drive_video_url)
+
+    try:
+        raw_bytes, ext = _download_drive_video_bytes(drive, file_id)
+        mime_type = _MIME_BY_EXT.get(ext, "video/mp4")
+
+        clip_bytes = raw_bytes
+        if start_seconds is not None and end_seconds is not None and end_seconds > start_seconds:
+            try:
+                clip_bytes = _trim_video_bytes(raw_bytes, start_seconds, end_seconds, suffix=ext)
+                print(
+                    f"✅ Trimmed Drive clip {file_id} to {start_seconds}s-{end_seconds}s "
+                    f"({len(clip_bytes)} bytes)"
+                )
+            except Exception as trim_err:
+                # Fallback: send full video with Gemini video_metadata offsets.
+                print(f"⚠️ ffmpeg trim failed for {file_id}, falling back to full video + offsets: {trim_err}")
+                return types.Part(
+                    inline_data=types.Blob(data=raw_bytes, mime_type=mime_type),
+                    video_metadata=types.VideoMetadata(
+                        start_offset=f"{start_seconds}s",
+                        end_offset=f"{end_seconds}s",
+                    ),
+                )
+        else:
+            print(f"✅ Using full Drive video {file_id} ({len(clip_bytes)} bytes); no timestamps found")
+
+        return types.Part.from_bytes(data=clip_bytes, mime_type=mime_type)
+    except Exception as e:
+        print(f"❌ Failed to build Drive video part for {drive_video_url}: {e}")
+        return None

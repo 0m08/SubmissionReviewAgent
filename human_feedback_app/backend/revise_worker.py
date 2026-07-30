@@ -57,6 +57,10 @@ def run_row_revision(
 
     _, df, _ = load_workbook(session)
 
+    # Backward-compat fallback for sheets created before the graphics_v2_enabled_sources column existed (and any empty/malformed value): treat as None so the agent behaves exactly as it did before the column — all present sources are searchable during revise.
+    enabled_sources = session.enabled_sources or None
+    drive_video_mode = session.drive_video_mode or None
+
     _, course_info_df = get_sheet_data_and_df(session.sheet, "Course info")
     course_name = str(course_info_df.iloc[0].get("Course Name", "")).strip()
     target_audience = str(course_info_df.iloc[0].get("Target Audience & Industry", "")).strip()
@@ -86,6 +90,8 @@ def run_row_revision(
             llm=LLM_DEFAULT,
             ws=None,
             use_only_drive_and_hvac=False,
+            enabled_sources=enabled_sources,
+            drive_video_mode=drive_video_mode,
             human_feedback_column=hf_col,
             human_feedback_status_column=status_col,
             human_feedback_revision_tracking_column=tracking_col,

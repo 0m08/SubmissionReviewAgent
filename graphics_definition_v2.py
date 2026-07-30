@@ -1,3 +1,4 @@
+import streamlit as st
 from agent_ui_template import agent_ui
 
 from agents.graphics_definition_v2.image_graphics_agent.segment_slide import (
@@ -111,6 +112,7 @@ TOP_INSTRUCTIONS = (
                     "- **Flexible, let the agent decide**: Agent picks how many visuals get assigned for the slide.\n"
                     "- **1 Visual per Sentence**: One visual gets assigned per sentence.\n"
                     "- **1 Visual for the whole Slide**: One visual gets assigned for the entire slide.\n\n"
+                    "Also choose **Asset libraries for this run** below (Drive Images, HVAC YouTube, Google Drive Videos, and Web Images and Videos)."
 )
 
 
@@ -232,10 +234,10 @@ pipeline_sections = [
                 "args": {
                     "sheet": "sheet",
                     "max_workers": 50,
-                    "use_only_drive_and_hvac": True,
+                    "enabled_sources": "graphics_v2_enabled_sources",
                 },
                 "estimated_time": "10-20 minutes",
-                "description": "This step runs Drive Search and Video Search (HVAC channels). They write to drive_results and video_pool column.",
+                "description": "This step runs enabled candidate searches in parallel via the pool registry (default: Drive images + HVAC YouTube + Drive videos). Writes to drive_results, video_pool, and drive_video_pool",
                 "delete_func": delete_all_candidate_results,
                 "delete_args": {
                     "sheet": "sheet"
@@ -299,6 +301,7 @@ pipeline_sections = [
                     "llm": "gemini_3_flash_thinking",
                     "max_workers": 50,
                     "use_only_drive_and_hvac": True,
+                    "enabled_sources": "graphics_v2_enabled_sources",
                 },
                 "estimated_time": "30-90 minutes",
                 "description": "This step reviews assigned visuals against alignment, specificity, and redundancy criteria, revises using existing pools, and regenerates only when necessary.",
@@ -316,6 +319,7 @@ pipeline_sections = [
                 "name": "Review all the Finalized Visuals to decide if Web Search is needed for some visuals",
                 "func": run_review_finalized_visuals_for_all_rows,
                 "depends_on": ["Review and Revise Graphics Definitions"],
+                "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
@@ -332,6 +336,7 @@ pipeline_sections = [
                 "name": "Generate alternative visuals from Web",
                 "func": run_generate_alternative_visuals_from_web_for_all_rows,
                 "depends_on": ["Review all the Finalized Visuals to decide if Web Search is needed for some visuals"],
+                "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
@@ -348,6 +353,7 @@ pipeline_sections = [
                 "name": "Decide which visual to Use",
                 "func": run_decide_final_visuals_for_all_rows,
                 "depends_on": ["Generate alternative visuals from Web"],
+                "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",

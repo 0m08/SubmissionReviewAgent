@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from utils.decorator_helpers import cycle_api_keys_decorator
 import isodate
+from agents.graphics_definition_v2.candidate_search.search_wrapper import run_pool_search_queries
 
 load_dotenv()
 
@@ -268,54 +269,41 @@ def process_segment_other_channels(segment_num, queries, segment_sentence, k=sea
     print(f"📦 SEGMENT_{segment_num}: {len(queries)} queries + 1 segment sentence = {len(queries) + 1} total queries")
     print(f"{'─'*50}")
     
-    # Combine all queries: segment sentence + search queries
     all_queries = []
-    
-    # Add segment sentence as first query
+
     if segment_sentence and segment_sentence.strip():
-        all_queries.append(("segment", segment_sentence.strip()))
-    
-    # Add search queries
-    for idx, query in enumerate(queries, 1):
-        if query.strip():
-            all_queries.append((f"query_{idx}", query.strip()))
-    
+        all_queries.append(segment_sentence.strip())
+
+    for query in queries:
+        if query and str(query).strip():
+            all_queries.append(query.strip())
+
     if not all_queries:
         return segment_num, None
-    
-    # Execute all queries in parallel
+
     all_videos_for_segment = []
-    seen_video_ids = set()  # Deduplicate by video_id within segment
-    
-    with ThreadPoolExecutor(max_workers=min(len(all_queries), 10)) as executor:
-        futures = {
-            executor.submit(
-                execute_youtube_search_for_query,
-                query,
-                k,
-                max_duration_seconds
-            ): (query_label, query)
-            for query_label, query in all_queries
-        }
-        
-        for future in as_completed(futures):
-            query_label, query = futures[future]
-            try:
-                videos = future.result()
-                print(f"  [{query_label}] \"{query[:50]}...\" → {len(videos)} videos")
-                
-                # Deduplicate by video_id within this segment
-                for video in videos:
-                    video_id = video.get("video_id", "")
-                    if video_id and video_id not in seen_video_ids:
-                        seen_video_ids.add(video_id)
-                        all_videos_for_segment.append(video)
-            except Exception as e:
-                print(f"  ❌ [{query_label}] Error: {e}")
-    
+    seen_video_ids = set()
+
+    print(f"🚀 SEGMENT_{segment_num}: submitting {len(all_queries)} other-channel query search task(s) in parallel")
+    query_results = run_pool_search_queries(
+        all_queries,
+        execute_youtube_search_for_query,
+        max_workers=min(len(all_queries), 10),
+        k=k,
+        max_duration_seconds=max_duration_seconds,
+    )
+
+    for query, videos in query_results:
+        videos = videos or []
+        print(f"  \"{query[:50]}...\" → {len(videos)} videos")
+        for video in videos:
+            video_id = video.get("video_id", "")
+            if video_id and video_id not in seen_video_ids:
+                seen_video_ids.add(video_id)
+                all_videos_for_segment.append(video)
+
     print(f"✅ SEGMENT_{segment_num}: {len(all_videos_for_segment)} unique videos after deduplication")
-    
-    # Format segment results
+
     if all_videos_for_segment:
         segment_lines = [f"---SEGMENT_{segment_num}---"]
         for video in all_videos_for_segment:
@@ -324,9 +312,9 @@ def process_segment_other_channels(segment_num, queries, segment_sentence, k=sea
             duration = video.get("duration_formatted", "")
             channel = video.get("channel_title", "")
             segment_lines.append(f"Title: {title} | Duration: {duration} | Channel: {channel} | URL: {url}")
-        
+
         return segment_num, '\n'.join(segment_lines)
-    
+
     return segment_num, None
 
 
@@ -490,8 +478,7 @@ def validate_video_pool_other_channels_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_duration_seconds=max_video_duration_seconds, max_workers=50, selected_topics=None
-):
+def run_youtube_video_search_other_channels_for_all_rows(sheet, k=search_k, max_duration_seconds=max_video_duration_seconds, max_workers=50, selected_topics=None):
     """
     Execute YouTube video search (other channels) for all rows in the Slide Chunks sheet.
     
