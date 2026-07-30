@@ -12,7 +12,6 @@ from agents.vector_store_image_search.graphics_retriever_agent import pil_to_bas
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_image_candidates
 from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_video_candidates
-from agents.graphics_definition_v2.review_agent.review_and_revise import build_asset_parts
 from services.helper_functions import build_video_part, build_drive_video_part
 from services.llm_service import extract_token_usage, log_token_usage
 from dotenv import load_dotenv
@@ -1797,6 +1796,8 @@ def _compare_final_visuals(gdv2_url, reference_url, vo_text, slide_title, slide_
         "<reason>short reason</reason>\n"
         "</decision>"
     )
+
+    from agents.graphics_definition_v2.review_agent.review_and_revise import build_asset_parts
 
     parts = (
         build_asset_parts("A", gdv2_url, drive)
