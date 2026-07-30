@@ -1698,18 +1698,8 @@ def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chu
         shortlist = set(shortlisted_urls)
         video_urls_pool = [u for u in video_urls_pool if u in shortlist]
         video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
-        
-        # Extract Google Drive file IDs from shortlisted URLs for robust matching
-        shortlist_drive_ids = set()
-        for s_url in shortlist:
-            fid, _, _ = parse_drive_video_url(s_url)
-            if fid:
-                shortlist_drive_ids.add(fid)
-                
-        drive_video_items = [
-            v for v in drive_video_items
-            if v.get("url", "") in shortlist or parse_drive_video_url(v.get("url", ""))[0] in shortlist_drive_ids
-        ]
+        # Exact URL match only (including start/end). Matching by Drive file id would re-include other clips from the same file that were not shortlisted.
+        drive_video_items = [v for v in drive_video_items if v.get("url", "") in shortlist]
     
     print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} from video_pool_other_channels, {len(drive_video_items)} from drive_video_pool")
     total_unique = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
@@ -1803,18 +1793,8 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
                 shortlist = set(shortlisted_urls)
                 video_urls_pool = [u for u in video_urls_pool if u in shortlist]
                 video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
-                
-                # Extract Google Drive file IDs from shortlisted URLs for robust matching
-                shortlist_drive_ids = set()
-                for s_url in shortlist:
-                    fid, _, _ = parse_drive_video_url(s_url)
-                    if fid:
-                        shortlist_drive_ids.add(fid)
-                        
-                drive_video_items = [
-                    v for v in drive_video_items
-                    if v.get("url", "") in shortlist or parse_drive_video_url(v.get("url", ""))[0] in shortlist_drive_ids
-                ]
+                # Exact URL match only (including start/end). Matching by Drive file id would re-include other clips from the same file that were not shortlisted.
+                drive_video_items = [v for v in drive_video_items if v.get("url", "") in shortlist]
             
             if not video_urls_pool and not video_items_other_channels and not drive_video_items:
                 print(f"⚠️ No videos available for entire slide, skipping")

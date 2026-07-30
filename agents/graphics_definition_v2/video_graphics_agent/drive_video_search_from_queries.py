@@ -542,7 +542,7 @@ def run_drive_video_search_for_all_rows(sheet, k=search_k, max_workers=50, selec
                 topic_name = str(row.get("Topic", "")).strip()
                 if selected_topics and topic_name not in selected_topics:
                     continue
-                future = executor.submit(process_drive_video_search_row, index, row, drive, k)
+                future = executor.submit(process_drive_video_search_row, index, row, drive, k, drive_video_mode)
                 futures_map[future] = index
 
             for future in as_completed(futures_map):

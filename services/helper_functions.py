@@ -7,6 +7,7 @@ import os
 import tempfile
 import subprocess
 import threading
+from collections import OrderedDict
 from typing import Any, Callable, Dict, Hashable, Iterable, List, Tuple, Optional
 from langsmith import traceable
 from google.genai import types
@@ -14,8 +15,12 @@ from google.genai import types
 from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, save_to_sheet, format_worksheet, delete_worksheet
 
 # Cache full Drive video downloads so parallel segment scoring reuses the same file.
-_DRIVE_VIDEO_BYTES_CACHE = {}
+# Byte-bounded LRU: evict least-recently-used entries when over size/count caps.
+_DRIVE_VIDEO_BYTES_CACHE: "OrderedDict[str, Tuple[bytes, str]]" = OrderedDict()
+_DRIVE_VIDEO_BYTES_TOTAL = 0
 _DRIVE_VIDEO_BYTES_LOCK = threading.Lock()
+_DRIVE_VIDEO_BYTES_MAX_BYTES = 1536 * 1024 * 1024  # 1.5 GB
+_DRIVE_VIDEO_BYTES_MAX_ENTRIES = 8
 _MIME_BY_EXT = {
     ".mp4": "video/mp4",
     ".mov": "video/quicktime",
@@ -24,6 +29,70 @@ _MIME_BY_EXT = {
     ".mpg": "video/mpeg",
     ".avi": "video/x-msvideo",
 }
+
+
+def clear_drive_video_bytes_cache():
+    """
+    Drop all cached full Drive video downloads from process memory.
+    """
+    global _DRIVE_VIDEO_BYTES_TOTAL
+    with _DRIVE_VIDEO_BYTES_LOCK:
+        _DRIVE_VIDEO_BYTES_CACHE.clear()
+        _DRIVE_VIDEO_BYTES_TOTAL = 0
+
+
+def _drive_video_cache_get(file_id):
+    """
+    Return cached (data, ext) for file_id, marking it most-recently used.
+
+    :param file_id: Google Drive file id
+    :return: (raw_bytes, ext) or None
+    """
+    cached = _DRIVE_VIDEO_BYTES_CACHE.get(file_id)
+    if cached is None:
+        return None
+    _DRIVE_VIDEO_BYTES_CACHE.move_to_end(file_id)
+    return cached
+
+
+def _drive_video_cache_put(file_id, data, ext):
+    """
+    Store a full Drive video in the LRU cache, evicting older entries as needed.
+
+    :param file_id: Google Drive file id
+    :param data: Full video bytes
+    :param ext: File extension including leading dot
+    :return: None
+    """
+    global _DRIVE_VIDEO_BYTES_TOTAL
+    size = len(data or b"")
+
+    # Replace existing entry first so totals stay accurate.
+    if file_id in _DRIVE_VIDEO_BYTES_CACHE:
+        old_data, _old_ext = _DRIVE_VIDEO_BYTES_CACHE.pop(file_id)
+        _DRIVE_VIDEO_BYTES_TOTAL = max(0, _DRIVE_VIDEO_BYTES_TOTAL - len(old_data or b""))
+
+    # A single file larger than the budget: keep only that file (still useful for clip reuse).
+    if size > _DRIVE_VIDEO_BYTES_MAX_BYTES:
+        _DRIVE_VIDEO_BYTES_CACHE.clear()
+        _DRIVE_VIDEO_BYTES_TOTAL = 0
+        _DRIVE_VIDEO_BYTES_CACHE[file_id] = (data, ext)
+        _DRIVE_VIDEO_BYTES_TOTAL = size
+        return
+
+    while (
+        _DRIVE_VIDEO_BYTES_CACHE
+        and (
+            len(_DRIVE_VIDEO_BYTES_CACHE) >= _DRIVE_VIDEO_BYTES_MAX_ENTRIES
+            or _DRIVE_VIDEO_BYTES_TOTAL + size > _DRIVE_VIDEO_BYTES_MAX_BYTES
+        )
+    ):
+        _old_id, (old_data, _old_ext) = _DRIVE_VIDEO_BYTES_CACHE.popitem(last=False)
+        _DRIVE_VIDEO_BYTES_TOTAL = max(0, _DRIVE_VIDEO_BYTES_TOTAL - len(old_data or b""))
+
+    _DRIVE_VIDEO_BYTES_CACHE[file_id] = (data, ext)
+    _DRIVE_VIDEO_BYTES_TOTAL += size
+
 
 # Get outline as text with topic, subtopic and los (if present)
 def get_outline_with_los(df, include_learning_objectives = False, include_prefix = True):
@@ -1021,14 +1090,14 @@ def parse_drive_clip_timestamps(drive_url):
 
 def _download_drive_video_bytes(drive, file_id):
     """
-    Download a Drive video once and cache the full-file bytes.
+    Download a Drive video once and cache the full-file bytes (byte-bounded LRU).
 
     :param drive: Authenticated PyDrive2 GoogleDrive instance
     :param file_id: Google Drive file id
     :return: Tuple (raw_bytes, file_extension)
     """
     with _DRIVE_VIDEO_BYTES_LOCK:
-        cached = _DRIVE_VIDEO_BYTES_CACHE.get(file_id)
+        cached = _drive_video_cache_get(file_id)
         if cached is not None:
             return cached
 
@@ -1048,7 +1117,11 @@ def _download_drive_video_bytes(drive, file_id):
             os.remove(tmp_path)
 
     with _DRIVE_VIDEO_BYTES_LOCK:
-        _DRIVE_VIDEO_BYTES_CACHE[file_id] = (data, ext)
+        # Another worker may have filled the cache while we downloaded.
+        cached = _drive_video_cache_get(file_id)
+        if cached is not None:
+            return cached
+        _drive_video_cache_put(file_id, data, ext)
     return data, ext
 
 

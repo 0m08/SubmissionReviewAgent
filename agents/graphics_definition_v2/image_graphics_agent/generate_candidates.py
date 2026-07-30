@@ -11,6 +11,7 @@ from agents.graphics_definition_v2.candidate_search.pool_registry import (
     SOURCE_WEB_IMAGES,
     SOURCE_YOUTUBE_OTHER_CHANNELS,
     UI_KEY_DRIVE_VIDEO_MODE,
+    UI_KEY_WEB_FALLBACK_ENABLED,
     resolve_enabled_sources,
 )
 from agents.graphics_definition_v2.image_graphics_agent.drive_search import (
@@ -36,6 +37,7 @@ from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_in_
 import streamlit as st
 from langsmith import traceable
 from services.smart_progress_bar import SmartProgressBar
+from services.sheets_service import format_worksheet
 
 
 def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
@@ -60,6 +62,7 @@ def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
         headers = worksheet.row_values(1)
         key = COURSE_INFO_ENABLED_SOURCES_KEY
         col = None
+        created_column = False
         for idx, header in enumerate(headers):
             if str(header).strip().lower() == key.lower():
                 col = idx + 1
@@ -70,9 +73,12 @@ def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
             if col > worksheet.col_count:
                 worksheet.add_cols(col - worksheet.col_count)
             worksheet.update_cell(1, col, key)
+            created_column = True
 
         cell_value = encode_enabled_sources_for_course_info(sources, drive_video_mode)
         worksheet.update_cell(2, col, cell_value)
+        if created_column:
+            format_worksheet(worksheet)
         print(f"📝 Persisted enabled_sources to Course info: {cell_value}")
     except Exception as exc:  # never break the pipeline over metadata persistence
         print(f"⚠️ Could not persist enabled_sources to Course info: {exc}")
@@ -136,7 +142,13 @@ def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_driv
         if SOURCE_DRIVE_VIDEOS in sources
         else ""
     )
-    _persist_run_sources_to_course_info(sheet, sources, _drive_video_mode)
+    # Persist primary Section 5 sources plus optional web/other when that UI toggle is on. Do not add web/other into `sources` itself — those are Section 9 fallbacks, not Section 5 runners.
+    persisted_sources = list(sources)
+    if st.session_state.get(UI_KEY_WEB_FALLBACK_ENABLED, False):
+        for optional_id in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS):
+            if optional_id not in persisted_sources:
+                persisted_sources.append(optional_id)
+    _persist_run_sources_to_course_info(sheet, persisted_sources, _drive_video_mode)
 
     mode_label = " + ".join(SOURCE_DISPLAY_NAMES.get(s, s) for s in sources)
     print("\n" + "=" * 80)
