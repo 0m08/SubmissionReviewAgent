@@ -748,8 +748,8 @@ def _regenerate_manifest_for_row(
             slide_type=slide_type,
             slide_title=slide_title,
             slide_content=slide_chunk,
-            layout_plan=layout_plan,
-            storyboard_planning=storyboard_planning,
+            layout_plan="",
+            storyboard_planning="",
             final_graphics_definition=final_graphics_definition,
             drive=session.drive,
             llm=llm,
@@ -1211,17 +1211,27 @@ def trigger_manifest_sync_checker_background(session: UserSession) -> bool:
     return True
 
 
+def _url_token(u: str) -> str:
+    # FGD entries can carry trailing free-text annotations after the URL
+    # (e.g. "https://youtube.com/... (use the image at 3m16s)" or "... (AI Generated)").
+    # A URL cannot contain whitespace, so the first whitespace-delimited token is the URL.
+    s = (u or "").strip()
+    return s.split()[0] if s else ""
+
+
 def _urls_match(u1: str, u2: str) -> bool:
     if not u1 or not u2:
         return False
-    u1_clean = u1.strip().lower()
-    u2_clean = u2.strip().lower()
-    if u1_clean == u2_clean:
+    t1 = _url_token(u1)
+    t2 = _url_token(u2)
+    if not t1 or not t2:
+        return False
+    if t1.lower() == t2.lower():
         return True
     try:
-        return urls_match_for_graphics_assignment(u1, u2)
+        return urls_match_for_graphics_assignment(t1, t2)
     except Exception:
-        return u1_clean == u2_clean
+        return t1.lower() == t2.lower()
 
 
 def _parse_per_scene_layout_feedback(feedback_str: str) -> Dict[str, str]:
@@ -1651,6 +1661,114 @@ def select_pool_alternative(
         visual_id=visual_id,
         vo=vo,
     )
+
+
+def extract_first_url(text: str) -> Optional[str]:
+    if not text:
+        return None
+    # Matches http or https urls
+    match = re.search(r'(https?://[^\s<>"]+|www\.[^\s<>"]+)', text)
+    if match:
+        url = match.group(0)
+        # Clean trailing punctuation
+        url = url.rstrip('.,!?;:)("')
+        if url.startswith('www.'):
+            url = 'https://' + url
+        return url
+    return None
+
+
+def replace_visual_with_url(
+    session: UserSession,
+    *,
+    row_index: int,
+    segment_index: int,
+    step_index: int,
+    visual_id: str,
+    vo: str,
+    feedback: str,
+) -> str:
+    """Extract first URL from feedback, assign to visual, persist tracking + graphics definition, then approve."""
+    url = extract_first_url(feedback)
+    if not url:
+        raise ValueError("No valid URL found in the feedback box. Please paste a link to an image or video.")
+
+    # Normalize Google Drive links
+    if "drive.google.com" in url or "docs.google.com" in url:
+        from services.drive_service import extract_drive_id_from_url
+        file_id = extract_drive_id_from_url(url)
+        if file_id:
+            url = f"https://drive.google.com/file/d/{file_id}/view"
+
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    parse_graphics_definition = helpers["parse_graphics_definition"]
+    safe_str = helpers["safe_str"]
+
+    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+
+    def mutate(df) -> None:
+        _invalidate_manifest_repair_cache(session, row_index)
+        final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
+        if final_col not in df.columns:
+            raise ValueError(f"Missing column: {final_col}")
+        if tracking_col not in df.columns:
+            df[tracking_col] = ""
+
+        raw_def = safe_str(df.at[row_index, final_col])
+        segments = parse_graphics_definition(raw_def)
+        current_fgd_url = extract_asset_url(raw_def, segment_index, step_index)
+
+        tracking_map = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+        prior_tracking_entry = tracking_map.get(visual_id)
+
+        if visual_id not in tracking_map:
+            tracking_map[visual_id] = {
+                "original": current_fgd_url or None,
+                "manually_selected": None,
+                "after_revision": None,
+                "after_regen_1": None,
+                "after_regen_2": None,
+            }
+        elif not tracking_map[visual_id].get("original"):
+            tracking_map[visual_id]["original"] = current_fgd_url or None
+
+        tracking_map[visual_id]["manually_selected"] = url
+
+        override_map = {(segment_index, step_index): url}
+        updated_def = _apply_asset_overrides_to_raw(raw_def, segments, override_map)
+
+        df.at[row_index, final_col] = updated_def
+        df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tracking_map)
+
+        if url and url != current_fgd_url:
+            old_candidates = _collect_manifest_old_url_candidates(current_fgd_url, prior_tracking_entry)
+            if not _patch_slideshow_manifest_urls(df, row_index, url, old_candidates):
+                print(
+                    f"[human_feedback] manifest patch: no slot matched for row {row_index} "
+                    f"visual {visual_id} (manual replace; tried {len(old_candidates)} candidate URL(s))"
+                )
+
+        ensure_manifest_sync_for_row(
+            session,
+            df,
+            row_index,
+            reason="replace_visual_with_url",
+            force_regenerate=False,
+        )
+
+    mutate_row_cells(session, row_index, mutate)
+
+    approve_visual(
+        session,
+        row_index=row_index,
+        segment_index=segment_index,
+        step_index=step_index,
+        visual_id=visual_id,
+        vo=vo,
+    )
+    
+    return url
 
 
 def revert_visual(

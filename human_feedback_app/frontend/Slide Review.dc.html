@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="/static/review-api.js?v=7"></script>
+<script src="/static/review-api.js?v=8"></script>
 <script src="/static/youtube-player.js?v=14"></script>
 <script src="/static/player.js?v=18"></script>
 <script src="/static/support.js"></script>
@@ -641,6 +641,18 @@
     </sc-if>
 
     <div style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
+      <sc-if value="{{ isReviewView }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ onToggleLayoutPanel }}" class="hf-adjust-seg-btn" style="height: 36px; padding: 0 12px; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px;">
+          <sc-if value="{{ showLayoutPanel }}" hint-placeholder-val="{{ true }}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            Hide Layout Panels
+          </sc-if>
+          <sc-if value="{{ !showLayoutPanel }}" hint-placeholder-val="{{ false }}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+            Show Layout Panels
+          </sc-if>
+        </button>
+      </sc-if>
       <div style="display: flex; align-items: center; gap: 8px;">
         <span class="hf-mode-label" style="font-size: 13px; color: #4b5563; font-weight: 600;">Mode</span>
         <select class="hf-mode-select" value="{{ themeMode }}" onChange="{{ onThemeChange }}" style="height: 36px; min-width: 92px; padding: 0 10px; border: 1px solid #dce0e6; border-radius: 8px; background: #fff; color: #374151; font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;">
@@ -739,17 +751,6 @@
               </sc-if>
             </div>
             
-            <sc-if value="{{ !segFeedbackExpanded }}">
-              <div class="hf-hover-tip-wrap" style="display: inline-flex;">
-                <button onClick="{{ onToggleSegFeedback }}" class="hf-adjust-seg-btn" disabled="{{ slideRevising }}">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"></line><line x1="8" y1="12" x2="16" y2="12"></line><line x1="11" y1="17" x2="13" y2="17"></line></svg>
-                  Adjust segmentation
-                </button>
-                <sc-if value="{{ slideRevisionWaitMessage }}" hint-placeholder-val="{{ false }}">
-                  <span class="hf-hover-tip">{{ slideRevisionWaitMessage }}</span>
-                </sc-if>
-              </div>
-            </sc-if>
             <sc-if value="{{ segFeedbackExpanded }}">
               <div class="hf-hover-tip-wrap" style="display: inline-flex;">
                 <button onClick="{{ onToggleSegFeedback }}" class="hf-adjust-seg-btn" style="color: #6b7280; border-color: #dce0e6;" style-hover="background: #f1f5f9; border-color: #cbd5e1;" disabled="{{ slideRevising }}">
@@ -937,27 +938,7 @@
                   </sc-for>
                 </div>
 
-                <!-- Scene layout actions -->
-                <div style="margin-top: 15px;">
-                  <sc-if value="{{ !scene.layoutFeedbackExpanded }}" hint-placeholder-val="{{ true }}">
-                    <p style="margin: 0 0 10px; font-size: 13px; color: #6b7280; font-weight: 500;">Describe layout changes for this scene or Approve it.</p>
-                  </sc-if>
-                  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <button onClick="{{ scene.onApproveLayout }}" style="{{ scene.approveLayoutStyle }}">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-                      {{ scene.approveLayoutLabel }}
-                    </button>
-                    <div class="hf-hover-tip-wrap" style="display: inline-flex;">
-                      <button onClick="{{ scene.onToggleLayoutFeedback }}" style="{{ scene.adjustLayoutStyle }}" disabled="{{ layoutPanelBlocked }}" title="{{ layoutPanelBlockedMessage }}">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-                        {{ scene.adjustLayoutLabel }}
-                      </button>
-                      <sc-if value="{{ layoutPanelBlockedMessage }}" hint-placeholder-val="{{ false }}">
-                        <span class="hf-hover-tip">{{ layoutPanelBlockedMessage }}</span>
-                      </sc-if>
-                    </div>
-                  </div>
-                </div>
+                <!-- Scene layout actions (Approve layout / Adjust layout buttons removed from UI; logic retained in JS) -->
 
                 <!-- Scene Layout Feedback Section -->
                 <sc-if value="{{ scene.layoutFeedbackExpanded }}">
@@ -1031,7 +1012,7 @@
               </sc-if>
             </sc-if>
 
-            <sc-if value="{{ scene.expanded }}" hint-placeholder-val="{{ true }}">
+            <sc-if value="{{ scene.showChrome && scene.expanded }}" hint-placeholder-val="{{ true }}">
               <div style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; color: #9aa2af; text-transform: uppercase; margin: 20px 2px 11px;">Panels &amp; assets · {{ scene.sceneMapLabel }}</div>
             </sc-if>
 
@@ -1316,6 +1297,15 @@
                           <span class="hf-hover-tip">{{ slideRevisionWaitMessage }}</span>
                         </sc-if>
                       </div>
+                      <div class="hf-hover-tip-wrap" style="display: inline-flex;">
+                        <button class="hf-revise-btn" onClick="{{ step.onReplaceVisual }}" style="display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 13px; border: 1px solid #dce0e6; border-radius: 9px; background: #fff; color: #374151; font-family: inherit; font-weight: 600; font-size: 12.5px; cursor: pointer;" style-hover="border-color: #b9c0ca; background: #f7f8fa;" disabled="{{ slideRevising }}">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                          Replace Visual
+                        </button>
+                        <sc-if value="{{ slideRevisionWaitMessage }}" hint-placeholder-val="{{ false }}">
+                          <span class="hf-hover-tip">{{ slideRevisionWaitMessage }}</span>
+                        </sc-if>
+                      </div>
                     </div>
                   </div>
                 </sc-if>
@@ -1477,6 +1467,7 @@ class Component extends DCLogic {
   autoAdvance = false;
   themeMode = 'light';
   sidebarCollapsed = false;
+  showLayoutPanel = true;
   _tid = 1;
   _navCounter = 0;
   slides = [];
@@ -1621,6 +1612,12 @@ class Component extends DCLogic {
     this.themeMode = e.target.value === 'dark' ? 'dark' : 'light';
     try { localStorage.setItem('hf_theme', this.themeMode); } catch (_) {}
     this.applyTheme();
+    this.forceUpdate();
+  }
+
+  onToggleLayoutPanel() {
+    this.showLayoutPanel = !this.showLayoutPanel;
+    try { localStorage.setItem('hf_show_layout_panel', String(this.showLayoutPanel)); } catch (_) {}
     this.forceUpdate();
   }
 
@@ -1989,6 +1986,10 @@ class Component extends DCLogic {
     try {
       const saved = localStorage.getItem('hf_theme');
       if (saved === 'dark' || saved === 'light') this.themeMode = saved;
+    } catch (_) {}
+    try {
+      const savedLayout = localStorage.getItem('hf_show_layout_panel');
+      if (savedLayout === 'false') this.showLayoutPanel = false;
     } catch (_) {}
     this.applyTheme();
     this.reloadSlides().catch(() => { window.location.href = '/setup'; });
@@ -2955,7 +2956,8 @@ class Component extends DCLogic {
     const h = React.createElement;
     opts = opts || {};
     const text = opts.mode === 'ai' ? 'Generating with AI\u2026' : 
-                 opts.mode === 'drive' ? 'Searching the asset library\u2026' : 'Finding a better visual from Web\u2026';
+                 opts.mode === 'drive' ? 'Searching the asset library\u2026' : 
+                 opts.mode === 'replace' ? 'Replacing with custom visual\u2026' : 'Finding a better visual from Web\u2026';
     return h('div', { style: { position: 'relative', width: '100%' } },
       this.tile(v, { ...opts, dim: true }),
       h('div', { style: { position: 'absolute', inset: 0, borderRadius: '12px', background: 'rgba(17,21,26,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '11px' } },
@@ -2992,6 +2994,45 @@ class Component extends DCLogic {
     }
     this.maybeAdvance(i);
   }
+  async replaceStep(i, j, k) {
+    const st = this.slides[i].segments[j].steps[k];
+    const feedbackText = (st.feedback || '').trim();
+    if (!feedbackText) {
+      alert('Please enter some feedback that contains the link/URL to the new visual.');
+      return;
+    }
+    if (!feedbackText.includes('http://') && !feedbackText.includes('https://') && !feedbackText.includes('www.')) {
+      alert('We could not find any link (URL) in the feedback box. Please paste a link to an image or YouTube video.');
+      return;
+    }
+    st.before = this.visualOf(st);
+    st.status = 'revising';
+    st.mode = 'replace';
+    st.showAlts = false;
+    st.editing = false;
+    this.forceUpdate();
+    try {
+      const result = await window.HFApi.replace({
+        row_index: st.rowIndex,
+        segment_index: st.segmentIndex,
+        step_index: st.stepIndex,
+        visual_id: st.visualId,
+        vo: st.voiceover,
+        feedback: feedbackText,
+      });
+      if (result && result.payload) {
+        this.slides = this.hydrateSlides(result.payload.slides);
+        this.forceUpdate();
+      } else {
+        await this.reloadSlides();
+      }
+    } catch (err) {
+      st.status = 'pending';
+      this.forceUpdate();
+      alert('Failed to replace visual: ' + (err.message || err));
+      return;
+    }
+  }
   async approveStep(i, j, k) {
     const st = this.slides[i].segments[j].steps[k];
     try {
@@ -3005,6 +3046,10 @@ class Component extends DCLogic {
       st.status = 'approved';
       st.showAlts = false;
       st.editing = false;
+      st.userCollapsed = true;
+
+      // Collapse this visual's scene layout panel once all of its visuals are approved.
+      this._maybeCollapseSceneForStep(i, st);
       
       // If this approval makes the whole slide approved, auto-collapse all visuals
       if (this.slideStatus(this.slides[i]) === 'approved') {
@@ -3044,6 +3089,22 @@ class Component extends DCLogic {
     return t;
   }
   sceneKey(rowIndex, sceneId) { return rowIndex + ':' + sceneId; }
+  _maybeCollapseSceneForStep(i, st) {
+    const slide = this.slides[i];
+    if (!slide) return;
+    const statusByVisualId = {};
+    (slide.segments || []).forEach(seg => (seg.steps || []).forEach(s => { statusByVisualId[s.visualId] = s.status; }));
+    (slide.scenes || []).forEach((sceneDef, sceneIdx) => {
+      const visualIds = sceneDef.visualIds || [];
+      if (!visualIds.includes(st.visualId)) return;
+      // Only consider visualIds that actually exist as steps on this slide.
+      const present = visualIds.filter(vid => statusByVisualId[vid] !== undefined);
+      if (present.length && present.every(vid => statusByVisualId[vid] === 'approved')) {
+        const sceneId = sceneDef.id != null ? String(sceneDef.id) : String(sceneIdx + 1);
+        this._sceneCollapsed[this.sceneKey(st.rowIndex, sceneId)] = true;
+      }
+    });
+  }
   toggleSceneCollapse(rowIndex, sceneId) {
     const k = this.sceneKey(rowIndex, sceneId);
     this._sceneCollapsed[k] = !this._sceneCollapsed[k];
@@ -3369,9 +3430,11 @@ class Component extends DCLogic {
       };
 
       return {
-        showChrome: true,
+        showChrome: this.showLayoutPanel !== false,
         sceneId,
-        wrapStyle: { background: cardBg, border: '1px solid ' + border, borderRadius: '18px', padding: '16px 16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: dark ? 'none' : '0 1px 2px rgba(16,24,40,0.05), 0 1px 3px rgba(16,24,40,0.04)' },
+        wrapStyle: (this.showLayoutPanel !== false)
+          ? { background: cardBg, border: '1px solid ' + border, borderRadius: '18px', padding: '16px 16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: dark ? 'none' : '0 1px 2px rgba(16,24,40,0.05), 0 1px 3px rgba(16,24,40,0.04)' }
+          : { display: 'flex', flexDirection: 'column', gap: '16px' },
         headerStyle: { display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', width: 'auto', background: 'transparent', border: 'none', padding: 0, textAlign: 'left', fontFamily: 'inherit' },
         sceneNumLabel: 'Scene ' + (sceneIdx + 1),
         layoutName: sceneDef.templateLabel || (this.SCENE_LAYOUTS[layoutKey] || {}).name || 'Layout',
@@ -3393,7 +3456,7 @@ class Component extends DCLogic {
         canvasKey: String(slideRowIndex) + '-' + sceneId,
         canvasSlots: this.sceneCanvasSlots(i, refs, template, String(slideRowIndex) + '-' + sceneId, layoutN),
         stepsWrapStyle: { display: 'flex', flexDirection: 'column', gap: '14px' },
-        steps: expanded ? builtSteps : [],
+        steps: (this.showLayoutPanel === false || expanded) ? builtSteps : [],
         layoutFeedback,
         layoutFeedbackExpanded,
         layoutFeedbackDraft,
@@ -4098,13 +4161,14 @@ class Component extends DCLogic {
           beforeEl: st.before ? this.tile(st.before, { height: this.REVISION_COMPARE_TILE_H, dim: true, ytKey: ytKey + '-before' }) : this.tile(this.visualOf(st), { height: this.REVISION_COMPARE_TILE_H, dim: true, ytKey: ytKey + '-before' }),
           afterEl: st.after ? this.tile(st.after, { height: this.REVISION_COMPARE_TILE_H, badge: 'NEW', badgeColor: '#059669', ytKey: ytKey + '-after' }) : this.tile(this.visualOf(st), { height: this.REVISION_COMPARE_TILE_H, ytKey: ytKey + '-after' }),
           revisingEl: this.revisingTile(st.before || this.visualOf(st), { height: this.VISUAL_TILE_H, ytKey: ytKey + '-revising', mode: st.mode }),
-          revisingTitle: ({ drive: 'Searching the asset library\u2026', all: 'Searching the web for a better visual\u2026', ai: 'Generating a new visual with AI\u2026' })[st.mode] || 'Revising this visual\u2026',
+          revisingTitle: ({ drive: 'Searching the asset library\u2026', all: 'Searching the web for a better visual\u2026', ai: 'Generating a new visual with AI\u2026', replace: 'Replacing with your custom visual\u2026' })[st.mode] || 'Revising this visual\u2026',
           feedback: st.feedback || '',
           onFeedback: (e) => this.setFeedback(i, j, k, e.target.value),
           onApprove: () => this.approveStep(i, j, k),
           onReviseDrive: () => this.reviseStep(i, j, k, 'drive', true),
           onReviseAll: () => this.reviseStep(i, j, k, 'all', true),
           onReviseAI: () => this.reviseStep(i, j, k, 'ai', true),
+          onReplaceVisual: () => this.replaceStep(i, j, k),
           onApproveRevision: () => this.approveStep(i, j, k),
           onReviseAgain: () => this.toggleEditing(i, j, k),
           onUndo: () => this.undoRevision(i, j, k),
@@ -4202,6 +4266,7 @@ class Component extends DCLogic {
       progressBarStyle: { width: pct + '%', height: '100%', background: 'linear-gradient(90deg, #4f46e5, #10b981)', borderRadius: '99px', transition: 'width 0.4s ease' },
       autoAdvance: this.autoAdvance, onToggleAuto: (e) => { this.autoAdvance = e.target.checked; this.forceUpdate(); },
       themeMode: this.themeMode, onThemeChange: (e) => this.onThemeChange(e),
+      showLayoutPanel: this.showLayoutPanel, onToggleLayoutPanel: () => this.onToggleLayoutPanel(),
       filterPills, topicGroups,
       setRail: (el) => { this.rail = el; }, setMain: (el) => { this.main = el; },
       curNum: i + 1, curTitle: cur.title, curKey: 'slide-' + i, fullScript,
