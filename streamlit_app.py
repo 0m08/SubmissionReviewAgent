@@ -383,6 +383,12 @@ PAGE_DESCRIPTIONS = {
         "description": "Search HVAC videos by transcript or visual content from YouTube channels.",
         "category": "tool",
     },
+    "model_3d_search_tool_page": {
+        "icon": ":material/view_in_ar:",
+        "title": "3D Models Search Tool",
+        "description": "Search 3D models by model name or visual similarity using gemini-embedding-2.",
+        "category": "tool",
+    },
     "slideshow_streamlit_page": {
         "icon": ":material/slideshow:",
         "title": "Slideshow",
@@ -559,6 +565,12 @@ video_search_tool_page = st.Page(
     icon=":material/video_library:",
 )
 
+model_3d_search_tool_page = st.Page(
+    "run_3d_model_search_tool.py",
+    title="3D Models Search Tool",
+    icon=":material/view_in_ar:",
+)
+
 # graphics_definition_v2_slideshow_page = st.Page(
 #     "graphics_definition_v2_video_generator.py",
 #     title="Graphics V2 Slideshow",
@@ -670,6 +682,7 @@ page_name_to_object = {
     #"get_images_page": get_images_page,
     "quality_compliance_scoring_page": quality_compliance_scoring_page,
     "video_search_tool_page": video_search_tool_page,
+    "model_3d_search_tool_page": model_3d_search_tool_page,
     "template_sheet_setup_page": template_sheet_setup_page,
     #"graphics_definition_v2_slideshow_page": graphics_definition_v2_slideshow_page,
     "slideshow_streamlit_page": slideshow_streamlit_page,
@@ -700,6 +713,7 @@ tool_pages = [
     "vectorstore_page",
     "quality_compliance_scoring_page",
     "video_search_tool_page",
+    "model_3d_search_tool_page",
     #"video_embeddings_page",
     #"graphics_definition_v2_slideshow_page",
     "slideshow_streamlit_page",
