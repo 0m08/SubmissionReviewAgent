@@ -4,7 +4,7 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
-from services.helper_functions import build_video_part, build_drive_video_part
+from services.helper_functions import build_video_part, build_drive_video_parts_parallel
 from modules.chain import Chain
 from dotenv import load_dotenv
 from google import genai
@@ -1102,6 +1102,12 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
             )
             parts.append(build_video_part(embed_url, start_seconds=None, end_seconds=None))
         idx += 1
+
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [item.get("url", "") for item in drive_video_items],
+        drive,
+        max_workers=len(drive_video_items) or 1,
+    )
     for drive_item in drive_video_items:
         drive_title = drive_item.get("title", "Drive Video")
         drive_url = drive_item.get("url", "")
@@ -1110,7 +1116,7 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
                 text=f"\n--- Video {idx} of {total_videos} ---\nTitle: {drive_title}\nURL: {drive_url}\n"
             )
         )
-        drive_part = build_drive_video_part(drive_url, drive)
+        drive_part = drive_parts_by_url.get(drive_url)
         if drive_part is not None:
             parts.append(drive_part)
         else:
@@ -1127,7 +1133,6 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
         parts,
         llm=llm,
         temperature=0.1,
-        media_resolution="MEDIA_RESOLUTION_HIGH" if drive_video_items else None,
     )
     
     print(f"\n{'='*80}")
@@ -1317,6 +1322,11 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         video_index += 1
     
     # Add videos from drive_video_pool (Google Drive videos with title and timestamps)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [item.get("url", "") for item in drive_video_items],
+        drive,
+        max_workers=len(drive_video_items) or 1,
+    )
     for drive_item in drive_video_items:
         drive_title = drive_item.get("title", "Drive Video")
         drive_url = drive_item.get("url", "")
@@ -1324,7 +1334,7 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         
         label_text = f"\n--- Video {video_index} of {total_videos} ---\nTitle: {drive_title}\nURL: {drive_url}\n"
         parts.append(types.Part(text=label_text))
-        drive_part = build_drive_video_part(drive_url, drive)
+        drive_part = drive_parts_by_url.get(drive_url)
         if drive_part is not None:
             parts.append(drive_part)
             print(f"✅ Added Drive video {video_index} (clip bytes attached)")
@@ -1347,7 +1357,6 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         parts,
         llm=llm,
         temperature=0.1,
-        media_resolution="MEDIA_RESOLUTION_HIGH" if drive_video_items else None,
     )
     
     # Print segment and response for debugging
@@ -1542,6 +1551,11 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
         video_index += 1
     
     # Add videos from drive_video_pool (Google Drive videos with title and timestamps)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [item.get("url", "") for item in drive_video_items],
+        drive,
+        max_workers=len(drive_video_items) or 1,
+    )
     for drive_item in drive_video_items:
         drive_title = drive_item.get("title", "Drive Video")
         drive_url = drive_item.get("url", "")
@@ -1549,7 +1563,7 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
         
         label_text = f"\n--- Video {video_index} of {total_videos} ---\nTitle: {drive_title}\nURL: {drive_url}\n"
         parts.append(types.Part(text=label_text))
-        drive_part = build_drive_video_part(drive_url, drive)
+        drive_part = drive_parts_by_url.get(drive_url)
         if drive_part is not None:
             parts.append(drive_part)
             print(f"✅ Added Drive video {video_index} (clip bytes attached)")
@@ -1572,7 +1586,6 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
         parts,
         llm=llm,
         temperature=0.1,
-        media_resolution="MEDIA_RESOLUTION_HIGH" if drive_video_items else None,
     )
     
     # Print slide and response for debugging
@@ -1941,7 +1954,8 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
             segment_blocks.append(format_video_score_segment(1, set_results))
         else:
             segments = parse_segments_from_voiceover(voiceover_segments)
-            for segment_idx, vo_text in segments:
+
+            def _score_segment(segment_idx, vo_text):
                 combined = _collect_combined(segment_idx)
                 batches = build_dynamic_batches(combined)
                 set_results = []
@@ -1952,10 +1966,48 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
                             b_pool = [x["url"] for x in batch if x["type"] == "pool"]
                             b_other = [x["meta"] for x in batch if x["type"] == "other"]
                             b_drive = [x["meta"] for x in batch if x["type"] == "drive"]
-                            futures.append(executor.submit(score_videos_batch, vo_text, slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, False, b_drive))
+                            futures.append(
+                                executor.submit(
+                                    score_videos_batch,
+                                    vo_text,
+                                    slide_title,
+                                    slide_chunk,
+                                    b_pool,
+                                    b_other,
+                                    course_name,
+                                    topic_name,
+                                    subtopic_name,
+                                    drive,
+                                    llm,
+                                    False,
+                                    b_drive,
+                                )
+                            )
                         for future in futures:
                             set_results.append(future.result() or [])
-                segment_blocks.append(format_video_score_segment(segment_idx, set_results))
+                return segment_idx, format_video_score_segment(segment_idx, set_results)
+
+            if not segments:
+                return index, ""
+
+            # Score all segments on this slide in parallel.
+            segment_results = {}
+            with ThreadPoolExecutor(max_workers=len(segments)) as executor:
+                futures = {
+                    executor.submit(_score_segment, segment_idx, vo_text): segment_idx
+                    for segment_idx, vo_text in segments
+                }
+                for future in as_completed(futures):
+                    segment_idx = futures[future]
+                    try:
+                        scored_idx, block = future.result()
+                        segment_results[scored_idx] = block
+                    except Exception as seg_err:
+                        print(f"Error scoring segment {segment_idx} on row {index}: {seg_err}")
+                        segment_results[segment_idx] = format_video_score_segment(segment_idx, [])
+
+            for segment_idx, _vo_text in segments:
+                segment_blocks.append(segment_results.get(segment_idx, ""))
         return index, "\n\n".join([b for b in segment_blocks if b.strip()])
     except Exception as e:
         print(f"Error processing video scoring row {index}: {e}")

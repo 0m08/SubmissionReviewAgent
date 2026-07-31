@@ -21,6 +21,16 @@ _DRIVE_VIDEO_BYTES_TOTAL = 0
 _DRIVE_VIDEO_BYTES_LOCK = threading.Lock()
 _DRIVE_VIDEO_BYTES_MAX_BYTES = 1536 * 1024 * 1024  # 1.5 GB
 _DRIVE_VIDEO_BYTES_MAX_ENTRIES = 8
+
+# In-flight download events to prevent multiple threads downloading the same video concurrently
+_DRIVE_VIDEO_IN_FLIGHT: Dict[str, threading.Event] = {}
+_DRIVE_VIDEO_IN_FLIGHT_LOCK = threading.Lock()
+
+# Cache trimmed clip bytes by unique URL (including timestamps)
+_DRIVE_VIDEO_CLIP_CACHE: "OrderedDict[str, bytes]" = OrderedDict()
+_DRIVE_VIDEO_CLIP_LOCK = threading.Lock()
+_DRIVE_VIDEO_CLIP_MAX_ENTRIES = 100
+
 _MIME_BY_EXT = {
     ".mp4": "video/mp4",
     ".mov": "video/quicktime",
@@ -33,12 +43,14 @@ _MIME_BY_EXT = {
 
 def clear_drive_video_bytes_cache():
     """
-    Drop all cached full Drive video downloads from process memory.
+    Drop all cached full Drive video downloads and trimmed clips from process memory.
     """
     global _DRIVE_VIDEO_BYTES_TOTAL
     with _DRIVE_VIDEO_BYTES_LOCK:
         _DRIVE_VIDEO_BYTES_CACHE.clear()
         _DRIVE_VIDEO_BYTES_TOTAL = 0
+    with _DRIVE_VIDEO_CLIP_LOCK:
+        _DRIVE_VIDEO_CLIP_CACHE.clear()
 
 
 def _drive_video_cache_get(file_id):
@@ -1090,39 +1102,66 @@ def parse_drive_clip_timestamps(drive_url):
 
 def _download_drive_video_bytes(drive, file_id):
     """
-    Download a Drive video once and cache the full-file bytes (byte-bounded LRU).
+    Download a Drive video once and cache the full-file bytes (byte-bounded LRU). Uses in-flight events to prevent multiple threads downloading the same file.
 
     :param drive: Authenticated PyDrive2 GoogleDrive instance
     :param file_id: Google Drive file id
     :return: Tuple (raw_bytes, file_extension)
     """
+    # 1. Check if the file is already in the cache
     with _DRIVE_VIDEO_BYTES_LOCK:
         cached = _drive_video_cache_get(file_id)
         if cached is not None:
             return cached
 
-    f = drive.CreateFile({"id": file_id})
-    f.FetchMetadata(fields="title,mimeType")
-    title = f.get("title", "video.mp4")
-    ext = os.path.splitext(title)[-1].lower() or ".mp4"
+    # 2. Check if another thread is already downloading the file
+    my_download = False
+    with _DRIVE_VIDEO_IN_FLIGHT_LOCK:
+        if file_id in _DRIVE_VIDEO_IN_FLIGHT:
+            event = _DRIVE_VIDEO_IN_FLIGHT[file_id]
+        else:
+            event = threading.Event()
+            _DRIVE_VIDEO_IN_FLIGHT[file_id] = event
+            my_download = True
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        tmp_path = tmp.name
+    if not my_download:
+        # Wait blockingly for the downloading thread to complete
+        print(f"⏳ Thread waiting for concurrent download of Drive file {file_id} to finish...")
+        event.wait()
+        with _DRIVE_VIDEO_BYTES_LOCK:
+            cached = _drive_video_cache_get(file_id)
+            if cached is not None:
+                return cached
+            # If for some reason download failed, raise or retry
+            raise RuntimeError(f"Concurrent download of {file_id} failed in the downloader thread.")
+
+    # 3. Download the file
     try:
-        f.GetContentFile(tmp_path)
-        with open(tmp_path, "rb") as fh:
-            data = fh.read()
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        print(f"📥 Downloading Drive video file {file_id}...")
+        f = drive.CreateFile({"id": file_id})
+        f.FetchMetadata(fields="title,mimeType")
+        title = f.get("title", "video.mp4")
+        ext = os.path.splitext(title)[-1].lower() or ".mp4"
 
-    with _DRIVE_VIDEO_BYTES_LOCK:
-        # Another worker may have filled the cache while we downloaded.
-        cached = _drive_video_cache_get(file_id)
-        if cached is not None:
-            return cached
-        _drive_video_cache_put(file_id, data, ext)
-    return data, ext
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            tmp_path = tmp.name
+        try:
+            f.GetContentFile(tmp_path)
+            with open(tmp_path, "rb") as fh:
+                data = fh.read()
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        with _DRIVE_VIDEO_BYTES_LOCK:
+            _drive_video_cache_put(file_id, data, ext)
+        return data, ext
+    finally:
+        # Clean up in-flight mapping and wake up all waiting threads
+        with _DRIVE_VIDEO_IN_FLIGHT_LOCK:
+            if file_id in _DRIVE_VIDEO_IN_FLIGHT:
+                del _DRIVE_VIDEO_IN_FLIGHT[file_id]
+        event.set()
 
 
 def _trim_video_bytes(video_bytes, start_seconds, end_seconds, suffix=".mp4"):
@@ -1165,10 +1204,7 @@ def _trim_video_bytes(video_bytes, start_seconds, end_seconds, suffix=".mp4"):
 
 def build_drive_video_part(drive_video_url, drive):
     """
-    Build a Gemini video Part from a Google Drive clip URL.
-
-    Downloads the Drive file, trims to the (start, end) segment when timestamps
-    are present, and attaches the actual clip bytes.
+    Build a Gemini video Part from a Google Drive clip URL. Downloads the Drive file, trims to the (start, end) segment when timestamps are present, and attaches the actual clip bytes. Caches trimmed clip bytes to skip download/trim operations on duplicate requests.
 
     :param drive_video_url: URL like https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=110)
     :param drive: Authenticated PyDrive2 GoogleDrive instance
@@ -1177,12 +1213,34 @@ def build_drive_video_part(drive_video_url, drive):
     if not drive_video_url or drive is None:
         return None
 
-    file_id = parse_drive_file_id_from_url(drive_video_url)
+    url_key = str(drive_video_url).strip()
+
+    file_id = parse_drive_file_id_from_url(url_key)
     if not file_id:
-        print(f"⚠️ Could not parse Drive file id from URL: {drive_video_url}")
+        print(f"⚠️ Could not parse Drive file id from URL: {url_key}")
         return None
 
-    start_seconds, end_seconds = parse_drive_clip_timestamps(drive_video_url)
+    # Try to resolve MIME type early using metadata or extension
+    ext = ".mp4"  # default fallback
+    try:
+        # Check cache metadata first to retrieve correct mime
+        with _DRIVE_VIDEO_BYTES_LOCK:
+            if file_id in _DRIVE_VIDEO_BYTES_CACHE:
+                _, ext = _DRIVE_VIDEO_BYTES_CACHE[file_id]
+    except Exception:
+        pass
+    mime_type = _MIME_BY_EXT.get(ext, "video/mp4")
+
+    # 1. Check trimmed clip cache
+    with _DRIVE_VIDEO_CLIP_LOCK:
+        if url_key in _DRIVE_VIDEO_CLIP_CACHE:
+            clip_bytes = _DRIVE_VIDEO_CLIP_CACHE[url_key]
+            # Move to end for LRU behavior
+            _DRIVE_VIDEO_CLIP_CACHE.move_to_end(url_key)
+            print(f"⚡ Instant hit: Reusing cached trimmed clip for {url_key} ({len(clip_bytes)} bytes)")
+            return types.Part.from_bytes(data=clip_bytes, mime_type=mime_type)
+
+    start_seconds, end_seconds = parse_drive_clip_timestamps(url_key)
 
     try:
         raw_bytes, ext = _download_drive_video_bytes(drive, file_id)
@@ -1209,7 +1267,56 @@ def build_drive_video_part(drive_video_url, drive):
         else:
             print(f"✅ Using full Drive video {file_id} ({len(clip_bytes)} bytes); no timestamps found")
 
+        # 2. Store in trimmed clip cache
+        with _DRIVE_VIDEO_CLIP_LOCK:
+            if url_key in _DRIVE_VIDEO_CLIP_CACHE:
+                del _DRIVE_VIDEO_CLIP_CACHE[url_key]
+            # Enforce LRU size limit
+            while len(_DRIVE_VIDEO_CLIP_CACHE) >= _DRIVE_VIDEO_CLIP_MAX_ENTRIES:
+                _DRIVE_VIDEO_CLIP_CACHE.popitem(last=False)
+            _DRIVE_VIDEO_CLIP_CACHE[url_key] = clip_bytes
+
         return types.Part.from_bytes(data=clip_bytes, mime_type=mime_type)
     except Exception as e:
-        print(f"❌ Failed to build Drive video part for {drive_video_url}: {e}")
+        print(f"❌ Failed to build Drive video part for {url_key}: {e}")
         return None
+
+
+def build_drive_video_parts_parallel(drive_video_urls, drive, max_workers=None):
+    """
+    Download/trim multiple Drive video clips in parallel and return Parts keyed by URL.
+
+    Uses one worker per unique URL (or max_workers if provided). 
+
+    :param drive_video_urls: Iterable of Drive clip URLs (with optional start/end suffix)
+    :param drive: Authenticated PyDrive2 GoogleDrive instance
+    :param max_workers: Optional worker cap; default = number of unique URLs
+    :return: Dict mapping each input URL to a Gemini Part (or None on failure)
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    urls = [str(u).strip() for u in (drive_video_urls or []) if str(u).strip()]
+    if not urls or drive is None:
+        return {}
+
+    # Preserve first-seen order while deduping identical URLs.
+    unique_urls = list(dict.fromkeys(urls))
+    workers = max(1, int(max_workers) if max_workers else len(unique_urls))
+    workers = min(workers, len(unique_urls))
+    results: Dict[str, Any] = {url: None for url in unique_urls}
+
+    print(f"📥 Downloading {len(unique_urls)} Drive video clip(s) in parallel (workers={workers})...")
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(build_drive_video_part, url, drive): url
+            for url in unique_urls
+        }
+        for future in as_completed(future_map):
+            url = future_map[future]
+            try:
+                results[url] = future.result()
+            except Exception as exc:
+                print(f"❌ Parallel Drive video download failed for {url}: {exc}")
+                results[url] = None
+
+    return results

@@ -12,7 +12,7 @@ from agents.vector_store_image_search.graphics_retriever_agent import pil_to_bas
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_image_candidates
 from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_video_candidates
-from services.helper_functions import build_video_part, build_drive_video_part
+from services.helper_functions import build_video_part, build_drive_video_parts_parallel
 from services.llm_service import extract_token_usage, log_token_usage
 from dotenv import load_dotenv
 import os
@@ -3120,6 +3120,14 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 print(f"⚠️ Failed to load image {idx}: {image_title}")
     
     total_videos = len(video_items_filtered)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [
+            item.get("url", "")
+            for item in video_items_filtered
+            if item.get("type") == "drive_clip" and item.get("url")
+        ],
+        drive,
+    )
     # Add videos from video_pool_filtered - process based on type
     for video_item in video_items_filtered:
         video_type = video_item.get("type")
@@ -3158,7 +3166,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 f"URL: {video_url}\n"
             )
             parts.append(types.Part(text=label_text))
-            drive_part = build_drive_video_part(video_url, drive)
+            drive_part = drive_parts_by_url.get(video_url)
             if drive_part is not None:
                 parts.append(drive_part)
                 print(f"✅ Added Drive video {candidate_num} (clip): {video_url}")
@@ -3200,7 +3208,6 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             parts,
             llm=llm,
             temperature=0.7,
-            media_resolution="MEDIA_RESOLUTION_HIGH" if has_drive_clips else None,
         )
         
         # Print the full response for debugging
@@ -3384,6 +3391,14 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
                 print(f"⚠️ Failed to load image {image_title}")
     
     total_videos = len(video_items_filtered)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [
+            item.get("url", "")
+            for item in video_items_filtered
+            if item.get("type") == "drive_clip" and item.get("url")
+        ],
+        drive,
+    )
     # Add videos from video_pool_filtered - process based on type
     for video_item in video_items_filtered:
         video_type = video_item.get("type")
@@ -3423,7 +3438,7 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
                 f"URL: {video_url}\n"
             )
             parts.append(types.Part(text=label_text))
-            drive_part = build_drive_video_part(video_url, drive)
+            drive_part = drive_parts_by_url.get(video_url)
             if drive_part is not None:
                 parts.append(drive_part)
                 print(f"✅ Added Drive video {candidate_num} (clip): {video_url}")
@@ -3465,7 +3480,6 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
             parts,
             llm=llm,
             temperature=0.7,
-            media_resolution="MEDIA_RESOLUTION_HIGH" if has_drive_clips else None,
         )
         
         # # Print the full response for debugging

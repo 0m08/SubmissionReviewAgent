@@ -26,7 +26,7 @@ from services.sheets_service import (
     hide_columns_by_name,
 )
 from services.smart_progress_bar import SmartProgressBar
-from services.helper_functions import build_video_part, build_drive_video_part
+from services.helper_functions import build_video_part, build_drive_video_part, build_drive_video_parts_parallel
 from services.llm_service import extract_token_usage, log_token_usage
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
@@ -3543,6 +3543,14 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
     if len(split3) == 2:
         parts.append(types.Part(text=split3[0] + "</video_candidates>"))
         total_video_candidates = len(videos) + len(frame_videos)
+        drive_parts_by_url = build_drive_video_parts_parallel(
+            [
+                candidate.get("url", "")
+                for candidate in videos
+                if candidate.get("type") == "drive_clip" and candidate.get("url")
+            ],
+            drive,
+        )
         
         # Insert video candidates as multimodal
         # Handle embed videos (can use clips or frames)
@@ -3576,7 +3584,7 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                     f"URL: {video_url}\n"
                 )
                 parts.append(types.Part(text=label_text))
-                drive_part = build_drive_video_part(video_url, drive)
+                drive_part = drive_parts_by_url.get(video_url)
                 if drive_part is not None:
                     parts.append(drive_part)
                 else:
