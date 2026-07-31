@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -14,17 +15,19 @@ from pydantic import BaseModel, Field
 from human_feedback_app.backend.auth import ensure_google_clients, get_current_session, router as auth_router
 from human_feedback_app.backend.asset_service import image_response
 from human_feedback_app.backend.config import BRAND_ASSETS_DIR, BRAND_FALLBACK_DIR, FRONTEND_DIR
-from human_feedback_app.backend.jobs import revision_queue
+from human_feedback_app.backend.jobs import JobCancelled, revision_queue
 from human_feedback_app.backend.tts_service import synthesize_tts_mp3_bytes
 from human_feedback_app.backend.revise_worker import run_row_revision
 from human_feedback_app.backend.segmentation_worker import run_row_segmentation_revision
 from human_feedback_app.backend.layout_worker import run_row_layout_revision
 from human_feedback_app.backend.sheet_service import (
     approve_visual,
+    clear_visual_revision_action,
     get_manifest_sync_status,
     load_workbook,
     maybe_trigger_manifest_sync_checker,
     prepare_visual_revision,
+    reconcile_stale_visual_revisions,
     replace_visual_with_url,
     revert_visual,
     select_pool_alternative,
@@ -128,6 +131,7 @@ def api_load_sheet(body: LoadSheetRequest, session: UserSession = Depends(sessio
     session.manifest_repair_cache = {}
     session.manifest_sync_triggered = False
     session.manifest_sync_status = {}
+    reconcile_stale_visual_revisions(session)
     payload = slides_to_ui_payload(session)
     maybe_trigger_manifest_sync_checker(session)
     return payload
@@ -137,6 +141,7 @@ def api_load_sheet(body: LoadSheetRequest, session: UserSession = Depends(sessio
 def api_slides(session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
     if not session.sheet_link:
         raise HTTPException(status_code=400, detail="No sheet loaded")
+    reconcile_stale_visual_revisions(session)
     return slides_to_ui_payload(session)
 
 
@@ -226,53 +231,87 @@ def api_replace(body: ReplaceRequest, session: UserSession = Depends(session_dep
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def _job_aborted(session: UserSession, job_id: str) -> bool:
+    return bool(getattr(session, "aborted", False)) or revision_queue.is_cancelled(job_id)
+
+
 @api_router.post("/visuals/revise")
 def api_revise(body: ReviseRequest, session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
     if body.mode not in ("drive", "all", "ai"):
         raise HTTPException(status_code=400, detail="Invalid mode")
 
-    prepare_visual_revision(
-        session,
-        row_index=body.row_index,
+    # Register the job BEFORE writing the reject action so a concurrent /slides reconcile cannot treat this visual as an orphan and clear it.
+    job_id = uuid.uuid4().hex[:12]
+    job = revision_queue.register(
+        session_id=session.session_id,
+        label=f"visual / {body.visual_id}",
+        slide_index=0,
         segment_index=body.segment_index,
         step_index=body.step_index,
+        kind="visual",
+        row_index=body.row_index,
         visual_id=body.visual_id,
-        vo=body.vo,
-        mode=body.mode,
-        feedback=body.feedback,
+        job_id=job_id,
     )
 
-    slide_idx = None
-    payload = slides_to_ui_payload(session)
-    for idx, slide in enumerate(payload["slides"]):
-        for seg in slide.get("segments", []):
-            for step in seg.get("steps", []):
-                if step.get("rowIndex") == body.row_index and step.get("visualId") == body.visual_id:
-                    slide_idx = idx
-                    break
-
-    label = f"Slide {(slide_idx or 0) + 1} / {body.visual_id}"
-
-    def worker() -> Dict[str, Any]:
-        run_row_revision(
+    try:
+        prepare_visual_revision(
             session,
-            body.row_index,
-            body.vo,
+            row_index=body.row_index,
             segment_index=body.segment_index,
             step_index=body.step_index,
             visual_id=body.visual_id,
+            vo=body.vo,
+            mode=body.mode,
+            feedback=body.feedback,
         )
-        refreshed = slides_to_ui_payload(session)
-        return refreshed
 
-    job = revision_queue.submit(
-        session_id=session.session_id,
-        label=label,
-        worker=worker,
-        slide_index=slide_idx or 0,
-        segment_index=body.segment_index,
-        step_index=body.step_index,
-    )
+        slide_idx = None
+        payload = slides_to_ui_payload(session)
+        for idx, slide in enumerate(payload["slides"]):
+            for seg in slide.get("segments", []):
+                for step in seg.get("steps", []):
+                    if step.get("rowIndex") == body.row_index and step.get("visualId") == body.visual_id:
+                        slide_idx = idx
+                        break
+
+        job.label = f"Slide {(slide_idx or 0) + 1} / {body.visual_id}"
+        job.slide_index = slide_idx or 0
+    except Exception:
+        revision_queue.cancel_job(job_id, error="Failed to start revision")
+        try:
+            clear_visual_revision_action(session, body.row_index, body.visual_id)
+        except Exception:
+            pass
+        raise
+
+    def worker() -> Dict[str, Any]:
+        try:
+            if _job_aborted(session, job_id):
+                raise JobCancelled("Cancelled on logout")
+            run_row_revision(
+                session,
+                body.row_index,
+                body.vo,
+                segment_index=body.segment_index,
+                step_index=body.step_index,
+                visual_id=body.visual_id,
+            )
+            if _job_aborted(session, job_id):
+                raise JobCancelled("Cancelled on logout")
+            return slides_to_ui_payload(session)
+        except JobCancelled:
+            raise
+        except Exception:
+            # Failed revisions must not leave the sheet stuck in "revising".
+            try:
+                if not getattr(session, "aborted", False):
+                    clear_visual_revision_action(session, body.row_index, body.visual_id)
+            except Exception:
+                pass
+            raise
+
+    revision_queue.start(job_id, worker)
     return job.to_dict()
 
 
@@ -291,9 +330,14 @@ def api_revise_segmentation(
                     break
 
     label = f"Slide {(slide_idx or 0) + 1} / segmentation"
+    job_id = uuid.uuid4().hex[:12]
 
     def worker() -> Dict[str, Any]:
+        if _job_aborted(session, job_id):
+            raise JobCancelled("Cancelled on logout")
         run_row_segmentation_revision(session, body.row_index, body.feedback.strip())
+        if _job_aborted(session, job_id):
+            raise JobCancelled("Cancelled on logout")
         return slides_to_ui_payload(session)
 
     job = revision_queue.submit(
@@ -303,6 +347,9 @@ def api_revise_segmentation(
         slide_index=slide_idx or 0,
         segment_index=0,
         step_index=0,
+        kind="segmentation",
+        row_index=body.row_index,
+        job_id=job_id,
     )
     return job.to_dict()
 
@@ -322,9 +369,14 @@ def api_revise_layout(
                     break
 
     label = f"Slide {(slide_idx or 0) + 1} / layout / Scene {body.scene_id}"
+    job_id = uuid.uuid4().hex[:12]
 
     def worker() -> Dict[str, Any]:
+        if _job_aborted(session, job_id):
+            raise JobCancelled("Cancelled on logout")
         layout_result = run_row_layout_revision(session, body.row_index, body.scene_id, body.feedback.strip())
+        if _job_aborted(session, job_id):
+            raise JobCancelled("Cancelled on logout")
         payload = slides_to_ui_payload(session)
         payload["layoutRevisionResult"] = layout_result
         return payload
@@ -336,6 +388,10 @@ def api_revise_layout(
         slide_index=slide_idx or 0,
         segment_index=0,
         step_index=0,
+        kind="layout",
+        row_index=body.row_index,
+        scene_id=body.scene_id,
+        job_id=job_id,
     )
     return job.to_dict()
 

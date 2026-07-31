@@ -1955,12 +1955,14 @@ class Component extends DCLogic {
               if ((isSeg || isLayout) && this.current === slideIdx) this.go(slideIdx);
             }
             this.forceUpdate();
-          } else if (job.status === 'failed') {
+          } else if (job.status === 'failed' || job.status === 'cancelled') {
             delete this._pendingJobs[key];
-            let label = 'Revision failed';
-            if (key.indexOf('seg:') === 0) label = 'Segmentation revision failed';
-            else if (key.indexOf('layout:') === 0) label = 'Layout revision failed';
-            alert(label + ': ' + (job.error || 'Unknown error'));
+            if (job.status === 'failed') {
+              let label = 'Revision failed';
+              if (key.indexOf('seg:') === 0) label = 'Segmentation revision failed';
+              else if (key.indexOf('layout:') === 0) label = 'Layout revision failed';
+              alert(label + ': ' + (job.error || 'Unknown error'));
+            }
             await this.reloadSlides();
           }
         } catch (_) {}

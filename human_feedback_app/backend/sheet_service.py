@@ -108,15 +108,23 @@ def _pick_column(df, name):
     return name
 
 
-def mutate_row_cells(session, row_index, mutate):
+def mutate_row_cells(session, row_index, mutate, *, allow_when_aborted: bool = False):
     """
     Reload the latest worksheet under the global write lock, run `mutate(df)` (which must patch only this row's owned cells), then persist.
 
     :param session: The session object.
     :param row_index: The index of the row to mutate.
     :param mutate: The function to mutate the row.
+    :param allow_when_aborted: When True, permit writes even if the session was aborted (logout cleanup).
     """
+    from human_feedback_app.backend.jobs import JobCancelled
+
+    if getattr(session, "aborted", False) and not allow_when_aborted:
+        raise JobCancelled("Session aborted on logout")
+
     with _SHEET_WRITE_LOCK:
+        if getattr(session, "aborted", False) and not allow_when_aborted:
+            raise JobCancelled("Session aborted on logout")
         sheet = _ensure_sheet(session)
         ws, latest_df = get_sheet_data_and_df(sheet, session.worksheet_name or DEFAULT_WORKSHEET)
         latest_df = _sanitize_df(latest_df)
@@ -1991,6 +1999,108 @@ def prepare_visual_revision(
         feedback=feedback,
         mode=mode,
     )
+
+
+def clear_visual_revision_action(
+    session: UserSession,
+    row_index: int,
+    visual_id: str,
+    *,
+    allow_when_aborted: bool = False,
+) -> None:
+    """Remove a visual's reject/in-progress action so UI status returns to pending.
+
+    Does not touch the current graphic or revision tracking — only clears the
+    durable "revising" flag written by prepare_visual_revision.
+    """
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    safe_str = helpers["safe_str"]
+
+    visual_id = (visual_id or "").strip()
+    if not visual_id:
+        return
+
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+
+    def mutate(df) -> None:
+        if actions_col not in df.columns:
+            return
+        raw_actions = safe_str(df.at[row_index, actions_col])
+        try:
+            payload = json.loads(raw_actions) if raw_actions else {}
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            return
+        actions_map = payload.get("actions")
+        if not isinstance(actions_map, dict) or visual_id not in actions_map:
+            return
+        action = (actions_map.get(visual_id) or {}).get("action", ACTION_NONE)
+        if action not in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+            return
+        del actions_map[visual_id]
+        payload["actions"] = actions_map
+        df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+
+    mutate_row_cells(session, row_index, mutate, allow_when_aborted=allow_when_aborted)
+
+
+def reconcile_stale_visual_revisions(session: UserSession) -> int:
+    """
+    Clear reject actions that have no live job and no completed revision result. Covers server restart / orphaned rows left as forever "revising". Safe to call on sheet load; does not touch visuals that still have an active job.
+    """
+    from human_feedback_app.backend.jobs import revision_queue
+
+    if not session.sheet_link or session.gc is None:
+        return 0
+
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    safe_str = helpers["safe_str"]
+
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+
+    _, df, _ = load_workbook(session)
+    if actions_col not in df.columns:
+        return 0
+
+    cleared = 0
+    for row_index in df.index:
+        raw_actions = safe_str(df.at[row_index, actions_col])
+        try:
+            payload = json.loads(raw_actions) if raw_actions else {}
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        actions_map = payload.get("actions")
+        if not isinstance(actions_map, dict):
+            continue
+
+        tracking_map = {}
+        if tracking_col in df.columns:
+            tracking_map = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+
+        for visual_id, entry in list(actions_map.items()):
+            action = (entry or {}).get("action", ACTION_NONE) if isinstance(entry, dict) else ACTION_NONE
+            if action not in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+                continue
+            tracking = tracking_map.get(visual_id) or {}
+            if tracking.get("after_revision") or tracking.get("after_regen_1") or tracking.get("manually_selected"):
+                continue
+            if revision_queue.has_active_visual_job(int(row_index), str(visual_id)):
+                continue
+            try:
+                clear_visual_revision_action(session, int(row_index), str(visual_id))
+                cleared += 1
+            except Exception as exc:
+                print(
+                    f"[human_feedback] stale revision clear failed for row {row_index} "
+                    f"visual {visual_id}: {exc}"
+                )
+    return cleared
 
 
 def apply_layout_revision_to_sheet(

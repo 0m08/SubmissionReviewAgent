@@ -30,6 +30,8 @@ class UserSession:
     manifest_sync_status: Dict[str, Any] = field(default_factory=dict)
     manifest_sync_triggered: bool = False
     manifest_repair_cache: Dict[int, str] = field(default_factory=dict)
+    # Set on logout so in-flight workers cannot write sheet results after the session ends.
+    aborted: bool = False
 
 
 class SessionStore:
