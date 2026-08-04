@@ -65,7 +65,9 @@ from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all
 )
 from agents.graphics_definition_v2.candidate_search.pool_registry import (
     COURSE_INFO_ENABLED_SOURCES_KEY,
+    SOURCE_EXTERNAL_REFERENCES,
     decode_enabled_sources_from_course_info,
+    hf_source_chip_for_pool_source,
 )
 
 
@@ -366,6 +368,56 @@ def _infer_source(asset_url: str, asset_type: str) -> str:
     return "drive"
 
 
+def _resolve_source(
+    asset_url: str,
+    asset_type: str,
+    *,
+    drive=None,
+    video_type: str = "",
+    ancestry_cache: Optional[Dict[str, bool]] = None,
+) -> str:
+    """
+    Label source for HF chips.
+
+    External refs:
+    - videos: FramesOnly / frames_only type in video_pool_filtered
+    - Drive images (and Drive video URLs without FramesOnly): parent under external-ref extract folder
+    """
+    if str(video_type or "").strip().lower() == "frames_only":
+        return "external_ref"
+
+    lowered = (asset_url or "").lower()
+    if drive and ("drive.google.com" in lowered or "docs.google.com" in lowered):
+        from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+            is_drive_file_under_external_ref_assets,
+        )
+
+        if ancestry_cache is None:
+            ancestry_cache = {}
+        if is_drive_file_under_external_ref_assets(
+            drive, asset_url, cache=ancestry_cache
+        ):
+            return "external_ref"
+
+    return _infer_source(asset_url, asset_type)
+
+
+def _video_type_for_url(row, segment_index: int, asset_url: str) -> str:
+    """Return video_pool_filtered type for a URL in this segment, or ''."""
+    helpers = _import_slideshow_helpers()
+    safe_str = helpers["safe_str"]
+    target = _normalize_asset_url(asset_url)
+    if not target:
+        return ""
+    video_pool_text = safe_str(row.get("video_pool_filtered", "")).strip()
+    if not video_pool_text or video_pool_text == "nan":
+        return ""
+    for item in parse_urls_from_video_pool_filtered(video_pool_text, segment_index):
+        if _normalize_asset_url(str(item.get("url") or "")) == target:
+            return str(item.get("type") or "")
+    return ""
+
+
 def _label_from_asset(asset_url: str, asset_type: str) -> str:
     if not asset_url:
         return "no_asset.png"
@@ -385,6 +437,8 @@ def _alternatives_for_segment(
     segment_index: int,
     asset_type: str,
     exclude_url: str = "",
+    drive=None,
+    ancestry_cache: Optional[Dict[str, bool]] = None,
 ) -> List[Dict[str, Any]]:
     """Parse image_pool / video_pool_filtered candidates for one segment."""
     helpers = _import_slideshow_helpers()
@@ -393,8 +447,16 @@ def _alternatives_for_segment(
     exclude = _normalize_asset_url(exclude_url)
     seen: set[str] = set()
     out: List[Dict[str, Any]] = []
+    if ancestry_cache is None:
+        ancestry_cache = {}
 
-    def add_candidate(title: str, url: str, atype: str, duration: str = "") -> None:
+    def add_candidate(
+        title: str,
+        url: str,
+        atype: str,
+        duration: str = "",
+        video_type: str = "",
+    ) -> None:
         url = (url or "").strip()
         if not url:
             return
@@ -409,7 +471,13 @@ def _alternatives_for_segment(
                 "title": (title or _label_from_asset(url, atype)).strip(),
                 "url": url,
                 "type": atype,
-                "source": _infer_source(url, atype),
+                "source": _resolve_source(
+                    url,
+                    atype,
+                    drive=drive,
+                    video_type=video_type,
+                    ancestry_cache=ancestry_cache,
+                ),
                 "duration": (duration or "").strip(),
             }
         )
@@ -434,6 +502,7 @@ def _alternatives_for_segment(
                 str(item.get("url") or ""),
                 "video",
                 str(meta.get("duration") or ""),
+                video_type=str(item.get("type") or ""),
             )
 
     # 3. Add all candidates from the Google Drive video pool
@@ -1395,6 +1464,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
     layout_feedback_col = get_round_column_name(LAYOUT_FEEDBACK_COLUMN, current_round)
 
     ui_slides: List[Dict[str, Any]] = []
+    ancestry_cache: Dict[str, bool] = {}
     for slide_idx, slide in enumerate(slides):
         row = df.iloc[slide["row_index"]]
         actions_map = _parse_actions_payload(safe_str(row.get(actions_col, "")))
@@ -1435,6 +1505,22 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
                     segment_index=seg_num,
                     asset_type=asset_type,
                     exclude_url=asset,
+                    drive=session.drive,
+                    ancestry_cache=ancestry_cache,
+                )
+                display_url = after_url or asset
+                display_type = detect_asset_type(display_url) if display_url else asset_type
+                video_type = (
+                    _video_type_for_url(row, seg_num, display_url)
+                    if display_type == "video"
+                    else ""
+                )
+                source = _resolve_source(
+                    display_url,
+                    display_type if display_type in ("image", "video") else asset_type,
+                    drive=session.drive,
+                    video_type=video_type,
+                    ancestry_cache=ancestry_cache,
                 )
 
                 steps_out.append(
@@ -1450,7 +1536,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
                         "assetUrl": asset,
                         "beforeUrl": before_url,
                         "afterUrl": after_url or "",
-                        "source": _infer_source(asset, asset_type),
+                        "source": source,
                         "visualId": visual_id,
                         "segmentIndex": seg_num,
                         "stepIndex": step_num,

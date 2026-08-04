@@ -105,6 +105,14 @@ from agents.graphics_definition_v2.image_editing_for_layout.image_edit_results_s
 from agents.graphics_definition_v2.download_assets.download_assets_for_sheet import (
     run_download_assets_for_sheet,
 )
+from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+    run_external_reference_extraction,
+    delete_external_reference_extraction_log,
+)
+from agents.graphics_definition_v2.external_references.run_indexing_step import (
+    run_external_reference_indexing,
+    delete_external_reference_index_log,
+)
 
 # Shown at top of page (before Section 1) so users set Visual Assignment Strategy before running.
 TOP_INSTRUCTIONS = (
@@ -112,12 +120,45 @@ TOP_INSTRUCTIONS = (
                     "- **Flexible, let the agent decide**: Agent picks how many visuals get assigned for the slide.\n"
                     "- **1 Visual per Sentence**: One visual gets assigned per sentence.\n"
                     "- **1 Visual for the whole Slide**: One visual gets assigned for the entire slide.\n\n"
-                    "Also choose **Asset libraries for this run** below (Drive Images, HVAC YouTube, Google Drive Videos, and Web Images and Videos)."
+                    "Also choose **Asset libraries for this run** below (Drive Images, HVAC YouTube, Google Drive Videos, External References, and Web Images and Videos)."
 )
 
 
 
 pipeline_sections = [
+    {
+        "section_name": "External Reference Media Extraction",
+        "steps": [
+            {
+                "name": "Extract External Reference Images",
+                "func": run_external_reference_extraction,
+                "depends_on": [],
+                "args": {
+                    "sheet": "sheet",
+                },
+                "estimated_time": "5-20 minutes",
+                "description": "Extracts images from PDF / Google Docs / Google Slides / PPT via LlamaParse and uploads them under the shared External Reference Assets Drive folder."
+                "delete_func": delete_external_reference_extraction_log,
+                "delete_args": {
+                    "sheet": "sheet",
+                },
+            },
+            {
+                "name": "Index External Reference Assets",
+                "func": run_external_reference_indexing,
+                "depends_on": ["Extract External Reference Images"],
+                "args": {
+                    "sheet": "sheet",
+                },
+                "estimated_time": "5-30 minutes",
+                "description": "Indexes the external reference images and videos and store them into Supabase.
+                "delete_func": delete_external_reference_index_log,
+                "delete_args": {
+                    "sheet": "sheet",
+                },
+            },
+        ],
+    },
     {
         "section_name": "Section 1: Layout Planning",
         "steps": [
@@ -129,14 +170,14 @@ pipeline_sections = [
                     "sheet": "sheet",
                     "worksheet_name": "Slide Chunks"
                 },
-                "depends_on": [],
+                "depends_on": ["Index External Reference Assets"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-12 minutes",
-                "description": "This function identifies scene-wise layout strategy for each slide row and saves the output to layout_plan and layout_plan_evaluation columns.",
+                "description": "This function identifies scene-wise layout strategy for each slide row and saves the output to the layout_plan column.",
                 "delete_func": delete_layout_plan_columns,
                 "delete_args": {
                     "sheet": "sheet"
@@ -237,7 +278,7 @@ pipeline_sections = [
                     "enabled_sources": "graphics_v2_enabled_sources",
                 },
                 "estimated_time": "10-20 minutes",
-                "description": "This step runs enabled candidate searches in parallel via the pool registry (default: Drive images + HVAC YouTube + Drive videos). Writes to drive_results, video_pool, and drive_video_pool",
+                "description": "This step runs enabled candidate searches in parallel via the pool registry."
                 "delete_func": delete_all_candidate_results,
                 "delete_args": {
                     "sheet": "sheet"
@@ -260,7 +301,7 @@ pipeline_sections = [
                 },
                 "is_llm_step": True, 
                 "estimated_time": "20-40 minutes",
-                "description": "This step runs Image Pool and Video Pool generation in parallel. Image Pool selects relevant images from drive_results column. Video Pool selects relevant videos from video_pool column. Both write to their respective columns (image_pool, video_pool_filtered).",
+                "description": "This step runs Image Pool and Video Pool scoring/filtering in parallel from enabled candidate columns."
                 "delete_func": delete_all_pool_results,
                 "delete_args": {
                     "sheet": "sheet"

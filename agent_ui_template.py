@@ -42,11 +42,13 @@ from agents.graphics_definition_v2.candidate_search.pool_registry import (
     DRIVE_VIDEO_MODE_NEXTECH,
     SOURCE_DRIVE_IMAGES,
     SOURCE_DRIVE_VIDEOS,
+    SOURCE_EXTERNAL_REFERENCES,
     SOURCE_HVAC_YOUTUBE,
     UI_KEY_DRIVE_IMAGES,
     UI_KEY_DRIVE_VIDEO_MODE,
     UI_KEY_DRIVE_VIDEOS,
     UI_KEY_ENABLED_SOURCES,
+    UI_KEY_EXTERNAL_REFERENCES,
     UI_KEY_HVAC_YOUTUBE,
     UI_KEY_WEB_AND_OTHER,
     UI_KEY_WEB_FALLBACK_ENABLED,
@@ -291,6 +293,7 @@ def _render_graphics_v2_asset_library_controls():
         UI_KEY_HVAC_YOUTUBE: True,
         UI_KEY_WEB_AND_OTHER: True,
         UI_KEY_DRIVE_VIDEOS: True,
+        UI_KEY_EXTERNAL_REFERENCES: True,
         UI_KEY_DRIVE_VIDEO_MODE: DRIVE_VIDEO_MODE_ALL,
     }
     for key, default in defaults.items():
@@ -306,6 +309,7 @@ def _render_graphics_v2_asset_library_controls():
     with col1:
         st.checkbox("Drive Images", key=UI_KEY_DRIVE_IMAGES)
         st.checkbox("HVAC School YouTube Videos", key=UI_KEY_HVAC_YOUTUBE)
+        st.checkbox("External References", key=UI_KEY_EXTERNAL_REFERENCES)
     with col2:
         st.checkbox(
             "Web Images and Other YouTube Channel Videos",
@@ -336,6 +340,8 @@ def _render_graphics_v2_asset_library_controls():
         enabled_sources.append(SOURCE_HVAC_YOUTUBE)
     if st.session_state.get(UI_KEY_DRIVE_VIDEOS, True):
         enabled_sources.append(SOURCE_DRIVE_VIDEOS)
+    if st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, True):
+        enabled_sources.append(SOURCE_EXTERNAL_REFERENCES)
 
     web_fallback_enabled = bool(st.session_state.get(UI_KEY_WEB_AND_OTHER, True))
     st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = web_fallback_enabled
@@ -728,6 +734,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         )
                         toggle_values["graphics_v2_asset_drive_videos"] = st.session_state.get(
                             "graphics_v2_asset_drive_videos", True
+                        )
+                        toggle_values["graphics_v2_asset_external_references"] = st.session_state.get(
+                            "graphics_v2_asset_external_references", True
                         )
                     cmd = [
                         sys.executable,

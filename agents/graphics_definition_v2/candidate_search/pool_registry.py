@@ -8,6 +8,7 @@ UI asset-library checkboxes live in agent_ui_template; this module holds the ids
 SOURCE_DRIVE_IMAGES = "drive_images"
 SOURCE_HVAC_YOUTUBE = "hvac_youtube"
 SOURCE_DRIVE_VIDEOS = "drive_videos"
+SOURCE_EXTERNAL_REFERENCES = "external_references"
 SOURCE_WEB_IMAGES = "web_images"
 SOURCE_YOUTUBE_OTHER_CHANNELS = "youtube_other_channels"
 
@@ -16,6 +17,7 @@ DEFAULT_ENABLED_SOURCES = [
     SOURCE_DRIVE_IMAGES,
     SOURCE_HVAC_YOUTUBE,
     SOURCE_DRIVE_VIDEOS,
+    SOURCE_EXTERNAL_REFERENCES,
 ]
 
 # Web / other-YouTube are not Section 5 defaults; they power Section 9 fallback when enabled in UI.
@@ -31,6 +33,7 @@ UI_KEY_DRIVE_IMAGES = "graphics_v2_asset_drive_images"
 UI_KEY_HVAC_YOUTUBE = "graphics_v2_asset_hvac_youtube"
 UI_KEY_WEB_AND_OTHER = "graphics_v2_asset_web_and_other_youtube"
 UI_KEY_DRIVE_VIDEOS = "graphics_v2_asset_drive_videos"
+UI_KEY_EXTERNAL_REFERENCES = "graphics_v2_asset_external_references"
 UI_KEY_DRIVE_VIDEO_MODE = "graphics_v2_drive_video_mode"
 UI_KEY_WEB_FALLBACK_ENABLED = "graphics_v2_web_fallback_enabled"
 UI_KEY_ENABLED_SOURCES = "graphics_v2_enabled_sources"
@@ -77,6 +80,7 @@ SOURCE_DISPLAY_NAMES = {
     SOURCE_DRIVE_IMAGES: "Drive Search",
     SOURCE_HVAC_YOUTUBE: "Video Search (HVAC Channels)",
     SOURCE_DRIVE_VIDEOS: "Video Search (Google Drive)",
+    SOURCE_EXTERNAL_REFERENCES: "External References",
     SOURCE_WEB_IMAGES: "Web Search",
     SOURCE_YOUTUBE_OTHER_CHANNELS: "Video Search (Other Channels)",
 }
@@ -86,6 +90,7 @@ UI_ASSET_LABELS = {
     UI_KEY_HVAC_YOUTUBE: "HVAC School YouTube Videos",
     UI_KEY_WEB_AND_OTHER: "Web Images and Other YouTube Channel Videos",
     UI_KEY_DRIVE_VIDEOS: "Google Drive Videos",
+    UI_KEY_EXTERNAL_REFERENCES: "External References",
 }
 
 
@@ -96,9 +101,9 @@ def resolve_enabled_sources(enabled_sources=None, use_only_drive_and_hvac=None):
     Priority:
       1. Explicit enabled_sources if provided (non-None)
       2. Else use_only_drive_and_hvac:
-         - True  -> drive_images + hvac_youtube + drive_videos
+         - True  -> drive_images + hvac_youtube + drive_videos + external_references
          - False -> all known sources
-         - None  -> default (drive_images + hvac_youtube + drive_videos)
+         - None  -> default primary pools (includes external_references)
 
     :param enabled_sources: Optional explicit list of source ids
     :param use_only_drive_and_hvac: Legacy boolean mapped to enabled sources

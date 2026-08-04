@@ -251,8 +251,6 @@ def run_layout_planning_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking",
 
     if "layout_plan" not in df.columns:
         df["layout_plan"] = ""
-    if "layout_plan_evaluation" not in df.columns:
-        df["layout_plan_evaluation"] = ""
 
     futures_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -279,9 +277,8 @@ def run_layout_planning_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking",
         for future in as_completed(futures_map):
             index = futures_map[future]
             try:
-                row_index, layout_plan, evaluation = future.result()
+                row_index, layout_plan, _evaluation = future.result()
                 df.at[row_index, "layout_plan"] = layout_plan
-                df.at[row_index, "layout_plan_evaluation"] = evaluation
                 progress.update()
                 if progress.should_save():
                     print(f"Saving partial progress after {progress.completed_count} tasks.")
@@ -289,7 +286,6 @@ def run_layout_planning_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking",
             except Exception as e:
                 print(f"Error getting layout plan result for row {index}: {e}")
                 df.at[index, "layout_plan"] = f"ERROR: {str(e)}"
-                df.at[index, "layout_plan_evaluation"] = f"ERROR: {str(e)}"
                 progress.update()
 
     save_to_sheet(worksheet, df)
