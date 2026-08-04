@@ -63,15 +63,23 @@ def search_vectorstore_3d(
         return []
 
     # 2. Query Collection Directly
+    total_docs = unified_chroma._collection.count()
+    if total_docs == 0:
+        return []
+
     query_kwargs = {
         "query_embeddings": [query_vector],
-        "n_results": min(top_n, 50),
+        "n_results": min(top_n, total_docs, 50),
         "include": ["metadatas", "distances"],
     }
     if chroma_filter:
         query_kwargs["where"] = chroma_filter
 
-    raw_res = unified_chroma._collection.query(**query_kwargs)
+    try:
+        raw_res = unified_chroma._collection.query(**query_kwargs)
+    except Exception as e:
+        print(f"⚠️ Vectorstore search exception: {e}")
+        return []
 
     results = []
     if raw_res and "metadatas" in raw_res and raw_res["metadatas"]:

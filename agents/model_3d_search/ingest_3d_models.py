@@ -192,12 +192,32 @@ def _fetch_media_with_token(
         return None
 
 
+def flush_chroma_sqlite_wal(local_chroma_path: str):
+    """
+    Flushes SQLite Write-Ahead Log (WAL) into the main chroma.sqlite3 file
+    so the SQLite database file on disk is 100% self-contained before Drive upload.
+    """
+    import sqlite3
+    sqlite_file = os.path.join(local_chroma_path, "chroma.sqlite3")
+    if os.path.exists(sqlite_file):
+        try:
+            conn = sqlite3.connect(sqlite_file)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            conn.close()
+            print("  💾 SQLite WAL flushed to chroma.sqlite3 successfully.")
+        except Exception as e:
+            print(f"  ⚠️ Could not flush SQLite WAL: {e}")
+
+
 def sync_chroma_to_drive(drive, parent_folder_id: str, local_chroma_path: str):
     """
     Upload updated local ChromaDB folder back to Google Drive under `Vectorstore files`.
     """
     if not drive:
         return
+
+    # Ensure all WAL log records are committed into chroma.sqlite3 before copying
+    flush_chroma_sqlite_wal(local_chroma_path)
 
     vstore_list = drive.ListFile({
         'q': f"title='Vectorstore files' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -215,6 +235,18 @@ def sync_chroma_to_drive(drive, parent_folder_id: str, local_chroma_path: str):
         vstore_folder_id = vstore_folder['id']
 
     print("📤 Syncing 3D Vectorstore to Google Drive...")
+    try:
+        existing_items = drive.ListFile({
+            'q': f"'{vstore_folder_id}' in parents and trashed=false"
+        }).GetList()
+        for item in existing_items:
+            try:
+                item.Trash()
+            except Exception as e:
+                print(f"  ⚠️ Could not trash old drive file {item.get('title', '?')}: {e}")
+    except Exception as e:
+        print(f"  ⚠️ Could not list old drive files: {e}")
+
     upload_folder_to_drive(local_chroma_path, vstore_folder_id, drive)
     print("✅ Sync to Google Drive complete!")
 
