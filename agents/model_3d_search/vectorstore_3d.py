@@ -224,18 +224,6 @@ def load_3d_chroma_db(drive=None, parent_folder_id="root", force_reload=False) -
             persist_directory=local_chroma_path,
         )
 
-        # sqlite existed but was empty → wipe and re-download from Drive
-        if unified_chroma._collection.count() == 0 and drive:
-            print("⬇️ Local DB has 0 documents — re-downloading from Google Drive...")
-            shutil.rmtree(local_chroma_path, ignore_errors=True)
-            os.makedirs(local_chroma_path, exist_ok=True)
-            _download_from_drive()
-            make_path_writable(local_chroma_path)
-            unified_chroma = Chroma(
-                collection_name="3d_models_unified",
-                persist_directory=local_chroma_path,
-            )
-
         print(f"📦 ChromaDB loaded — {unified_chroma._collection.count()} documents.")
 
         return {
