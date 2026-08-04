@@ -60,6 +60,13 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     parse_urls_from_image_pool,
     parse_urls_from_video_pool_filtered,
 )
+from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
+    parse_drive_video_items_from_pool,
+)
+from agents.graphics_definition_v2.candidate_search.pool_registry import (
+    COURSE_INFO_ENABLED_SOURCES_KEY,
+    decode_enabled_sources_from_course_info,
+)
 
 
 # This app pins the human-feedback round to a single set of "_1" columns and never advances rounds. Each visual's lifecycle (action, feedback, original -> after_revision -> after_regen_* history) lives inside the keyed JSON of the actions/tracking cells, so we never spawn _2/_3 column sets.
@@ -316,8 +323,15 @@ def merge_visual_revision(
 def _first_http_url(text: str) -> str:
     if not text:
         return ""
-    match = re.search(r"https?://[^\s)>\"]+", str(text).strip())
-    return match.group(0).rstrip(".,);\"'") if match else str(text).strip()
+    s = str(text).strip()
+    match = re.search(r"https?://[^\s)>\"]+", s)
+    if not match:
+        return s
+    url = match.group(0).rstrip(".,);\"'")
+    clip = re.match(r"\s*(\(start=\d+(?:&end=\d+)?\))", s[match.end():])
+    if clip:
+        url = url + " " + clip.group(1)
+    return url
 
 
 def _import_slideshow_helpers():
@@ -352,7 +366,7 @@ def _column_map(df) -> Dict[str, str]:
 def _infer_source(asset_url: str, asset_type: str) -> str:
     url = (asset_url or "").lower()
     if "drive.google.com" in url or "docs.google.com" in url:
-        return "drive"
+        return "drive_video" if asset_type == "video" else "drive"
     if "youtube.com" in url or "youtu.be" in url:
         return "hvac_yt" if asset_type == "video" else "other_yt"
     if url.startswith("http"):
@@ -428,6 +442,16 @@ def _alternatives_for_segment(
                 str(item.get("url") or ""),
                 "video",
                 str(meta.get("duration") or ""),
+            )
+
+    # 3. Add all candidates from the Google Drive video pool
+    drive_video_pool_text = safe_str(row.get("drive_video_pool", "")).strip()
+    if drive_video_pool_text and drive_video_pool_text != "nan":
+        for item in parse_drive_video_items_from_pool(drive_video_pool_text, segment_index):
+            add_candidate(
+                str(item.get("title") or "Drive video clip"),
+                str(item.get("url") or ""),
+                "video",
             )
 
     return out
@@ -510,13 +534,24 @@ def load_workbook(session: UserSession) -> Tuple[Any, Any, int]:
             values = fetch_values()
             if values and len(values) > 1:
                 headers = [str(h).strip().lower() for h in values[0]]
-                if "course name" in headers:
-                    idx = headers.index("course name")
-                    # Find the first non-empty value in this column
-                    for row in values[1:]:
-                        if len(row) > idx and str(row[idx]).strip():
-                            session.course_name = str(row[idx]).strip()
-                            break
+
+                def _first_value(header_key: str) -> str:
+                    if header_key not in headers:
+                        return ""
+                    col = headers.index(header_key)
+                    for data_row in values[1:]:
+                        if len(data_row) > col and str(data_row[col]).strip():
+                            return str(data_row[col]).strip()
+                    return ""
+
+                course_name_val = _first_value("course name")
+                if course_name_val:
+                    session.course_name = course_name_val
+
+                enabled_raw = _first_value(COURSE_INFO_ENABLED_SOURCES_KEY.lower())
+                session.enabled_sources, session.drive_video_mode = (
+                    decode_enabled_sources_from_course_info(enabled_raw)
+                )
     except Exception as e:
         print(f"Error fetching course info: {e}")
 

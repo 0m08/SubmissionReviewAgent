@@ -2,7 +2,6 @@ import os
 import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from io import BytesIO
 from xml.etree import ElementTree as ET
 
 import streamlit as st
@@ -12,16 +11,15 @@ from langsmith import traceable
 
 from agents.graphics_asset_creation.gac_utils import styling_guide
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
-    convert_watch_url_to_embed_url,
     get_drive_instance,
     invoke_gemini_multimodal,
-    load_image_from_url,
-    parse_video_url_timestamps,
+)
+from agents.graphics_definition_v2.review_agent.review_and_revise import (
+    build_visual_part_only,
 )
 from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
     make_slot_narration_resolver_from_fgd,
 )
-from services.helper_functions import build_video_part
 from services.sheets_service import (
     clear_worksheet,
     format_worksheet,
@@ -401,17 +399,6 @@ Important visual context that must not be cropped, covered, or obscured. For NO_
 """
 
 
-def _is_youtube_url(url):
-    """
-    Check whether a URL points to YouTube.
-
-    :param url: Candidate asset URL.
-    :return: True when URL is YouTube/youtu.be, else False.
-    """
-    u = (url or "").lower()
-    return "youtube.com" in u or "youtu.be" in u
-
-
 def _normalize_attribute_quotes(text):
     """
     Normalize doubled XML attribute quotes from sheet-exported strings.
@@ -517,7 +504,7 @@ def _append_scene_slot_multimodal_parts(parts, scene_id, slot_index, slot_role, 
     :param slot_index: 1-based slot index in scene.
     :param slot_role: Slot role name.
     :param asset_url: Asset URL assigned to slot.
-    :param drive: Drive client for image loading.
+    :param drive: Drive client for loading Drive-hosted images and videos.
     :param when_vo_for_slot: Voiceover line matched to this asset from final_graphics_definition, if any.
     :return: None
     """
@@ -526,27 +513,9 @@ def _append_scene_slot_multimodal_parts(parts, scene_id, slot_index, slot_role, 
         label += f"Voiceover for this visual: {when_vo_for_slot}\n"
     label += f"Asset URL: {asset_url}\n"
     parts.append(types.Part(text=label))
-
-    if _is_youtube_url(asset_url):
-        clip_url, start_seconds, end_seconds = parse_video_url_timestamps(asset_url)
-        if not clip_url:
-            clip_url = convert_watch_url_to_embed_url(asset_url)
-            start_seconds, end_seconds = None, None
-        if clip_url:
-            video_part = build_video_part(clip_url, start_seconds, end_seconds)
-            if video_part:
-                parts.append(video_part)
-        return
-
-    pil = load_image_from_url(asset_url, drive, f"scene_edit_plan_s{scene_id}_slot_{slot_index}")
-    if pil:
-        buffered = BytesIO()
-        pil.convert("RGB").save(buffered, format="JPEG")
-        parts.append(
-            types.Part(
-                inline_data=types.Blob(mime_type="image/jpeg", data=buffered.getvalue())
-            )
-        )
+    visual_part = build_visual_part_only(asset_url, drive)
+    if visual_part:
+        parts.append(visual_part)
 
 
 def parse_scene_edit_planning_response(response_text):

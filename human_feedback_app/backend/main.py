@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from human_feedback_app.backend.auth import ensure_google_clients, get_current_session, router as auth_router
-from human_feedback_app.backend.asset_service import image_response
+from human_feedback_app.backend.asset_service import image_response, video_clip_response
 from human_feedback_app.backend.config import BRAND_ASSETS_DIR, BRAND_FALLBACK_DIR, FRONTEND_DIR
 from human_feedback_app.backend.jobs import JobCancelled, revision_queue
 from human_feedback_app.backend.tts_service import synthesize_tts_mp3_bytes
@@ -156,6 +156,12 @@ def api_manifest_sync(session: UserSession = Depends(session_dep)) -> Dict[str, 
 @api_router.get("/assets/image")
 def api_asset_image(url: str = Query(min_length=8), thumb: str = Query(""), session: UserSession = Depends(session_dep)):
     return image_response(session, url, thumb)
+
+
+@api_router.get("/assets/video")
+def api_asset_video(request: Request, url: str = Query(min_length=8), session: UserSession = Depends(session_dep)):
+    range_header = request.headers.get("range", "")
+    return video_clip_response(session, url, range_header)
 
 
 @api_router.get("/tts")

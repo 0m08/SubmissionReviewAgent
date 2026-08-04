@@ -908,6 +908,18 @@ def to_youtube_watch_url(url):
     return watch_url
 
 
+def is_drive_video_url(asset):
+    """
+    Detect a Google Drive *video* asset URL, distinguished from a Drive *image* URL by a trailing "(start=..)" / "(start=..&end=..)" clip-timestamp suffix.
+
+    :param asset: URL string.
+    :return: True if this is a Drive video clip / still-frame URL.
+    """
+    if not asset or not is_drive_url(asset):
+        return False
+    return bool(re.search(r"\(start=\d+(?:&end=\d+)?\)", str(asset).strip()))
+
+
 def detect_asset_type(asset):
     if not asset:
         return "unknown"
@@ -915,6 +927,8 @@ def detect_asset_type(asset):
     if "youtube.com" in lowered or "youtu.be" in lowered:
         return "video"
     if is_youtube_embed(asset):
+        return "video"
+    if is_drive_video_url(asset):
         return "video"
     if is_drive_url(asset):
         return "image"

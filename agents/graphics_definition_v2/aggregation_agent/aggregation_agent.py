@@ -10,7 +10,9 @@ from io import BytesIO
 from PIL import Image
 from agents.vector_store_image_search.graphics_retriever_agent import pil_to_base64_data_uri
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
-from services.helper_functions import build_video_part
+from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_image_candidates
+from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_video_candidates
+from services.helper_functions import build_video_part, build_drive_video_parts_parallel
 from services.llm_service import extract_token_usage, log_token_usage
 from dotenv import load_dotenv
 import os
@@ -98,11 +100,13 @@ Instructions:
    - You may use a combination of still images, video clips, and still frames extracted from video clips, as long as the selected visuals collectively support the entire voiceover sentence.
 
 4. Source-Specific Video Usage Constraints
-   - Video candidates are divided into two distinct groups based on their source.
+   - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
+   - Video candidates are divided into two distinct groups based on how they may be used.
       - Videos listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clips with start and end timestamps
         - still frames extracted from the video
+      - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
 
       - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
@@ -192,8 +196,8 @@ Concise description of what appears on screen for this part of the narration, us
 <asset>
 The visual asset selected to use for this step, in one of the following forms:
 - Image URL (Exact image URL as provided in the image candidates if an image is selected for this part of the voiceover sentence)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10")
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)")
 </asset>
 
 <selection_justification>
@@ -276,11 +280,13 @@ Instructions:
    - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
 
 4. Source-Specific Video Usage Constraints
-   - Video candidates are divided into two distinct groups based on their source.
+   - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
+   - Video candidates are divided into two distinct groups based on how they may be used.
       - Videos listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clip with start and end timestamps
         - still frame extracted from the video
+      - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
 
       - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
@@ -362,8 +368,8 @@ Concise description of what appears on screen for this sentence, using only the 
 <asset>
 The visual asset selected to use for this sentence, in one of the following forms:
 - Image URL (Exact image URL as provided in the image candidates if an image is selected for this voiceover sentence)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10")
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)")
 </asset>
 
 <selection_justification>
@@ -435,11 +441,13 @@ Instructions:
    - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
 
 4. Source-Specific Video Usage Constraints
-   - Video candidates are divided into two distinct groups based on their source.
+   - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
+   - Video candidates are divided into two distinct groups based on how they may be used.
       - Videos listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clip with start and end timestamps
         - still frame extracted from the video
+      - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
 
       - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
@@ -521,8 +529,8 @@ Concise description of what appears on screen for this entire slide, using only 
 <asset>
 The visual asset selected to use for this entire slide, in one of the following forms:
 - Image URL (Exact image URL as provided in the image candidates if an image is selected for this slide)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10")
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)")
 </asset>
 
 <selection_justification>
@@ -618,13 +626,15 @@ Instructions:
    - You may select still images, video clips with timestamps, or still frames extracted from videos, using only the provided candidate visuals.
    - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the feedback requirements and supports the narration timing of the relevant part(s) of the voiceover segment.
    - When you find both a video clip and a still image that equally satisfy the feedback for any part of the voiceover sentence that is mentioned in the feedback, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration and addressing the feedback.
-   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20"
-   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"
+   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)"
+   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"
    - Respect source-specific constraints when selecting video candidates from the provided candidate video pools.
+     - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
      - Video candidates listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clips with start and end timestamps
         - still frames extracted from the video
+     - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
      - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
         - You MUST NOT select them as playable video clips
@@ -713,8 +723,8 @@ Briefly explain, in your own words, what the voiceover sentence is communicating
 <replacement_visual_url>
 (Provide the URL of the replacement visual that you are selecting for this voiceover part, in one of the following forms:
 - Image URL (Exact URL as provided in the image candidates if an image is selected for this part of the voiceover sentence)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"))
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"))
 </replacement_visual_url>
 
 <visual_instruction>
@@ -812,13 +822,15 @@ Instructions:
    - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
    - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the feedback requirements..
    - When you find both a video clip and a still image that equally satisfy the feedback, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at addressing the feedback.
-   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20"
-   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"
+   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)"
+   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"
    - Respect source-specific constraints when selecting video candidates from the provided candidate video pools.
+     - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
      - Video candidates listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clip with start and end timestamps
         - still frame extracted from the video
+     - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
      - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
         - You MUST NOT select them as playable video clip
@@ -905,8 +917,8 @@ Briefly explain, in your own words, what the voiceover sentence is communicating
 <replacement_visual_url>
 (Provide the URL of the replacement visual that you are selecting for this entire voiceover sentence, in one of the following forms:
 - Image URL (Exact URL as provided in the image candidates if an image is selected for this voiceover sentence)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"))
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"))
 </replacement_visual_url>
 
 <visual_instruction>
@@ -996,13 +1008,15 @@ Instructions:
    - IMPORTANT: You must select exactly ONE visual (either one image, one video clip, or one still frame from a video). Do not select multiple visuals or combinations.
    - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the feedback requirements.
    - When you find both a video clip and a still image that equally satisfy the feedback, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at addressing the feedback.
-   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20"
-   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"
+   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)"
+   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"
    - Respect source-specific constraints when selecting video candidates from the provided candidate video pools.
+     - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
      - Video candidates listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clip with start and end timestamps
         - still frame extracted from the video
+     - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
      - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
         - You MUST NOT select them as playable video clip
@@ -1088,8 +1102,8 @@ Use this section as a structured reasoning and scratchpad space for you to addre
 <replacement_visual_url>
 (Provide the URL of the replacement visual that you are selecting for this entire slide, in one of the following forms:
 - Image URL (Exact URL as provided in the image candidates if an image is selected for this slide)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"))
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"))
 </replacement_visual_url>
 
 <visual_instruction>
@@ -1439,8 +1453,7 @@ def parse_urls_from_video_pool_other_channels(video_pool_other_channels_text, se
 
 def parse_video_items_from_pool_other_channels(video_pool_other_channels_text, segment_num):
     """
-    Parse video items (with type, url, metadata) from video_pool_other_channels for a specific segment.
-    Returns the same structure as parse_urls_from_video_pool_filtered for full_video items.
+    Parse video items (with type, url, metadata) from video_pool_other_channels for a specific segment. 
 
     Format: "Title: {title} | Duration: {duration} | Channel: {channel} | URL: {url}"
 
@@ -1496,25 +1509,59 @@ def parse_video_items_from_pool_other_channels(video_pool_other_channels_text, s
     return items
 
 
-def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channels_text, segment_num):
+def get_image_items_fallback_from_sources(drive_results_text, web_results_text, segment_num, enabled_sources=None):
     """
-    Build video items list from video_pool + video_pool_other_channels when video_pool_filtered is empty.
-    Returns the same structure as parse_urls_from_video_pool_filtered (list of {type, url, metadata}).
+    Build image items list from the raw image sources (Drive images + Web images) when image_pool is empty. Routes through candidate_wrapper.get_image_candidates so source->column mapping and enabled_sources filtering live in one place.
 
-    :param video_pool_text: The video_pool column content (embed URLs per segment)
+    :param drive_results_text: The drive_results column content
+    :param web_results_text: The web_results column content
+    :param segment_num: Segment number to extract for
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
+    :return: List of dicts with 'title' and 'url' keys
+    """
+
+    pseudo_row = {
+        "drive_results": drive_results_text or "",
+        "web_results": web_results_text or "",
+    }
+    return get_image_candidates(pseudo_row, segment_num, enabled_sources)
+
+
+def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channels_text, segment_num, drive_video_pool_text="", enabled_sources=None):
+    """
+    Build video items list from the raw source pools when video_pool_filtered is empty.
+
+    Routes through candidate_wrapper.get_video_candidates so the source->column mapping and enabled_sources filtering stay in one place, then remaps the wrapper's legacy type tags (pool/other/drive) to the aggregation item shape (embed/full_video/drive_clip) used by the multimodal loops.
+
+    :param video_pool_text: The video_pool column content (HVAC YouTube embed URLs per segment)
     :param video_pool_other_channels_text: The video_pool_other_channels column content (metadata + URL lines)
     :param segment_num: Segment number to extract for
-    :return: List of dicts with 'type' ('embed' or 'full_video'), 'url', and optional 'metadata'
+    :param drive_video_pool_text: The drive_video_pool column content (Drive clip lines)
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
+    :return: List of dicts with 'type' ('embed', 'full_video', or 'drive_clip'), 'url', and optional 'metadata'
     """
+
+    # Wrapper reads columns via row.get(...); a plain dict is a valid "row".
+    pseudo_row = {
+        "video_pool": video_pool_text or "",
+        "video_pool_other_channels": video_pool_other_channels_text or "",
+        "drive_video_pool": drive_video_pool_text or "",
+    }
+
     items = []
-    # Embed items from video_pool (clips or still frames)
-    urls = parse_urls_from_video_pool(video_pool_text, segment_num)
-    for url in urls:
-        if url and url.strip():
+    for cand in get_video_candidates(pseudo_row, segment_num, enabled_sources):
+        cand_type = cand.get("type")
+        url = cand.get("url")
+        if not url:
+            continue
+        if cand_type == "pool":
             items.append({"type": "embed", "url": url.strip(), "metadata": None})
-    # Full-video items from video_pool_other_channels (still frames only)
-    other_items = parse_video_items_from_pool_other_channels(video_pool_other_channels_text, segment_num)
-    items.extend(other_items)
+        elif cand_type == "other":
+            # meta is already the aggregation-shaped full_video dict {type,url,metadata}
+            meta = cand.get("meta") or {}
+            items.append({"type": "full_video", "url": url, "metadata": meta.get("metadata")})
+        elif cand_type == "drive":
+            items.append({"type": "drive_clip", "url": url, "metadata": {"title": cand.get("title", "")}})
     return items
 
 
@@ -1528,7 +1575,7 @@ def parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num):
     
     :param video_pool_filtered_text: The video_pool_filtered column content
     :param segment_num: Segment number to extract videos for
-    :return: List of dictionaries with 'type' ('embed' or 'full_video'), 'url', and optional 'metadata' keys
+    :return: List of dictionaries with 'type' ('embed', 'drive_clip', or 'full_video'), 'url', and optional 'metadata' keys
     """
     if not video_pool_filtered_text or video_pool_filtered_text.strip() == "" or video_pool_filtered_text == "nan":
         return []
@@ -1577,8 +1624,10 @@ def parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num):
                         if channel_match:
                             channel = channel_match.group(1).strip()
                     
+                    # Drive clips carry their timestamps inside the URL suffix "(start=X&end=Y)" and must be treated as clippable, not frames-only full videos.
+                    line_type = "drive_clip" if "drive.google.com" in url.lower() else "full_video"
                     items.append({
-                        "type": "full_video",
+                        "type": line_type,
                         "url": url,
                         "metadata": {
                             "title": title,
@@ -1593,11 +1642,17 @@ def parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num):
                 "url": line,
                 "metadata": None
             })
-        # Fallback: if line is just a URL (treat as embed if it contains embed, otherwise as full video)
+        # Fallback: if line is just a URL (treat as embed if it contains embed, drive if it's a Drive link, otherwise full video)
         elif line.startswith('http'):
             if 'youtube.com/embed' in line:
                 items.append({
                     "type": "embed",
+                    "url": line,
+                    "metadata": None
+                })
+            elif 'drive.google.com' in line.lower():
+                items.append({
+                    "type": "drive_clip",
                     "url": line,
                     "metadata": None
                 })
@@ -1688,22 +1743,23 @@ def _parse_final_visual_choice(response_text):
     )
 
 
-def _compare_final_visuals(
-    gdv2_url,
-    reference_url,
-    vo_text,
-    slide_title,
-    slide_chunk,
-    course_name,
-    topic_name,
-    subtopic_name,
-    layout_plan,
-    drive,
-    llm="gemini_3_flash_thinking",
-):
-    """Pick the better final image between the GDv2 result and the reference-image pipeline result."""
-    from agents.graphics_definition_v2.review_agent.review_and_revise import build_asset_parts
-
+def _compare_final_visuals(gdv2_url, reference_url, vo_text, slide_title, slide_chunk, course_name, topic_name, subtopic_name, layout_plan, drive, llm="gemini_3_flash_thinking"):
+    """
+    Pick the better final image between the GDv2 result and the reference-image pipeline result.
+    
+    :param gdv2_url: The URL of the GDv2 result
+    :param reference_url: The URL of the reference-image pipeline result
+    :param vo_text: The text of the voiceover segment
+    :param slide_title: The title of the slide
+    :param slide_chunk: The chunk of the slide
+    :param course_name: The name of the course
+    :param topic_name: The name of the topic
+    :param subtopic_name: The name of the subtopic
+    :param layout_plan: The layout plan
+    :param drive: The Google Drive instance
+    :param llm: The LLM to use
+    :return: The URL of the better final image, the chosen option, and the reason
+    """
     if not gdv2_url or not reference_url:
         return gdv2_url or reference_url, "", ""
     if gdv2_url.strip() == reference_url.strip():
@@ -1740,6 +1796,8 @@ def _compare_final_visuals(
         "<reason>short reason</reason>\n"
         "</decision>"
     )
+
+    from agents.graphics_definition_v2.review_agent.review_and_revise import build_asset_parts
 
     parts = (
         build_asset_parts("A", gdv2_url, drive)
@@ -1952,6 +2010,40 @@ def parse_youtube_embed_one_second_clip_start(url: str) -> Optional[int]:
     if not mm:
         return None
     end_sec = int(mm.group(0))
+    if end_sec != start_sec + 1:
+        return None
+    return start_sec
+
+
+def try_expand_drive_single_timestamp_to_one_second_clip(url: str) -> Optional[str]:
+    """
+    Drive parity for the YouTube still-frame convention.
+
+    :param url: Drive URL (optionally with a "(start=N)" suffix)
+    :return: URL with "(start=N&end=N+1)" suffix, or None if not an expandable Drive still frame
+    """
+    if not url or "drive.google.com" not in url:
+        return None
+    m = re.search(r"\(start=(\d+)\)\s*$", url.strip())
+    if not m:
+        return None
+    start_sec = int(m.group(1))
+    return re.sub(r"\(start=\d+\)\s*$", f"(start={start_sec}&end={start_sec + 1})", url.strip())
+
+
+def parse_drive_one_second_clip_start(url: str) -> Optional[int]:
+    """
+    If URL is a Drive link with a "(start=n&end=n+1)" suffix, return n; else None.
+
+    :param url: Drive URL string
+    :return: Start second as int, or None
+    """
+    if not url or "drive.google.com" not in url:
+        return None
+    m = re.search(r"\(start=(\d+)&end=(\d+)\)\s*$", url.strip())
+    if not m:
+        return None
+    start_sec, end_sec = int(m.group(1)), int(m.group(2))
     if end_sec != start_sec + 1:
         return None
     return start_sec
@@ -2384,7 +2476,10 @@ def expand_youtube_single_timestamp_clips_in_xml(graphics_definition_xml):
 
         for asset_content in assets:
             asset_url = asset_content.strip()
-            expanded = try_expand_youtube_single_timestamp_to_one_second_embed(asset_url)
+            expanded = (
+                try_expand_youtube_single_timestamp_to_one_second_embed(asset_url)
+                or try_expand_drive_single_timestamp_to_one_second_clip(asset_url)
+            )
             if expanded and expanded != asset_url:
                 replacements[asset_url] = expanded
                 print(f"🎬 XML <asset>: expanded single-timestamp URL to 1s clip: {asset_url[:80]}...")
@@ -2406,8 +2501,9 @@ def expand_youtube_single_timestamp_clips_in_xml(graphics_definition_xml):
 
 def normalize_youtube_timestamp_urls(graphics_definition_text):
     """
-    Expand YouTube single-timestamp links (watch + t=/start=, embed + start= only, youtu.be + t=)
-    to embed URLs with start=n&end=n+1 anywhere they appear in the text.
+    Expand single-timestamp still-frame links to 1-second clips anywhere in the text:
+      - YouTube (watch + t=/start=, embed + start= only, youtu.be + t=) -> embed start=n&end=n+1
+      - Google Drive (".../view?usp=drivesdk (start=n)") -> "(start=n&end=n+1)"
 
     :param graphics_definition_text: Text string containing graphics definition
     :return: Modified text with expanded URLs, or original text if no changes needed
@@ -2418,9 +2514,12 @@ def normalize_youtube_timestamp_urls(graphics_definition_text):
 
     try:
         url_token = re.compile(r"https?://[^\s]+")
+        # Drive still frame: URL followed by a space-separated "(start=n)" suffix (no end).
+        drive_frame_token = re.compile(r"(https://drive\.google\.com/[^\s]+)\s*\(start=(\d+)\)")
         lines = graphics_definition_text.split("\n")
         out_lines = []
         total = 0
+        drive_total = 0
 
         for line in lines:
             new_line = line
@@ -2430,15 +2529,24 @@ def normalize_youtube_timestamp_urls(graphics_definition_text):
                 if expanded:
                     new_line = new_line[: m.start()] + expanded + new_line[m.end() :]
                     total += 1
+
+            def _drive_repl(dm):
+                start_sec = int(dm.group(2))
+                return f"{dm.group(1)} (start={start_sec}&end={start_sec + 1})"
+
+            new_line, n_drive = drive_frame_token.subn(_drive_repl, new_line)
+            drive_total += n_drive
             out_lines.append(new_line)
 
         normalized_text = "\n".join(out_lines)
         if total:
             print(f"  Normalized {total} YouTube URL(s) to 1-second embed clips (start & end)")
+        if drive_total:
+            print(f"  Normalized {drive_total} Drive URL(s) to 1-second clips (start & end)")
         return normalized_text
 
     except Exception as e:
-        print(f"⚠️ Error normalizing YouTube timestamp URLs: {e}")
+        print(f"⚠️ Error normalizing timestamp URLs: {e}")
         traceback.print_exc()
         return graphics_definition_text
 
@@ -2495,12 +2603,49 @@ def process_video_frames_in_text_format(graphics_definition_text, drive, drive_f
 
             print(f"🎬 Text: YouTube 1s clip + note for Graphics line (start={start_sec}s)")
 
+        # Drive still frames: capture the space-separated "(start=..)" / "(start=..&end=..)" suffix (the generic URL pattern above stops at the space and misses it).
+        drive_graphics_pattern = re.compile(
+            r'(Graphics to use:\s*(?:\n\s*)?)(https://drive\.google\.com/[^\s\n]+\s*\(start=\d+(?:&end=\d+)?\))',
+            re.IGNORECASE | re.MULTILINE,
+        )
+        drive_matches = list(drive_graphics_pattern.finditer(text))
+        for m in reversed(drive_matches):
+            prefix, url = m.group(1), m.group(2).strip()
+            new_url = url
+            start_sec = None
+
+            expanded = try_expand_drive_single_timestamp_to_one_second_clip(url)
+            if expanded:
+                new_url = expanded
+                start_sec = parse_drive_one_second_clip_start(expanded)
+            else:
+                start_sec = parse_drive_one_second_clip_start(url)
+                if start_sec is not None:
+                    new_url = url
+
+            if start_sec is None:
+                # Real Drive clip (end != start+1), leave untouched.
+                continue
+
+            note_line = f"(use the image at {format_youtube_timestamp_note(start_sec)})"
+            end_pos = m.end()
+            rest = text[end_pos:]
+            rest_nl = rest.lstrip("\n")
+            already_note = rest_nl.lower().startswith("(use the image at")
+
+            block = prefix + new_url
+            if not already_note:
+                block += "\n" + note_line
+            text = text[: m.start()] + block + text[end_pos:]
+
+            print(f"🎬 Text: Drive 1s clip + note for Graphics line (start={start_sec}s)")
+
         if text != graphics_definition_text:
-            print("✅ Updated Graphics to use block(s) with 1-second YouTube embed clips and notes (text)")
+            print("✅ Updated Graphics to use block(s) with 1-second clips and notes (text)")
         return text
 
     except Exception as e:
-        print(f"⚠️ Error processing YouTube clips in text format (aggregation): {e}")
+        print(f"⚠️ Error processing video clips in text format (aggregation): {e}")
         traceback.print_exc()
         return graphics_definition_text
 
@@ -2597,7 +2742,7 @@ def add_snapshot_label_to_drive_links(graphics_definition_text, drive, target_fo
         return graphics_definition_text
 
 
-def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0.7, max_retries= 3):
+def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0.7, max_retries= 3, media_resolution=None):
     """
     Invoke the Gemini API with multimodal parts (images, videos, text).
 
@@ -2605,6 +2750,7 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
     :param llm: Model identifier to use
     :param temperature: Temperature setting for generation
     :param max_retries: Maximum retry attempts for transient/quota errors
+    :param media_resolution: Optional Gemini media resolution level string/enum (e.g. MEDIA_RESOLUTION_HIGH)
     :return: Text response from the model
     """
     # Map model identifier to actual model name
@@ -2635,6 +2781,17 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
             print(f"⚠️ Could not enable thinking config: {tc_err}")
             thinking_config = None
 
+    config_kwargs = {
+        "temperature": temperature,
+        "thinking_config": thinking_config,
+    }
+    if media_resolution is not None:
+        try:
+            config_kwargs["media_resolution"] = media_resolution
+            print(f"🎥 media_resolution={media_resolution}")
+        except Exception as mr_err:
+            print(f"⚠️ Could not set media_resolution: {mr_err}")
+
     # Retry logic for quota/transient errors 
     retries = 0
     while retries < max_retries:
@@ -2642,10 +2799,7 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
             response = client.models.generate_content(
                 model=actual_model,
                 contents=types.Content(role="user", parts=parts),
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    thinking_config=thinking_config,
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
             break
         except Exception as e:
@@ -2790,16 +2944,16 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     # Build video candidates text with two sections based on video type
     video_candidates_text = ""
     
-    # Separate videos by type
-    embed_videos = [item for item in video_items_filtered if item.get("type") == "embed"]
+    # Separate videos by type. YouTube embeds and Drive clips are both clippable (usable as video clips with timestamps or as still frames); full videos are frames-only.
+    clippable_videos = [item for item in video_items_filtered if item.get("type") in ("embed", "drive_clip")]
     full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
     
-    # First section: embed videos (clips or frames)
-    if embed_videos:
+    # First section: clippable videos (clips or frames)
+    if clippable_videos:
         video_candidates_text += "Videos from which you can use video clips (with timestamps) or still frames as images\n"
         video_candidates_text += "\n".join([
             f"{idx + 1}. {item['url']}"
-            for idx, item in enumerate(embed_videos)
+            for idx, item in enumerate(clippable_videos)
         ])
         video_candidates_text += "\n\n"
     
@@ -2839,11 +2993,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text,
                 feedback=feedback.strip()
             )
-            print(f"\n{'='*80}")
-            print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual per Sentence):")
-            print(f"{'='*80}")
-            print(prompt_text)
-            print(f"{'='*80}\n")
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual per Sentence):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
         elif visual_assignment_strategy == "1 Visual for the whole Slide":
             prompt_text = aggregation_agent_regeneration_prompt_for_one_visual_per_slide.format(
                 course_name=course_name,
@@ -2856,11 +3010,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text,
                 feedback=feedback.strip()
             )
-            print(f"\n{'='*80}")
-            print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual for Entire Slide):")
-            print(f"{'='*80}")
-            print(prompt_text)
-            print(f"{'='*80}\n")
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (1 Visual for Entire Slide):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
         else:
             # Default: Flexible strategy
             prompt_text = aggregation_agent_regeneration_prompt.format(
@@ -2875,11 +3029,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 video_candidates=video_candidates_text,
                 feedback=feedback.strip()
             )
-            print(f"\n{'='*80}")
-            print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (Flexible):")
-            print(f"{'='*80}")
-            print(prompt_text)
-            print(f"{'='*80}\n")
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION REGENERATION PROMPT (Flexible):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
     else:
         # Select prompt based on visual_assignment_strategy
         visual_assignment_strategy = str(visual_assignment_strategy).strip()
@@ -2897,11 +3051,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
-            print(f"\n{'='*80}")
-            print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
-            print(f"{'='*80}")
-            print(prompt_text)
-            print(f"{'='*80}\n")
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual per Sentence):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
         else:
             # Use flexible prompt (default)
             prompt_text = aggregation_agent_prompt.format(
@@ -2916,11 +3070,11 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 image_candidates=image_candidates_text,
                 video_candidates=video_candidates_text
             )
-            print(f"\n{'='*80}")
-            print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
-            print(f"{'='*80}")
-            print(prompt_text)
-            print(f"{'='*80}\n")
+            # print(f"\n{'='*80}")
+            # print(f"📝 FORMATTED AGGREGATION PROMPT (Flexible):")
+            # print(f"{'='*80}")
+            # print(prompt_text)
+            # print(f"{'='*80}\n")
     
     # Build multimodal parts: failed visuals (if any) + candidate images + candidate videos + text
     parts: List[types.Part] = []
@@ -2966,6 +3120,14 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 print(f"⚠️ Failed to load image {idx}: {image_title}")
     
     total_videos = len(video_items_filtered)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [
+            item.get("url", "")
+            for item in video_items_filtered
+            if item.get("type") == "drive_clip" and item.get("url")
+        ],
+        drive,
+    )
     # Add videos from video_pool_filtered - process based on type
     for video_item in video_items_filtered:
         video_type = video_item.get("type")
@@ -2995,6 +3157,23 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
                 candidate_num += 1
             else:
                 print(f"⚠️ Failed to parse embed video URL: {video_url}")
+        elif video_type == "drive_clip":
+            # Google Drive clip - can be used as clips or frames. Attach the real clip bytes (download + ffmpeg trim inside build_drive_video_part).
+            label_text = (
+                f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                f"ID: {video_id}\n"
+                f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                f"URL: {video_url}\n"
+            )
+            parts.append(types.Part(text=label_text))
+            drive_part = drive_parts_by_url.get(video_url)
+            if drive_part is not None:
+                parts.append(drive_part)
+                print(f"✅ Added Drive video {candidate_num} (clip): {video_url}")
+                candidate_num += 1
+            else:
+                parts.append(types.Part(text=f"[Drive video could not be loaded: {video_url}]\n"))
+                print(f"⚠️ Failed to build Drive video part: {video_url}")
         elif video_type == "full_video":
             # Full video - frames only
             # Convert watch URL to embed URL
@@ -3020,10 +3199,16 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         
     # Call LLM
     embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+    drive_clip_count = len([item for item in video_items_filtered if item.get("type") == "drive_clip"])
     full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
+    has_drive_clips = drive_clip_count > 0
     try:
-        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} with timestamps, {full_video_count} full videos)...")
-        response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
+        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} embed + {drive_clip_count} drive with timestamps, {full_video_count} full videos)...")
+        response_text = invoke_gemini_multimodal(
+            parts,
+            llm=llm,
+            temperature=0.7,
+        )
         
         # Print the full response for debugging
         print(f"\n{'─'*80}")
@@ -3123,16 +3308,18 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     # Build video candidates text with two sections based on video type
     video_candidates_text = ""
     
-    # Separate videos by type
-    embed_videos = [item for item in video_items_filtered if item.get("type") == "embed"]
+    # Separate videos by type. YouTube embeds and Drive clips are both clippable
+    # (usable as video clips with timestamps or as still frames); full videos are
+    # frames-only.
+    clippable_videos = [item for item in video_items_filtered if item.get("type") in ("embed", "drive_clip")]
     full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
     
-    # First section: embed videos (clips or frames)
-    if embed_videos:
+    # First section: clippable videos (clips or frames)
+    if clippable_videos:
         video_candidates_text += "Videos from which you can use video clips (with timestamps) or still frames as images\n"
         video_candidates_text += "\n".join([
             f"{idx + 1}. {item['url']}"
-            for idx, item in enumerate(embed_videos)
+            for idx, item in enumerate(clippable_videos)
         ])
         video_candidates_text += "\n\n"
     
@@ -3166,11 +3353,11 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
         video_candidates=video_candidates_text
     )
     
-    print(f"\n{'='*80}")
-    print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
-    print(f"{'='*80}")
-    print(prompt_text)
-    print(f"{'='*80}\n")
+    # print(f"\n{'='*80}")
+    # print(f"📝 FORMATTED AGGREGATION PROMPT (1 Visual for Entire Slide):")
+    # print(f"{'='*80}")
+    # print(prompt_text)
+    # print(f"{'='*80}\n")
     
     # Build multimodal parts: candidate images + candidate videos + text
     parts: List[types.Part] = []
@@ -3204,6 +3391,14 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
                 print(f"⚠️ Failed to load image {image_title}")
     
     total_videos = len(video_items_filtered)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [
+            item.get("url", "")
+            for item in video_items_filtered
+            if item.get("type") == "drive_clip" and item.get("url")
+        ],
+        drive,
+    )
     # Add videos from video_pool_filtered - process based on type
     for video_item in video_items_filtered:
         video_type = video_item.get("type")
@@ -3233,6 +3428,24 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
                 candidate_num += 1
             else:
                 print(f"⚠️ Failed to parse embed video URL: {video_url}")
+        elif video_type == "drive_clip":
+            # Google Drive clip - can be used as clips or frames. Attach the real
+            # clip bytes (download + ffmpeg trim inside build_drive_video_part).
+            label_text = (
+                f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                f"ID: {video_id}\n"
+                f"Usage: Can be used as video clip (any part of this video with start and end timestamps) OR as still frame (extracted from any point in the video)\n"
+                f"URL: {video_url}\n"
+            )
+            parts.append(types.Part(text=label_text))
+            drive_part = drive_parts_by_url.get(video_url)
+            if drive_part is not None:
+                parts.append(drive_part)
+                print(f"✅ Added Drive video {candidate_num} (clip): {video_url}")
+                candidate_num += 1
+            else:
+                parts.append(types.Part(text=f"[Drive video could not be loaded: {video_url}]\n"))
+                print(f"⚠️ Failed to build Drive video part: {video_url}")
         elif video_type == "full_video":
             # Full video - frames only
             # Convert watch URL to embed URL
@@ -3258,10 +3471,16 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
         
     # Call LLM
     embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+    drive_clip_count = len([item for item in video_items_filtered if item.get("type") == "drive_clip"])
     full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
+    has_drive_clips = drive_clip_count > 0
     try:
-        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} with timestamps, {full_video_count} full videos)...")
-        response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.7)
+        print(f" 🤖 Calling {llm} with {len(image_items)} images and {total_videos} videos ({embed_count} embed + {drive_clip_count} drive with timestamps, {full_video_count} full videos)...")
+        response_text = invoke_gemini_multimodal(
+            parts,
+            llm=llm,
+            temperature=0.7,
+        )
         
         # # Print the full response for debugging
         # print(f"\n{'─'*80}")
@@ -3502,7 +3721,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, layout_plan_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type="", inline_ref_url=""):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, layout_plan_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type="", inline_ref_url="", drive_video_pool_text="", enabled_sources=None):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -3524,8 +3743,9 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     :param visual_assignment_strategy: Visual assignment strategy ("Flexible, let the agent decide", "1 Visual per Sentence", or "1 Visual for the whole Slide")
     :param video_pool_text: Optional; used as fallback when video_pool_filtered is empty
     :param video_pool_other_channels_text: Optional; used as fallback when video_pool_filtered is empty
-    :param inline_ref_url: Pre-specified Drive URL from an inline [alt](url) marker; injected
-        as the top-priority image candidate for this specific segment.
+    :param inline_ref_url: Pre-specified Drive URL from an inline [alt](url) marker; injected as the top-priority image candidate for this specific segment
+    :param drive_video_pool_text: Optional; drive_video_pool column content, used as fallback when video_pool_filtered is empty.
+    :param enabled_sources: Optional list of enabled source ids used to filter fallback sources (None reads all present).
     :return: Tuple of (segment_idx, formatted_segment_text, formatted_eval_breakdown)
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
@@ -3534,15 +3754,15 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     image_items = parse_urls_from_image_pool(image_pool_text, segment_idx)
     used_fallback = False
     
-    # Fallback: if no images in image_pool, check drive_results and web_results
+    # Fallback: if no images in image_pool, use image sources (Drive + Web), filtered by enabled_sources, via candidate_wrapper.
     if not image_items:
-        print(f" ⚠️  No images found in image_pool for segment {segment_idx}, falling back to drive_results and web_results")
-        drive_image_items = parse_urls_from_results(drive_results_text, segment_idx)
-        web_image_items = parse_urls_from_results(web_results_text, segment_idx)
-        image_items = drive_image_items + web_image_items
+        print(f" ⚠️  No images found in image_pool for segment {segment_idx}, falling back to image sources (drive_results + web_results)")
+        image_items = get_image_items_fallback_from_sources(
+            drive_results_text, web_results_text, segment_idx, enabled_sources=enabled_sources
+        )
         if image_items:
             used_fallback = True
-            print(f" ✅ Found {len(image_items)} images from fallback sources ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
+            print(f" ✅ Found {len(image_items)} images from fallback sources")
         else:
             print(f" ⚠️  No images found in fallback sources either")
 
@@ -3553,13 +3773,20 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
 
     # Parse video items from video_pool_filtered for this segment
     video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_idx)
-    # Fallback: if video_pool_filtered is empty, use video_pool + video_pool_other_channels combined
-    if not video_items_filtered and (video_pool_text or video_pool_other_channels_text):
-        video_items_filtered = get_video_items_fallback_from_pools(video_pool_text or "", video_pool_other_channels_text or "", segment_idx)
+    # Fallback: if video_pool_filtered is empty, use the raw pools (HVAC YouTube + other channels + Drive videos), filtered by enabled_sources.
+    if not video_items_filtered and (video_pool_text or video_pool_other_channels_text or drive_video_pool_text):
+        video_items_filtered = get_video_items_fallback_from_pools(
+            video_pool_text or "",
+            video_pool_other_channels_text or "",
+            segment_idx,
+            drive_video_pool_text=drive_video_pool_text or "",
+            enabled_sources=enabled_sources,
+        )
         if video_items_filtered:
-            print(f" ⚠️  video_pool_filtered empty for segment {segment_idx}, using fallback: video_pool + video_pool_other_channels ({len(video_items_filtered)} video(s))")
+            print(f" ⚠️  video_pool_filtered empty for segment {segment_idx}, using fallback pools ({len(video_items_filtered)} video(s))")
     
     embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+    drive_clip_count = len([item for item in video_items_filtered if item.get("type") == "drive_clip"])
     full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
     
     if image_items:
@@ -3569,7 +3796,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
             print(f" 🖼️  Found {len(image_items)} image candidates (from image_pool)")
     else:
         print(f" 🖼️  No image candidates found")
-    print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed with timestamps, {full_video_count} full videos)")
+    print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed + {drive_clip_count} drive with timestamps, {full_video_count} full videos)")
     
     if not image_items and not video_items_filtered:
         print(f" ⚠️  No image or video candidates available for segment {segment_idx}, skipping")
@@ -3681,7 +3908,7 @@ def _inject_reference_link(gdv2_text: str, ref_link) -> str:
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=50, ref_drive_client=None, ref_output_folder_id=None, ref_drive_lock=None, df=None, precomputed_ref_link=None):
+def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", max_workers=50, ref_drive_client=None, ref_output_folder_id=None, ref_drive_lock=None, df=None, precomputed_ref_link=None, enabled_sources=None):
     """
     Process a single row: aggregate graphics for all segments and combine into final definition.
     
@@ -3695,10 +3922,9 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
     :param ref_output_folder_id: Folder ID for reference pipeline output
     :param ref_drive_lock: Lock for reference pipeline thread safety
     :param df: Full dataframe for context
-    :param precomputed_ref_link: Pre-computed reference image mapping text from
-        reference_image_processed_url (e.g., SEGMENT_n:url lines).
-    :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text, ref_link)
-        where ref_link is the processed reference image URL (or None) to store separately.
+    :param precomputed_ref_link: Pre-computed reference image mapping text from reference_image_processed_url (e.g., SEGMENT_n:url lines).
+    :param enabled_sources: Optional list of enabled source ids used to filter fallback sources (None reads all present).
+    :return: Tuple of (index, final_graphics_definition_text, evaluation_breakdown_text, ref_link) where ref_link is the processed reference image URL (or None) to store separately.
     """
     try:
         final_graphics_definition_text = ""
@@ -3708,6 +3934,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         video_pool_filtered_text = str(row.get("video_pool_filtered", "")).strip()
         video_pool_text = str(row.get("video_pool", "")).strip()
         video_pool_other_channels_text = str(row.get("video_pool_other_channels", "")).strip()
+        drive_video_pool_text = str(row.get("drive_video_pool", "")).strip()
         drive_results_text = str(row.get("drive_results", "")).strip()
         web_results_text = str(row.get("web_results", "")).strip()
         storyboard_text = str(row.get("storyboard_planning", "")).strip()
@@ -3789,28 +4016,32 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             
             used_fallback = False
             
-            # Fallback: if no images in image_pool, check drive_results and web_results
+            # Fallback: if no images in image_pool, use image sources (Drive + Web), filtered by enabled_sources, via candidate_wrapper.
             if not image_items:
-                print(f" ⚠️  No images found in image_pool for entire slide, falling back to drive_results and web_results")
-                drive_image_items = parse_urls_from_results(drive_results_text, segment_num=1)
-                web_image_items = parse_urls_from_results(web_results_text, segment_num=1)
-                image_items = drive_image_items + web_image_items
+                print(f" ⚠️  No images found in image_pool for entire slide, falling back to image sources (drive_results + web_results)")
+                image_items = get_image_items_fallback_from_sources(
+                    drive_results_text, web_results_text, 1, enabled_sources=enabled_sources
+                )
                 if image_items:
                     used_fallback = True
-                    print(f" ✅ Found {len(image_items)} images from fallback sources ({len(drive_image_items)} from Drive, {len(web_image_items)} from Web)")
+                    print(f" ✅ Found {len(image_items)} images from fallback sources")
                 else:
                     print(f" ⚠️  No images found in fallback sources either")
             
             # Parse video items from video_pool_filtered
             # For "entire slide" case, all candidates are under SEGMENT_1
             video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num=1)  # Get all videos from SEGMENT_1
-            # Fallback: if video_pool_filtered is empty, use video_pool + video_pool_other_channels combined
-            if not video_items_filtered and (video_pool_text or video_pool_other_channels_text):
-                video_items_filtered = get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channels_text, 1)
+            # Fallback: if video_pool_filtered is empty, use the raw pools (HVAC YouTube + other channels + Drive videos), filtered by enabled_sources.
+            if not video_items_filtered and (video_pool_text or video_pool_other_channels_text or drive_video_pool_text):
+                video_items_filtered = get_video_items_fallback_from_pools(
+                    video_pool_text, video_pool_other_channels_text, 1,
+                    drive_video_pool_text=drive_video_pool_text, enabled_sources=enabled_sources,
+                )
                 if video_items_filtered:
-                    print(f" ⚠️  video_pool_filtered empty for entire slide, using fallback: video_pool + video_pool_other_channels ({len(video_items_filtered)} video(s))")
+                    print(f" ⚠️  video_pool_filtered empty for entire slide, using fallback pools ({len(video_items_filtered)} video(s))")
             
             embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
+            drive_clip_count = len([item for item in video_items_filtered if item.get("type") == "drive_clip"])
             full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
             
             if image_items:
@@ -3820,7 +4051,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                     print(f" 🖼️  Found {len(image_items)} image candidates (from image_pool)")
             else:
                 print(f" 🖼️  No image candidates found")
-            print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed with timestamps, {full_video_count} full videos)")
+            print(f" 🎥 Found {len(video_items_filtered)} video candidates ({embed_count} embed + {drive_clip_count} drive with timestamps, {full_video_count} full videos)")
             
             if not image_items and not video_items_filtered:
                 print(f" ⚠️  No image or video candidates available for entire slide, skipping")
@@ -3928,6 +4159,8 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                         slide_type,
                         # Use ONLY segment-wise processed reference URL from reference_image_processed_url.
                         processed_ref_map.get(segment_idx, ""),
+                        drive_video_pool_text,
+                        enabled_sources,
                     ): (segment_idx, vo_text)
                     for segment_idx, vo_text in segments
                 }
@@ -4287,15 +4520,31 @@ def validate_youtube_clip_links_for_row(row, api_key, duration_cache = None):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None):
+def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, selected_topics=None, enabled_sources=None):
     """
     Run aggregation agent for all rows in the Slide Chunks sheet.
 
     :param sheet: The gspread sheet object.
     :param llm: The language model to use.
     :param max_workers: Number of parallel workers (default 5).
+    :param enabled_sources: Optional list of enabled source ids used to filter fallback sources. If None, resolved from session state (falls back to all present).
     :return: None
     """
+    # Resolve enabled sources from the UI selection so aggregation fallbacks only pull from sources the user actually enabled. If there is no explicit UI selection (e.g. CLI / no session state), leave it None so the wrapper reads every populated column, preserving historical fallback behavior.
+    if enabled_sources is None or isinstance(enabled_sources, str):
+        enabled_sources = None
+        try:
+            from agents.graphics_definition_v2.candidate_search.pool_registry import (
+                resolve_enabled_sources,
+                UI_KEY_ENABLED_SOURCES,
+            )
+            session_sources = st.session_state.get(UI_KEY_ENABLED_SOURCES) if hasattr(st, "session_state") else None
+            if session_sources:
+                enabled_sources = resolve_enabled_sources(enabled_sources=session_sources)
+        except Exception as resolve_err:
+            print(f"⚠️ Could not resolve enabled_sources for aggregation, defaulting to all present: {resolve_err}")
+            enabled_sources = None
+
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     
@@ -4495,6 +4744,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 ref_drive_lock,
                 df,
                 None,
+                enabled_sources,
             ): index
             for index, row in rows_to_process
         }
@@ -4597,6 +4847,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                     ref_drive_lock,
                     df,
                     None,
+                    enabled_sources,
                 )
                 futures[future] = index
             

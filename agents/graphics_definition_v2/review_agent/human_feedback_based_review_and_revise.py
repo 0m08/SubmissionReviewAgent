@@ -22,7 +22,7 @@ from services.sheets_service import (
     clear_worksheet,
 )
 from services.smart_progress_bar import SmartProgressBar
-from services.helper_functions import build_video_part
+from services.helper_functions import build_video_part, build_drive_video_parts_parallel
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     get_drive_instance,
@@ -153,13 +153,15 @@ Instructions:
    - You may select images, video clips with timestamps, or still frames extracted from videos, using only the provided candidate visuals.
    - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the human feedback while fitting within the narration timing of the relevant part(s) of the voiceover segment.
    - When you find both a video clip and a still image that equally satisfies the human feedback for any part of the voiceover sentence, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration and addressing the feedback.
-   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20"
-   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"
+   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)"
+   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"
    - Respect source-specific constraints when selecting video candidates from the provided candidate video pools.
+     - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
      - Video candidates listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clips with start and end timestamps
         - still frames extracted from the video
+     - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
      - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
         - You MUST NOT select them as playable video clips
@@ -234,8 +236,8 @@ Use this section as a structured reasoning and scratchpad space for you to addre
 <replacement_visual_url>
 (Provide the URL of the replacement visual that we are selecting for this voiceover part, in one of the following forms:
 - Image URL (Exact URL as provided in the image candidates if an image is selected for this part of the voiceover sentence)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"))
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this part of the voiceover sentence. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"))
 </replacement_visual_url>
 
 <visual_instruction>
@@ -326,13 +328,15 @@ Follow the below evaluation rules to guide your evaluation:
    - You may select an image, video clip with timestamps, or a still frame extracted from video, using only the provided candidate visuals.
    - Choose the visual form (image, video clip, or still frame) that most clearly satisfies the human feedback while fitting within the narration timing of the slide content.
    - When you find both a video clip and a still image that equally satisfies the human feedback, prefer using the video clip, since motion can add useful context. This is a guiding preference, not a strict rule - do not prioritize a video clip over an image if the video is only partially relevant, loosely related, or less effective than the still image at supporting the narration and addressing the feedback.
-   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20"
-   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"
+   - When selecting a video clip, identify the exact portion of the video that visually supports the required detail and assign appropriate start and end timestamps. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)"
+   - When selecting a still frame from a video so that it can be used as a static image, output the video URL with a single start timestamp only (no end timestamp). Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"
    - Respect source-specific constraints when selecting video candidates from the provided candidate video pools.
+     - Video candidates may include YouTube clips and/or Google Drive video clips. Judge every candidate only on what is visually shown in the clip, not on where it came from.
      - Video candidates listed under:
-        "Videos from which you can use video clips (with timestamps) or still frames as images" may be used in any of the following ways:
+        "Videos from which you can use video clips (with timestamps) or still frames as images" (this group includes YouTube clips and occasionally also Google Drive video clips) may be used in any of the following ways:
         - short video clip with start and end timestamps
         - still frame extracted from the video
+     - When outputting a selected Google Drive clip, keep the Drive URL format exactly and put timestamps in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=56)". For a still frame from a Drive video, use a single start timestamp in parentheses: e.g. "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50)".
      - Video candidates listed under:
         "Videos from which you can ONLY use still frames as images (NOT playable video clips with timestamps)" have the following strict constraints:
         - You MUST NOT select them as playable video clips
@@ -406,8 +410,8 @@ Use this section as a structured reasoning and scratchpad space for you to addre
 <replacement_visual_url>
 (Provide the URL of the replacement visual that we are selecting for this slide, in one of the following forms:
 - Image URL (Exact URL as provided in the image candidates if an image is selected for this slide)
-- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20")
-- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. "https://www.youtube.com/embed/dQw4w9WgXc?start=10"))
+- Video URL with start and end timestamps (if a portion of a video clip is selected for this slide. Strictly use such example format of video URL with start and end timestamps: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10&end=20" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=56)")
+- Video URL with a single start timestamp (if a still frame extracted from a video clip is selected for this slide. Strictly use such example format of video URL with a single start timestamp indicating the frame timestamp: e.g. YouTube: "https://www.youtube.com/embed/dQw4w9WgXc?start=10" or Google Drive: "https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50)"))
 </replacement_visual_url>
 
 <visual_instruction>
@@ -828,7 +832,7 @@ def _normalize_vo_for_match(vo_text):
 # B. Human-feedback revision function
 # ---------------------------------------------------------------------------
 
-def revise_segment_with_human_feedback(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, human_feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", candidate_mode="all"):
+def revise_segment_with_human_feedback(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, human_feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", candidate_mode="all", drive_video_pool_text="", enabled_sources=None):
     """
     Revise segment visuals based on human feedback using human-feedback revision prompts.
 
@@ -866,15 +870,22 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
         segment_num,
         video_pool_text=video_pool_text,
         video_pool_other_channels_text=video_pool_other_channels_text,
+        drive_video_pool_text=drive_video_pool_text,
+        enabled_sources=enabled_sources,
     )
 
     if str(candidate_mode).strip().lower() == "drive_hvac":
+        # drive_hvac = Drive + HVAC-only sources: keep Drive images, HVAC YouTube clips (embed w/ start&end) and Google Drive video clips.
         images = [c for c in images if _is_drive_url(c.get("url", ""))]
-        videos = [c for c in videos if _is_embed_with_start_end(c.get("url", ""))]
+        videos = [
+            c for c in videos
+            if _is_embed_with_start_end(c.get("url", "")) or c.get("type") == "drive_clip"
+        ]
         frame_videos = []
+        drive_clip_kept = len([c for c in videos if c.get("type") == "drive_clip"])
         print(
             f"  Restricted candidate mode for segment {segment_num}: "
-            f"{len(images)} drive image(s), {len(videos)} timestamped video clip(s)"
+            f"{len(images)} drive image(s), {len(videos)} video clip(s) ({drive_clip_kept} drive)"
         )
     candidate_map = {
         c["id"]: c["url"]
@@ -971,8 +982,32 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
     if len(split3) == 2:
         parts.append(types.Part(text=split3[0] + "</video_candidates>"))
         total_video_candidates = len(videos) + len(frame_videos)
+        drive_parts_by_url = build_drive_video_parts_parallel(
+            [
+                candidate.get("url", "")
+                for candidate in videos
+                if candidate.get("type") == "drive_clip" and candidate.get("url")
+            ],
+            drive,
+        )
         for candidate in videos:
             video_url = candidate.get("url", "")
+            if candidate.get("type") == "drive_clip":
+                # Google Drive clip - attach real clip bytes (download + ffmpeg trim).
+                label = (
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used as video clip (any part with start/end) OR as still frame\n"
+                    f"URL: {video_url}\n"
+                )
+                parts.append(types.Part(text=label))
+                drive_part = drive_parts_by_url.get(video_url)
+                if drive_part is not None:
+                    parts.append(drive_part)
+                else:
+                    parts.append(types.Part(text=f"[Drive video could not be loaded: {video_url}]\n"))
+                candidate_num += 1
+                continue
             clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
             if clip_url:
                 label = (
@@ -1484,21 +1519,7 @@ def _compose_hf_status_with_ai_errors(base: str, ai_errors: List[str]) -> str:
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def process_human_feedback_row(
-    row_index,
-    df,
-    course_name,
-    target_audience,
-    drive,
-    llm,
-    ws,
-    use_only_drive_and_hvac=False,
-    human_feedback_column="human_feedback",
-    human_feedback_status_column="human_feedback_status",
-    human_feedback_revision_tracking_column="human_feedback_revision_tracking",
-    human_review_actions_column="human_review_actions",
-    manifest_replacements_log=None,
-):
+def process_human_feedback_row(row_index, df, course_name, target_audience, drive, llm, ws, use_only_drive_and_hvac=False, human_feedback_column="human_feedback", human_feedback_status_column="human_feedback_status", human_feedback_revision_tracking_column="human_feedback_revision_tracking", human_review_actions_column="human_review_actions", manifest_replacements_log=None, enabled_sources=None, drive_video_mode=None):
     """
     Process a single row's full human-feedback workflow: revise, review, optional regen loop, then write status and tracking to df.
 
@@ -1510,6 +1531,7 @@ def process_human_feedback_row(
     :param llm: LLM model name
     :param ws: Worksheet object or None
     :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
+    :param drive_video_mode: Explicit Drive video mode ("all"/"nextech") for regeneration; None falls back to session_state (default "all"). Lets callers without Streamlit session_state (e.g. the FastAPI review app) honor the run's Drive video mode.
     :return: None
     """
     
@@ -1710,6 +1732,8 @@ def process_human_feedback_row(
                     video_pool_text=_safe_str(row.get("video_pool", "")),
                     video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
                     candidate_mode=candidate_mode,
+                    drive_video_pool_text=_safe_str(row.get("drive_video_pool", "")),
+                    enabled_sources=enabled_sources,
                 )
 
             combined_blocks: List[str] = []
@@ -1868,6 +1892,8 @@ def process_human_feedback_row(
                     feedback_by_segment=restricted_feedback,
                     ws=ws,
                     use_only_drive_and_hvac=True,
+                    enabled_sources=enabled_sources,
+                    drive_video_mode=drive_video_mode,
                 )
                 replaced_visual_ids_by_segment.update(r_rep or {})
                 old_asset_urls_by_visual_id.update(r_old or {})
@@ -1887,6 +1913,8 @@ def process_human_feedback_row(
                     ws=ws,
                     use_only_drive_and_hvac=False,
                     create_aux_search_columns_if_missing=True,
+                    enabled_sources=enabled_sources,
+                    drive_video_mode=drive_video_mode,
                 )
                 replaced_visual_ids_by_segment.update(a_rep or {})
                 old_asset_urls_by_visual_id.update(a_old or {})
@@ -2689,16 +2717,7 @@ def _format_human_feedback_revision_tracking(tracking):
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def run_human_feedback_review_revise_for_all_rows(
-    sheet,
-    llm="gemini_3_flash_thinking",
-    max_workers=50,
-    use_only_drive_and_hvac=False,
-    human_feedback_column="human_feedback",
-    human_feedback_status_column="human_feedback_status",
-    human_feedback_revision_tracking_column=HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN,
-    human_review_actions_column="human_review_actions",
-):
+def run_human_feedback_review_revise_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, use_only_drive_and_hvac=False, human_feedback_column="human_feedback", human_feedback_status_column="human_feedback_status", human_feedback_revision_tracking_column=HUMAN_FEEDBACK_REVISION_TRACKING_COLUMN, human_review_actions_column="human_review_actions", enabled_sources=None):
     """
     Entry point: process all rows that have human feedback in the Slide Chunks sheet (revise, review, optional regeneration per row).
 
@@ -2706,8 +2725,24 @@ def run_human_feedback_review_revise_for_all_rows(
     :param llm: LLM model name
     :param max_workers: Number of parallel workers
     :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
+    :param enabled_sources: Optional list of enabled source ids used to filter candidate/fallback sources. If None, resolved from session state (falls back to all present).
     :return: None
     """
+    # Resolve enabled sources from the UI selection so human-feedback candidates + regeneration only pull from sources the user actually enabled. If there is no explicit UI selection, leave None so the wrapper reads every populated column.
+    if enabled_sources is None or isinstance(enabled_sources, str):
+        enabled_sources = None
+        try:
+            from agents.graphics_definition_v2.candidate_search.pool_registry import (
+                resolve_enabled_sources,
+                UI_KEY_ENABLED_SOURCES,
+            )
+            session_sources = st.session_state.get(UI_KEY_ENABLED_SOURCES) if hasattr(st, "session_state") else None
+            if session_sources:
+                enabled_sources = resolve_enabled_sources(enabled_sources=session_sources)
+        except Exception as resolve_err:
+            print(f"⚠️ Could not resolve enabled_sources for human-feedback review, defaulting to all present: {resolve_err}")
+            enabled_sources = None
+
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
 
@@ -2790,6 +2825,7 @@ def run_human_feedback_review_revise_for_all_rows(
                     human_feedback_revision_tracking_column,
                     human_review_actions_column,
                     manifest_replacements_log,
+                    enabled_sources,
                 ): row_index
                 for row_index in rows_to_process
             }
@@ -2821,6 +2857,7 @@ def run_human_feedback_review_revise_for_all_rows(
                     human_feedback_revision_tracking_column,
                     human_review_actions_column,
                     manifest_replacements_log,
+                    enabled_sources,
                 )
                 _safe_progress_update()
             except Exception as e:

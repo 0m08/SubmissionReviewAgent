@@ -5,6 +5,7 @@ from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 from agents.course_outline.video_search_tool.video_retriever import load_new_video_embeddings_chroma_db
+from agents.graphics_definition_v2.candidate_search.search_wrapper import run_pool_search_queries
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_cohere import CohereRerank
 from dotenv import load_dotenv
@@ -222,59 +223,38 @@ def process_video_search_segment(segment_num, queries, drive=None, video_embeddi
     print(f"📦 Processing SEGMENT_{segment_num} with {len(queries)} queries")
     print(f"{'─'*45}")
     
-    # Execute all queries for this segment
     all_urls_for_segment = []
     seen = set()  # Deduplicate by video_id_start_time within segment
-    
-    # Filter out empty queries
-    valid_queries = [(idx, q.strip()) for idx, q in enumerate(queries, 1) if q.strip()]
-    
+
+    valid_queries = [q.strip() for q in queries if q and str(q).strip()]
     if not valid_queries:
         return segment_num, None
 
     print(f"🚀 SEGMENT_{segment_num}: submitting {len(valid_queries)} video query search task(s) in parallel")
-    
-    # Execute queries in parallel
-    with ThreadPoolExecutor(max_workers=len(valid_queries)) as executor:
-        # Submit all queries
-        futures = {
-            executor.submit(
-                execute_video_search_for_query,
-                query,
-                drive,
-                video_embeddings_chroma,
-                k
-            ): (query_idx, query)
-            for query_idx, query in valid_queries
-        }
-        
-        # Collect results as they complete
-        for future in as_completed(futures):
-            query_idx, query = futures[future]
-            try:
-                print(f"🔍 Query {query_idx}: \"{query}\"")
-                video_urls = future.result()
-                print(f"✅ Query {query_idx} returned {len(video_urls)} video URLs")
-                
-                # Deduplicate by video_id_start_time within this segment
-                for url in video_urls:
-                    # Extract video_id and start_time from URL for deduplication
-                    # Format: https://www.youtube.com/embed/{vid_id}?start={start}&end={end}
-                    match = re.search(r'/embed/([^?]+)\?start=(\d+)', url)
-                    if match:
-                        vid_id = match.group(1)
-                        start_time = match.group(2)
-                        segment_key = f"{vid_id}_{start_time}"
-                        
-                        if segment_key not in seen:
-                            seen.add(segment_key)
-                            all_urls_for_segment.append(url)
-            except Exception as e:
-                print(f"❌ Error executing query {query_idx} (\"{query}\"): {e}")
-    
+    query_results = run_pool_search_queries(
+        valid_queries,
+        execute_video_search_for_query,
+        drive=drive,
+        video_embeddings_chroma=video_embeddings_chroma,
+        k=k,
+    )
+
+    for query_idx, (query, video_urls) in enumerate(query_results, 1):
+        print(f"🔍 Query {query_idx}: \"{query}\"")
+        video_urls = video_urls or []
+        print(f"✅ Query {query_idx} returned {len(video_urls)} video URLs")
+        for url in video_urls:
+            match = re.search(r'/embed/([^?]+)\?start=(\d+)', url)
+            if match:
+                vid_id = match.group(1)
+                start_time = match.group(2)
+                segment_key = f"{vid_id}_{start_time}"
+                if segment_key not in seen:
+                    seen.add(segment_key)
+                    all_urls_for_segment.append(url)
+
     print(f"✅ SEGMENT_{segment_num}: Found {len(all_urls_for_segment)} unique video URLs")
-    
-    # Format segment results
+
     if all_urls_for_segment:
         segment_output = [f"---SEGMENT_{segment_num}---"] + all_urls_for_segment
         return segment_num, '\n'.join(segment_output)

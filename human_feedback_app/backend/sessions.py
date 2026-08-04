@@ -24,6 +24,8 @@ class UserSession:
     root_folder_id: str = ""
     course_name: str = ""
     current_round: int = 0
+    enabled_sources: Optional[list] = None
+    drive_video_mode: str = ""
     oauth_state: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     sheet: Any = None

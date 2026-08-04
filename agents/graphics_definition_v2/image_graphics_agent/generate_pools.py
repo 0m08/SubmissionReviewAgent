@@ -13,9 +13,33 @@ import streamlit as st
 from langsmith import traceable
 from services.smart_progress_bar import SmartProgressBar
 from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save_to_sheet
+from agents.graphics_definition_v2.candidate_search.pool_registry import (
+    UI_KEY_ENABLED_SOURCES,
+    UI_KEY_WEB_FALLBACK_ENABLED,
+    SOURCE_WEB_IMAGES,
+    SOURCE_YOUTUBE_OTHER_CHANNELS,
+)
 
 
-def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_events, emit_progress, completed, errors, label_a, fn_a, llm_a, label_b, fn_b, llm_b, selected_topics=None):
+def resolve_section6_enabled_sources():
+    """
+    Resolve which sources Section 6 of the graphics definition agent may read, from the UI session state.
+
+    :return: List of enabled source ids, or None to read all present columns
+    """
+    enabled = st.session_state.get(UI_KEY_ENABLED_SOURCES, None)
+    if enabled is None:
+        return None
+    resolved = list(enabled)
+    # The single "Web Images and Other YouTube" toggle enables both web sources.
+    if st.session_state.get(UI_KEY_WEB_FALLBACK_ENABLED, False):
+        for source_id in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS):
+            if source_id not in resolved:
+                resolved.append(source_id)
+    return resolved
+
+
+def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_events, emit_progress, completed, errors, label_a, fn_a, llm_a, label_b, fn_b, llm_b, selected_topics=None, enabled_sources=None):
     """
     Run two row-parallel pipeline functions concurrently and stream progress events.
 
@@ -32,6 +56,7 @@ def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_event
     :param label_b: Display label for function B
     :param fn_b: Function B
     :param llm_b: Model for function B
+    :param enabled_sources: Optional list of enabled source ids passed to both functions
     :return: None
     """
     
@@ -45,6 +70,7 @@ def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_event
                 selected_topics=selected_topics,
                 progress_callback=emit_progress,
                 show_progress=False,
+                enabled_sources=enabled_sources,
             ): label_a,
             executor.submit(
                 fn_b,
@@ -54,6 +80,7 @@ def run_parallel_pair_with_progress(sheet, max_workers, progress, progress_event
                 selected_topics=selected_topics,
                 progress_callback=emit_progress,
                 show_progress=False,
+                enabled_sources=enabled_sources,
             ): label_b,
         }
         while True:
@@ -139,13 +166,22 @@ def run_generate_image_and_video_pools(
                 continue
             video_pool = str(row.get("video_pool", "")).strip()
             video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
+            drive_video_pool = str(row.get("drive_video_pool", "")).strip()
             video_pool_filtered = str(row.get("video_pool_filtered", "")).strip()
-            if (not video_pool or video_pool == "nan") and (not video_pool_other_channels or video_pool_other_channels == "nan"):
+            has_videos = (
+                (video_pool and video_pool != "nan")
+                or (video_pool_other_channels and video_pool_other_channels != "nan")
+                or (drive_video_pool and drive_video_pool != "nan")
+            )
+            if not has_videos:
                 continue
             if video_pool_filtered and video_pool_filtered != "nan" and not str(video_pool_filtered).startswith("ERROR:"):
                 continue
             tasks += 1
         return tasks
+
+    # Resolve enabled sources once on the main thread; worker threads cannot read session state.
+    enabled_sources = resolve_section6_enabled_sources()
 
     image_tasks = _count_image_tasks(df)
     video_tasks = _count_video_tasks(df)
@@ -190,6 +226,7 @@ def run_generate_image_and_video_pools(
         fn_b=run_video_scoring_for_all_rows,
         llm_b=video_pool_llm,
         selected_topics=selected_topics,
+        enabled_sources=enabled_sources,
     )
 
     print("🔹 Phase 2: filtering shortlisted candidates (image_pool + video_pool_filtered)")
@@ -208,6 +245,7 @@ def run_generate_image_and_video_pools(
         fn_b=run_video_selection_from_all_videos_for_all_rows,
         llm_b=video_pool_llm,
         selected_topics=selected_topics,
+        enabled_sources=enabled_sources,
     )
     
     # Summary

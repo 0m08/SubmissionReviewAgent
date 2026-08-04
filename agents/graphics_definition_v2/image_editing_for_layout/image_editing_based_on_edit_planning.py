@@ -32,6 +32,10 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
 from agents.graphics_definition_v2.image_editing_for_layout.image_edit_planning import (
     parse_scenes_from_slideshow_manifest,
 )
+from agents.graphics_definition_v2.review_agent.review_and_revise import (
+    is_drive_video_url,
+    is_youtube_url,
+)
 from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
     make_slot_narration_resolver_from_fgd,
     _normalize_manifest_attribute_quotes,
@@ -63,6 +67,23 @@ SCENE_IMAGE_EDIT_REVIEW_MODEL = "gemini_3_flash_thinking"
 MAX_EDIT_REVIEW_LOOPS = 3
 
 _NON_INSTRUCTIONAL_EDIT_TYPES = frozenset({"NO_EDIT", "SKIPPED_VIDEO"})
+
+_DIRECT_VIDEO_FILE_SUFFIXES = (".mp4", ".webm", ".mov")
+
+
+def _is_video_asset_url(url):
+    """
+    Detect whether a URL is a video asset (YouTube, Drive clip/still, or direct video file).
+
+    :param url: Candidate asset URL.
+    :return: True when the URL should be treated as video (not image-edited).
+    """
+    if not url:
+        return False
+    if is_youtube_url(url) or is_drive_video_url(url):
+        return True
+    u = str(url).lower()
+    return any(suffix in u for suffix in _DIRECT_VIDEO_FILE_SUFFIXES)
 
 
 def _resolve_scene_image_edit_review_model(model_id):
@@ -663,7 +684,8 @@ def slot_needs_instructional_image_edit(slot_xml):
     :return: True when an instructional image edit should run.
     """
     asset_type = _parse_multiline_field(slot_xml, "Asset Type").lower()
-    if asset_type == "video":
+    asset_url = _parse_multiline_field(slot_xml, "Asset URL")
+    if asset_type == "video" or _is_video_asset_url(asset_url):
         return False
     if _parse_edit_required(slot_xml) != "YES":
         return False
@@ -2323,16 +2345,16 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
             scene_slots_count = len(scene_manifest.get("slots", []))
 
             # Detect video: manifest slots contain ALL slots (including video), so check there first.
-            # Edit plan only includes image slots, so checking it alone always returns False.
-            _video_url_patterns = ("youtube.com", "youtu.be", ".mp4", ".webm", ".mov")
+            # Includes YouTube, Drive video clips/stills, and direct video files.
             scene_has_video = any(
-                any(p in str(s.get("asset", "")).lower() for p in _video_url_patterns)
+                _is_video_asset_url(s.get("asset", ""))
                 for s in scene_manifest.get("slots", [])
             )
             # Fallback: also check edit plan Asset Type in case video appears there
             if not scene_has_video:
                 scene_has_video = any(
                     _parse_multiline_field(s, "Asset Type").lower() == "video"
+                    or _is_video_asset_url(_parse_multiline_field(s, "Asset URL"))
                     for s in slots
                 )
 
@@ -2341,7 +2363,11 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
             _harm_slots = []
             for _ki, _sxi in enumerate(slots, start=1):
                 _a_url = _parse_multiline_field(_sxi, "Asset URL")
-                if not _a_url or _parse_multiline_field(_sxi, "Asset Type").lower() == "video":
+                if (
+                    not _a_url
+                    or _parse_multiline_field(_sxi, "Asset Type").lower() == "video"
+                    or _is_video_asset_url(_a_url)
+                ):
                     continue
                 _r = load_image_from_url(_a_url, drive, title=f"harm_s{scene_id}_img{_ki}")
                 if _r is not None:
@@ -2363,6 +2389,8 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
             for k, slot_xml in enumerate(slots, start=1):
                 asset_url = _parse_multiline_field(slot_xml, "Asset URL")
                 asset_type = _parse_multiline_field(slot_xml, "Asset Type").lower()
+                if _is_video_asset_url(asset_url):
+                    asset_type = "video"
 
                 needs_instructional_edit = slot_needs_instructional_image_edit(slot_xml)
 
@@ -2388,7 +2416,8 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                 target_aspect_ratio = None
 
                 ref = _slot_ref_cache.get(k)
-                if ref is None and asset_url:
+                # Never download video assets as images (Drive clips are not JPEGs).
+                if ref is None and asset_url and asset_type != "video":
                     ref = load_image_from_url(
                         asset_url,
                         drive,
@@ -2589,7 +2618,7 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                         # not polluted after the cohesion loop ends.
                         fk_asset_url = _parse_multiline_field(slot_xml, "Asset URL")
                         fk_asset_type = _parse_multiline_field(slot_xml, "Asset Type").lower()
-                        if fk_asset_type == "video":
+                        if fk_asset_type == "video" or _is_video_asset_url(fk_asset_url):
                             continue
 
                         orig_ref = _slot_ref_cache_original.get(fk)
