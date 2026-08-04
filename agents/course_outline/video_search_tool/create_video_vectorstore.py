@@ -110,6 +110,9 @@ def create_video_vectorstore(sheet, drive):
             # Unique chunk ID (video_id + row index)
             chunk_id = f"{row.get('video_id', 'unknown')}_{idx}"
 
+            raw_source_tag = row.get('Source Tag', row.get('source_tag', ''))
+            source_tag_val = "" if (raw_source_tag is None or str(raw_source_tag).strip().lower() in ("", "nan", "none")) else str(raw_source_tag).strip()
+
             # Build metadata dict
             metadata = {
                 'chunk_id': chunk_id,
@@ -117,6 +120,7 @@ def create_video_vectorstore(sheet, drive):
                 'video_title': row.get('video_title', 'Untitled'),
                 'chapter_title': row.get('chapter_title', ''),
                 'text_0': row.get('text_0', ''),
+                'source_tag': source_tag_val,
                 **row_metadata  # include all metadata keys like source, channel, etc.
             }
 

@@ -76,6 +76,9 @@ def update_video_vectorstore(sheet, drive):
                 combined_texts.append(chunk_text)
 
             combined_text = " ".join(combined_texts)
+            raw_source_tag = group.get('Source Tag', group.get('source_tag', ['']))[0] if 'Source Tag' in group or 'source_tag' in group else ''
+            source_tag_val = "" if (raw_source_tag is None or str(raw_source_tag).strip().lower() in ("", "nan", "none")) else str(raw_source_tag).strip()
+
             metadata = {
                 'video_id': video_id,
                 'video_title': group['video_title'].iloc[0],
@@ -83,6 +86,7 @@ def update_video_vectorstore(sheet, drive):
                 'source': group.get('source', [''])[0],
                 'channel': group.get('channel', ['Unknown'])[0],
                 'text_0': group.get('text_0', [''])[0],
+                'source_tag': source_tag_val,
             }
 
             chroma_db.add_texts([combined_text], [metadata])
