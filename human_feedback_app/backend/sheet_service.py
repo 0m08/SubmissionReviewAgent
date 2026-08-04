@@ -60,6 +60,13 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     parse_urls_from_image_pool,
     parse_urls_from_video_pool_filtered,
 )
+from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
+    parse_drive_video_items_from_pool,
+)
+from agents.graphics_definition_v2.candidate_search.pool_registry import (
+    COURSE_INFO_ENABLED_SOURCES_KEY,
+    decode_enabled_sources_from_course_info,
+)
 
 
 # This app pins the human-feedback round to a single set of "_1" columns and never advances rounds. Each visual's lifecycle (action, feedback, original -> after_revision -> after_regen_* history) lives inside the keyed JSON of the actions/tracking cells, so we never spawn _2/_3 column sets.
@@ -108,15 +115,23 @@ def _pick_column(df, name):
     return name
 
 
-def mutate_row_cells(session, row_index, mutate):
+def mutate_row_cells(session, row_index, mutate, *, allow_when_aborted: bool = False):
     """
     Reload the latest worksheet under the global write lock, run `mutate(df)` (which must patch only this row's owned cells), then persist.
 
     :param session: The session object.
     :param row_index: The index of the row to mutate.
     :param mutate: The function to mutate the row.
+    :param allow_when_aborted: When True, permit writes even if the session was aborted (logout cleanup).
     """
+    from human_feedback_app.backend.jobs import JobCancelled
+
+    if getattr(session, "aborted", False) and not allow_when_aborted:
+        raise JobCancelled("Session aborted on logout")
+
     with _SHEET_WRITE_LOCK:
+        if getattr(session, "aborted", False) and not allow_when_aborted:
+            raise JobCancelled("Session aborted on logout")
         sheet = _ensure_sheet(session)
         ws, latest_df = get_sheet_data_and_df(sheet, session.worksheet_name or DEFAULT_WORKSHEET)
         latest_df = _sanitize_df(latest_df)
@@ -308,8 +323,15 @@ def merge_visual_revision(
 def _first_http_url(text: str) -> str:
     if not text:
         return ""
-    match = re.search(r"https?://[^\s)>\"]+", str(text).strip())
-    return match.group(0).rstrip(".,);\"'") if match else str(text).strip()
+    s = str(text).strip()
+    match = re.search(r"https?://[^\s)>\"]+", s)
+    if not match:
+        return s
+    url = match.group(0).rstrip(".,);\"'")
+    clip = re.match(r"\s*(\(start=\d+(?:&end=\d+)?\))", s[match.end():])
+    if clip:
+        url = url + " " + clip.group(1)
+    return url
 
 
 def _import_slideshow_helpers():
@@ -344,7 +366,7 @@ def _column_map(df) -> Dict[str, str]:
 def _infer_source(asset_url: str, asset_type: str) -> str:
     url = (asset_url or "").lower()
     if "drive.google.com" in url or "docs.google.com" in url:
-        return "drive"
+        return "drive_video" if asset_type == "video" else "drive"
     if "youtube.com" in url or "youtu.be" in url:
         return "hvac_yt" if asset_type == "video" else "other_yt"
     if url.startswith("http"):
@@ -420,6 +442,16 @@ def _alternatives_for_segment(
                 str(item.get("url") or ""),
                 "video",
                 str(meta.get("duration") or ""),
+            )
+
+    # 3. Add all candidates from the Google Drive video pool
+    drive_video_pool_text = safe_str(row.get("drive_video_pool", "")).strip()
+    if drive_video_pool_text and drive_video_pool_text != "nan":
+        for item in parse_drive_video_items_from_pool(drive_video_pool_text, segment_index):
+            add_candidate(
+                str(item.get("title") or "Drive video clip"),
+                str(item.get("url") or ""),
+                "video",
             )
 
     return out
@@ -502,13 +534,24 @@ def load_workbook(session: UserSession) -> Tuple[Any, Any, int]:
             values = fetch_values()
             if values and len(values) > 1:
                 headers = [str(h).strip().lower() for h in values[0]]
-                if "course name" in headers:
-                    idx = headers.index("course name")
-                    # Find the first non-empty value in this column
-                    for row in values[1:]:
-                        if len(row) > idx and str(row[idx]).strip():
-                            session.course_name = str(row[idx]).strip()
-                            break
+
+                def _first_value(header_key: str) -> str:
+                    if header_key not in headers:
+                        return ""
+                    col = headers.index(header_key)
+                    for data_row in values[1:]:
+                        if len(data_row) > col and str(data_row[col]).strip():
+                            return str(data_row[col]).strip()
+                    return ""
+
+                course_name_val = _first_value("course name")
+                if course_name_val:
+                    session.course_name = course_name_val
+
+                enabled_raw = _first_value(COURSE_INFO_ENABLED_SOURCES_KEY.lower())
+                session.enabled_sources, session.drive_video_mode = (
+                    decode_enabled_sources_from_course_info(enabled_raw)
+                )
     except Exception as e:
         print(f"Error fetching course info: {e}")
 
@@ -1991,6 +2034,108 @@ def prepare_visual_revision(
         feedback=feedback,
         mode=mode,
     )
+
+
+def clear_visual_revision_action(
+    session: UserSession,
+    row_index: int,
+    visual_id: str,
+    *,
+    allow_when_aborted: bool = False,
+) -> None:
+    """Remove a visual's reject/in-progress action so UI status returns to pending.
+
+    Does not touch the current graphic or revision tracking — only clears the
+    durable "revising" flag written by prepare_visual_revision.
+    """
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    safe_str = helpers["safe_str"]
+
+    visual_id = (visual_id or "").strip()
+    if not visual_id:
+        return
+
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+
+    def mutate(df) -> None:
+        if actions_col not in df.columns:
+            return
+        raw_actions = safe_str(df.at[row_index, actions_col])
+        try:
+            payload = json.loads(raw_actions) if raw_actions else {}
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            return
+        actions_map = payload.get("actions")
+        if not isinstance(actions_map, dict) or visual_id not in actions_map:
+            return
+        action = (actions_map.get(visual_id) or {}).get("action", ACTION_NONE)
+        if action not in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+            return
+        del actions_map[visual_id]
+        payload["actions"] = actions_map
+        df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+
+    mutate_row_cells(session, row_index, mutate, allow_when_aborted=allow_when_aborted)
+
+
+def reconcile_stale_visual_revisions(session: UserSession) -> int:
+    """
+    Clear reject actions that have no live job and no completed revision result. Covers server restart / orphaned rows left as forever "revising". Safe to call on sheet load; does not touch visuals that still have an active job.
+    """
+    from human_feedback_app.backend.jobs import revision_queue
+
+    if not session.sheet_link or session.gc is None:
+        return 0
+
+    helpers = _import_slideshow_helpers()
+    get_round_column_name = helpers["get_round_column_name"]
+    safe_str = helpers["safe_str"]
+
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+    tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+
+    _, df, _ = load_workbook(session)
+    if actions_col not in df.columns:
+        return 0
+
+    cleared = 0
+    for row_index in df.index:
+        raw_actions = safe_str(df.at[row_index, actions_col])
+        try:
+            payload = json.loads(raw_actions) if raw_actions else {}
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        actions_map = payload.get("actions")
+        if not isinstance(actions_map, dict):
+            continue
+
+        tracking_map = {}
+        if tracking_col in df.columns:
+            tracking_map = _parse_tracking(safe_str(df.at[row_index, tracking_col]))
+
+        for visual_id, entry in list(actions_map.items()):
+            action = (entry or {}).get("action", ACTION_NONE) if isinstance(entry, dict) else ACTION_NONE
+            if action not in (ACTION_REJECT_DRIVE_HVAC, ACTION_REJECT_ALL, ACTION_REJECT_AI):
+                continue
+            tracking = tracking_map.get(visual_id) or {}
+            if tracking.get("after_revision") or tracking.get("after_regen_1") or tracking.get("manually_selected"):
+                continue
+            if revision_queue.has_active_visual_job(int(row_index), str(visual_id)):
+                continue
+            try:
+                clear_visual_revision_action(session, int(row_index), str(visual_id))
+                cleared += 1
+            except Exception as exc:
+                print(
+                    f"[human_feedback] stale revision clear failed for row {row_index} "
+                    f"visual {visual_id}: {exc}"
+                )
+    return cleared
 
 
 def apply_layout_revision_to_sheet(

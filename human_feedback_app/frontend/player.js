@@ -43,6 +43,13 @@ window.HFPlayer = (function () {
     return cues;
   }
 
+  function isDriveVideoUrl(url) {
+    const u = String(url || "").toLowerCase();
+    if (u.indexOf("drive.google.com") === -1 && u.indexOf("docs.google.com") === -1) return false;
+    // Drive *video* clips carry a trailing "(start=..)" / "(start=..&end=..)" suffix, which is what distinguishes them from Drive *image* URLs.
+    return /\(start=\d+(?:&end=\d+)?\)/.test(String(url || ""));
+  }
+
   function afterPaint(fn) {
     if (typeof window.requestAnimationFrame === "function") {
       window.requestAnimationFrame(function () {
@@ -58,6 +65,7 @@ window.HFPlayer = (function () {
     this.resolveImageUrl = options.resolveImageUrl || function () { return ""; };
     this.getYtMountId = options.getYtMountId || function () { return "hf-player-yt-mount"; };
     this.getYtMountHeight = options.getYtMountHeight || function () { return 480; };
+    this.getDriveVideoId = options.getDriveVideoId || function () { return "hf-player-drivevid-active"; };
     this.onBeforeCuePlay = options.onBeforeCuePlay || null;
     this.onState = options.onState || function () {};
     this.cues = buildCues(this.slides);
@@ -120,6 +128,44 @@ window.HFPlayer = (function () {
     return this.getYtMountId(cue || this.cues[this.cueIndex]);
   };
 
+  // --- Native Drive-video clip control ---------------------------------------
+  // Drive clips render as native <video> elements (not the YouTube iframe API), so we drive them imperatively via the DOM to hard-sync playback with the TTS narration timeline — play on cue start, pause on pause, freeze when the cue ends — mirroring the YouTube path (mounted paused, freezePlayerAtEnd).
+  Controller.prototype._isDriveVideoCue = function (cue) {
+    if (!cue || !cue.step) return false;
+    const rawUrl = cue.step.assetUrl || cue.step.url || "";
+    return cue.step.type === "video" && isDriveVideoUrl(rawUrl);
+  };
+
+  Controller.prototype._driveVidElForCue = function (cue) {
+    if (!this._isDriveVideoCue(cue)) return null;
+    try {
+      return document.getElementById(this.getDriveVideoId(cue));
+    } catch (_) {
+      return null;
+    }
+  };
+
+  Controller.prototype._playDriveVideo = function (cue, fromStart) {
+    const el = this._driveVidElForCue(cue);
+    if (!el) return false;
+    try {
+      el.muted = true;
+      if (fromStart) {
+        try { el.currentTime = 0; } catch (_) {}
+      }
+      const p = el.play();
+      if (p && p.catch) p.catch(function () {});
+    } catch (_) {}
+    return true;
+  };
+
+  Controller.prototype._pauseDriveVideo = function (cue) {
+    const el = this._driveVidElForCue(cue);
+    if (!el) return false;
+    try { el.pause(); } catch (_) {}
+    return true;
+  };
+
   Controller.prototype._clearTick = function () {
     if (this._tickTimer) {
       clearInterval(this._tickTimer);
@@ -160,8 +206,10 @@ window.HFPlayer = (function () {
       } catch (_) {}
       this._audio = null;
     }
-    if (opts.destroyVideos && window.HFYoutube) {
-      window.HFYoutube.destroyAll();
+    if (opts.destroyVideos) {
+      if (window.HFYoutube) window.HFYoutube.destroyAll();
+      // Native Drive clips aren't destroyable like YouTube iframes; just halt the active one so it doesn't keep playing after a stop/jump.
+      this._pauseDriveVideo(this.cues[this.cueIndex]);
       this._activeCueIndex = -1;
     }
     this._cueElapsed = 0;
@@ -171,7 +219,13 @@ window.HFPlayer = (function () {
   };
 
   Controller.prototype._freezeCueVideo = function (cue) {
-    if (!cue || !window.HFYoutube || !window.HFYoutube.freezePlayerAtEnd) return;
+    if (!cue || !cue.step) return;
+    // Drive clip: freeze by pausing on the current frame (parity with YouTube's freezePlayerAtEnd, which halts the iframe on its final frame).
+    if (this._isDriveVideoCue(cue)) {
+      this._pauseDriveVideo(cue);
+      return;
+    }
+    if (!window.HFYoutube || !window.HFYoutube.freezePlayerAtEnd) return;
     const step = cue.step;
     const rawUrl = step.assetUrl || step.url || "";
     const isVideo = step.type === "video" && window.HFYoutube.isYoutubeUrl(rawUrl);
@@ -401,6 +455,7 @@ window.HFPlayer = (function () {
     const step = cue.step;
     const rawUrl = step.assetUrl || step.url || "";
     const isVideo = step.type === "video" && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl);
+    const isDriveVideo = self._isDriveVideoCue(cue);
     const mountId = self._ytMountIdForCue(cue);
 
     const visualsPromise = self._waitForVisuals(cue, token);
@@ -435,6 +490,7 @@ window.HFPlayer = (function () {
           if (isVideo && window.HFYoutube) {
             window.HFYoutube.freezePlayerAtEnd(mountId, rawUrl);
           }
+          if (isDriveVideo) self._pauseDriveVideo(cue);
           self._cueElapsed = self._cueDuration;
           self.emit();
           resolve();
@@ -450,6 +506,13 @@ window.HFPlayer = (function () {
                 window.HFYoutube.playPlayer(mountId, rawUrl);
               });
             }
+          }
+          if (isDriveVideo && !self._playDriveVideo(cue, true)) {
+            // Element may not be mounted yet on the very first paint; retry once.
+            afterPaint(function () {
+              if (token !== self._token) return;
+              self._playDriveVideo(cue, true);
+            });
           }
           const playPromise = audio.play();
           if (playPromise && playPromise.catch) playPromise.catch(onDone);
@@ -586,6 +649,7 @@ window.HFPlayer = (function () {
       }
       const cue = this.cues[this.cueIndex];
       if (window.HFYoutube && cue) window.HFYoutube.pausePlayer(this._ytMountIdForCue(cue));
+      if (cue) this._pauseDriveVideo(cue);
       this._clearTick();
       this.emit();
       return;
@@ -601,6 +665,8 @@ window.HFPlayer = (function () {
         const rawUrl = step.assetUrl || step.url || "";
         window.HFYoutube.playPlayer(this._ytMountIdForCue(cue), rawUrl);
       }
+      // Resume the Drive clip from where it froze (do not restart from 0).
+      if (cue) this._playDriveVideo(cue, false);
       const token = this._token;
       this._tickTimer = setInterval(function () {
         if (token !== this._token || !this._audio) return;
@@ -617,6 +683,8 @@ window.HFPlayer = (function () {
     if (!this.cues.length) return;
     const wasPlaying = this.playing;
     this.playing = false;
+    // Halt the current native Drive clip before stepping back (YouTube is handled by _stopMedia + reattach; native <video> persists per slot, so pause it).
+    this._pauseDriveVideo(this.cues[this.cueIndex]);
     this._stopMedia({ destroyVideos: false });
     this.cueIndex = Math.max(0, this.cueIndex - 1);
     this._activeCueIndex = this.cueIndex;
@@ -675,6 +743,13 @@ window.HFPlayer = (function () {
     const rawUrl = step.assetUrl || step.url || "";
     if (step.type === "video" && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl)) {
       return { type: "video", mountId: this._ytMountIdForCue(cue), rawUrl: rawUrl, label: step.label || "" };
+    }
+
+    const isDriveVideo = rawUrl
+      && rawUrl.toLowerCase().indexOf("drive.google.com") !== -1
+      && /\(start=\d+(?:&end=\d+)?\)/.test(rawUrl);
+    if (step.type === "video" && isDriveVideo) {
+      return { type: "image", url: "/api/assets/image?thumb=1&url=" + encodeURIComponent(rawUrl), label: step.label || "" };
     }
     const img = resolveImageUrl(step);
     return { type: "image", url: img, label: step.label || "" };

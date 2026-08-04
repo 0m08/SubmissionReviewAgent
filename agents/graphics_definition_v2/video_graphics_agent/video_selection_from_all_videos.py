@@ -4,7 +4,7 @@ from services.sheets_service import get_sheet_data_and_df, save_to_sheet, format
 from services.smart_progress_bar import SmartProgressBar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
-from services.helper_functions import build_video_part
+from services.helper_functions import build_video_part, build_drive_video_parts_parallel
 from modules.chain import Chain
 from dotenv import load_dotenv
 from google import genai
@@ -18,6 +18,11 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     convert_watch_url_to_embed_url,
     get_drive_instance,
     invoke_gemini_multimodal,
+)
+from agents.graphics_definition_v2.candidate_search.candidate_wrapper import (
+    get_video_candidates,
+    split_video_candidates,
+    video_row_has_candidates,
 )
 
 load_dotenv()
@@ -36,6 +41,8 @@ Your task is to review a provided set of video candidates and assign a relevance
 A video’s score should reflect how clearly, directly, and instructionally it helps a learner understand the meaning and intent of the voiceover sentence. A video may support the full sentence or only a part of it; however, videos that support more important or central parts of the sentence, or provide clearer instructional value, should receive higher scores.
 
 A video should be considered relevant even if any visually meaningful portion of the video can support the voiceover sentence. The entire video does not need to be relevant, as only a short segment or frame from the video can be used later.
+
+The candidates may include YouTube clips and/or Google Drive video clips. Treat every candidate the same way: score it only on what is visually shown in the clip, not on where it came from.
 
 These are the inputs:
 
@@ -126,9 +133,12 @@ Explain how you plan to apply the scoring criteria across the video candidates. 
 </evaluation_breakdown>
 
 <final_scores>
-(List of all video candidates with their scores in this exact format. Include the exact URL as provided, including timestamps if present.)
-1. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
-2. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
+(List of all video candidates with their scores in this exact format. Copy each candidate URL exactly as given in the video candidate input — including YouTube URLs with any start/end timestamps, or Google Drive candidates with their URL and start/end times.)
+1. [Exact candidate URL as given in the input] | Score: X/10
+2. [Exact candidate URL as given in the input] | Score: X/10
+eg.
+1. https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=110) | Score: 2/10
+2. https://www.youtube.com/embed/HES4LVQDvJc?start=46&end=60 | Score: 5/10
 ...
 </final_scores>
 
@@ -146,6 +156,8 @@ Your task is to review a provided set of video candidates and assign a relevance
 A video’s score should reflect how clearly, directly, and instructionally it helps a learner understand the overall meaning of the slide. Videos that clearly represent the central concept, key takeaway, or most important visual idea of the slide should receive higher scores.
 
 A video should be considered relevant even if any visually meaningful portion of the video can support the slide content. The entire video does not need to be relevant, as only a short segment or frame from the video can be used later. However, videos that contain clearer and more instructionally useful visual segment(s) representing the central concept of the slide should receive higher scores than videos that support only minor or secondary details.
+
+The candidates may include YouTube clips and/or Google Drive video clips. Treat every candidate the same way: score it only on what is visually shown in the clip, not on where it came from.
 
 These are the inputs:
 
@@ -234,9 +246,12 @@ Explain how you plan to apply the scoring criteria across the video candidates. 
 </evaluation_breakdown>
 
 <final_scores>
-(List of all video candidates with their scores in this exact format. Include the exact URL as provided, including timestamps if present.)
-1. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
-2. [Exact Video URL with timestamps as given in the 'video candidate' input] | Score: X/10
+(List of all video candidates with their scores in this exact format. Copy each candidate URL exactly as given in the video candidate input — including YouTube URLs with any start/end timestamps, or Google Drive candidates with their URL and start/end times.)
+1. [Exact candidate URL as given in the input] | Score: X/10
+2. [Exact candidate URL as given in the input] | Score: X/10
+eg.
+1. https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=110) | Score: 2/10
+2. https://www.youtube.com/embed/HES4LVQDvJc?start=46&end=60 | Score: 5/10
 ...
 </final_scores>
 
@@ -250,6 +265,8 @@ Explain how you plan to apply the scoring criteria across the video candidates. 
 video_selection_from_all_videos_prompt = """You are an expert educational video curator specializing in the field of HVAC.
 
 Your task is to review a provided set of video candidates and identify all videos that are relevant to a single voiceover sentence from an educational e-learning slide. A video is considered relevant if it visually relates to, supports, or illustrates any concept, object, component, or idea mentioned or implied in the voiceover sentence.
+
+The candidates may include YouTube clips and/or Google Drive video clips. Treat every candidate the same way: judge relevance only by what is visually shown, not by source.
 
 These are the inputs:
 
@@ -326,9 +343,12 @@ Explain in detail which of the videos are relevant to the voiceover sentence and
 </evaluation_breakdown>
 
 <selected_videos>
-(List of all selected videos in this exact format. Note - Some videos may have timestamps, so you need to include the exact URL as it is with those start and end timestamps for such videos)
-1. [Exact Video URL] 
-2. [Exact Video URL]
+(List of all selected videos in this exact format. Copy each selected candidate URL exactly as given in the input — including YouTube URLs with any start/end timestamps, or Google Drive candidates with their URL and start/end times.)
+1. [Exact candidate URL as given in the input]
+2. [Exact candidate URL as given in the input]
+eg.
+1. https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=110)
+2. https://www.youtube.com/embed/HES4LVQDvJc?start=46&end=60
 ...
 (Continue the list of selected videos in the same format until you have covered all the videos)
 </selected_videos>
@@ -343,6 +363,8 @@ Explain in detail which of the videos are relevant to the voiceover sentence and
 video_selection_from_all_videos_prompt_for_entire_slide = """You are an expert educational video curator specializing in the field of HVAC.
 
 Your task is to review a provided set of video candidates and identify all videos that are relevant to the given educational e-learning slide. A video is considered relevant if it visually relates to, supports, or illustrates any concept, object, component, or idea mentioned or implied in any part of the slide content.
+
+The candidates may include YouTube clips and/or Google Drive video clips. Treat every candidate the same way: judge relevance only by what is visually shown, not by source.
 
 These are the inputs:
 
@@ -413,9 +435,12 @@ Explain in detail which of the videos are relevant to any part of the slide cont
 </evaluation_breakdown>
 
 <selected_videos>
-(List of all selected videos in this exact format. Note - Some videos may have timestamps, so you need to include the exact URL as it is with those start and end timestamps for such videos)
-1. [Exact Video URL] 
-2. [Exact Video URL]
+(List of all selected videos in this exact format. Copy each selected candidate URL exactly as given in the input — including YouTube URLs with any start/end timestamps, or Google Drive candidates with their URL and start/end times.)
+1. [Exact candidate URL as given in the input]
+2. [Exact candidate URL as given in the input]
+eg.
+1. https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=110)
+2. https://www.youtube.com/embed/HES4LVQDvJc?start=46&end=60
 ...
 (Continue the list of selected videos in the same format until you have covered all the videos)
 </selected_videos>
@@ -431,6 +456,8 @@ video_selection_from_all_videos_prompt_with_feedback = """You are an expert educ
 
 Your task is to review a provided set of video candidates and identify all videos that are relevant to a single voiceover sentence from an educational e-learning slide, taking into account the feedback describing what visual requirements need to be met. The feedback contains the details of the previous visuals that were assigned for the voiceover sentence, what was wrong with it and what is needed instead.
 A video is considered relevant if it visually relates to, supports, or illustrates any concept, object, component, or idea mentioned or implied in the voiceover sentence or addresses the visual requirements described in the feedback.
+
+The candidates may include YouTube clips and/or Google Drive video clips. Treat every candidate the same way: judge relevance only by what is visually shown, not by source.
 
 These are the inputs:
 
@@ -520,9 +547,12 @@ Explain in detail which of the videos are relevant to any part of the voiceover 
 </evaluation_breakdown>
 
 <selected_videos>
-(List of all selected videos in this exact format. Note - Some videos may have timestamps, so you need to include the exact URL as it is with those start and end timestamps for such videos)
-1. [Exact Video URL] 
-2. [Exact Video URL]
+(List of all selected videos in this exact format. Copy each selected candidate URL exactly as given in the input — including YouTube URLs with any start/end timestamps, or Google Drive candidates with their URL and start/end times.)
+1. [Exact candidate URL as given in the input]
+2. [Exact candidate URL as given in the input]
+eg.
+1. https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=110)
+2. https://www.youtube.com/embed/HES4LVQDvJc?start=46&end=60
 ...
 (Continue the list of selected videos in the same format until you have covered all the videos)
 </selected_videos>
@@ -537,6 +567,8 @@ Explain in detail which of the videos are relevant to any part of the voiceover 
 video_selection_from_all_videos_prompt_for_entire_slide_with_feedback = """You are an expert educational video curator specializing in the field of HVAC.
 
 Your task is to review a provided set of video candidates and identify all videos that are relevant to the given educational e-learning slide, taking into account the feedback describing what visual requirements need to be met. The feedback contains the details of the previous visual that was assigned for the slide, what was wrong with it and what is needed instead. A video is considered relevant if it visually relates to, supports, or illustrates any concept, object, component, or idea mentioned or implied in any part of the slide content or addresses the visual requirements described in the feedback.
+
+The candidates may include YouTube clips and/or Google Drive video clips. Treat every candidate the same way: judge relevance only by what is visually shown, not by source.
 
 These are the inputs:
 
@@ -620,9 +652,12 @@ Explain in detail which of the videos are relevant to any part of the slide cont
 </evaluation_breakdown>
 
 <selected_videos>
-(List of all selected videos in this exact format. Note - Some videos may have timestamps, so you need to include the exact URL as it is with those start and end timestamps for such videos)
-1. [Exact Video URL] 
-2. [Exact Video URL]
+(List of all selected videos in this exact format. Copy each selected candidate URL exactly as given in the input — including YouTube URLs with any start/end timestamps, or Google Drive candidates with their URL and start/end times.)
+1. [Exact candidate URL as given in the input]
+2. [Exact candidate URL as given in the input]
+eg.
+1. https://drive.google.com/file/d/1-keLYm8ARuOx37vpwvhwTg36KkfBXi-N/view?usp=drivesdk (start=50&end=110)
+2. https://www.youtube.com/embed/HES4LVQDvJc?start=46&end=60
 ...
 (Continue the list of selected videos in the same format until you have covered all the videos)
 </selected_videos>
@@ -753,6 +788,122 @@ def _extract_score_value(score_text):
         return None
 
 
+def parse_drive_video_url(drive_video_url):
+    """
+    Parse a Drive video URL with timestamps in parentheses format.
+
+    :param drive_video_url: URL like https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk (start=50&end=110)
+    :return: Tuple of (file_id, start_seconds, end_seconds) or (None, None, None) if parsing fails
+    """
+    if not drive_video_url:
+        return None, None, None
+    
+    timestamps_match = re.search(r'\(start=(\d+)&end=(\d+)\)\s*$', drive_video_url)
+    start_seconds = int(timestamps_match.group(1)) if timestamps_match else None
+    end_seconds = int(timestamps_match.group(2)) if timestamps_match else None
+    
+    file_id_match = re.search(r'/d/([a-zA-Z0-9_-]+)', drive_video_url)
+    file_id = file_id_match.group(1) if file_id_match else None
+    
+    return file_id, start_seconds, end_seconds
+
+
+def is_drive_video_url(url):
+    """
+    Check if a URL is a Google Drive video URL.
+
+    :param url: URL to check
+    :return: True if URL is a Google Drive video URL, False otherwise
+    """
+    if not url:
+        return False
+    return 'drive.google.com/file/d/' in url
+
+
+def parse_drive_video_line(line):
+    """
+    Parse a drive_video_pool line to extract title and URL with timestamps.
+
+    :param line: Line in format 'Title: {title} | URL: {url} (start=X&end=Y)'
+    :return: Tuple (title, url_with_timestamps) or (None, None) if parsing fails
+    """
+    if not line:
+        return None, None
+    
+    # Extract title
+    title_match = re.search(r'^Title:\s*(.+?)\s*\|\s*URL:', line)
+    title = title_match.group(1).strip() if title_match else None
+    
+    # Extract URL with timestamps: URL: {url} (start=X&end=Y)
+    url_match = re.search(r'URL:\s*(https://[^\s]+\s*\(start=\d+&end=\d+\))', line)
+    if url_match:
+        url_with_timestamps = url_match.group(1).strip()
+    else:
+        # Fallback: try to extract just the URL without timestamps
+        url_match = re.search(r'URL:\s*(https://[^\s|]+)', line)
+        url_with_timestamps = url_match.group(1).strip() if url_match else None
+    
+    return title, url_with_timestamps
+
+
+def parse_drive_video_items_from_pool(drive_video_pool_text, segment_num):
+    """
+    Parse drive_video_pool column for a specific segment and return list of items with title and URL.
+
+    :param drive_video_pool_text: The drive_video_pool column content
+    :param segment_num: Segment number to extract items for
+    :return: List of dicts with 'title' and 'url' keys
+    """
+    if not drive_video_pool_text or drive_video_pool_text.strip() == "" or drive_video_pool_text == "nan":
+        return []
+    
+    items = []
+    
+    # Find the segment section
+    segment_pattern = rf'---SEGMENT_{segment_num}---\s*\n(.*?)(?=\n---SEGMENT_|\Z)'
+    match = re.search(segment_pattern, drive_video_pool_text, re.DOTALL)
+    
+    if not match:
+        return []
+    
+    segment_content = match.group(1).strip()
+    
+    # Each line is a drive video entry
+    for line in segment_content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        
+        title, url = parse_drive_video_line(line)
+        if url:
+            items.append({"title": title or "Drive Video", "url": url})
+    
+    return items
+
+
+def print_multimodal_prompt(parts, title="MULTIMODAL PROMPT"):
+    """
+    Print all text parts from a multimodal parts list for debugging.
+
+    :param parts: List of types.Part objects
+    :param title: Header title for the output
+    :raise: Exception if error occurs
+    """
+    print(f"\n{'='*80}")
+    print(f"📝 {title}")
+    print(f"{'='*80}")
+    for part in parts:
+        if hasattr(part, 'text') and part.text:
+            print(part.text)
+        elif hasattr(part, 'file_data') and part.file_data:
+            print(f"[VIDEO URI: {part.file_data.file_uri}]")
+        elif hasattr(part, 'inline_data') and part.inline_data:
+            mime = getattr(part.inline_data, 'mime_type', 'unknown')
+            size = len(getattr(part.inline_data, 'data', b'') or b'')
+            print(f"[INLINE VIDEO: mime={mime}, bytes={size}]")
+    print(f"{'='*80}\n")
+
+
 def parse_scored_videos_text(final_scores_text):
     """
     Parse <final_scores> into (url, score) tuples.
@@ -765,7 +916,10 @@ def parse_scored_videos_text(final_scores_text):
         raw = re.sub(r"^\d+\.\s*", "", line.strip())
         if not raw:
             continue
-        url_match = re.search(r"https?://[^\s|]+", raw)
+        # Try to match Google Drive URL with timestamps first
+        url_match = re.search(r"https://drive\.google\.com/[^\s]+\s*\(start=\d+&end=\d+\)", raw)
+        if not url_match:
+            url_match = re.search(r"https?://[^\s|]+", raw)
         score_val = _extract_score_value(raw)
         if url_match and score_val is not None:
             out.append((url_match.group(0).strip(), score_val))
@@ -778,8 +932,10 @@ def format_video_score_segment(segment_num, set_scored_items):
 
     :param segment_num: Segment number
     :param set_scored_items: List of set outputs; each set is [(url, score), ...]
-    :return: Formatted segment block text
+    :return: Formatted segment block text, or empty string if no scores
     """
+    if not set_scored_items:
+        return ""
     lines = [f"---SEGMENT_{segment_num}---"]
     for set_idx, scored_items in enumerate(set_scored_items, 1):
         lines.append(f"Set {set_idx}:")
@@ -812,7 +968,10 @@ def _shortlist_urls_from_segment_score_block(segment_block, top_n=2, min_score=4
             raw = line.strip()
             if not raw:
                 continue
-            url_match = re.search(r"https?://[^\s|]+", raw)
+            # Try to match Google Drive URL with timestamps first
+            url_match = re.search(r"https://drive\.google\.com/[^\s]+\s*\(start=\d+&end=\d+\)", raw)
+            if not url_match:
+                url_match = re.search(r"https?://[^\s|]+", raw)
             score_val = _extract_score_value(raw)
             if url_match and score_val is not None:
                 scored.append((url_match.group(0).strip(), score_val))
@@ -842,7 +1001,7 @@ def shortlist_video_urls_from_score_text(video_score_text, segment_num, top_n=2,
     :param segment_num: Segment number
     :param top_n: Base top-N to keep before tie expansion
     :param min_score: Minimum score cutoff for candidates during tie expansion
-    :return: Deduplicated shortlisted URLs for the segment
+    :return: List of shortlisted URLs
     """
     
     if not video_score_text:
@@ -854,31 +1013,38 @@ def shortlist_video_urls_from_score_text(video_score_text, segment_num, top_n=2,
     return _shortlist_urls_from_segment_score_block(match.group(1), top_n=top_n, min_score=min_score)
 
 
-def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", entire_slide=False):
+def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", entire_slide=False, drive_video_items=None):
     """
     Score one batch of video candidates and return parsed (url, score) tuples.
 
     :param vo_text: Voiceover sentence (segment mode)
     :param slide_title: Slide title
     :param slide_chunk: Slide content
-    :param video_urls_pool: Candidate URLs from video_pool
-    :param video_items_other_channels: Candidate metadata items from other channels
+    :param video_urls_pool: Candidate URLs from video_pool (HVAC YouTube)
+    :param video_items_other_channels: Candidate metadata items from other YouTube channels
+    :param drive_video_items: Candidate items from drive_video_pool (Google Drive videos with title and URL)
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
-    :param drive: Drive instance (reserved for parity/signature consistency)
+    :param drive: Drive instance used to download Google Drive video clips
     :param llm: Model name
     :param entire_slide: If True, use whole-slide scoring prompt
-    :return: List of tuples (video_url, score)
+    :return: List of parsed (url, score) tuples
     """
+    if drive_video_items is None:
+        drive_video_items = []
     
-    total_videos = len(video_urls_pool) + len(video_items_other_channels)
+    total_videos = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
     if total_videos == 0:
         return []
     video_candidates_list = []
     video_candidates_list.extend(video_urls_pool)
     for video_item in video_items_other_channels:
         url = video_item.get("url", "")
+        if url:
+            video_candidates_list.append(url)
+    for drive_item in drive_video_items:
+        url = drive_item.get("url", "")
         if url:
             video_candidates_list.append(url)
     video_candidates_text = "\n".join([f"{i+1}. {url}" for i, url in enumerate(video_candidates_list)])
@@ -937,8 +1103,37 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
             parts.append(build_video_part(embed_url, start_seconds=None, end_seconds=None))
         idx += 1
 
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [item.get("url", "") for item in drive_video_items],
+        drive,
+        max_workers=len(drive_video_items) or 1,
+    )
+    for drive_item in drive_video_items:
+        drive_title = drive_item.get("title", "Drive Video")
+        drive_url = drive_item.get("url", "")
+        parts.append(
+            types.Part(
+                text=f"\n--- Video {idx} of {total_videos} ---\nTitle: {drive_title}\nURL: {drive_url}\n"
+            )
+        )
+        drive_part = drive_parts_by_url.get(drive_url)
+        if drive_part is not None:
+            parts.append(drive_part)
+        else:
+            parts.append(
+                types.Part(
+                    text=f"[Drive video could not be loaded for scoring: {drive_url}]\n"
+                )
+            )
+        idx += 1
+
     parts.append(types.Part(text=prompt_text))
-    raw_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.1)
+    # print_multimodal_prompt(parts, f"VIDEO SCORING PROMPT ({'Entire Slide' if entire_slide else 'Segment'})")
+    raw_text = invoke_gemini_multimodal(
+        parts,
+        llm=llm,
+        temperature=0.1,
+    )
     
     print(f"\n{'='*80}")
     print(f"📤 VIDEO SCORING RESPONSE ({'Entire Slide' if entire_slide else 'Segment'}):")
@@ -962,15 +1157,16 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None):
+def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, drive_video_items=None):
     """
     Select relevant videos from all available videos for a single segment using vision model.
-    
+
     :param vo_text: Voiceover text for the segment
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
-    :param video_urls_pool: List of video URLs from video_pool (with timestamps)
+    :param video_urls_pool: List of video URLs from video_pool (HVAC YouTube with timestamps)
     :param video_items_other_channels: List of video items from video_pool_other_channels (with metadata)
+    :param drive_video_items: List of video items from drive_video_pool (Google Drive videos with title and URL)
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
@@ -979,6 +1175,9 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     :param feedback: Optional feedback for regeneration (if provided, uses feedback prompt)
     :return: Selected videos text or empty string if no videos available
     """
+    if drive_video_items is None:
+        drive_video_items = []
+    
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting videos for segment")
     print(f"{'─'*45}")
@@ -986,10 +1185,11 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     print(f"📝 VO text: \"{vo_text}\"")
     print(f"🎥 Available videos (pool): {len(video_urls_pool)}")
     print(f"🎬 Available videos (other channels): {len(video_items_other_channels)}")
+    print(f"📁 Available videos (Drive): {len(drive_video_items)}")
     if feedback:
         print(f"📋 Using feedback-based selection")
     
-    total_videos = len(video_urls_pool) + len(video_items_other_channels)
+    total_videos = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
     
     if total_videos == 0:
         print(f"⚠️  No videos available, returning empty selection")
@@ -1003,6 +1203,11 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     # Add URLs from video_pool_other_channels
     for video_item in video_items_other_channels:
         video_url = video_item.get("url", "")
+        if video_url:
+            video_candidates_list.append(video_url)
+    # Add URLs from drive_video_pool (items have title and url)
+    for drive_item in drive_video_items:
+        video_url = drive_item.get("url", "")
         if video_url:
             video_candidates_list.append(video_url)
     
@@ -1116,11 +1321,43 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         
         video_index += 1
     
+    # Add videos from drive_video_pool (Google Drive videos with title and timestamps)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [item.get("url", "") for item in drive_video_items],
+        drive,
+        max_workers=len(drive_video_items) or 1,
+    )
+    for drive_item in drive_video_items:
+        drive_title = drive_item.get("title", "Drive Video")
+        drive_url = drive_item.get("url", "")
+        print(f"📥 Processing Drive video {video_index}/{total_videos}: {drive_title[:50]}...")
+        
+        label_text = f"\n--- Video {video_index} of {total_videos} ---\nTitle: {drive_title}\nURL: {drive_url}\n"
+        parts.append(types.Part(text=label_text))
+        drive_part = drive_parts_by_url.get(drive_url)
+        if drive_part is not None:
+            parts.append(drive_part)
+            print(f"✅ Added Drive video {video_index} (clip bytes attached)")
+        else:
+            parts.append(
+                types.Part(
+                    text=f"[Drive video could not be loaded for selection: {drive_url}]\n"
+                )
+            )
+            print(f"⚠️ Failed to load Drive video {video_index}: {drive_url}")
+        
+        video_index += 1
+    
     # Add prompt text at the end
     parts.append(types.Part(text=prompt_text))
-       
-    print(f"🤖 Calling vision model with {len(video_urls_pool) + len(video_items_other_channels)} videos...")
-    raw_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.1)
+    
+    # print_multimodal_prompt(parts, "VIDEO SELECTION PROMPT (Segment)")
+    print(f"🤖 Calling vision model with {total_videos} videos...")
+    raw_text = invoke_gemini_multimodal(
+        parts,
+        llm=llm,
+        temperature=0.1,
+    )
     
     # Print segment and response for debugging
     print(f"\nSegment: {vo_text}\n")
@@ -1152,14 +1389,15 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None):
+def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, drive_video_items=None):
     """
     Select relevant videos from all available videos for entire slide using vision model.
-    
+
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
-    :param video_urls_pool: List of video URLs from video_pool (with timestamps)
+    :param video_urls_pool: List of video URLs from video_pool (HVAC YouTube with timestamps)
     :param video_items_other_channels: List of video items from video_pool_other_channels (with metadata)
+    :param drive_video_items: List of video items from drive_video_pool (Google Drive videos with title and URL)
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
@@ -1168,6 +1406,9 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     :param feedback: Optional feedback for regeneration (if provided, uses feedback prompt)
     :return: Selected videos text or empty string if no videos available
     """
+    if drive_video_items is None:
+        drive_video_items = []
+    
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting videos for entire slide")
     print(f"{'─'*45}")
@@ -1175,10 +1416,11 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     print(f"📝 Slide Title: \"{slide_title}\"")
     print(f"🎥 Available videos (pool): {len(video_urls_pool)}")
     print(f"🎬 Available videos (other channels): {len(video_items_other_channels)}")
+    print(f"📁 Available videos (Drive): {len(drive_video_items)}")
     if feedback:
         print(f"📋 Using feedback-based selection")
     
-    total_videos = len(video_urls_pool) + len(video_items_other_channels)
+    total_videos = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
     
     if total_videos == 0:
         print(f"⚠️  No videos available, returning empty selection")
@@ -1192,6 +1434,11 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     # Add URLs from video_pool_other_channels
     for video_item in video_items_other_channels:
         video_url = video_item.get("url", "")
+        if video_url:
+            video_candidates_list.append(video_url)
+    # Add URLs from drive_video_pool (items have title and url)
+    for drive_item in drive_video_items:
+        video_url = drive_item.get("url", "")
         if video_url:
             video_candidates_list.append(video_url)
     
@@ -1303,11 +1550,43 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
         
         video_index += 1
     
+    # Add videos from drive_video_pool (Google Drive videos with title and timestamps)
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        [item.get("url", "") for item in drive_video_items],
+        drive,
+        max_workers=len(drive_video_items) or 1,
+    )
+    for drive_item in drive_video_items:
+        drive_title = drive_item.get("title", "Drive Video")
+        drive_url = drive_item.get("url", "")
+        print(f"📥 Processing Drive video {video_index}/{total_videos}: {drive_title[:50]}...")
+        
+        label_text = f"\n--- Video {video_index} of {total_videos} ---\nTitle: {drive_title}\nURL: {drive_url}\n"
+        parts.append(types.Part(text=label_text))
+        drive_part = drive_parts_by_url.get(drive_url)
+        if drive_part is not None:
+            parts.append(drive_part)
+            print(f"✅ Added Drive video {video_index} (clip bytes attached)")
+        else:
+            parts.append(
+                types.Part(
+                    text=f"[Drive video could not be loaded for selection: {drive_url}]\n"
+                )
+            )
+            print(f"⚠️ Failed to load Drive video {video_index}: {drive_url}")
+        
+        video_index += 1
+    
     # Add prompt text at the end
     parts.append(types.Part(text=prompt_text))
-       
-    print(f"🤖 Calling vision model with {len(video_urls_pool) + len(video_items_other_channels)} videos...")
-    raw_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.1)
+    
+    # print_multimodal_prompt(parts, "VIDEO SELECTION PROMPT (Entire Slide)")
+    print(f"🤖 Calling vision model with {total_videos} videos...")
+    raw_text = invoke_gemini_multimodal(
+        parts,
+        llm=llm,
+        temperature=0.1,
+    )
     
     # Print slide and response for debugging
     print(f"\nSlide: {slide_title}\n")
@@ -1330,19 +1609,23 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     return selected_videos_text
 
 
-def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels):
+def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items=None):
     """
     Parse and format selected videos for output to video_pool_filtered column.
-    
+
     :param selected_videos_text: Text from <selected_videos> tag
-    :param video_urls_pool: Original list of video URLs from video_pool
+    :param video_urls_pool: Original list of video URLs from video_pool (HVAC YouTube)
     :param video_items_other_channels: Original list of video items from video_pool_other_channels
-    :return: List of formatted video lines matching original format
+    :param drive_video_items: Original list of video items from drive_video_pool (Google Drive with title and URL)
+    :return: List of formatted video strings for the segment
     """
+    if drive_video_items is None:
+        drive_video_items = []
+    
     if not selected_videos_text or selected_videos_text.strip() == "":
         return []
     
-    # Extract URLs from selected_videos_text
+    # Extract URLs from selected_videos_text (handle Drive videos with timestamps in parens)
     selected_urls = []
     for line in selected_videos_text.split('\n'):
         line = line.strip()
@@ -1353,11 +1636,13 @@ def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, vi
         if re.match(r'^\d+\.\s*', line):
             line = re.sub(r'^\d+\.\s*', '', line)
         
-        # Extract URL
-        if line.startswith('http'):
+        # For Drive videos, capture the full URL including (start=X&end=Y)
+        drive_match = re.search(r'(https://drive\.google\.com/file/d/[^\s]+\s*\(start=\d+&end=\d+\))', line)
+        if drive_match:
+            selected_urls.append(drive_match.group(1))
+        elif line.startswith('http'):
             selected_urls.append(line)
         elif "http" in line:
-            # Try to extract URL from line
             url_match = re.search(r'https?://[^\s]+', line)
             if url_match:
                 selected_urls.append(url_match.group(0))
@@ -1379,6 +1664,13 @@ def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, vi
             channel = video_item.get("channel", "")
             formatted_lines.append(f"Title: {title} | Duration: {duration} | Channel: {channel} | URL: {video_url}")
     
+    # Check drive_video_pool items (formatted with title and URL)
+    for drive_item in drive_video_items:
+        drive_url = drive_item.get("url", "")
+        if drive_url in selected_urls:
+            title = drive_item.get("title", "Drive Video")
+            formatted_lines.append(f"Title: {title} | URL: {drive_url}")
+    
     return formatted_lines
 
 
@@ -1391,38 +1683,42 @@ def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, vi
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chunk, video_pool, video_pool_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", shortlisted_urls=None):
+def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chunk, row, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", shortlisted_urls=None, enabled_sources=None):
     """
     Process a single segment: select relevant videos from all available videos.
-    
-    :param segment_idx: Segment index (1-based)
+
+    segment_idx: Segment index (1-based)
     :param vo_text: Voiceover text for the segment
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
-    :param video_pool: Video pool text (with timestamps)
-    :param video_pool_other_channels: Video pool other channels text (with metadata)
+    :param row: Pandas Series (a Slide Chunks row) read via the candidate reader
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
     :param drive: Google Drive instance
     :param llm: Language model to use
-    :return: Tuple of (segment_idx, formatted_segment_text) or (segment_idx, None) if no selection generated
+    :param shortlisted_urls: Optional list of URLs to restrict selection to
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
+    :return: Tuple of (segment index, selected videos text)
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
     
-    # Get video URLs for this segment from both pools
-    video_urls_pool = parse_urls_from_video_pool(video_pool, segment_idx)
-    video_items_other_channels = parse_video_items_from_pool_other_channels(video_pool_other_channels, segment_idx)
+    # Source-agnostic: the reader returns candidates from every enabled video source.
+    combined = get_video_candidates(row, segment_idx, enabled_sources)
+    video_urls_pool, video_items_other_channels, drive_video_items = split_video_candidates(combined)
 
     if shortlisted_urls:
         shortlist = set(shortlisted_urls)
         video_urls_pool = [u for u in video_urls_pool if u in shortlist]
         video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
+        # Exact URL match only (including start/end). Matching by Drive file id would re-include other clips from the same file that were not shortlisted.
+        drive_video_items = [v for v in drive_video_items if v.get("url", "") in shortlist]
     
-    print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} videos from video_pool_other_channels")
-    print(f"📎 Total unique videos: {len(video_urls_pool) + len(video_items_other_channels)}")
+    print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} from video_pool_other_channels, {len(drive_video_items)} from drive_video_pool")
+    total_unique = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
+    print(f"📎 Total unique videos: {total_unique}")
     
-    if not video_urls_pool and not video_items_other_channels:
+    if not video_urls_pool and not video_items_other_channels and not drive_video_items:
         print(f"⚠️ No videos available for segment {segment_idx}, skipping")
         return segment_idx, None
     
@@ -1437,12 +1733,13 @@ def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chu
         topic_name=topic_name,
         subtopic_name=subtopic_name,
         drive=drive,
-        llm=llm
+        llm=llm,
+        drive_video_items=drive_video_items
     )
     
     if selected_videos_text:
         # Format the selected videos
-        formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels)
+        formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items)
         if formatted_videos:
             # Format segment output: "---SEGMENT_N---\nURL\n..." or "---SEGMENT_N---\nTitle: ... | URL: ...\n..."
             segment_output = [f"---SEGMENT_{segment_idx}---"] + formatted_videos
@@ -1460,21 +1757,21 @@ def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chu
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_flash_thinking"):
+def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", enabled_sources=None):
     """
     Process a single row: select videos for all segments and combine into video_pool_filtered output.
-    
+
     :param index: Row index
     :param row: Pandas Series with row data
     :param course_name: Course name
     :param drive: Google Drive instance
     :param llm: Language model to use
-    :return: Tuple of (index, video_pool_filtered_text) or (index, empty string) if no segments found
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
+    :return: Tuple of (index, video_pool_filtered_text)
+    :raise: Exception if error occurs
     """
     try:
         voiceover_segments = str(row.get("voiceover_segment", "")).strip()
-        video_pool = str(row.get("video_pool", "")).strip()
-        video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
         video_score_text = str(row.get(SCORE_COLUMN_NAME, "")).strip()
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
         slide_title = str(row.get("Slide Chunk Title", "")).strip()
@@ -1496,20 +1793,23 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
             print(f"📋 Processing row {index}: Entire slide (1 visual)")
             print(f"{'═'*50}")
             
-            # Get video URLs from SEGMENT_1 for both pools
-            video_urls_pool = parse_urls_from_video_pool(video_pool, 1)
-            video_items_other_channels = parse_video_items_from_pool_other_channels(video_pool_other_channels, 1)
+            # Source-agnostic: the reader returns candidates from every enabled video source.
+            combined = get_video_candidates(row, 1, enabled_sources)
+            video_urls_pool, video_items_other_channels, drive_video_items = split_video_candidates(combined)
             
-            print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} videos from video_pool_other_channels")
-            print(f"📎 Total unique videos: {len(video_urls_pool) + len(video_items_other_channels)}")
+            print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} from video_pool_other_channels, {len(drive_video_items)} from drive_video_pool")
+            total_unique = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
+            print(f"📎 Total unique videos: {total_unique}")
 
             shortlisted_urls = shortlist_video_urls_from_score_text(video_score_text, 1, top_n=2)
             if shortlisted_urls:
                 shortlist = set(shortlisted_urls)
                 video_urls_pool = [u for u in video_urls_pool if u in shortlist]
                 video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
+                # Exact URL match only (including start/end). Matching by Drive file id would re-include other clips from the same file that were not shortlisted.
+                drive_video_items = [v for v in drive_video_items if v.get("url", "") in shortlist]
             
-            if not video_urls_pool and not video_items_other_channels:
+            if not video_urls_pool and not video_items_other_channels and not drive_video_items:
                 print(f"⚠️ No videos available for entire slide, skipping")
                 return index, ""
             
@@ -1523,12 +1823,13 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
                 topic_name=topic_name,
                 subtopic_name=subtopic_name,
                 drive=drive,
-                llm=llm
+                llm=llm,
+                drive_video_items=drive_video_items
             )
             
             if selected_videos_text:
                 # Format the selected videos
-                formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels)
+                formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items)
                 if formatted_videos:
                     # Format output as SEGMENT_1: "---SEGMENT_1---\nURL\n..." or "---SEGMENT_1---\nTitle: ... | URL: ...\n..."
                     segment_output = [f"---SEGMENT_1---"] + formatted_videos
@@ -1562,14 +1863,14 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
                     vo_text,
                     slide_title,
                     slide_chunk,
-                    video_pool,
-                    video_pool_other_channels,
+                    row,
                     course_name,
                     topic_name,
                     subtopic_name,
                     drive,
                     llm,
                     shortlist_video_urls_from_score_text(video_score_text, segment_idx, top_n=2),
+                    enabled_sources,
                 ): segment_idx
                 for segment_idx, vo_text in segments
             }
@@ -1606,7 +1907,7 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
         return index, ""
 
 
-def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flash_thinking"):
+def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", enabled_sources=None):
     """
     Score video candidates per set and return formatted video_score text.
 
@@ -1615,12 +1916,12 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
     :param course_name: Course name
     :param drive: Drive instance
     :param llm: Model name
-    :return: Tuple (row_index, video_score_text)
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
+    :return: Tuple of (index, video_score_text)
+    :raise: Exception if error occurs
     """
     try:
         voiceover_segments = str(row.get("voiceover_segment", "")).strip()
-        video_pool = str(row.get("video_pool", "")).strip()
-        video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
         slide_title = str(row.get("Slide Chunk Title", "")).strip()
         topic_name = str(row.get("Topic", "")).strip()
@@ -1631,16 +1932,13 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
         if not slide_chunk or slide_chunk == "nan":
             return index, ""
 
-        def _collect_sources(segment_num):
-            return (
-                parse_urls_from_video_pool(video_pool, segment_num),
-                parse_video_items_from_pool_other_channels(video_pool_other_channels, segment_num),
-            )
+        # Source-agnostic: the candidate reader owns which columns/sources feed this step.
+        def _collect_combined(segment_num):
+            return get_video_candidates(row, segment_num, enabled_sources)
 
         segment_blocks = []
         if visual_assignment_strategy == "1 Visual for the whole Slide":
-            pool_urls, other_items = _collect_sources(1)
-            combined = [{"type": "pool", "url": u} for u in pool_urls] + [{"type": "other", "url": v.get("url", ""), "meta": v} for v in other_items if v.get("url", "")]
+            combined = _collect_combined(1)
             batches = build_dynamic_batches(combined)
             set_results = []
             if batches:
@@ -1649,15 +1947,16 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
                     for batch in batches:
                         b_pool = [x["url"] for x in batch if x["type"] == "pool"]
                         b_other = [x["meta"] for x in batch if x["type"] == "other"]
-                        futures.append(executor.submit(score_videos_batch, "", slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, True))
+                        b_drive = [x["meta"] for x in batch if x["type"] == "drive"]
+                        futures.append(executor.submit(score_videos_batch, "", slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, True, b_drive))
                     for future in futures:
                         set_results.append(future.result() or [])
             segment_blocks.append(format_video_score_segment(1, set_results))
         else:
             segments = parse_segments_from_voiceover(voiceover_segments)
-            for segment_idx, vo_text in segments:
-                pool_urls, other_items = _collect_sources(segment_idx)
-                combined = [{"type": "pool", "url": u} for u in pool_urls] + [{"type": "other", "url": v.get("url", ""), "meta": v} for v in other_items if v.get("url", "")]
+
+            def _score_segment(segment_idx, vo_text):
+                combined = _collect_combined(segment_idx)
                 batches = build_dynamic_batches(combined)
                 set_results = []
                 if batches:
@@ -1666,10 +1965,49 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
                         for batch in batches:
                             b_pool = [x["url"] for x in batch if x["type"] == "pool"]
                             b_other = [x["meta"] for x in batch if x["type"] == "other"]
-                            futures.append(executor.submit(score_videos_batch, vo_text, slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, False))
+                            b_drive = [x["meta"] for x in batch if x["type"] == "drive"]
+                            futures.append(
+                                executor.submit(
+                                    score_videos_batch,
+                                    vo_text,
+                                    slide_title,
+                                    slide_chunk,
+                                    b_pool,
+                                    b_other,
+                                    course_name,
+                                    topic_name,
+                                    subtopic_name,
+                                    drive,
+                                    llm,
+                                    False,
+                                    b_drive,
+                                )
+                            )
                         for future in futures:
                             set_results.append(future.result() or [])
-                segment_blocks.append(format_video_score_segment(segment_idx, set_results))
+                return segment_idx, format_video_score_segment(segment_idx, set_results)
+
+            if not segments:
+                return index, ""
+
+            # Score all segments on this slide in parallel.
+            segment_results = {}
+            with ThreadPoolExecutor(max_workers=len(segments)) as executor:
+                futures = {
+                    executor.submit(_score_segment, segment_idx, vo_text): segment_idx
+                    for segment_idx, vo_text in segments
+                }
+                for future in as_completed(futures):
+                    segment_idx = futures[future]
+                    try:
+                        scored_idx, block = future.result()
+                        segment_results[scored_idx] = block
+                    except Exception as seg_err:
+                        print(f"Error scoring segment {segment_idx} on row {index}: {seg_err}")
+                        segment_results[segment_idx] = format_video_score_segment(segment_idx, [])
+
+            for segment_idx, _vo_text in segments:
+                segment_blocks.append(segment_results.get(segment_idx, ""))
         return index, "\n\n".join([b for b in segment_blocks if b.strip()])
     except Exception as e:
         print(f"Error processing video scoring row {index}: {e}")
@@ -1685,7 +2023,7 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None):
+def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None, enabled_sources=None):
     """
     Run video scoring for all eligible rows and write results to video_score.
 
@@ -1694,6 +2032,7 @@ def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
     :param max_workers: Row-level parallel workers
     :param progress_callback: Optional callback for external progress
     :param show_progress: Toggle internal Streamlit progress bar
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
     :return: None
     """
     
@@ -1714,17 +2053,21 @@ def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
             slide_chunk = str(row.get("Slide Chunk", "")).strip()
             existing_score = str(row.get(SCORE_COLUMN_NAME, "")).strip()
-            video_pool = str(row.get("video_pool", "")).strip()
-            video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
             if not voiceover_segments or voiceover_segments == "nan" or not slide_chunk or slide_chunk == "nan":
                 continue
-            if (not video_pool or video_pool == "nan") and (not video_pool_other_channels or video_pool_other_channels == "nan"):
+            has_videos = video_row_has_candidates(row, enabled_sources)
+            if not has_videos:
+                # Clear stale empty segment markers left from prior runs
+                if existing_score and existing_score != "nan":
+                    df.at[index, SCORE_COLUMN_NAME] = ""
                 continue
-            if existing_score and existing_score != "nan" and not existing_score.startswith("ERROR:"):
+            # Header-only scores (no actual Score lines) count as unscored
+            if existing_score and existing_score != "nan" and not existing_score.startswith("ERROR:") and "Score:" in existing_score:
                 continue
-            futures_map[executor.submit(process_video_scoring_row, index, row, course_name, drive, llm)] = index
+            futures_map[executor.submit(process_video_scoring_row, index, row, course_name, drive, llm, enabled_sources)] = index
 
         if not futures_map:
+            merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
             print("All rows already scored for video_score or no valid rows found.")
             return
 
@@ -1757,7 +2100,7 @@ def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
         _, df = get_sheet_data_and_df(sheet, worksheet_name)
         invalid_rows = []
         for index, row in df.iterrows():
-            is_valid, error_msg = validate_video_score_row(row)
+            is_valid, error_msg = validate_video_score_row(row, enabled_sources)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
 
@@ -1777,7 +2120,7 @@ def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, _ in invalid_rows:
-                futures_map[executor.submit(process_video_scoring_row, index, row, course_name, drive, llm)] = index
+                futures_map[executor.submit(process_video_scoring_row, index, row, course_name, drive, llm, enabled_sources)] = index
 
             for future in as_completed(futures_map):
                 index = futures_map[future]
@@ -1790,14 +2133,16 @@ def run_video_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
         merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
 
 
-def validate_video_score_row(row):
+def validate_video_score_row(row, enabled_sources=None):
     """
     Validate video_score for rows that are eligible for video scoring.
+
+    :param row: Pandas Series with row data
+    :param enabled_sources: Optional list of enabled source ids (None checks all present)
+    :return: Tuple (is_valid, error_message)
     """
     vo_segments_text = str(row.get("voiceover_segment", "")).strip()
     slide_chunk = str(row.get("Slide Chunk", "")).strip()
-    video_pool = str(row.get("video_pool", "")).strip()
-    video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
     video_score_text = str(row.get(SCORE_COLUMN_NAME, "")).strip()
     slide_type = str(row.get("Slide Type", "")).strip().lower()
 
@@ -1808,7 +2153,8 @@ def validate_video_score_row(row):
     # If row is not eligible for video scoring, treat as valid skip.
     if not vo_segments_text or vo_segments_text == "nan" or not slide_chunk or slide_chunk == "nan":
         return True, None
-    if (not video_pool or video_pool == "nan") and (not video_pool_other_channels or video_pool_other_channels == "nan"):
+    has_videos = video_row_has_candidates(row, enabled_sources)
+    if not has_videos:
         return True, None
 
     if not video_score_text or video_score_text == "nan" or video_score_text.strip() == "":
@@ -1846,7 +2192,7 @@ def validate_video_score_row(row):
     return True, None
 
 
-def validate_video_pool_filtered_row(row):
+def validate_video_pool_filtered_row(row, enabled_sources=None):
     """
     Validate that video_pool_filtered matches voiceover_segment:
     - Row is not empty
@@ -1855,6 +2201,7 @@ def validate_video_pool_filtered_row(row):
     - For "1 Visual for the whole Slide", only SEGMENT_1 is expected
     
     :param row: Pandas Series with row data
+    :param enabled_sources: Optional list of enabled source ids (None checks all present)
     :return: Tuple (is_valid, error_message)
     """
     vo_segments_text = str(row.get("voiceover_segment", "")).strip()
@@ -1872,6 +2219,11 @@ def validate_video_pool_filtered_row(row):
 
     # Skip validation if voiceover_segment is empty
     if not vo_segments_text or vo_segments_text == "nan":
+        return True, None
+
+    # No video candidates → empty video_pool_filtered is correct
+    has_videos = video_row_has_candidates(row, enabled_sources)
+    if not has_videos:
         return True, None
 
     # Skip validation if video_pool_filtered is empty (will be caught by retry logic)
@@ -1931,7 +2283,7 @@ def validate_video_pool_filtered_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None):
+def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None, enabled_sources=None):
     """
     Select relevant videos from all available videos for all rows in the Slide Chunks sheet.
     
@@ -1940,6 +2292,7 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
     :param max_workers: Number of parallel workers (default 3, lower due to video frame extraction).
     :param progress_callback: Optional callback invoked as each initial row completes.
     :param show_progress: If False, disable internal Streamlit progress bar (thread-safe for parallel outer steps).
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
     :return: None if initialization fails
     """
     print(f"\n{'='*80}")
@@ -1972,8 +2325,6 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             if selected_topics and topic_name not in selected_topics:
                 continue
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
-            video_pool = str(row.get("video_pool", "")).strip()
-            video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
             video_pool_filtered = str(row.get("video_pool_filtered", "")).strip()
             slide_type = str(row.get("Slide Type", "")).strip().lower()
             
@@ -1981,8 +2332,9 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             if slide_type in ("transition", "transition slide"):
                 continue
             
-            # Skip if no video sources available
-            if (not video_pool or video_pool == "nan") and (not video_pool_other_channels or video_pool_other_channels == "nan"):
+            # Skip if no video sources available (respecting enabled sources)
+            has_videos = video_row_has_candidates(row, enabled_sources)
+            if not has_videos:
                 continue
             
             # Skip if video_pool_filtered is already filled
@@ -1992,7 +2344,7 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
                 continue
             
             # Submit task for processing
-            future = executor.submit(process_video_selection_row, index, row, course_name, drive, llm)
+            future = executor.submit(process_video_selection_row, index, row, course_name, drive, llm, enabled_sources)
             futures_map[future] = index
         
         # If no rows to process, return early
@@ -2067,7 +2419,7 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             topic_name = str(row.get("Topic", "")).strip()
             if selected_topics and topic_name not in selected_topics:
                 continue
-            is_valid, error_msg = validate_video_pool_filtered_row(row)
+            is_valid, error_msg = validate_video_pool_filtered_row(row, enabled_sources)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
         
@@ -2093,7 +2445,7 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
                 topic_name = str(row.get("Topic", "")).strip()
                 if selected_topics and topic_name not in selected_topics:
                     continue
-                future = executor.submit(process_video_selection_row, index, row, course_name, drive, llm)
+                future = executor.submit(process_video_selection_row, index, row, course_name, drive, llm, enabled_sources)
                 futures_map[future] = index
             
             # Collect results
@@ -2117,7 +2469,7 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             topic_name = str(row.get("Topic", "")).strip()
             if selected_topics and topic_name not in selected_topics:
                 continue
-            is_valid, error_msg = validate_video_pool_filtered_row(row)
+            is_valid, error_msg = validate_video_pool_filtered_row(row, enabled_sources)
             if not is_valid:
                 final_invalid.append((index, error_msg))
         

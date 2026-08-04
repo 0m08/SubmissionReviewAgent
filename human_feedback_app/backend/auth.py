@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import traceback
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -14,7 +15,9 @@ from human_feedback_app.backend.config import (
     OAUTH_REDIRECT_URI,
     SESSION_COOKIE,
 )
+from human_feedback_app.backend.jobs import revision_queue
 from human_feedback_app.backend.sessions import session_store
+from human_feedback_app.backend.sheet_service import clear_visual_revision_action
 from services.drive_service import (
     exchange_code_for_credentials,
     get_google_oauth_authorization_url,
@@ -125,7 +128,33 @@ def logout_get(request: Request):
 def _logout_response(request: Request):
     session = session_store.get(_session_id_from_request(request))
     if session:
+        # 1) Cancel in-flight jobs so workers will not mark results completed.
+        cancelled = revision_queue.cancel_session_jobs(session.session_id)
+
+        # 2) Block further sheet writes immediately (workers check this under the write lock).
+        session.aborted = True
+
+        # 3) Clear durable "revising" reject actions for unfinished visual jobs while Google clients are still usable.
+        if session.sheet_link and cancelled:
+            try:
+                ensure_google_clients(session)
+                for job in cancelled:
+                    if job.kind != "visual" or job.row_index is None or not job.visual_id:
+                        continue
+                    try:
+                        clear_visual_revision_action(
+                            session,
+                            int(job.row_index),
+                            job.visual_id,
+                            allow_when_aborted=True,
+                        )
+                    except Exception:
+                        traceback.print_exc()
+            except Exception:
+                traceback.print_exc()
+
         session_store.delete(session.session_id)
+
     response = RedirectResponse("/login-page", status_code=302)
     response.delete_cookie(SESSION_COOKIE)
     return response
