@@ -22,9 +22,11 @@ from agents.graphics_definition_v2.image_graphics_agent.drive_search import (
     parse_search_queries_column,
 )
 from services.sheets_service import (
+    clear_worksheet,
     format_worksheet,
     get_sheet_data_and_df,
     merge_and_save_columns,
+    save_to_sheet,
 )
 from services.smart_progress_bar import SmartProgressBar
 
@@ -446,7 +448,7 @@ def run_external_ref_search_for_all_rows(sheet, k=search_k, max_workers=50, sele
 
 def delete_external_ref_pool(sheet):
     """
-    Clear external_ref_pool column on Slide Chunks (does not delete Supabase rows).
+    Remove the external_ref_pool column from Slide Chunks (does not delete Supabase rows).
 
     :param sheet: gspread sheet object
     :return: None
@@ -457,8 +459,11 @@ def delete_external_ref_pool(sheet):
         if EXTERNAL_REF_POOL_COLUMN not in df.columns:
             print(f"ℹ️ '{EXTERNAL_REF_POOL_COLUMN}' column does not exist")
             return
-        df[EXTERNAL_REF_POOL_COLUMN] = ""
-        merge_and_save_columns(sheet, worksheet_name, df, [EXTERNAL_REF_POOL_COLUMN])
-        print(f"🗑️ Cleared '{EXTERNAL_REF_POOL_COLUMN}' (Supabase index kept)")
+        df = df.drop(columns=[EXTERNAL_REF_POOL_COLUMN])
+        clear_worksheet(worksheet)
+        save_to_sheet(worksheet, df)
+        print(
+            f"🗑️ Deleted '{EXTERNAL_REF_POOL_COLUMN}' column from '{worksheet_name}' sheet"
+        )
     except Exception as exc:
-        print(f"⚠️ Could not clear {EXTERNAL_REF_POOL_COLUMN}: {exc}")
+        print(f"⚠️ Could not delete {EXTERNAL_REF_POOL_COLUMN}: {exc}")
