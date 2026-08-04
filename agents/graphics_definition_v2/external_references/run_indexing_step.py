@@ -122,13 +122,20 @@ def _read_extraction_log_assets(sheet):
         if not str(raw).strip():
             return {}
         data = json.loads(raw)
+        if not isinstance(data, dict):
+            return {}
         out = {}
         for entry in data.get("per_source") or []:
+            if not isinstance(entry, dict):
+                continue
             link = (entry.get("source_link") or "").strip()
             urls = [u for u in (entry.get("asset_urls") or []) if u]
             if link and urls:
                 out[link] = urls
         return out
+    except json.JSONDecodeError:
+        # Legacy plain-text empty-run logs are not JSON; treat as no assets.
+        return {}
     except Exception as exc:
         print(f"⚠️ Could not read extraction log assets: {exc}")
         return {}

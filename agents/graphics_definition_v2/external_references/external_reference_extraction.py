@@ -1147,7 +1147,19 @@ def run_external_reference_extraction(sheet, parent_folder_id=EXTERNAL_REF_ASSET
         print("ℹ️ No links in Course info → External References. Nothing to extract.")
         _persist_extraction_log(
             sheet,
-            f"[{datetime.now(timezone.utc).isoformat()}] No External References links found.",
+            json.dumps(
+                {
+                    "ran_at": datetime.now(timezone.utc).isoformat(),
+                    "course_name": course_name,
+                    "sheet_id": sheet_id,
+                    "parent_folder_id": parent_folder_id or EXTERNAL_REF_ASSETS_FOLDER_ID,
+                    "sources_total": 0,
+                    "images_uploaded": 0,
+                    "per_source": [],
+                    "note": "No External References links found.",
+                },
+                indent=2,
+            ),
         )
         return
 

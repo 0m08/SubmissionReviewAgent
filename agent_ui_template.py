@@ -284,6 +284,25 @@ def _normalize_selected_topics(selected_topics):
     return [str(topic).strip() for topic in selected_topics if str(topic).strip()]
 
 
+def _course_info_has_external_reference_links(sheet):
+    """
+    Return True if Course info → External References has at least one link.
+
+    :param sheet: gspread Spreadsheet, or None
+    :return: bool
+    """
+    if sheet is None:
+        return False
+    try:
+        from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+            _read_course_info,
+        )
+        _, _, links = _read_course_info(sheet)
+        return bool(links)
+    except Exception:
+        return False
+
+
 def _render_graphics_v2_asset_library_controls():
     """
     Render Graphics Definition V2 asset-library checkboxes and sync session state.
@@ -293,12 +312,20 @@ def _render_graphics_v2_asset_library_controls():
         UI_KEY_HVAC_YOUTUBE: True,
         UI_KEY_WEB_AND_OTHER: True,
         UI_KEY_DRIVE_VIDEOS: True,
-        UI_KEY_EXTERNAL_REFERENCES: True,
         UI_KEY_DRIVE_VIDEO_MODE: DRIVE_VIDEO_MODE_ALL,
     }
     for key, default in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default
+
+    sheet = st.session_state.get("sheet")
+    sheet_link = (st.session_state.get("sheet_link") or "").strip()
+    applied_for = st.session_state.get("_graphics_v2_ext_ref_default_sheet_link")
+    if UI_KEY_EXTERNAL_REFERENCES not in st.session_state or applied_for != sheet_link:
+        st.session_state[UI_KEY_EXTERNAL_REFERENCES] = _course_info_has_external_reference_links(
+            sheet
+        )
+        st.session_state["_graphics_v2_ext_ref_default_sheet_link"] = sheet_link
 
     st.markdown("**Asset libraries for this run**")
     st.caption(
@@ -340,7 +367,7 @@ def _render_graphics_v2_asset_library_controls():
         enabled_sources.append(SOURCE_HVAC_YOUTUBE)
     if st.session_state.get(UI_KEY_DRIVE_VIDEOS, True):
         enabled_sources.append(SOURCE_DRIVE_VIDEOS)
-    if st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, True):
+    if st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, False):
         enabled_sources.append(SOURCE_EXTERNAL_REFERENCES)
 
     web_fallback_enabled = bool(st.session_state.get(UI_KEY_WEB_AND_OTHER, True))
@@ -367,6 +394,10 @@ def _step_is_hidden(step, pipeline_sections=None):
     if not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False):
         return True
     if not st.session_state.get("graphics_v2_web_fallback_enabled", True) and step.get("hide_if_web_disabled", False):
+        return True
+    if not st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, False) and step.get(
+        "hide_if_external_references_disabled", False
+    ):
         return True
     return False
 
@@ -539,6 +570,8 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                 st.session_state["checklist_sheet_link"] = course_info_df['Checklist Link'][0]
                 st.session_state["drive"] = drive
                 st.session_state["gc"] = gc
+                # Force External References toggle to re-default from Course info links
+                st.session_state.pop("_graphics_v2_ext_ref_default_sheet_link", None)
                 
                 # Set the langchain project name for langsmith
                 os.environ["LANGCHAIN_PROJECT"] = get_short_name(st.session_state["course_name"]) + " " + sheet.id

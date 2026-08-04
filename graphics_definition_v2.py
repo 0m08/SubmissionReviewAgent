@@ -137,11 +137,12 @@ pipeline_sections = [
                     "sheet": "sheet",
                 },
                 "estimated_time": "5-20 minutes",
-                "description": "Extracts images from PDF / Google Docs / Google Slides / PPT via LlamaParse and uploads them under the shared External Reference Assets Drive folder."
+                "description": "Extracts images from PDF / Google Docs / Google Slides / PPT via LlamaParse and uploads them under the shared External Reference Assets Drive folder.",
                 "delete_func": delete_external_reference_extraction_log,
                 "delete_args": {
                     "sheet": "sheet",
                 },
+                "hide_if_external_references_disabled": True,
             },
             {
                 "name": "Index External Reference Assets",
@@ -151,11 +152,12 @@ pipeline_sections = [
                     "sheet": "sheet",
                 },
                 "estimated_time": "5-30 minutes",
-                "description": "Indexes the external reference images and videos and store them into Supabase.
+                "description": "Indexes the external reference images and videos and store them into Supabase.",
                 "delete_func": delete_external_reference_index_log,
                 "delete_args": {
                     "sheet": "sheet",
                 },
+                "hide_if_external_references_disabled": True,
             },
         ],
     },
@@ -278,7 +280,7 @@ pipeline_sections = [
                     "enabled_sources": "graphics_v2_enabled_sources",
                 },
                 "estimated_time": "10-20 minutes",
-                "description": "This step runs enabled candidate searches in parallel via the pool registry."
+                "description": "This step runs enabled candidate searches in parallel via the pool registry.",
                 "delete_func": delete_all_candidate_results,
                 "delete_args": {
                     "sheet": "sheet"
@@ -301,7 +303,7 @@ pipeline_sections = [
                 },
                 "is_llm_step": True, 
                 "estimated_time": "20-40 minutes",
-                "description": "This step runs Image Pool and Video Pool scoring/filtering in parallel from enabled candidate columns."
+                "description": "This step runs Image Pool and Video Pool scoring/filtering in parallel from enabled candidate columns.",
                 "delete_func": delete_all_pool_results,
                 "delete_args": {
                     "sheet": "sheet"
