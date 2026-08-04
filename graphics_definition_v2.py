@@ -178,7 +178,7 @@ pipeline_sections = [
                     "llm": "gemini_3_flash_thinking",
                     "max_workers": 50,
                 },
-                "estimated_time": "5-12 minutes",
+                "estimated_time": "5-10 minutes",
                 "description": "This function identifies scene-wise layout strategy for each slide row and saves the output to the layout_plan column.",
                 "delete_func": delete_layout_plan_columns,
                 "delete_args": {
