@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import re
 from agents.vector_store_image_search.web_image_search_tool import web_image_search_tool
+from agents.graphics_definition_v2.candidate_search.search_wrapper import run_pool_search_queries
 
 load_dotenv()
 
@@ -130,48 +131,35 @@ def process_web_search_segment(segment_num, queries, k=web_search_k):
     print(f"📦 Processing SEGMENT_{segment_num} with {len(queries)} queries")
     print(f"{'─'*45}")
     
-    # Execute all queries for this segment
     all_results_for_segment = []
     seen_urls = set()  # Deduplicate within segment by URL
-    
-    # Filter out empty queries
-    valid_queries = [(idx, q.strip()) for idx, q in enumerate(queries, 1) if q.strip()]
-    
+
+    valid_queries = [q.strip() for q in queries if q and str(q).strip()]
     if not valid_queries:
         return segment_num, None
-    
-    # Execute queries in parallel
-    with ThreadPoolExecutor(max_workers=len(valid_queries)) as executor:
-        # Submit all queries
-        futures = {
-            executor.submit(execute_web_search_for_query, query, k): (query_idx, query)
-            for query_idx, query in valid_queries
-        }
-        
-        # Collect results as they complete
-        for future in as_completed(futures):
-            query_idx, query = futures[future]
-            try:
-                print(f"🔍 Query {query_idx}: \"{query}\"")
-                results = future.result()
-                print(f"✅ Query {query_idx} returned {len(results)} results")
-                
-                # Deduplicate by URL within this segment
-                for ref in results:
-                    url = ref.get("url", "").strip()
-                    title = ref.get("title", "Untitled")
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        all_results_for_segment.append({"url": url, "title": title})
-            except Exception as e:
-                print(f"❌ Error executing query {query_idx} (\"{query}\"): {e}")
-    
-    # Format segment results with title and URL
+
+    print(f"🚀 SEGMENT_{segment_num}: submitting {len(valid_queries)} web query search task(s) in parallel")
+    query_results = run_pool_search_queries(
+        valid_queries,
+        execute_web_search_for_query,
+        k=k,
+    )
+
+    for query_idx, (query, results) in enumerate(query_results, 1):
+        print(f"🔍 Query {query_idx}: \"{query}\"")
+        results = results or []
+        print(f"✅ Query {query_idx} returned {len(results)} results")
+        for ref in results:
+            url = ref.get("url", "").strip()
+            title = ref.get("title", "Untitled")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_results_for_segment.append({"url": url, "title": title})
+
     segment_items = [f"Title: {ref['title']} | URL: {ref['url']}" for ref in all_results_for_segment]
-    
+
     print(f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results")
-    
-    # Format segment results
+
     if segment_items:
         segment_output = [f"---SEGMENT_{segment_num}---"] + segment_items
         return segment_num, '\n'.join(segment_output)

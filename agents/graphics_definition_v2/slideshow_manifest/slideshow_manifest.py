@@ -1,7 +1,6 @@
 import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from io import BytesIO
 from xml.etree import ElementTree as ET
 
 import streamlit as st
@@ -10,13 +9,12 @@ from google.genai import types
 from langsmith import traceable
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
-    convert_watch_url_to_embed_url,
     get_drive_instance,
     invoke_gemini_multimodal,
-    load_image_from_url,
-    parse_video_url_timestamps,
 )
-from services.helper_functions import build_video_part
+from agents.graphics_definition_v2.review_agent.review_and_revise import (
+    build_visual_part_only,
+)
 from services.sheets_service import (
     clear_worksheet,
     format_worksheet,
@@ -301,11 +299,6 @@ def make_slot_narration_resolver_from_fgd(fgd_text):
     return resolve
 
 
-def _is_youtube_url(url):
-    u = (url or "").lower()
-    return "youtube.com" in u or "youtu.be" in u
-
-
 def _append_asset_multimodal_parts(parts, beat_index, when_vo, asset_url, drive):
     """
     Append a text label and optional image or video part for one assigned asset.
@@ -314,7 +307,7 @@ def _append_asset_multimodal_parts(parts, beat_index, when_vo, asset_url, drive)
     :param beat_index: 1-based index for logging labels.
     :param when_vo: Narration text for this beat.
     :param asset_url: Assigned asset URL.
-    :param drive: Google Drive client for loading Drive-hosted images.
+    :param drive: Google Drive client for loading Drive-hosted images and videos.
     :return: None
     """
     label = (
@@ -323,25 +316,9 @@ def _append_asset_multimodal_parts(parts, beat_index, when_vo, asset_url, drive)
         f"Assigned Asset:\n{asset_url}\n"
     )
     parts.append(types.Part(text=label))
-    if _is_youtube_url(asset_url):
-        clip_url, start_seconds, end_seconds = parse_video_url_timestamps(asset_url)
-        if not clip_url:
-            clip_url = convert_watch_url_to_embed_url(asset_url)
-            start_seconds, end_seconds = None, None
-        if clip_url:
-            video_part = build_video_part(clip_url, start_seconds, end_seconds)
-            if video_part:
-                parts.append(video_part)
-        return
-    pil = load_image_from_url(asset_url, drive, f"slideshow_manifest_beat_{beat_index}")
-    if pil:
-        buffered = BytesIO()
-        pil.convert("RGB").save(buffered, format="JPEG")
-        parts.append(
-            types.Part(
-                inline_data=types.Blob(mime_type="image/jpeg", data=buffered.getvalue())
-            )
-        )
+    visual_part = build_visual_part_only(asset_url, drive)
+    if visual_part:
+        parts.append(visual_part)
 
 
 def parse_slideshow_manifest_response(response_text):

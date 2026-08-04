@@ -243,6 +243,16 @@ def _get_agent_work_count(sheet, agent_name):
     return None, None
 
 
+def _step_is_hidden_cli(step, state):
+    if state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
+        return True
+    if not state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False):
+        return True
+    if not state.get("graphics_v2_web_fallback_enabled", True) and step.get("hide_if_web_disabled", False):
+        return True
+    return False
+
+
 # Helper: Run all automated steps
 def run_all_automated_steps_for_cli(sections, state):
     progress = True
@@ -250,8 +260,8 @@ def run_all_automated_steps_for_cli(sections, state):
         progress = False
         for sec in sections:
             for step in sec["steps"]:
-                # Skip step completely if outline is finalized and this step is marked to hide
-                if state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
+                # Skip step completely if it is hidden/disabled
+                if _step_is_hidden_cli(step, state):
                     continue
 
                 step_key = f"{step['name']}_done"
@@ -260,13 +270,10 @@ def run_all_automated_steps_for_cli(sections, state):
 
                 if not all(
                     state.get(f"{d}_done", False)
-                    or (
-                        state.get("outline_finalized", False)
-                        and any(
-                            d == s["name"] and s.get("hide_if_final_outline", False)
-                            for sec_all in sections
-                            for s in sec_all["steps"]
-                        )
+                    or any(
+                        d == s["name"] and _step_is_hidden_cli(s, state)
+                        for sec_all in sections
+                        for s in sec_all["steps"]
                     )
                     for d in step.get("depends_on", [])
                 ):

@@ -10,6 +10,10 @@ from PIL import Image
 from modules.chain import Chain
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import invoke_gemini_multimodal
+from agents.graphics_definition_v2.candidate_search.candidate_wrapper import (
+    get_image_candidates,
+    image_row_has_candidates,
+)
 from google.genai import types
 from dotenv import load_dotenv
 import os
@@ -856,8 +860,10 @@ def format_image_score_segment(segment_num, set_scored_items):
     
     :param segment_num: Segment number
     :param set_scored_items: List of set outputs; each set is [(url, score), ...]
-    :return: Formatted segment block text
+    :return: Formatted segment block text, or empty string if no scores
     """
+    if not set_scored_items:
+        return ""
     lines = [f"---SEGMENT_{segment_num}---"]
     for set_idx, scored_items in enumerate(set_scored_items, 1):
         lines.append(f"Set {set_idx}:")
@@ -1340,7 +1346,7 @@ def select_images_from_all_for_entire_slide(slide_title, slide_chunk, image_urls
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_image_selection_segment(segment_idx, vo_text, slide_title, slide_chunk, drive_results, web_results, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", shortlisted_urls=None):
+def process_image_selection_segment(segment_idx, vo_text, slide_title, slide_chunk, row, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", shortlisted_urls=None, enabled_sources=None):
     """
     Process a single segment: select relevant images from all available images.
     
@@ -1348,29 +1354,20 @@ def process_image_selection_segment(segment_idx, vo_text, slide_title, slide_chu
     :param vo_text: Voiceover text for the segment
     :param slide_title: Slide title
     :param slide_chunk: Full slide content
-    :param drive_results: Drive search results text
-    :param web_results: Web search results text
+    :param row: Pandas Series (a Slide Chunks row) read via the candidate reader
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
     :param drive: Google Drive instance
     :param llm: Language model to use
+    :param shortlisted_urls: Optional list of URLs to restrict selection to
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
     :return: Tuple of (segment_idx, formatted_segment_text) or (segment_idx, None) if no selection generated
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
     
-    # Get image items (with title and URL) for this segment from both drive and web results
-    drive_items = parse_urls_from_results(drive_results, segment_idx)
-    web_items = parse_urls_from_results(web_results, segment_idx)
-    
-    # Combine and deduplicate by URL
-    seen_urls = set()
-    all_items = []
-    for item in drive_items + web_items:
-        url = item.get("url", "")
-        if url and url not in seen_urls:
-            seen_urls.add(url)
-            all_items.append(item)
+    # Source-agnostic: the reader returns deduped candidates from every enabled image source.
+    all_items = get_image_candidates(row, segment_idx, enabled_sources)
     
     # Extract URLs list for the function
     all_urls = [item["url"] for item in all_items]
@@ -1381,7 +1378,6 @@ def process_image_selection_segment(segment_idx, vo_text, slide_title, slide_chu
         shortlist_set = set(shortlisted_urls)
         all_urls = [u for u in all_urls if u in shortlist_set]
     
-    print(f"🔗 Found {len(drive_items)} drive items, {len(web_items)} web items")
     print(f"📎 Total unique images: {len(all_urls)}")
     
     if not all_urls:
@@ -1422,7 +1418,7 @@ def process_image_selection_segment(segment_idx, vo_text, slide_title, slide_chu
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_image_selection_row(index, row, course_name, drive, llm="gemini_3_flash_thinking"):
+def process_image_selection_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", enabled_sources=None):
     """
     Process a single row: select images for all segments and combine into image_pool output.
     
@@ -1431,12 +1427,11 @@ def process_image_selection_row(index, row, course_name, drive, llm="gemini_3_fl
     :param course_name: Course name
     :param drive: Google Drive instance
     :param llm: Language model to use
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
     :return: Tuple of (index, image_pool_text) or (index, empty string) if no segments found
     """
     try:
         voiceover_segments = str(row.get("voiceover_segment", "")).strip()
-        drive_results = str(row.get("drive_results", "")).strip()
-        web_results = str(row.get("web_results", "")).strip()
         image_score_text = str(row.get(SCORE_COLUMN_NAME, "")).strip()
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
         slide_title = str(row.get("Slide Chunk Title", "")).strip()
@@ -1458,25 +1453,14 @@ def process_image_selection_row(index, row, course_name, drive, llm="gemini_3_fl
             print(f"📋 Processing row {index}: Entire slide (1 visual)")
             print(f"{'═'*50}")
             
-            # Get image items from SEGMENT_1 for both drive and web results
-            drive_items = parse_urls_from_results(drive_results, 1)
-            web_items = parse_urls_from_results(web_results, 1)
-            
-            # Combine and deduplicate by URL
-            seen_urls = set()
-            all_items = []
-            for item in drive_items + web_items:
-                url = item.get("url", "")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_items.append(item)
+            # Source-agnostic: the reader returns deduped candidates from every enabled image source.
+            all_items = get_image_candidates(row, 1, enabled_sources)
             
             # Extract URLs list for the function
             all_urls = [item["url"] for item in all_items]
             # Create a mapping of URL to title for easy lookup
             url_to_title = {item["url"]: item.get("title", "Untitled") for item in all_items}
             
-            print(f"🔗 Found {len(drive_items)} drive items, {len(web_items)} web items")
             print(f"📎 Total unique images: {len(all_urls)}")
             
             if not all_urls:
@@ -1536,14 +1520,14 @@ def process_image_selection_row(index, row, course_name, drive, llm="gemini_3_fl
                     vo_text,
                     slide_title,
                     slide_chunk,
-                    drive_results,
-                    web_results,
+                    row,
                     course_name,
                     topic_name,
                     subtopic_name,
                     drive,
                     llm,
                     shortlist_image_urls_from_score_text(image_score_text, segment_idx, top_n=2),
+                    enabled_sources,
                 ): segment_idx
                 for segment_idx, vo_text in segments
             }
@@ -1580,7 +1564,7 @@ def process_image_selection_row(index, row, course_name, drive, llm="gemini_3_fl
         return index, ""
 
 
-def process_image_scoring_row(index, row, course_name, drive, llm="gemini_3_flash_thinking"):
+def process_image_scoring_row(index, row, course_name, drive, llm="gemini_3_flash_thinking", enabled_sources=None):
     """
     Score image candidates per set and return formatted image_score text.
     
@@ -1589,13 +1573,12 @@ def process_image_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
     :param course_name: Course name
     :param drive: Google Drive instance
     :param llm: Language model to use
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
     :return: Tuple of (index, image_score_text) or (index, empty string) if no segments found
     """
     
     try:
         voiceover_segments = str(row.get("voiceover_segment", "")).strip()
-        drive_results = str(row.get("drive_results", "")).strip()
-        web_results = str(row.get("web_results", "")).strip()
         slide_chunk = str(row.get("Slide Chunk", "")).strip()
         slide_title = str(row.get("Slide Chunk Title", "")).strip()
         topic_name = str(row.get("Topic", "")).strip()
@@ -1606,17 +1589,9 @@ def process_image_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
         if not slide_chunk or slide_chunk == "nan":
             return index, ""
 
+        # Source-agnostic: the candidate reader owns which columns/sources feed this step.
         def _collect_items(segment_num):
-            drive_items = parse_urls_from_results(drive_results, segment_num)
-            web_items = parse_urls_from_results(web_results, segment_num)
-            seen = set()
-            out = []
-            for item in drive_items + web_items:
-                url = item.get("url", "")
-                if url and url not in seen:
-                    seen.add(url)
-                    out.append(item)
-            return out
+            return get_image_candidates(row, segment_num, enabled_sources)
 
         segment_blocks = []
         if visual_assignment_strategy == "1 Visual for the whole Slide":
@@ -1686,7 +1661,7 @@ def process_image_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None):
+def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None, enabled_sources=None):
     """
     Run image scoring for all eligible rows and write results to image_score.
     
@@ -1695,6 +1670,7 @@ def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
     :param max_workers: Number of parallel workers (default 3, lower due to image loading).
     :param progress_callback: Optional callback invoked as each initial row completes.
     :param show_progress: If False, disable internal Streamlit progress bar (thread-safe for parallel outer steps).
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
     :return: None if initialization fails
     """
     
@@ -1717,11 +1693,19 @@ def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
             existing_score = str(row.get(SCORE_COLUMN_NAME, "")).strip()
             if not voiceover_segments or voiceover_segments == "nan" or not slide_chunk or slide_chunk == "nan":
                 continue
-            if existing_score and existing_score != "nan" and not existing_score.startswith("ERROR:"):
+            has_images = image_row_has_candidates(row, enabled_sources)
+            if not has_images:
+                # Clear stale empty segment markers left from prior runs
+                if existing_score and existing_score != "nan":
+                    df.at[index, SCORE_COLUMN_NAME] = ""
                 continue
-            futures_map[executor.submit(process_image_scoring_row, index, row, course_name, drive, llm)] = index
+            # Header-only scores (no actual Score lines) count as unscored
+            if existing_score and existing_score != "nan" and not existing_score.startswith("ERROR:") and "Score:" in existing_score:
+                continue
+            futures_map[executor.submit(process_image_scoring_row, index, row, course_name, drive, llm, enabled_sources)] = index
 
         if not futures_map:
+            merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
             print("All rows already scored for image_score or no valid rows found.")
             return
 
@@ -1754,7 +1738,7 @@ def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
         _, df = get_sheet_data_and_df(sheet, worksheet_name)
         invalid_rows = []
         for index, row in df.iterrows():
-            is_valid, error_msg = validate_image_score_row(row)
+            is_valid, error_msg = validate_image_score_row(row, enabled_sources)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
 
@@ -1774,7 +1758,7 @@ def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
         futures_map = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, row, _ in invalid_rows:
-                futures_map[executor.submit(process_image_scoring_row, index, row, course_name, drive, llm)] = index
+                futures_map[executor.submit(process_image_scoring_row, index, row, course_name, drive, llm, enabled_sources)] = index
 
             for future in as_completed(futures_map):
                 index = futures_map[future]
@@ -1787,9 +1771,13 @@ def run_image_scoring_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_wor
         merge_and_save_columns(sheet, worksheet_name, df, [SCORE_COLUMN_NAME])
 
 
-def validate_image_score_row(row):
+def validate_image_score_row(row, enabled_sources=None):
     """
     Validate image_score for rows that are eligible for image scoring.
+
+    :param row: Pandas Series with row data
+    :param enabled_sources: Optional list of enabled source ids (None checks all present)
+    :return: Tuple (is_valid, error_message)
     """
     vo_segments_text = str(row.get("voiceover_segment", "")).strip()
     slide_chunk = str(row.get("Slide Chunk", "")).strip()
@@ -1797,6 +1785,11 @@ def validate_image_score_row(row):
 
     # If row is not eligible for image scoring, treat as valid skip.
     if not vo_segments_text or vo_segments_text == "nan" or not slide_chunk or slide_chunk == "nan":
+        return True, None
+
+    # No image candidates → empty image_score is correct
+    has_images = image_row_has_candidates(row, enabled_sources)
+    if not has_images:
         return True, None
 
     if not image_score_text or image_score_text == "nan" or image_score_text.strip() == "":
@@ -1834,7 +1827,7 @@ def validate_image_score_row(row):
     return True, None
 
 
-def validate_image_pool_row(row):
+def validate_image_pool_row(row, enabled_sources=None):
     """
     Validate that image_pool matches voiceover_segment:
     - Row is not empty
@@ -1843,6 +1836,7 @@ def validate_image_pool_row(row):
     - For "1 Visual for the whole Slide", only SEGMENT_1 is expected
     
     :param row: Pandas Series with row data
+    :param enabled_sources: Optional list of enabled source ids (None checks all present)
     :return: Tuple (is_valid, error_message)
     """
     
@@ -1856,6 +1850,11 @@ def validate_image_pool_row(row):
     
     # Skip validation if voiceover_segment is empty
     if not vo_segments_text or vo_segments_text == "nan":
+        return True, None
+
+    # No image candidates → empty image_pool is correct
+    has_images = image_row_has_candidates(row, enabled_sources)
+    if not has_images:
         return True, None
     
     # Skip validation if image_pool is empty (will be caught by retry logic)
@@ -1915,7 +1914,7 @@ def validate_image_pool_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None,
+def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50, progress_callback=None, show_progress: bool = True, selected_topics=None, enabled_sources=None,
 ):
     """
     Select relevant images from all available images for all rows in the Slide Chunks sheet.
@@ -1925,6 +1924,7 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
     :param max_workers: Number of parallel workers (default 3, lower due to image loading).
     :param progress_callback: Optional callback invoked as each initial row completes.
     :param show_progress: If False, disable internal Streamlit progress bar (thread-safe for parallel outer steps).
+    :param enabled_sources: Optional list of enabled source ids (None reads all present)
     :return: None if initialization fails
     """
     print(f"\n{'='*80}")
@@ -1970,7 +1970,7 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
                 continue
             
             # Submit task for processing
-            future = executor.submit(process_image_selection_row, index, row, course_name, drive, llm)
+            future = executor.submit(process_image_selection_row, index, row, course_name, drive, llm, enabled_sources)
             futures_map[future] = index
         
         # If no rows to process, return early
@@ -2045,7 +2045,7 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
             topic_name = str(row.get("Topic", "")).strip()
             if selected_topics and topic_name not in selected_topics:
                 continue
-            is_valid, error_msg = validate_image_pool_row(row)
+            is_valid, error_msg = validate_image_pool_row(row, enabled_sources)
             if not is_valid:
                 invalid_rows.append((index, row, error_msg))
         
@@ -2071,7 +2071,7 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
                 topic_name = str(row.get("Topic", "")).strip()
                 if selected_topics and topic_name not in selected_topics:
                     continue
-                future = executor.submit(process_image_selection_row, index, row, course_name, drive, llm)
+                future = executor.submit(process_image_selection_row, index, row, course_name, drive, llm, enabled_sources)
                 futures_map[future] = index
             
             # Collect results
@@ -2095,7 +2095,7 @@ def run_image_selection_from_all_images_for_all_rows(sheet, llm="gemini_3_flash_
             topic_name = str(row.get("Topic", "")).strip()
             if selected_topics and topic_name not in selected_topics:
                 continue
-            is_valid, error_msg = validate_image_pool_row(row)
+            is_valid, error_msg = validate_image_pool_row(row, enabled_sources)
             if not is_valid:
                 final_invalid.append((index, error_msg))
         

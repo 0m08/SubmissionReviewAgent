@@ -37,6 +37,20 @@ from services.background_job_status_service import (
     append_background_job_status,
     IN_PROGRESS_STATUSES,
 )
+from agents.graphics_definition_v2.candidate_search.pool_registry import (
+    DRIVE_VIDEO_MODE_ALL,
+    DRIVE_VIDEO_MODE_NEXTECH,
+    SOURCE_DRIVE_IMAGES,
+    SOURCE_DRIVE_VIDEOS,
+    SOURCE_HVAC_YOUTUBE,
+    UI_KEY_DRIVE_IMAGES,
+    UI_KEY_DRIVE_VIDEO_MODE,
+    UI_KEY_DRIVE_VIDEOS,
+    UI_KEY_ENABLED_SOURCES,
+    UI_KEY_HVAC_YOUTUBE,
+    UI_KEY_WEB_AND_OTHER,
+    UI_KEY_WEB_FALLBACK_ENABLED,
+)
 import re
 
 # Mapping from display names used in the Streamlit UI to the
@@ -266,6 +280,135 @@ def _normalize_selected_topics(selected_topics):
     if any(str(topic).strip() == "All Topics" for topic in selected_topics):
         return []
     return [str(topic).strip() for topic in selected_topics if str(topic).strip()]
+
+
+def _render_graphics_v2_asset_library_controls():
+    """
+    Render Graphics Definition V2 asset-library checkboxes and sync session state.
+    """
+    defaults = {
+        UI_KEY_DRIVE_IMAGES: True,
+        UI_KEY_HVAC_YOUTUBE: True,
+        UI_KEY_WEB_AND_OTHER: True,
+        UI_KEY_DRIVE_VIDEOS: True,
+        UI_KEY_DRIVE_VIDEO_MODE: DRIVE_VIDEO_MODE_ALL,
+    }
+    for key, default in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+    st.markdown("**Asset libraries for this run**")
+    st.caption(
+        "Select which libraries the agent may search and select the visuals from."
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.checkbox("Drive Images", key=UI_KEY_DRIVE_IMAGES)
+        st.checkbox("HVAC School YouTube Videos", key=UI_KEY_HVAC_YOUTUBE)
+    with col2:
+        st.checkbox(
+            "Web Images and Other YouTube Channel Videos",
+            key=UI_KEY_WEB_AND_OTHER,
+        )
+        st.checkbox("Google Drive Videos", key=UI_KEY_DRIVE_VIDEOS)
+
+    if st.session_state.get(UI_KEY_DRIVE_VIDEOS, True):
+        mode_options = ["All Google Drive videos", "Only NexTech videos"]
+        current_mode = st.session_state.get(UI_KEY_DRIVE_VIDEO_MODE, DRIVE_VIDEO_MODE_ALL)
+        default_index = 1 if current_mode == DRIVE_VIDEO_MODE_NEXTECH else 0
+        if "graphics_v2_drive_video_mode_label" not in st.session_state:
+            st.session_state["graphics_v2_drive_video_mode_label"] = mode_options[default_index]
+        mode_label = st.radio(
+            "Google Drive Videos scope",
+            options=mode_options,
+            horizontal=True,
+            key="graphics_v2_drive_video_mode_label",
+        )
+        st.session_state[UI_KEY_DRIVE_VIDEO_MODE] = (
+            DRIVE_VIDEO_MODE_NEXTECH if mode_label == "Only NexTech videos" else DRIVE_VIDEO_MODE_ALL
+        )
+
+    enabled_sources = []
+    if st.session_state.get(UI_KEY_DRIVE_IMAGES, True):
+        enabled_sources.append(SOURCE_DRIVE_IMAGES)
+    if st.session_state.get(UI_KEY_HVAC_YOUTUBE, True):
+        enabled_sources.append(SOURCE_HVAC_YOUTUBE)
+    if st.session_state.get(UI_KEY_DRIVE_VIDEOS, True):
+        enabled_sources.append(SOURCE_DRIVE_VIDEOS)
+
+    web_fallback_enabled = bool(st.session_state.get(UI_KEY_WEB_AND_OTHER, True))
+    st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = web_fallback_enabled
+    st.session_state[UI_KEY_ENABLED_SOURCES] = enabled_sources
+
+    if not enabled_sources:
+        st.error(
+            "Select at least one primary asset library (Drive Images, HVAC School YouTube, "
+            "or Google Drive Videos). Web asset library alone is not enough to run the agent."
+        )
+
+
+def _step_is_hidden(step, pipeline_sections=None):
+    """
+    Return True if a step should be hidden given current session flags.
+    
+    :param step: The step to check if it should be hidden
+    :param pipeline_sections: The pipeline sections
+    :return: True if the step should be hidden, False otherwise
+    """
+    if st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
+        return True
+    if not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False):
+        return True
+    if not st.session_state.get("graphics_v2_web_fallback_enabled", True) and step.get("hide_if_web_disabled", False):
+        return True
+    return False
+
+
+def _get_unsatisfied_visible_dependencies(dep_name, pipeline_sections, visited=None):
+    """
+    Return a list of visible, unsatisfied step names that are blocking dep_name.
+    
+    :param dep_name: The name of the step to check if it should be hidden
+    :param pipeline_sections: The pipeline sections
+    :param visited: The visited steps
+    :return: A list of visible, unsatisfied step names that are blocking dep_name
+    """
+    if visited is None:
+        visited = set()
+    if dep_name in visited:
+        return []
+    visited.add(dep_name)
+
+    if st.session_state.get(f"{dep_name}_done", False):
+        return []
+
+    for section in pipeline_sections:
+        for step in section.get("steps", []):
+            if step.get("name") != dep_name:
+                continue
+            if _step_is_hidden(step, pipeline_sections):
+                parent_deps = step.get("depends_on", [])
+                if not parent_deps:
+                    return []
+                unmet = []
+                for p in parent_deps:
+                    unmet.extend(_get_unsatisfied_visible_dependencies(p, pipeline_sections, visited))
+                return unmet
+            else:
+                return [dep_name]
+    return [dep_name]
+
+
+def _dependency_is_satisfied(dep_name, pipeline_sections):
+    """
+    Return True if a depends_on entry is done or intentionally skipped/hidden.
+    
+    :param dep_name: The name of the step to check if it should be hidden
+    :param pipeline_sections: The pipeline sections
+    :return: True if the depends_on entry is done or intentionally skipped/hidden, False otherwise
+    """
+    return len(_get_unsatisfied_visible_dependencies(dep_name, pipeline_sections)) == 0
 
 
 def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None, top_instructions: str | None = None, top_toggles: list[dict] | None = None):
@@ -565,6 +708,27 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                             toggle_values[tkey] = st.session_state.get(tkey, toggle.get("default", False))
                     if step_name == "Graphics Definition V2" and "selected_topics" in st.session_state:
                         toggle_values["selected_topics"] = st.session_state.get("selected_topics", [])
+                        toggle_values["graphics_v2_enabled_sources"] = st.session_state.get(
+                            "graphics_v2_enabled_sources", []
+                        )
+                        toggle_values["graphics_v2_web_fallback_enabled"] = st.session_state.get(
+                            "graphics_v2_web_fallback_enabled", True
+                        )
+                        toggle_values["graphics_v2_drive_video_mode"] = st.session_state.get(
+                            "graphics_v2_drive_video_mode", "all"
+                        )
+                        toggle_values["graphics_v2_asset_drive_images"] = st.session_state.get(
+                            "graphics_v2_asset_drive_images", True
+                        )
+                        toggle_values["graphics_v2_asset_hvac_youtube"] = st.session_state.get(
+                            "graphics_v2_asset_hvac_youtube", True
+                        )
+                        toggle_values["graphics_v2_asset_web_and_other_youtube"] = st.session_state.get(
+                            "graphics_v2_asset_web_and_other_youtube", True
+                        )
+                        toggle_values["graphics_v2_asset_drive_videos"] = st.session_state.get(
+                            "graphics_v2_asset_drive_videos", True
+                        )
                     cmd = [
                         sys.executable,
                         "launch_agents_via_sdk.py",
@@ -741,11 +905,13 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     total_slides = len(slide_chunks_df)
 
                 topic_scope = "All Topics" if not st.session_state["selected_topics"] else ", ".join(st.session_state["selected_topics"])
-                st.caption(f"Topic Scope: {topic_scope}")
-                st.caption(f"Total Slides: {total_slides}")
+                st.caption(f"Topic Scope: {topic_scope}  |  Total Slides: {total_slides}")
             except Exception as e:
                 st.warning(f"Could not load topic selector: {e}")
                 st.session_state["selected_topics"] = []
+
+            st.divider()
+            _render_graphics_v2_asset_library_controls()
 
         # Optional toggles shown above all sections
         if top_toggles:
@@ -758,11 +924,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
         # Filter sections that have at least one visible step
         visible_sections = [
             section for section in pipeline_sections
-            if any(
-                not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
-                and not (not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False))
-                for step in section["steps"]
-            )
+            if any(not _step_is_hidden(step) for step in section["steps"])
         ]
 
         # Use only visible sections for correct numbering
@@ -771,8 +933,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             # Filter out steps that should be hidden
             visible_steps = [
                 step for step in section["steps"]
-                if not (st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False))
-                and not (not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False))
+                if not _step_is_hidden(step)
             ]
 
             # Skip section if no visible steps remain
@@ -786,13 +947,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     
                     # Check if dependencies are satisfied
                     dependencies_satisfied = all(
-                        st.session_state.get(f"{dep}_done", False) or (
-                            st.session_state.get("outline_finalized", False) and
-                            any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
-                        ) or (
-                            not st.session_state.get("video_research_enabled", True) and
-                            any(dep == s["name"] and s.get("hide_if_video_disabled", False) for sec in pipeline_sections for s in sec["steps"])
-                        )
+                        _dependency_is_satisfied(dep, pipeline_sections)
                         for dep in step["depends_on"]
                     )
                     
@@ -827,10 +982,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
 
                         if not dependencies_satisfied:
                             # If dependencies are not done, show a message & skip
-                            missing_steps = [
-                                dep for dep in step["depends_on"]
-                                if not st.session_state.get(f"{dep}_done", False)
-                            ]
+                            missing_steps = []
+                            for dep in step["depends_on"]:
+                                missing_steps.extend(_get_unsatisfied_visible_dependencies(dep, pipeline_sections))
+                            # Deduplicate preserving order
+                            seen_missing = set()
+                            missing_steps = [x for x in missing_steps if not (x in seen_missing or seen_missing.add(x))]
                             missing_list = ", ".join(missing_steps)
                             st.warning(f"Waiting on these steps to be done first: {missing_list}")
                             continue
@@ -1169,12 +1326,8 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
         for section in pipeline_sections:
             for step in section["steps"]:
 
-                #Skip step if it's hidden due to finalized outline
-                if st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
-                    continue
-
-                # Skip step if it's hidden because video research is disabled
-                if not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False):
+                # Skip step if it's hidden for the current run configuration
+                if _step_is_hidden(step):
                     continue
 
                 step_key = f"{step['name']}_done"
@@ -1186,13 +1339,7 @@ def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
 
                 # Check if dependencies are satisfied
                 dependencies_satisfied = all(
-                    st.session_state.get(f"{dep}_done", False) or (
-                        st.session_state.get("outline_finalized", False) and
-                        any(dep == s["name"] and s.get("hide_if_final_outline", False) for sec in pipeline_sections for s in sec["steps"])
-                    ) or (
-                        not st.session_state.get("video_research_enabled", True) and
-                        any(dep == s["name"] and s.get("hide_if_video_disabled", False) for sec in pipeline_sections for s in sec["steps"])
-                    )
+                    _dependency_is_satisfied(dep, pipeline_sections)
                     for dep in step["depends_on"]
                 )                    
             

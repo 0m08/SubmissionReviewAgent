@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import uuid
 from agents.vector_store_image_search.graphics_retriever import graphics_retriever
+from agents.graphics_definition_v2.candidate_search.search_wrapper import run_pool_search_queries
 from dotenv import load_dotenv
 import os
 import json
@@ -189,59 +190,42 @@ def process_drive_search_segment(segment_num, queries, drive, k=search_k, filter
     print(f"📦 Processing SEGMENT_{segment_num} with {len(queries)} queries")
     print(f"{'─'*45}")
     
-    # Execute all queries for this segment
     all_results_for_segment = []
     seen_ids = set()  # Deduplicate within segment
-    
-    # Filter out empty queries
-    valid_queries = [(idx, q.strip()) for idx, q in enumerate(queries, 1) if q.strip()]
-    
+
+    valid_queries = [q.strip() for q in queries if q and str(q).strip()]
     if not valid_queries:
         return segment_num, None
-    
-    # Execute queries in parallel
-    with ThreadPoolExecutor(max_workers=len(valid_queries)) as executor:
-        # Submit all queries
-        futures = {
-            executor.submit(
-                execute_drive_search_for_query,
-                query,
-                drive,
-                k,
-                filters,
-                root_folder_id
-            ): (query_idx, query)
-            for query_idx, query in valid_queries
-        }
-        
-        # Collect results as they complete
-        for future in as_completed(futures):
-            query_idx, query = futures[future]
-            try:
-                print(f"🔍 Query {query_idx}: \"{query}\"")
-                results = future.result()
-                print(f"✅ Query {query_idx} returned {len(results)} results")
-                
-                # Deduplicate by reference_id within this segment
-                for ref in results:
-                    ref_id = ref["reference_id"]
-                    if ref_id not in seen_ids:
-                        seen_ids.add(ref_id)
-                        all_results_for_segment.append(ref)
-            except Exception as e:
-                print(f"❌ Error executing query {query_idx} (\"{query}\"): {e}")
-    
-    # Extract title and URL for this segment
+
+    print(f"🚀 SEGMENT_{segment_num}: submitting {len(valid_queries)} drive query search task(s) in parallel")
+    query_results = run_pool_search_queries(
+        valid_queries,
+        execute_drive_search_for_query,
+        drive=drive,
+        k=k,
+        filters=filters,
+        root_folder_id=root_folder_id,
+    )
+
+    for query_idx, (query, results) in enumerate(query_results, 1):
+        print(f"🔍 Query {query_idx}: \"{query}\"")
+        results = results or []
+        print(f"✅ Query {query_idx} returned {len(results)} results")
+        for ref in results:
+            ref_id = ref.get("reference_id")
+            if ref_id and ref_id not in seen_ids:
+                seen_ids.add(ref_id)
+                all_results_for_segment.append(ref)
+
     segment_items = []
     for ref in all_results_for_segment:
         url = ref.get("url", "")
         title = ref.get("title", "Untitled")
         if url:
             segment_items.append(f"Title: {title} | URL: {url}")
-    
+
     print(f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results")
-    
-    # Format segment results
+
     if segment_items:
         segment_output = [f"---SEGMENT_{segment_num}---"] + segment_items
         return segment_num, '\n'.join(segment_output)
