@@ -250,6 +250,8 @@ def _step_is_hidden_cli(step, state):
         return True
     if not state.get("graphics_v2_web_fallback_enabled", True) and step.get("hide_if_web_disabled", False):
         return True
+    if not state.get("graphics_v2_asset_external_references", False) and step.get("hide_if_external_references_disabled", False):
+        return True
     return False
 
 

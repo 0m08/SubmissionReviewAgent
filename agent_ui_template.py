@@ -769,7 +769,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                             "graphics_v2_asset_drive_videos", True
                         )
                         toggle_values["graphics_v2_asset_external_references"] = st.session_state.get(
-                            "graphics_v2_asset_external_references", True
+                            "graphics_v2_asset_external_references", False
                         )
                     cmd = [
                         sys.executable,

@@ -65,9 +65,7 @@ from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all
 )
 from agents.graphics_definition_v2.candidate_search.pool_registry import (
     COURSE_INFO_ENABLED_SOURCES_KEY,
-    SOURCE_EXTERNAL_REFERENCES,
     decode_enabled_sources_from_course_info,
-    hf_source_chip_for_pool_source,
 )
 
 

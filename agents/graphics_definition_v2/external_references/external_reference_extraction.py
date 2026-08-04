@@ -285,18 +285,18 @@ def course_folder_name(course_name, sheet_id):
     return f"{sanitize_folder_name(course_name)}_{sanitize_folder_name(sheet_id or 'unknown_sheet', max_len=64)}"
 
 
-def find_child_folder(drive, parent_folder_id, folder_name):
+def list_child_folders(drive, parent_folder_id, folder_name):
     """
-    Find an existing child folder by exact title.
+    List all child folders with an exact title under a parent.
 
     :param drive: GoogleDrive instance
     :param parent_folder_id: Parent folder id
     :param folder_name: Exact child folder title to match
-    :return: Child folder id, or None if not found
+    :return: List of child folder ids
     """
     safe_name = (folder_name or "").strip()
     if not safe_name or not parent_folder_id:
-        return None
+        return []
 
     escaped = safe_name.replace("'", "\\'")
     query = (
@@ -310,9 +310,20 @@ def find_child_folder(drive, parent_folder_id, folder_name):
             "includeItemsFromAllDrives": True,
         }
     ).GetList()
-    if existing:
-        return existing[0]["id"]
-    return None
+    return [str(item["id"]) for item in existing if item.get("id")]
+
+
+def find_child_folder(drive, parent_folder_id, folder_name):
+    """
+    Find an existing child folder by exact title.
+
+    :param drive: GoogleDrive instance
+    :param parent_folder_id: Parent folder id
+    :param folder_name: Exact child folder title to match
+    :return: Child folder id, or None if not found
+    """
+    ids = list_child_folders(drive, parent_folder_id, folder_name)
+    return ids[0] if ids else None
 
 
 def find_or_create_child_folder(drive, parent_folder_id, folder_name):
@@ -334,47 +345,56 @@ def find_or_create_child_folder(drive, parent_folder_id, folder_name):
     if existing_id:
         return existing_id
 
-    folder = drive.CreateFile(
-        {
-            "title": safe_name,
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [{"id": parent_folder_id}],
-        }
-    )
-    folder.Upload(param={"supportsAllDrives": True})
-    return folder["id"]
+    try:
+        folder = drive.CreateFile(
+            {
+                "title": safe_name,
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": [{"id": parent_folder_id}],
+            }
+        )
+        folder.Upload(param={"supportsAllDrives": True})
+        return folder["id"]
+    except Exception:
+        # Another worker may have created it between list and create.
+        existing_id = find_child_folder(drive, parent_folder_id, safe_name)
+        if existing_id:
+            return existing_id
+        raise
 
 
 def delete_course_extract_folder(drive, course_name, sheet_id, parent_folder_id=EXTERNAL_REF_ASSETS_FOLDER_ID):
     """
-    Delete the course extract folder and all uploaded images inside it.
+    Delete the course extract folder(s) and all uploaded images inside them. Deletes every same-named child under the parent (cleans up race duplicates).
 
     :param drive: GoogleDrive instance
     :param course_name: Course display name
     :param sheet_id: Spreadsheet id
     :param parent_folder_id: Shared parent folder id (defaults to EXTERNAL_REF_ASSETS_FOLDER_ID)
-    :return: True if a folder was deleted, False otherwise
+    :return: True if at least one folder was deleted, False otherwise
     """
     if drive is None:
         print("⚠️ Drive unavailable; cannot delete extract folder")
         return False
     folder_name = course_folder_name(course_name, sheet_id)
     parent_id = parent_folder_id or EXTERNAL_REF_ASSETS_FOLDER_ID
-    folder_id = find_child_folder(drive, parent_id, folder_name)
-    if not folder_id:
+    folder_ids = list_child_folders(drive, parent_id, folder_name)
+    if not folder_ids:
         print(f"ℹ️ No Drive extract folder found to delete: {folder_name}")
         return False
-    try:
-        drive.CreateFile({"id": folder_id}).Delete()
-        print(f"🗑️ Deleted Drive extract folder: {folder_name} ({folder_id})")
-        return True
-    except Exception as exc:
-        print(f"❌ Failed to delete Drive extract folder '{folder_name}': {exc}")
-        traceback.print_exc()
-        return False
+    deleted_any = False
+    for folder_id in folder_ids:
+        try:
+            drive.CreateFile({"id": folder_id}).Delete()
+            print(f"🗑️ Deleted Drive extract folder: {folder_name} ({folder_id})")
+            deleted_any = True
+        except Exception as exc:
+            print(f"❌ Failed to delete Drive extract folder '{folder_name}' ({folder_id}): {exc}")
+            traceback.print_exc()
+    return deleted_any
 
 
-def ensure_source_upload_folder(drive, course_name, sheet_id, source_link, parent_folder_id=EXTERNAL_REF_ASSETS_FOLDER_ID):
+def ensure_source_upload_folder(drive, course_name, sheet_id, source_link, parent_folder_id=EXTERNAL_REF_ASSETS_FOLDER_ID, course_folder_id=None):
     """
     Ensure `{Course Name}_{sheet_id}/{source_hash}` exists under the parent folder.
 
@@ -383,14 +403,17 @@ def ensure_source_upload_folder(drive, course_name, sheet_id, source_link, paren
     :param sheet_id: Spreadsheet id
     :param source_link: External reference source URL
     :param parent_folder_id: Shared parent folder id
+    :param course_folder_id: Optional pre-created course folder id (avoids create races)
     :return: Dict with course_folder_id, source_folder_id, source_hash, and course_folder_name
     """
     course_name_final = course_folder_name(course_name, sheet_id)
     src_hash = source_link_hash(source_link)
-    course_folder_id = find_or_create_child_folder(drive, parent_folder_id, course_name_final)
-    source_folder_id = find_or_create_child_folder(drive, course_folder_id, src_hash)
+    resolved_course_folder_id = (course_folder_id or "").strip() or find_or_create_child_folder(
+        drive, parent_folder_id, course_name_final
+    )
+    source_folder_id = find_or_create_child_folder(drive, resolved_course_folder_id, src_hash)
     return {
-        "course_folder_id": course_folder_id,
+        "course_folder_id": resolved_course_folder_id,
         "source_folder_id": source_folder_id,
         "source_hash": src_hash,
         "course_folder_name": course_name_final,
@@ -486,7 +509,7 @@ def _upload_one_extracted_image(job, drive, source_folder_id, source_link, src_h
     )
 
 
-def upload_extracted_images(drive, extracted_images, course_name, sheet_id, source_link, parent_folder_id=EXTERNAL_REF_ASSETS_FOLDER_ID, max_workers=EXTRACT_MAX_WORKERS):
+def upload_extracted_images(drive, extracted_images, course_name, sheet_id, source_link, parent_folder_id=EXTERNAL_REF_ASSETS_FOLDER_ID, max_workers=EXTRACT_MAX_WORKERS, course_folder_id=None):
     """
     Upload extracted local images into the course/source Drive folder (parallel).
 
@@ -497,6 +520,7 @@ def upload_extracted_images(drive, extracted_images, course_name, sheet_id, sour
     :param source_link: External reference source URL
     :param parent_folder_id: Shared parent folder id
     :param max_workers: Max parallel upload workers
+    :param course_folder_id: Optional pre-created course folder id
     :return: List of uploaded asset metadata dicts
     """
     folder_info = ensure_source_upload_folder(
@@ -505,6 +529,7 @@ def upload_extracted_images(drive, extracted_images, course_name, sheet_id, sour
         sheet_id=sheet_id,
         source_link=source_link,
         parent_folder_id=parent_folder_id,
+        course_folder_id=course_folder_id,
     )
     source_folder_id = folder_info["source_folder_id"]
     src_hash = folder_info["source_hash"]
@@ -851,7 +876,7 @@ def extract_images_with_llamaparse(local_path, images_to_save=None, max_workers=
     return extracted
 
 
-def extract_and_upload_from_source(source_link, drive, course_name, sheet_id, parent_folder_id=EXTERNAL_REF_ASSETS_FOLDER_ID, max_workers=EXTRACT_MAX_WORKERS):
+def extract_and_upload_from_source(source_link, drive, course_name, sheet_id, parent_folder_id=EXTERNAL_REF_ASSETS_FOLDER_ID, max_workers=EXTRACT_MAX_WORKERS, course_folder_id=None):
     """
     Extract images from one supported document link and upload them to Drive.
 
@@ -861,6 +886,7 @@ def extract_and_upload_from_source(source_link, drive, course_name, sheet_id, pa
     :param sheet_id: Spreadsheet id
     :param parent_folder_id: Shared parent folder id
     :param max_workers: Max parallel workers for LlamaParse downloads and Drive uploads
+    :param course_folder_id: Optional pre-created course folder id
     :return: List of uploaded asset metadata dicts
     """
     if not source_link or not str(source_link).strip():
@@ -893,6 +919,7 @@ def extract_and_upload_from_source(source_link, drive, course_name, sheet_id, pa
             source_link=source_link,
             parent_folder_id=parent_folder_id or EXTERNAL_REF_ASSETS_FOLDER_ID,
             max_workers=workers,
+            course_folder_id=course_folder_id,
         )
         print(f"✅ External reference source done: {len(assets)} image(s) uploaded")
         return assets
@@ -1062,7 +1089,7 @@ def delete_external_reference_extraction_log(sheet, parent_folder_id=EXTERNAL_RE
         print(f"⚠️ Could not clear extraction log: {exc}")
 
 
-def _process_one_extraction_source(idx, link, links_total, drive, course_label, sheet_id, parent_id, workers):
+def _process_one_extraction_source(idx, link, links_total, drive, course_label, sheet_id, parent_id, workers, course_folder_id=None):
     """
     Extract and upload images for one external reference source link.
 
@@ -1074,6 +1101,7 @@ def _process_one_extraction_source(idx, link, links_total, drive, course_label, 
     :param sheet_id: Spreadsheet id
     :param parent_id: Shared parent folder id for uploaded assets
     :param workers: Max parallel workers for within-source image work
+    :param course_folder_id: Pre-created course folder id shared across sources
     :return: Per-source result dict with status, assets, and optional error
     """
     print(f"\n—— Source {idx}/{links_total} ——")
@@ -1105,6 +1133,7 @@ def _process_one_extraction_source(idx, link, links_total, drive, course_label, 
             sheet_id=sheet_id,
             parent_folder_id=parent_id,
             max_workers=workers,
+            course_folder_id=course_folder_id,
         )
         entry["status"] = "ok"
         entry["assets"] = len(assets)
@@ -1167,12 +1196,17 @@ def run_external_reference_extraction(sheet, parent_folder_id=EXTERNAL_REF_ASSET
     course_label = course_name or "course"
     workers = max(1, int(max_workers or EXTRACT_MAX_WORKERS))
     source_workers = max(1, min(workers, len(links)))
+    # Create the shared course folder once before parallel source workers race on it.
+    course_folder_id = find_or_create_child_folder(
+        drive, parent_id, course_folder_name(course_label, sheet_id)
+    )
 
     print("\n" + "=" * 80)
     print(f"🚀 External Reference extraction ({len(links)} link(s), parallel)")
     print(f"   Course: {course_label}")
     print(f"   Sheet id: {sheet_id}")
     print(f"   Parent folder: {parent_id}")
+    print(f"   Course folder id: {course_folder_id}")
     print(f"   source_workers={source_workers}, image_workers={workers}")
     print("=" * 80 + "\n")
 
@@ -1193,6 +1227,7 @@ def run_external_reference_extraction(sheet, parent_folder_id=EXTERNAL_REF_ASSET
                 sheet_id,
                 parent_id,
                 workers,
+                course_folder_id,
             ): idx - 1
             for idx, link in enumerate(links, start=1)
         }
