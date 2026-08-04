@@ -3,7 +3,7 @@ External Reference document media extraction for Graphics Definition V2.
 
 One module: read Course info → External References, extract images from PDF / Google Docs / Google Slides / PPT via LlamaParse, upload to Drive.
 
-Requires LLAMA_CLOUD_API_KEY in the environment.
+Requires LLAMA_CLOUD_API_KEY_1..N in the environment (cycled on quota exhaustion).
 """
 
 import base64
@@ -12,6 +12,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -584,17 +585,105 @@ def upload_extracted_images(drive, extracted_images, course_name, sheet_id, sour
 # LlamaParse extraction
 # ---------------------------------------------------------------------------
 
+_LLAMA_API_KEY_MAX_INDEX = 10
+_llama_keys_lock = threading.Lock()
+_llama_api_keys = None
+_llama_api_key_index = 0
+
+
+def _load_llama_api_keys():
+    """
+    Collect LLAMA_CLOUD_API_KEY_1..N (deduped, non-empty).
+
+    :return: List of API key strings
+    """
+    keys = []
+    seen = set()
+    for i in range(1, _LLAMA_API_KEY_MAX_INDEX + 1):
+        value = (os.getenv(f"LLAMA_CLOUD_API_KEY_{i}") or "").strip()
+        if value and value not in seen:
+            seen.add(value)
+            keys.append(value)
+    return keys
+
+
+def _get_llama_api_keys():
+    """
+    Lazily load configured LlamaCloud API keys.
+
+    :return: List of API key strings
+    """
+    global _llama_api_keys
+    with _llama_keys_lock:
+        if _llama_api_keys is None:
+            _llama_api_keys = _load_llama_api_keys()
+        return list(_llama_api_keys)
+
+
+def _is_llama_quota_error(exc):
+    """
+    Return True when an exception looks like LlamaCloud quota/auth exhaustion.
+
+    :param exc: Raised exception
+    :return: bool
+    """
+    msg = str(exc or "").lower()
+    return any(
+        token in msg
+        for token in (
+            "429",
+            "402",
+            "401",
+            "403",
+            "rate limit",
+            "too many requests",
+            "quota",
+            "exhausted",
+            "credit",
+            "payment",
+            "unauthorized",
+            "forbidden",
+            "insufficient",
+        )
+    )
+
+
+def _advance_llama_api_key(exc):
+    """
+    Move to the next LlamaCloud API key after a quota/auth failure.
+
+    :param exc: Exception that triggered rotation
+    :return: True if another key is available
+    """
+    global _llama_api_keys, _llama_api_key_index
+    with _llama_keys_lock:
+        keys = _llama_api_keys or _load_llama_api_keys()
+        _llama_api_keys = keys
+        if _llama_api_key_index >= len(keys) - 1:
+            return False
+        print(
+            f"⚠️ LlamaCloud key {_llama_api_key_index + 1}/{len(keys)} exhausted "
+            f"({exc}); switching to next key"
+        )
+        _llama_api_key_index += 1
+        return True
+
+
 def _get_llama_client():
     """
-    Build a LlamaCloud client from LLAMA_CLOUD_API_KEY in the environment.
+    Build a LlamaCloud client from the current active API key.
 
     :return: LlamaCloud client instance
     """
-    api_key = (os.getenv("LLAMA_CLOUD_API_KEY") or "").strip()
-    if not api_key:
+    keys = _get_llama_api_keys()
+    if not keys:
         raise RuntimeError(
-            "LLAMA_CLOUD_API_KEY is not set. Add it to .env before extracting external-reference images."
+            "No LlamaCloud API keys set. Add LLAMA_CLOUD_API_KEY_1 "
+            "(and optionally _2..N) to .env before extracting."
         )
+    with _llama_keys_lock:
+        idx = min(_llama_api_key_index, len(keys) - 1)
+        api_key = keys[idx]
     from llama_cloud import LlamaCloud
 
     return LlamaCloud(api_key=api_key)
@@ -828,22 +917,40 @@ def extract_images_with_llamaparse(local_path, images_to_save=None, max_workers=
         raise FileNotFoundError(f"Document not found for LlamaParse: {local_path}")
 
     categories = list(images_to_save or LLAMA_IMAGES_TO_SAVE)
-    client = _get_llama_client()
+    keys = _get_llama_api_keys()
+    max_attempts = max(1, len(keys))
+    result = None
+    last_exc = None
 
-    print(f"📄 Uploading to LlamaParse: {os.path.basename(local_path)}")
-    uploaded = client.files.create(file=local_path, purpose="parse")
-    file_id = getattr(uploaded, "id", None) or (uploaded.get("id") if isinstance(uploaded, dict) else None)
-    if not file_id:
-        raise RuntimeError("LlamaParse file upload did not return a file id")
+    for _attempt in range(max_attempts):
+        try:
+            client = _get_llama_client()
 
-    print(f"🔎 Parsing with LlamaParse (images={categories})...")
-    result = client.parsing.parse(
-        file_id=file_id,
-        tier="agentic",
-        version="latest",
-        output_options={"images_to_save": categories},
-        expand=["images_content_metadata"],
-    )
+            print(f"📄 Uploading to LlamaParse: {os.path.basename(local_path)}")
+            uploaded = client.files.create(file=local_path, purpose="parse")
+            file_id = getattr(uploaded, "id", None) or (
+                uploaded.get("id") if isinstance(uploaded, dict) else None
+            )
+            if not file_id:
+                raise RuntimeError("LlamaParse file upload did not return a file id")
+
+            print(f"🔎 Parsing with LlamaParse (images={categories})...")
+            result = client.parsing.parse(
+                file_id=file_id,
+                tier="agentic",
+                version="latest",
+                output_options={"images_to_save": categories},
+                expand=["images_content_metadata"],
+            )
+            break
+        except Exception as exc:
+            last_exc = exc
+            if _is_llama_quota_error(exc) and _advance_llama_api_key(exc):
+                continue
+            raise
+
+    if result is None:
+        raise last_exc or RuntimeError("LlamaParse failed with no remaining API keys")
 
     image_entries = list(enumerate(_iter_image_entries(result), start=1))
     if not image_entries:
