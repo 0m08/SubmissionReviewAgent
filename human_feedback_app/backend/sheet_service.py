@@ -378,11 +378,11 @@ def _resolve_source(
     Label source for HF chips.
 
     External refs:
-    - videos: FramesOnly / frames_only type in video_pool_filtered
-    - Drive images (and Drive video URLs without FramesOnly): parent under external-ref extract folder
+    - videos: FramesOnly / frames_only type in video_pool_filtered → external_ref_video
+    - Drive assets under external-ref extract folder → external_ref_image / external_ref_video
     """
     if str(video_type or "").strip().lower() == "frames_only":
-        return "external_ref"
+        return "external_ref_video"
 
     lowered = (asset_url or "").lower()
     if drive and ("drive.google.com" in lowered or "docs.google.com" in lowered):
@@ -395,7 +395,11 @@ def _resolve_source(
         if is_drive_file_under_external_ref_assets(
             drive, asset_url, cache=ancestry_cache
         ):
-            return "external_ref"
+            return (
+                "external_ref_video"
+                if str(asset_type or "").strip().lower() == "video"
+                else "external_ref_image"
+            )
 
     return _infer_source(asset_url, asset_type)
 
