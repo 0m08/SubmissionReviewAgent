@@ -50,21 +50,56 @@ from services.sheets_service import (
 )
 
 
-def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
+def _course_info_worksheet(sheet):
     """
-    Record the run's enabled sources (+ Drive video mode) on the Course info tab so that the human-feedback review app can respect the same libraries.
+    Return the Course info worksheet, or None if missing.
 
     :param sheet: gspread Spreadsheet object.
-    :param sources: Resolved list of enabled source ids for this run.
+    :return: Worksheet or None
+    """
+    for candidate in sheet.worksheets():
+        if candidate.title.strip().lower() == "course info":
+            return candidate
+    return None
+
+
+def _read_enabled_sources_raw_from_course_info(sheet):
+    """
+    Read the raw Allowed Asset Search Libraries cell from Course info.
+
+    :param sheet: gspread Spreadsheet object.
+    :return: Raw cell string ("" if missing/blank).
+    """
+    try:
+        worksheet = _course_info_worksheet(sheet)
+        if worksheet is None:
+            return ""
+        headers = worksheet.row_values(1)
+        key = COURSE_INFO_ENABLED_SOURCES_KEY
+        col = None
+        for idx, header in enumerate(headers):
+            if str(header).strip().lower() == key.lower():
+                col = idx + 1
+                break
+        if col is None:
+            return ""
+        return str(worksheet.cell(2, col).value or "").strip()
+    except Exception as exc:
+        print(f"⚠️ Could not read enabled_sources from Course info: {exc}")
+        return ""
+
+
+def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
+    """
+    Record enabled sources (+ Drive video mode) on Course info so Graphics UI and HF share one setting.
+
+    :param sheet: gspread Spreadsheet object.
+    :param sources: Resolved list of enabled source ids.
     :param drive_video_mode: Drive video mode string, or "" when Drive videos off.
     :return: None
     """
     try:
-        worksheet = None
-        for candidate in sheet.worksheets():
-            if candidate.title.strip().lower() == "course info":
-                worksheet = candidate
-                break
+        worksheet = _course_info_worksheet(sheet)
         if worksheet is None:
             print("⚠️ 'Course info' tab not found; skipping enabled_sources persistence")
             return
@@ -96,7 +131,7 @@ def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
 
 def _delete_enabled_sources_from_course_info(sheet):
     """
-    Remove the graphics_v2_enabled_sources column from Course info.
+    Remove the Allowed Asset Search Libraries column from Course info.
 
     :param sheet: gspread Spreadsheet object.
     :return: None
@@ -271,7 +306,7 @@ def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_driv
 
 def delete_all_candidate_results(sheet):
     """
-    Delete all known candidate generation result columns and the Course info enabled-sources snapshot.
+    Delete all known candidate generation result columns (pools/search results).
 
     :param sheet: The gspread sheet object.
     :return: None
@@ -280,7 +315,6 @@ def delete_all_candidate_results(sheet):
     try:
         for source_id, (_run_fn, delete_fn) in POOL_RUNNERS.items():
             delete_fn(sheet)
-        _delete_enabled_sources_from_course_info(sheet)
         print("✅ All candidate results deleted")
     except Exception as e:
         print(f"⚠️ Error during deletion: {e}")

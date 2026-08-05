@@ -855,7 +855,7 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
     :param visual_assignment_strategy: Visual assignment strategy
     :param video_pool_text: Video pool text
     :param video_pool_other_channels_text: Video pool other channels text
-    :param candidate_mode: "all" (search the web — includes external refs only if enabled in Course info) or "drive_hvac" (asset library — Drive/HVAC/Drive-video only, no external refs)
+    :param candidate_mode: "drive_hvac" (Find in library — Drive/HVAC/Drive-video + External Refs when enabled) or "all" (Search the web — web/other YouTube, no External Refs)
     :return: Replacement XML string or None if revision fails
     """
     
@@ -868,9 +868,10 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
     from agents.graphics_definition_v2.candidate_search.pool_registry import (
         SOURCE_EXTERNAL_REFERENCES,
     )
+    external_on = SOURCE_EXTERNAL_REFERENCES in mode_enabled_sources
     mode_external_ref_text = (
         (external_ref_pool_text or "")
-        if SOURCE_EXTERNAL_REFERENCES in mode_enabled_sources
+        if external_on
         else ""
     )
 
@@ -893,19 +894,71 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
         )
 
         ancestry_cache = {}
+        # Asset library: Drive images only (External Ref extract images are also Drive URLs).
         images = [c for c in images if _is_drive_url(c.get("url", ""))]
+        dropped_ext_images = 0
+        if not external_on:
+            # External Refs off for this run → keep extract-folder images out of Find in library.
+            before_images = len(images)
+            images = [
+                c for c in images
+                if not is_drive_file_under_external_ref_assets(
+                    drive, c.get("url", ""), cache=ancestry_cache
+                )
+            ]
+            dropped_ext_images = before_images - len(images)
+
+        # Clippable library videos: HVAC embeds + Drive library clips.
+        videos = [
+            c for c in videos
+            if _is_embed_with_start_end(c.get("url", "")) or c.get("type") == "drive_clip"
+        ]
+        dropped_ext_clips = 0
+        if not external_on:
+            before_videos = len(videos)
+            videos = [
+                c for c in videos
+                if not (
+                    c.get("type") == "drive_clip"
+                    and is_drive_file_under_external_ref_assets(
+                        drive, c.get("url", ""), cache=ancestry_cache
+                    )
+                )
+            ]
+            dropped_ext_clips = before_videos - len(videos)
+
+        # External Ref videos are frames-only; keep those when External Refs are enabled. Drop other-channel full_video frames (those belong to Search the web).
+        if external_on:
+            frame_videos = [
+                c for c in frame_videos
+                if str(c.get("type") or "").strip().lower() == "frames_only"
+            ]
+        else:
+            frame_videos = []
+
+        drive_clip_kept = len([c for c in videos if c.get("type") == "drive_clip"])
+        print(
+            f"  Restricted candidate mode for segment {segment_num}: "
+            f"{len(images)} drive image(s), {len(videos)} video clip(s) ({drive_clip_kept} drive), "
+            f"{len(frame_videos)} external frames-only"
+            f" (external_refs={'on' if external_on else 'off'}; "
+            f"excluded {dropped_ext_images} external-ref image(s), "
+            f"{dropped_ext_clips} external-ref drive clip(s))"
+        )
+    elif mode == "all":
+        # Search the web: never use External Reference assets (even if they sit in image/video pools).
+        from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+            is_drive_file_under_external_ref_assets,
+            parse_drive_file_id,
+        )
+
+        ancestry_cache = {}
         before_images = len(images)
         images = [
             c for c in images
             if not is_drive_file_under_external_ref_assets(
                 drive, c.get("url", ""), cache=ancestry_cache
             )
-        ]
-        dropped_ext_images = before_images - len(images)
-
-        videos = [
-            c for c in videos
-            if _is_embed_with_start_end(c.get("url", "")) or c.get("type") == "drive_clip"
         ]
         before_videos = len(videos)
         videos = [
@@ -917,14 +970,27 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
                 )
             )
         ]
-        dropped_ext_clips = before_videos - len(videos)
-        frame_videos = []
-        drive_clip_kept = len([c for c in videos if c.get("type") == "drive_clip"])
+        before_frames = len(frame_videos)
+        frame_videos = [
+            c for c in frame_videos
+            if str(c.get("type") or "").strip().lower() != "frames_only"
+        ]
+        # Also drop pool URLs whose Drive file id is listed in external_ref_pool (covers missed ancestry).
+        pool_ids = set()
+        for match in re.findall(r"/file/d/([a-zA-Z0-9_-]+)", external_ref_pool_text or ""):
+            pool_ids.add(match)
+        if pool_ids:
+            def _not_in_ext_pool(url: str) -> bool:
+                file_id = parse_drive_file_id(url)
+                return not (file_id and file_id in pool_ids)
+
+            images = [c for c in images if _not_in_ext_pool(c.get("url", ""))]
+            videos = [c for c in videos if _not_in_ext_pool(c.get("url", ""))]
         print(
-            f"  Restricted candidate mode for segment {segment_num}: "
-            f"{len(images)} drive image(s), {len(videos)} video clip(s) ({drive_clip_kept} drive)"
-            f" (excluded {dropped_ext_images} external-ref image(s), "
-            f"{dropped_ext_clips} external-ref drive clip(s))"
+            f"  Web candidate mode for segment {segment_num}: "
+            f"excluded {before_images - len(images)} external-ref image(s), "
+            f"{before_videos - len(videos)} external-ref drive clip(s), "
+            f"{before_frames - len(frame_videos)} frames-only video(s)"
         )
     candidate_map = {
         c["id"]: c["url"]
@@ -1958,7 +2024,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
 
             if restricted_segments:
                 restricted_feedback = {k: v for k, v in regen_feedback.items() if k in restricted_segments}
-                # Asset library regen: never search/use external refs.
+                # Asset library regen: Drive/HVAC/Drive-video + External Refs when Course info enabled them.
                 restricted_sources = _enabled_sources_for_hf_candidate_mode(enabled_sources, "drive_hvac")
                 r_rep, r_old = regenerate_failed_segments(
                     row_index=row_index,
@@ -1981,7 +2047,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
 
             if all_segments:
                 all_feedback = {k: v for k, v in regen_feedback.items() if k in all_segments}
-                # Web regen: web/other always on for this button; external only if Course info enabled it.
+                # Web regen: web/other always on for this button; never External References.
                 all_sources = _enabled_sources_for_hf_candidate_mode(enabled_sources, "all")
                 a_rep, a_old = regenerate_failed_segments(
                     row_index=row_index,
@@ -2335,8 +2401,8 @@ def _enabled_sources_for_hf_candidate_mode(enabled_sources, candidate_mode):
     """
     Map HF UI mode onto enabled sources.
 
-    Asset library (drive_hvac): keep caller sources but never external refs.
-    Search the web (all): keep caller sources (honor Course info for external refs); force-include web images + other-channel YouTube so the button can actually search the web.
+    Asset library (drive_hvac): Drive / HVAC / Drive videos + External References when Course info enabled them. Never web images or other-channel YouTube.
+    Search the web (all): force-include web images + other-channel YouTube; never External References.
 
     :param enabled_sources: Optional list from Course info / session
     :param candidate_mode: "drive_hvac" or "all"
@@ -2358,9 +2424,16 @@ def _enabled_sources_for_hf_candidate_mode(enabled_sources, candidate_mode):
         base = [str(s).strip() for s in enabled_sources if str(s).strip()]
 
     if mode == "drive_hvac":
-        return [s for s in base if s != SOURCE_EXTERNAL_REFERENCES and s in ALL_KNOWN_SOURCES]
+        # Find in library: keep External Refs when the run enabled them; drop web/other.
+        return [
+            s
+            for s in base
+            if s in ALL_KNOWN_SOURCES
+            and s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+        ]
 
-    # "all" / web path: button means web + other-YouTube; external only if Course info enabled it.
+    # "all" / web path: button means web + other-YouTube; never External References.
+    base = [s for s in base if s != SOURCE_EXTERNAL_REFERENCES]
     for source_id in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS):
         if source_id not in base:
             base.append(source_id)

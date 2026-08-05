@@ -60,7 +60,7 @@ def run_row_revision(
 
     _, df, _ = load_workbook(session)
 
-    # Backward-compat fallback for sheets created before the graphics_v2_enabled_sources column existed (and any empty/malformed value): treat as None so the agent behaves exactly as it did before the column — all present sources are searchable during revise.
+    # Course info "Allowed Asset Search Libraries..." (blank → product defaults via decode).
     enabled_sources = session.enabled_sources or None
     drive_video_mode = session.drive_video_mode or None
     sheet_id = _resolve_sheet_id(session.sheet) if session.sheet is not None else ""

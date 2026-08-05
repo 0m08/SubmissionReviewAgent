@@ -38,12 +38,11 @@ from services.background_job_status_service import (
     IN_PROGRESS_STATUSES,
 )
 from agents.graphics_definition_v2.candidate_search.pool_registry import (
+    COURSE_INFO_ENABLED_SOURCES_KEY,
     DRIVE_VIDEO_MODE_ALL,
     DRIVE_VIDEO_MODE_NEXTECH,
-    SOURCE_DRIVE_IMAGES,
-    SOURCE_DRIVE_VIDEOS,
-    SOURCE_EXTERNAL_REFERENCES,
-    SOURCE_HVAC_YOUTUBE,
+    SOURCE_WEB_IMAGES,
+    SOURCE_YOUTUBE_OTHER_CHANNELS,
     UI_KEY_DRIVE_IMAGES,
     UI_KEY_DRIVE_VIDEO_MODE,
     UI_KEY_DRIVE_VIDEOS,
@@ -52,6 +51,10 @@ from agents.graphics_definition_v2.candidate_search.pool_registry import (
     UI_KEY_HVAC_YOUTUBE,
     UI_KEY_WEB_AND_OTHER,
     UI_KEY_WEB_FALLBACK_ENABLED,
+    apply_enabled_sources_to_session_state,
+    decode_enabled_sources_from_course_info,
+    enabled_sources_from_session_state,
+    encode_enabled_sources_for_course_info,
 )
 import re
 
@@ -284,28 +287,89 @@ def _normalize_selected_topics(selected_topics):
     return [str(topic).strip() for topic in selected_topics if str(topic).strip()]
 
 
-def _course_info_has_external_reference_links(sheet):
+def _course_info_asset_libraries_raw(sheet):
     """
-    Return True if Course info → External References has at least one link.
+    Read the Allowed Asset Search Libraries cell from Course info.
 
     :param sheet: gspread Spreadsheet, or None
-    :return: bool
+    :return: Raw cell string ("" if missing/blank)
+    """
+    if sheet is None:
+        return ""
+    try:
+        worksheet = None
+        for candidate in sheet.worksheets():
+            if candidate.title.strip().lower() == "course info":
+                worksheet = candidate
+                break
+        if worksheet is None:
+            return ""
+        headers = worksheet.row_values(1)
+        key = COURSE_INFO_ENABLED_SOURCES_KEY
+        col = None
+        for idx, header in enumerate(headers):
+            if str(header).strip().lower() == key.lower():
+                col = idx + 1
+                break
+        if col is None:
+            return ""
+        return str(worksheet.cell(2, col).value or "").strip()
+    except Exception:
+        return ""
+
+
+def _write_course_info_asset_libraries(sheet, sources, drive_video_mode):
+    """
+    Write enabled sources to Course info (creates the column if missing).
+
+    :param sheet: gspread Spreadsheet
+    :param sources: List of enabled source ids
+    :param drive_video_mode: Drive video mode string, or ""
+    :return: True on success, False on failure
     """
     if sheet is None:
         return False
     try:
-        from agents.graphics_definition_v2.external_references.external_reference_extraction import (
-            _read_course_info,
-        )
-        _, _, links = _read_course_info(sheet)
-        return bool(links)
-    except Exception:
+        worksheet = None
+        for candidate in sheet.worksheets():
+            if candidate.title.strip().lower() == "course info":
+                worksheet = candidate
+                break
+        if worksheet is None:
+            return False
+        headers = worksheet.row_values(1)
+        key = COURSE_INFO_ENABLED_SOURCES_KEY
+        col = None
+        created_column = False
+        for idx, header in enumerate(headers):
+            if str(header).strip().lower() == key.lower():
+                col = idx + 1
+                break
+        if col is None:
+            headers.append(key)
+            col = len(headers)
+            if col > worksheet.col_count:
+                worksheet.add_cols(col - worksheet.col_count)
+            worksheet.update_cell(1, col, key)
+            created_column = True
+        cell_value = encode_enabled_sources_for_course_info(sources, drive_video_mode)
+        # Comma-separated labels match Sheets multi-select validation (newlines are rejected).
+        a1 = gspread.utils.rowcol_to_a1(2, col)
+        worksheet.update(a1, [[cell_value]], value_input_option="USER_ENTERED")
+        if created_column:
+            format_worksheet(worksheet)
+        return True
+    except Exception as exc:
+        print(f"⚠️ Could not write asset libraries to Course info: {exc}")
         return False
 
 
 def _render_graphics_v2_asset_library_controls():
     """
-    Render Graphics Definition V2 asset-library checkboxes and sync session state.
+    Render Graphics Definition V2 asset-library checkboxes.
+
+    Course info column "Allowed Asset Search Libraries for the Graphics Agent" is source of
+    truth: load into toggles on sheet open; write back immediately when toggles change.
     """
     defaults = {
         UI_KEY_DRIVE_IMAGES: True,
@@ -313,6 +377,7 @@ def _render_graphics_v2_asset_library_controls():
         UI_KEY_WEB_AND_OTHER: True,
         UI_KEY_DRIVE_VIDEOS: True,
         UI_KEY_DRIVE_VIDEO_MODE: DRIVE_VIDEO_MODE_ALL,
+        UI_KEY_EXTERNAL_REFERENCES: False,
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -320,16 +385,20 @@ def _render_graphics_v2_asset_library_controls():
 
     sheet = st.session_state.get("sheet")
     sheet_link = (st.session_state.get("sheet_link") or "").strip()
-    applied_for = st.session_state.get("_graphics_v2_ext_ref_default_sheet_link")
-    if UI_KEY_EXTERNAL_REFERENCES not in st.session_state or applied_for != sheet_link:
-        st.session_state[UI_KEY_EXTERNAL_REFERENCES] = _course_info_has_external_reference_links(
-            sheet
-        )
-        st.session_state["_graphics_v2_ext_ref_default_sheet_link"] = sheet_link
+    applied_for = st.session_state.get("_graphics_v2_asset_libs_sheet_link")
+    if sheet is not None and applied_for != sheet_link:
+        raw = _course_info_asset_libraries_raw(sheet)
+        sources, mode = decode_enabled_sources_from_course_info(raw)
+        apply_enabled_sources_to_session_state(sources, mode, st.session_state)
+        encoded = encode_enabled_sources_for_course_info(sources, mode)
+        if not (raw or "").strip():
+            _write_course_info_asset_libraries(sheet, sources, mode)
+        st.session_state["_graphics_v2_asset_libs_sheet_link"] = sheet_link
+        st.session_state["_graphics_v2_asset_libs_fingerprint"] = encoded
 
     st.markdown("**Asset libraries for this run**")
     st.caption(
-        "Select which libraries the agent may search and select the visuals from."
+        "Select which libraries the agent may search and select the visuals from. "
     )
 
     col1, col2 = st.columns(2)
@@ -360,19 +429,25 @@ def _render_graphics_v2_asset_library_controls():
             DRIVE_VIDEO_MODE_NEXTECH if mode_label == "Only NexTech videos" else DRIVE_VIDEO_MODE_ALL
         )
 
-    enabled_sources = []
-    if st.session_state.get(UI_KEY_DRIVE_IMAGES, True):
-        enabled_sources.append(SOURCE_DRIVE_IMAGES)
-    if st.session_state.get(UI_KEY_HVAC_YOUTUBE, True):
-        enabled_sources.append(SOURCE_HVAC_YOUTUBE)
-    if st.session_state.get(UI_KEY_DRIVE_VIDEOS, True):
-        enabled_sources.append(SOURCE_DRIVE_VIDEOS)
-    if st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, False):
-        enabled_sources.append(SOURCE_EXTERNAL_REFERENCES)
-
+    sources_full, drive_mode = enabled_sources_from_session_state(st.session_state)
+    # Web/other-YouTube gate Section 9 only — not Section 5 primary runners.
+    enabled_sources = [
+        s
+        for s in sources_full
+        if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+    ]
     web_fallback_enabled = bool(st.session_state.get(UI_KEY_WEB_AND_OTHER, True))
     st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = web_fallback_enabled
     st.session_state[UI_KEY_ENABLED_SOURCES] = enabled_sources
+
+    fingerprint = encode_enabled_sources_for_course_info(sources_full, drive_mode)
+    if sheet is not None and fingerprint != st.session_state.get("_graphics_v2_asset_libs_fingerprint"):
+        if _write_course_info_asset_libraries(sheet, sources_full, drive_mode):
+            st.session_state["_graphics_v2_asset_libs_fingerprint"] = fingerprint
+        else:
+            st.warning(
+                "Could not sync asset libraries to Course info."
+            )
 
     if not enabled_sources:
         st.error(
