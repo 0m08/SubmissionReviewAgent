@@ -9,6 +9,7 @@ Adding a new source later means registering it here (column + parser + item shap
 from agents.graphics_definition_v2.candidate_search.pool_registry import (
     SOURCE_DRIVE_IMAGES,
     SOURCE_WEB_IMAGES,
+    SOURCE_EXTERNAL_REFERENCES,
     SOURCE_HVAC_YOUTUBE,
     SOURCE_YOUTUBE_OTHER_CHANNELS,
     SOURCE_DRIVE_VIDEOS,
@@ -18,12 +19,15 @@ from agents.graphics_definition_v2.candidate_search.pool_registry import (
 IMAGE_SOURCE_COLUMNS = {
     SOURCE_DRIVE_IMAGES: "drive_results",
     SOURCE_WEB_IMAGES: "web_results",
+    SOURCE_EXTERNAL_REFERENCES: "external_ref_pool",
 }
 
 VIDEO_SOURCE_COLUMNS = {
     SOURCE_HVAC_YOUTUBE: "video_pool",
     SOURCE_YOUTUBE_OTHER_CHANNELS: "video_pool_other_channels",
     SOURCE_DRIVE_VIDEOS: "drive_video_pool",
+    # External refs mix images + videos in the same column; read in get_video_candidates.
+    SOURCE_EXTERNAL_REFERENCES: "external_ref_pool",
 }
 
 # Legacy batch "type" tag kept so downstream batching/multimodal code is unchanged.
@@ -31,7 +35,12 @@ _VIDEO_SOURCE_TYPE = {
     SOURCE_HVAC_YOUTUBE: "pool",
     SOURCE_YOUTUBE_OTHER_CHANNELS: "other",
     SOURCE_DRIVE_VIDEOS: "drive",
+    # External-ref videos are frames-only (still frames), but keep their start/end window for loading.
+    SOURCE_EXTERNAL_REFERENCES: "external_frames",
 }
+
+# Durable marker written into video_pool_filtered for external-ref videos.
+EXTERNAL_FRAMES_ONLY_MARKER = "FramesOnly: yes"
 
 
 def _include_set(enabled_sources, modality_sources):
@@ -77,18 +86,24 @@ def get_image_candidates(row, segment_num, enabled_sources=None):
     from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
         parse_urls_from_results,
     )
+    from agents.graphics_definition_v2.external_references.external_ref_search_from_queries import (
+        is_external_ref_video_url,
+    )
 
     include = _include_set(enabled_sources, IMAGE_SOURCE_COLUMNS)
     seen = set()
     out = []
-    # Drive images first, then web, matching prior dedup order.
-    for source_id in (SOURCE_DRIVE_IMAGES, SOURCE_WEB_IMAGES):
+    # Drive images, then web, then external refs (dedupe by URL across sources).
+    for source_id in (SOURCE_DRIVE_IMAGES, SOURCE_WEB_IMAGES, SOURCE_EXTERNAL_REFERENCES):
         if source_id not in include:
             continue
         text = _cell(row, IMAGE_SOURCE_COLUMNS[source_id])
         for item in parse_urls_from_results(text, segment_num):
             url = item.get("url", "")
             if not url or url in seen:
+                continue
+            # external_ref_pool mixes modalities — skip video clip lines for image selection.
+            if source_id == SOURCE_EXTERNAL_REFERENCES and is_external_ref_video_url(url):
                 continue
             seen.add(url)
             out.append({
@@ -103,7 +118,7 @@ def get_video_candidates(row, segment_num, enabled_sources=None):
     """
     Read normalized video candidates for one segment across enabled video sources.
 
-    Items keep a legacy "type" tag (pool/other/drive) so existing batching and multimodal-label code needs no change.
+    Items keep a legacy "type" tag (pool/other/drive/external_frames) so existing batching and multimodal-label code needs no change. External-ref YouTube and Drive clips use type "external_frames": load with start/end window, but frames-only selection permission.
 
     :param row: Pandas Series (a Slide Chunks row)
     :param segment_num: 1-based segment number
@@ -116,6 +131,12 @@ def get_video_candidates(row, segment_num, enabled_sources=None):
     from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
         parse_video_items_from_pool_other_channels,
         parse_drive_video_items_from_pool,
+    )
+    from agents.graphics_definition_v2.image_graphics_agent.image_selection_from_all_images import (
+        parse_urls_from_results,
+    )
+    from agents.graphics_definition_v2.external_references.external_ref_search_from_queries import (
+        is_external_ref_video_url,
     )
 
     include = _include_set(enabled_sources, VIDEO_SOURCE_COLUMNS)
@@ -159,20 +180,39 @@ def get_video_candidates(row, segment_num, enabled_sources=None):
                     "source_id": SOURCE_DRIVE_VIDEOS,
                 })
 
+    if SOURCE_EXTERNAL_REFERENCES in include:
+        text = _cell(row, VIDEO_SOURCE_COLUMNS[SOURCE_EXTERNAL_REFERENCES])
+        for item in parse_urls_from_results(text, segment_num):
+            url = item.get("url", "")
+            if not url or not is_external_ref_video_url(url):
+                continue
+            title = item.get("title", "") or "External ref video"
+            meta = {"title": title, "url": url}
+            out.append({
+                "type": _VIDEO_SOURCE_TYPE[SOURCE_EXTERNAL_REFERENCES],
+                "url": url,
+                "meta": meta,
+                "title": title,
+                "source_id": SOURCE_EXTERNAL_REFERENCES,
+            })
+
     return out
 
 
 def split_video_candidates(items):
     """
-    Split normalized video candidates back into the three legacy buckets.
+    Split normalized video candidates into legacy buckets plus external-ref frames-only items.
 
     :param items: List of items from get_video_candidates
-    :return: Tuple (pool_urls, other_items, drive_items)
+    :return: Tuple (pool_urls, other_items, drive_items, external_frames_items)
     """
     pool_urls = [x["url"] for x in items if x.get("type") == "pool"]
     other_items = [x["meta"] for x in items if x.get("type") == "other" and x.get("meta")]
     drive_items = [x["meta"] for x in items if x.get("type") == "drive" and x.get("meta")]
-    return pool_urls, other_items, drive_items
+    external_frames_items = [
+        x["meta"] for x in items if x.get("type") == "external_frames" and x.get("meta")
+    ]
+    return pool_urls, other_items, drive_items, external_frames_items
 
 
 def image_row_has_candidates(row, enabled_sources=None):

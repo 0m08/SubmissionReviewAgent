@@ -832,7 +832,7 @@ def _normalize_vo_for_match(vo_text):
 # B. Human-feedback revision function
 # ---------------------------------------------------------------------------
 
-def revise_segment_with_human_feedback(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, human_feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", candidate_mode="all", drive_video_pool_text="", enabled_sources=None):
+def revise_segment_with_human_feedback(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, human_feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", candidate_mode="all", drive_video_pool_text="", enabled_sources=None, external_ref_pool_text=""):
     """
     Revise segment visuals based on human feedback using human-feedback revision prompts.
 
@@ -855,12 +855,25 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
     :param visual_assignment_strategy: Visual assignment strategy
     :param video_pool_text: Video pool text
     :param video_pool_other_channels_text: Video pool other channels text
-    :param candidate_mode: "all" or "drive_hvac" (drive images + timestamped embed videos only)
+    :param candidate_mode: "drive_hvac" (Find in library — Drive/HVAC/Drive-video + External Refs when enabled) or "all" (Search the web — web/other YouTube, no External Refs)
     :return: Replacement XML string or None if revision fails
     """
     
     print(f"  Revising segment {segment_num} with human feedback...")
     print(f"    Human feedback: {human_feedback[:120]}...")
+
+    mode = str(candidate_mode).strip().lower()
+    mode_enabled_sources = _enabled_sources_for_hf_candidate_mode(enabled_sources, mode)
+    # Feed external_ref_pool only when this mode's sources actually include external refs.
+    from agents.graphics_definition_v2.candidate_search.pool_registry import (
+        SOURCE_EXTERNAL_REFERENCES,
+    )
+    external_on = SOURCE_EXTERNAL_REFERENCES in mode_enabled_sources
+    mode_external_ref_text = (
+        (external_ref_pool_text or "")
+        if external_on
+        else ""
+    )
 
     images, videos, frame_videos = build_candidates_for_segment(
         image_pool_text,
@@ -871,21 +884,113 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
         video_pool_text=video_pool_text,
         video_pool_other_channels_text=video_pool_other_channels_text,
         drive_video_pool_text=drive_video_pool_text,
-        enabled_sources=enabled_sources,
+        enabled_sources=mode_enabled_sources,
+        external_ref_pool_text=mode_external_ref_text,
     )
 
-    if str(candidate_mode).strip().lower() == "drive_hvac":
-        # drive_hvac = Drive + HVAC-only sources: keep Drive images, HVAC YouTube clips (embed w/ start&end) and Google Drive video clips.
+    if mode == "drive_hvac":
+        from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+            is_drive_file_under_external_ref_assets,
+        )
+
+        ancestry_cache = {}
+        # Asset library: Drive images only (External Ref extract images are also Drive URLs).
         images = [c for c in images if _is_drive_url(c.get("url", ""))]
+        dropped_ext_images = 0
+        if not external_on:
+            # External Refs off for this run → keep extract-folder images out of Find in library.
+            before_images = len(images)
+            images = [
+                c for c in images
+                if not is_drive_file_under_external_ref_assets(
+                    drive, c.get("url", ""), cache=ancestry_cache
+                )
+            ]
+            dropped_ext_images = before_images - len(images)
+
+        # Clippable library videos: HVAC embeds + Drive library clips.
         videos = [
             c for c in videos
             if _is_embed_with_start_end(c.get("url", "")) or c.get("type") == "drive_clip"
         ]
-        frame_videos = []
+        dropped_ext_clips = 0
+        if not external_on:
+            before_videos = len(videos)
+            videos = [
+                c for c in videos
+                if not (
+                    c.get("type") == "drive_clip"
+                    and is_drive_file_under_external_ref_assets(
+                        drive, c.get("url", ""), cache=ancestry_cache
+                    )
+                )
+            ]
+            dropped_ext_clips = before_videos - len(videos)
+
+        # External Ref videos are frames-only; keep those when External Refs are enabled. Drop other-channel full_video frames (those belong to Search the web).
+        if external_on:
+            frame_videos = [
+                c for c in frame_videos
+                if str(c.get("type") or "").strip().lower() == "frames_only"
+            ]
+        else:
+            frame_videos = []
+
         drive_clip_kept = len([c for c in videos if c.get("type") == "drive_clip"])
         print(
             f"  Restricted candidate mode for segment {segment_num}: "
-            f"{len(images)} drive image(s), {len(videos)} video clip(s) ({drive_clip_kept} drive)"
+            f"{len(images)} drive image(s), {len(videos)} video clip(s) ({drive_clip_kept} drive), "
+            f"{len(frame_videos)} external frames-only"
+            f" (external_refs={'on' if external_on else 'off'}; "
+            f"excluded {dropped_ext_images} external-ref image(s), "
+            f"{dropped_ext_clips} external-ref drive clip(s))"
+        )
+    elif mode == "all":
+        # Search the web: never use External Reference assets (even if they sit in image/video pools).
+        from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+            is_drive_file_under_external_ref_assets,
+            parse_drive_file_id,
+        )
+
+        ancestry_cache = {}
+        before_images = len(images)
+        images = [
+            c for c in images
+            if not is_drive_file_under_external_ref_assets(
+                drive, c.get("url", ""), cache=ancestry_cache
+            )
+        ]
+        before_videos = len(videos)
+        videos = [
+            c for c in videos
+            if not (
+                c.get("type") == "drive_clip"
+                and is_drive_file_under_external_ref_assets(
+                    drive, c.get("url", ""), cache=ancestry_cache
+                )
+            )
+        ]
+        before_frames = len(frame_videos)
+        frame_videos = [
+            c for c in frame_videos
+            if str(c.get("type") or "").strip().lower() != "frames_only"
+        ]
+        # Also drop pool URLs whose Drive file id is listed in external_ref_pool (covers missed ancestry).
+        pool_ids = set()
+        for match in re.findall(r"/file/d/([a-zA-Z0-9_-]+)", external_ref_pool_text or ""):
+            pool_ids.add(match)
+        if pool_ids:
+            def _not_in_ext_pool(url: str) -> bool:
+                file_id = parse_drive_file_id(url)
+                return not (file_id and file_id in pool_ids)
+
+            images = [c for c in images if _not_in_ext_pool(c.get("url", ""))]
+            videos = [c for c in videos if _not_in_ext_pool(c.get("url", ""))]
+        print(
+            f"  Web candidate mode for segment {segment_num}: "
+            f"excluded {before_images - len(images)} external-ref image(s), "
+            f"{before_videos - len(videos)} external-ref drive clip(s), "
+            f"{before_frames - len(frame_videos)} frames-only video(s)"
         )
     candidate_map = {
         c["id"]: c["url"]
@@ -985,8 +1090,15 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
         drive_parts_by_url = build_drive_video_parts_parallel(
             [
                 candidate.get("url", "")
-                for candidate in videos
-                if candidate.get("type") == "drive_clip" and candidate.get("url")
+                for candidate in (list(videos) + list(frame_videos))
+                if candidate.get("url")
+                and (
+                    candidate.get("type") == "drive_clip"
+                    or (
+                        candidate.get("type") == "frames_only"
+                        and "drive.google.com" in str(candidate.get("url", "")).lower()
+                    )
+                )
             ],
             drive,
         )
@@ -1035,32 +1147,62 @@ def revise_segment_with_human_feedback(course_name, target_audience, topic_name,
                 candidate_num += 1
 
         for candidate in frame_videos:
+            video_type = candidate.get("type", "full_video")
             video_url = candidate.get("url", "")
-            embed_url = convert_watch_url_to_embed_url(video_url)
-            if embed_url:
+            if video_type == "frames_only":
                 label = (
                     f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
                     f"ID: {candidate['id']}\n"
-                    f"Usage: Can be used ONLY as still frames (NOT playable clips)\n"
+                    f"Usage: Can be used ONLY as still frames (NOT playable clips). "
+                    f"The attached media is the relevant window only.\n"
                     f"URL: {video_url}\n"
                 )
                 parts.append(types.Part(text=label))
-                video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
-                if video_part:
-                    parts.append(video_part)
+                if "drive.google.com" in video_url.lower():
+                    drive_part = drive_parts_by_url.get(video_url)
+                    if drive_part is not None:
+                        parts.append(drive_part)
+                    else:
+                        parts.append(types.Part(text=f"[External Drive video could not be loaded: {video_url}]\n"))
+                else:
+                    clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+                    if clip_url:
+                        video_part = build_video_part(clip_url, start_seconds, end_seconds)
+                        if video_part:
+                            parts.append(video_part)
+                    else:
+                        embed_url = convert_watch_url_to_embed_url(video_url)
+                        if embed_url:
+                            video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+                            if video_part:
+                                parts.append(video_part)
                 candidate_num += 1
             else:
-                label = (
-                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
-                    f"ID: {candidate['id']}\n"
-                    f"Usage: Can be used ONLY as still frames (NOT playable clips)\n"
-                    f"URL: {video_url}\n"
-                )
-                parts.append(types.Part(text=label))
-                visual_part = build_visual_part_only(video_url, drive)
-                if visual_part:
-                    parts.append(visual_part)
-                candidate_num += 1
+                embed_url = convert_watch_url_to_embed_url(video_url)
+                if embed_url:
+                    label = (
+                        f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                        f"ID: {candidate['id']}\n"
+                        f"Usage: Can be used ONLY as still frames (NOT playable clips)\n"
+                        f"URL: {video_url}\n"
+                    )
+                    parts.append(types.Part(text=label))
+                    video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+                    if video_part:
+                        parts.append(video_part)
+                    candidate_num += 1
+                else:
+                    label = (
+                        f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                        f"ID: {candidate['id']}\n"
+                        f"Usage: Can be used ONLY as still frames (NOT playable clips)\n"
+                        f"URL: {video_url}\n"
+                    )
+                    parts.append(types.Part(text=label))
+                    visual_part = build_visual_part_only(video_url, drive)
+                    if visual_part:
+                        parts.append(visual_part)
+                    candidate_num += 1
 
         parts.append(types.Part(text=split3[1]))
     else:
@@ -1519,7 +1661,7 @@ def _compose_hf_status_with_ai_errors(base: str, ai_errors: List[str]) -> str:
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
-def process_human_feedback_row(row_index, df, course_name, target_audience, drive, llm, ws, use_only_drive_and_hvac=False, human_feedback_column="human_feedback", human_feedback_status_column="human_feedback_status", human_feedback_revision_tracking_column="human_feedback_revision_tracking", human_review_actions_column="human_review_actions", manifest_replacements_log=None, enabled_sources=None, drive_video_mode=None):
+def process_human_feedback_row(row_index, df, course_name, target_audience, drive, llm, ws, use_only_drive_and_hvac=False, human_feedback_column="human_feedback", human_feedback_status_column="human_feedback_status", human_feedback_revision_tracking_column="human_feedback_revision_tracking", human_review_actions_column="human_review_actions", manifest_replacements_log=None, enabled_sources=None, drive_video_mode=None, sheet_id=None):
     """
     Process a single row's full human-feedback workflow: revise, review, optional regen loop, then write status and tracking to df.
 
@@ -1532,6 +1674,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
     :param ws: Worksheet object or None
     :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :param drive_video_mode: Explicit Drive video mode ("all"/"nextech") for regeneration; None falls back to session_state (default "all"). Lets callers without Streamlit session_state (e.g. the FastAPI review app) honor the run's Drive video mode.
+    :param sheet_id: Optional spreadsheet id for sheet-scoped external-ref regen when ws is None (FastAPI).
     :return: None
     """
     
@@ -1733,6 +1876,7 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
                     video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
                     candidate_mode=candidate_mode,
                     drive_video_pool_text=_safe_str(row.get("drive_video_pool", "")),
+                    external_ref_pool_text=_safe_str(row.get("external_ref_pool", "")),
                     enabled_sources=enabled_sources,
                 )
 
@@ -1880,6 +2024,8 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
 
             if restricted_segments:
                 restricted_feedback = {k: v for k, v in regen_feedback.items() if k in restricted_segments}
+                # Asset library regen: Drive/HVAC/Drive-video + External Refs when Course info enabled them.
+                restricted_sources = _enabled_sources_for_hf_candidate_mode(enabled_sources, "drive_hvac")
                 r_rep, r_old = regenerate_failed_segments(
                     row_index=row_index,
                     row=row,
@@ -1892,14 +2038,17 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
                     feedback_by_segment=restricted_feedback,
                     ws=ws,
                     use_only_drive_and_hvac=True,
-                    enabled_sources=enabled_sources,
+                    enabled_sources=restricted_sources,
                     drive_video_mode=drive_video_mode,
+                    sheet_id=sheet_id,
                 )
                 replaced_visual_ids_by_segment.update(r_rep or {})
                 old_asset_urls_by_visual_id.update(r_old or {})
 
             if all_segments:
                 all_feedback = {k: v for k, v in regen_feedback.items() if k in all_segments}
+                # Web regen: web/other always on for this button; never External References.
+                all_sources = _enabled_sources_for_hf_candidate_mode(enabled_sources, "all")
                 a_rep, a_old = regenerate_failed_segments(
                     row_index=row_index,
                     row=row,
@@ -1913,8 +2062,9 @@ def process_human_feedback_row(row_index, df, course_name, target_audience, driv
                     ws=ws,
                     use_only_drive_and_hvac=False,
                     create_aux_search_columns_if_missing=True,
-                    enabled_sources=enabled_sources,
+                    enabled_sources=all_sources,
                     drive_video_mode=drive_video_mode,
+                    sheet_id=sheet_id,
                 )
                 replaced_visual_ids_by_segment.update(a_rep or {})
                 old_asset_urls_by_visual_id.update(a_old or {})
@@ -2245,6 +2395,49 @@ def _is_drive_url(url: str) -> bool:
         return False
     lowered = str(url).lower()
     return "drive.google.com" in lowered or "docs.google.com" in lowered
+
+
+def _enabled_sources_for_hf_candidate_mode(enabled_sources, candidate_mode):
+    """
+    Map HF UI mode onto enabled sources.
+
+    Asset library (drive_hvac): Drive / HVAC / Drive videos + External References when Course info enabled them. Never web images or other-channel YouTube.
+    Search the web (all): force-include web images + other-channel YouTube; never External References.
+
+    :param enabled_sources: Optional list from Course info / session
+    :param candidate_mode: "drive_hvac" or "all"
+    :return: Filtered enabled_sources list (never None for known modes)
+    """
+    from agents.graphics_definition_v2.candidate_search.pool_registry import (
+        ALL_KNOWN_SOURCES,
+        DEFAULT_ENABLED_SOURCES,
+        SOURCE_EXTERNAL_REFERENCES,
+        SOURCE_WEB_IMAGES,
+        SOURCE_YOUTUBE_OTHER_CHANNELS,
+    )
+
+    mode = str(candidate_mode or "").strip().lower()
+    if enabled_sources is None:
+        # Legacy sheets with no Course info sources: same primary defaults + web/other.
+        base = list(DEFAULT_ENABLED_SOURCES) + [SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS]
+    else:
+        base = [str(s).strip() for s in enabled_sources if str(s).strip()]
+
+    if mode == "drive_hvac":
+        # Find in library: keep External Refs when the run enabled them; drop web/other.
+        return [
+            s
+            for s in base
+            if s in ALL_KNOWN_SOURCES
+            and s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+        ]
+
+    # "all" / web path: button means web + other-YouTube; never External References.
+    base = [s for s in base if s != SOURCE_EXTERNAL_REFERENCES]
+    for source_id in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS):
+        if source_id not in base:
+            base.append(source_id)
+    return [s for s in base if s in ALL_KNOWN_SOURCES]
 
 
 def _is_embed_with_start_end(url: str) -> bool:

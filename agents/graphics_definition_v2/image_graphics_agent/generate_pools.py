@@ -13,6 +13,10 @@ import streamlit as st
 from langsmith import traceable
 from services.smart_progress_bar import SmartProgressBar
 from services.sheets_service import get_sheet_data_and_df, clear_worksheet, save_to_sheet
+from agents.graphics_definition_v2.candidate_search.candidate_wrapper import (
+    image_row_has_candidates,
+    video_row_has_candidates,
+)
 from agents.graphics_definition_v2.candidate_search.pool_registry import (
     UI_KEY_ENABLED_SOURCES,
     UI_KEY_WEB_FALLBACK_ENABLED,
@@ -143,6 +147,9 @@ def run_generate_image_and_video_pools(
     worksheet_name = "Slide Chunks"
     _, df = get_sheet_data_and_df(sheet, worksheet_name)
 
+    # Resolve enabled sources once on the main thread; worker threads cannot read session state.
+    enabled_sources = resolve_section6_enabled_sources()
+
     def _count_image_tasks(_df) -> int:
         tasks = 0
         for _, row in _df.iterrows():
@@ -152,6 +159,8 @@ def run_generate_image_and_video_pools(
             voiceover_segments = str(row.get("voiceover_segment", "")).strip()
             image_pool = str(row.get("image_pool", "")).strip()
             if not voiceover_segments or voiceover_segments == "nan":
+                continue
+            if not image_row_has_candidates(row, enabled_sources):
                 continue
             if image_pool and image_pool != "nan" and not str(image_pool).startswith("ERROR:"):
                 continue
@@ -164,24 +173,14 @@ def run_generate_image_and_video_pools(
             topic_name = str(row.get("Topic", "")).strip()
             if selected_topics and topic_name not in selected_topics:
                 continue
-            video_pool = str(row.get("video_pool", "")).strip()
-            video_pool_other_channels = str(row.get("video_pool_other_channels", "")).strip()
-            drive_video_pool = str(row.get("drive_video_pool", "")).strip()
             video_pool_filtered = str(row.get("video_pool_filtered", "")).strip()
-            has_videos = (
-                (video_pool and video_pool != "nan")
-                or (video_pool_other_channels and video_pool_other_channels != "nan")
-                or (drive_video_pool and drive_video_pool != "nan")
-            )
-            if not has_videos:
+            # Includes external_ref_pool when External References is enabled.
+            if not video_row_has_candidates(row, enabled_sources):
                 continue
             if video_pool_filtered and video_pool_filtered != "nan" and not str(video_pool_filtered).startswith("ERROR:"):
                 continue
             tasks += 1
         return tasks
-
-    # Resolve enabled sources once on the main thread; worker threads cannot read session state.
-    enabled_sources = resolve_section6_enabled_sources()
 
     image_tasks = _count_image_tasks(df)
     video_tasks = _count_video_tasks(df)

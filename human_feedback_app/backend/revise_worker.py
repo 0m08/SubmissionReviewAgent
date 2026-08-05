@@ -21,6 +21,9 @@ from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_
     _parse_tracking_column,
     process_human_feedback_row,
 )
+from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+    _resolve_sheet_id,
+)
 from human_feedback_app.backend.constants import (
     HUMAN_FEEDBACK_COLUMN,
     HUMAN_FEEDBACK_STATUS_COLUMN,
@@ -57,9 +60,10 @@ def run_row_revision(
 
     _, df, _ = load_workbook(session)
 
-    # Backward-compat fallback for sheets created before the graphics_v2_enabled_sources column existed (and any empty/malformed value): treat as None so the agent behaves exactly as it did before the column — all present sources are searchable during revise.
+    # Course info "Allowed Asset Search Libraries..." (blank → product defaults via decode).
     enabled_sources = session.enabled_sources or None
     drive_video_mode = session.drive_video_mode or None
+    sheet_id = _resolve_sheet_id(session.sheet) if session.sheet is not None else ""
 
     _, course_info_df = get_sheet_data_and_df(session.sheet, "Course info")
     course_name = str(course_info_df.iloc[0].get("Course Name", "")).strip()
@@ -92,6 +96,7 @@ def run_row_revision(
             use_only_drive_and_hvac=False,
             enabled_sources=enabled_sources,
             drive_video_mode=drive_video_mode,
+            sheet_id=sheet_id or None,
             human_feedback_column=hf_col,
             human_feedback_status_column=status_col,
             human_feedback_revision_tracking_column=tracking_col,

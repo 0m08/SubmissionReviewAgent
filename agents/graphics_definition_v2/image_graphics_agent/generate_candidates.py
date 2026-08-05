@@ -7,12 +7,17 @@ from agents.graphics_definition_v2.candidate_search.pool_registry import (
     encode_enabled_sources_for_course_info,
     SOURCE_DRIVE_IMAGES,
     SOURCE_DRIVE_VIDEOS,
+    SOURCE_EXTERNAL_REFERENCES,
     SOURCE_HVAC_YOUTUBE,
     SOURCE_WEB_IMAGES,
     SOURCE_YOUTUBE_OTHER_CHANNELS,
     UI_KEY_DRIVE_VIDEO_MODE,
     UI_KEY_WEB_FALLBACK_ENABLED,
     resolve_enabled_sources,
+)
+from agents.graphics_definition_v2.external_references.external_ref_search_from_queries import (
+    delete_external_ref_pool,
+    run_external_ref_search_for_all_rows,
 )
 from agents.graphics_definition_v2.image_graphics_agent.drive_search import (
     delete_drive_results,
@@ -37,24 +42,64 @@ from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_in_
 import streamlit as st
 from langsmith import traceable
 from services.smart_progress_bar import SmartProgressBar
-from services.sheets_service import format_worksheet
+from services.sheets_service import (
+    clear_worksheet,
+    format_worksheet,
+    get_sheet_data_and_df,
+    save_to_sheet,
+)
+
+
+def _course_info_worksheet(sheet):
+    """
+    Return the Course info worksheet, or None if missing.
+
+    :param sheet: gspread Spreadsheet object.
+    :return: Worksheet or None
+    """
+    for candidate in sheet.worksheets():
+        if candidate.title.strip().lower() == "course info":
+            return candidate
+    return None
+
+
+def _read_enabled_sources_raw_from_course_info(sheet):
+    """
+    Read the raw Allowed Asset Search Libraries cell from Course info.
+
+    :param sheet: gspread Spreadsheet object.
+    :return: Raw cell string ("" if missing/blank).
+    """
+    try:
+        worksheet = _course_info_worksheet(sheet)
+        if worksheet is None:
+            return ""
+        headers = worksheet.row_values(1)
+        key = COURSE_INFO_ENABLED_SOURCES_KEY
+        col = None
+        for idx, header in enumerate(headers):
+            if str(header).strip().lower() == key.lower():
+                col = idx + 1
+                break
+        if col is None:
+            return ""
+        return str(worksheet.cell(2, col).value or "").strip()
+    except Exception as exc:
+        print(f"⚠️ Could not read enabled_sources from Course info: {exc}")
+        return ""
 
 
 def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
     """
-    Record the run's enabled sources (+ Drive video mode) on the Course info tab so that the human-feedback review app can respect the same libraries.
+    Record enabled sources (+ Drive video mode) on Course info so Graphics UI and HF share one setting.
 
     :param sheet: gspread Spreadsheet object.
-    :param sources: Resolved list of enabled source ids for this run.
+    :param sources: Resolved list of enabled source ids.
     :param drive_video_mode: Drive video mode string, or "" when Drive videos off.
     :return: None
     """
     try:
-        worksheet = None
-        for candidate in sheet.worksheets():
-            if candidate.title.strip().lower() == "course info":
-                worksheet = candidate
-                break
+        worksheet = _course_info_worksheet(sheet)
         if worksheet is None:
             print("⚠️ 'Course info' tab not found; skipping enabled_sources persistence")
             return
@@ -84,11 +129,47 @@ def _persist_run_sources_to_course_info(sheet, sources, drive_video_mode):
         print(f"⚠️ Could not persist enabled_sources to Course info: {exc}")
 
 
+def _delete_enabled_sources_from_course_info(sheet):
+    """
+    Remove the Allowed Asset Search Libraries column from Course info.
+
+    :param sheet: gspread Spreadsheet object.
+    :return: None
+    """
+    try:
+        worksheet = None
+        for candidate in sheet.worksheets():
+            if candidate.title.strip().lower() == "course info":
+                worksheet = candidate
+                break
+        if worksheet is None:
+            print("ℹ️ 'Course info' tab not found; nothing to clear for enabled_sources")
+            return
+
+        ws, df = get_sheet_data_and_df(sheet, worksheet.title)
+        key = COURSE_INFO_ENABLED_SOURCES_KEY
+        match_cols = [c for c in df.columns if str(c).strip().lower() == key.lower()]
+        if not match_cols:
+            print(f"ℹ️ No '{key}' column on Course info")
+            return
+        df = df.drop(columns=match_cols)
+        clear_worksheet(ws)
+        save_to_sheet(ws, df)
+        format_worksheet(ws)
+        print(f"🗑️ Deleted '{key}' from Course info")
+    except Exception as exc:
+        print(f"⚠️ Could not delete enabled_sources from Course info: {exc}")
+
+
 # Sheet-level runners + delete helpers keyed by source id.
 POOL_RUNNERS = {
     SOURCE_DRIVE_IMAGES: (run_drive_search_for_all_rows, delete_drive_results),
     SOURCE_HVAC_YOUTUBE: (run_youtube_video_search_for_all_rows, delete_video_pool),
     SOURCE_DRIVE_VIDEOS: (run_drive_video_search_for_all_rows, delete_drive_video_pool),
+    SOURCE_EXTERNAL_REFERENCES: (
+        run_external_ref_search_for_all_rows,
+        delete_external_ref_pool,
+    ),
     SOURCE_WEB_IMAGES: (run_web_search_for_all_rows, delete_web_results),
     SOURCE_YOUTUBE_OTHER_CHANNELS: (
         run_youtube_video_search_other_channels_for_all_rows,
@@ -225,7 +306,7 @@ def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_driv
 
 def delete_all_candidate_results(sheet):
     """
-    Delete all known candidate generation result columns.
+    Delete all known candidate generation result columns (pools/search results).
 
     :param sheet: The gspread sheet object.
     :return: None

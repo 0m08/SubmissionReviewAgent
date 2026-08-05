@@ -38,6 +38,7 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     parse_urls_from_image_pool,
     parse_urls_from_video_pool_filtered,
     get_video_items_fallback_from_pools,
+    get_image_items_fallback_from_sources,
     parse_segments_from_voiceover,
     parse_video_url_timestamps,
     convert_watch_url_to_embed_url,
@@ -78,15 +79,28 @@ from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all
 from agents.graphics_definition_v2.video_graphics_agent.drive_video_search_from_queries import (
     process_drive_video_search_segment,
 )
+from agents.graphics_definition_v2.external_references.external_ref_search_from_queries import (
+    process_external_ref_search_segment,
+    EXTERNAL_REF_POOL_COLUMN,
+)
+from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+    _resolve_sheet_id,
+)
 from agents.graphics_definition_v2.candidate_search.pool_registry import (
     SOURCE_DRIVE_IMAGES,
     SOURCE_HVAC_YOUTUBE,
     SOURCE_WEB_IMAGES,
     SOURCE_YOUTUBE_OTHER_CHANNELS,
     SOURCE_DRIVE_VIDEOS,
+    SOURCE_EXTERNAL_REFERENCES,
     UI_KEY_DRIVE_VIDEO_MODE,
     DRIVE_VIDEO_MODE_ALL,
     DRIVE_VIDEO_MODE_NEXTECH,
+)
+from agents.graphics_definition_v2.candidate_search.candidate_wrapper import (
+    get_video_candidates,
+    split_video_candidates,
+    get_image_candidates,
 )
 
 load_dotenv()
@@ -2261,6 +2275,7 @@ def run_segmentation_quality_loop_for_slide(
                     video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
                     drive_video_pool_text=_safe_str(row.get("drive_video_pool", "")),
                     enabled_sources=enabled_sources,
+                    external_ref_pool_text=_safe_str(row.get("external_ref_pool", "")),
                 )
                 if revised:
                     revised_stripped = revised.strip()
@@ -3280,7 +3295,7 @@ def build_video_candidates_text(videos, frame_videos):
     return video_candidates_text
 
 
-def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, video_pool_text="", video_pool_other_channels_text="", drive_video_pool_text="", enabled_sources=None):
+def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, video_pool_text="", video_pool_other_channels_text="", drive_video_pool_text="", enabled_sources=None, external_ref_pool_text=""):
     """
     Build candidate images and videos for a specific segment.
     
@@ -3293,15 +3308,20 @@ def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, driv
     :param video_pool_other_channels_text: Optional; used as fallback when video_pool_filtered is empty
     :param drive_video_pool_text: Optional; drive_video_pool column content, used as fallback when video_pool_filtered is empty
     :param enabled_sources: Optional list of enabled source ids used to filter fallback sources (None reads all present)
+    :param external_ref_pool_text: Optional; external_ref_pool column content for fallback
     :return: Tuple of (images, videos, frame_videos) where each is a list of candidate dictionaries. `videos` (clippable) includes both YouTube embeds and Google Drive clips; `frame_videos` is frames-only.
     """
-    # Parse images from image_pool first, fallback to drive_results + web_results if empty
+    # Parse images from image_pool first; fallback to Drive + Web + External Refs when empty.
     image_items = parse_urls_from_image_pool(image_pool_text, segment_num)
     if not image_items:
-        # Fallback to original search results
-        image_items = parse_urls_from_results(drive_results_text, segment_num)
-        image_items += parse_urls_from_results(web_results_text, segment_num)
-        print(f"Segment {segment_num}: Using fallback image sources (drive_results + web_results)")
+        image_items = get_image_items_fallback_from_sources(
+            drive_results_text or "",
+            web_results_text or "",
+            segment_num,
+            enabled_sources=enabled_sources,
+            external_ref_pool_text=external_ref_pool_text or "",
+        )
+        print(f"Segment {segment_num}: Using fallback image sources (drive_results + web_results + external_ref_pool)")
     else:
         print(f"Segment {segment_num}: Using image_pool")
     
@@ -3315,21 +3335,24 @@ def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, driv
 
     # Parse videos from video_pool_filtered
     video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num)
-    # Fallback: if video_pool_filtered is empty, use the raw pools (HVAC YouTube + other channels + Drive videos), filtered by enabled_sources.
-    if not video_items_filtered and (video_pool_text or video_pool_other_channels_text or drive_video_pool_text):
+    # Fallback: if video_pool_filtered is empty, use the raw pools, filtered by enabled_sources.
+    if not video_items_filtered and (
+        video_pool_text or video_pool_other_channels_text or drive_video_pool_text or external_ref_pool_text
+    ):
         video_items_filtered = get_video_items_fallback_from_pools(
             video_pool_text or "",
             video_pool_other_channels_text or "",
             segment_num,
             drive_video_pool_text=drive_video_pool_text or "",
             enabled_sources=enabled_sources,
+            external_ref_pool_text=external_ref_pool_text or "",
         )
         if video_items_filtered:
             print(f"Segment {segment_num}: video_pool_filtered empty, using fallback pools ({len(video_items_filtered)} video(s))")
     
-    # Clippable = YouTube embeds + Drive clips (both usable as clips or still frames) frames-only = full videos.
+    # Clippable = YouTube embeds + Drive library clips; frames-only = other-channel + external-ref windows.
     clippable_items = [item for item in video_items_filtered if item.get("type") in ("embed", "drive_clip")]
-    full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
+    full_video_items = [item for item in video_items_filtered if item.get("type") in ("full_video", "frames_only")]
     
     videos: List[Dict[str, Any]] = []
     for idx, item in enumerate(clippable_items, start=1):
@@ -3342,11 +3365,12 @@ def build_candidates_for_segment(image_pool_text, video_pool_filtered_text, driv
 
     frame_videos: List[Dict[str, Any]] = []
     for idx, item in enumerate(full_video_items, start=1):
+        item_type = item.get("type", "full_video")
         frame_videos.append({
             "id": f"VID_2.{idx}",
             "title": "Frames only (no clip timestamps)",
             "url": item.get("url", ""),
-            "type": "full_video",
+            "type": item_type,
         })
 
     drive_clip_count = len([v for v in videos if v.get("type") == "drive_clip"])
@@ -3389,7 +3413,7 @@ def resolve_asset_urls_in_definition(graphics_definition_xml, candidate_map):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", drive_video_pool_text="", enabled_sources=None):
+def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_name, slide_title, slide_chunk, vo_text, current_visuals, feedback, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, segment_num, drive, llm, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", drive_video_pool_text="", enabled_sources=None, external_ref_pool_text=""):
     """
     Revise segment visuals based on review feedback.
     
@@ -3425,6 +3449,7 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
         video_pool_other_channels_text=video_pool_other_channels_text,
         drive_video_pool_text=drive_video_pool_text,
         enabled_sources=enabled_sources,
+        external_ref_pool_text=external_ref_pool_text,
     )
     candidate_map = {
         candidate["id"]: candidate["url"]
@@ -3546,8 +3571,15 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
         drive_parts_by_url = build_drive_video_parts_parallel(
             [
                 candidate.get("url", "")
-                for candidate in videos
-                if candidate.get("type") == "drive_clip" and candidate.get("url")
+                for candidate in (list(videos) + list(frame_videos))
+                if candidate.get("url")
+                and (
+                    candidate.get("type") == "drive_clip"
+                    or (
+                        candidate.get("type") == "frames_only"
+                        and "drive.google.com" in str(candidate.get("url", "")).lower()
+                    )
+                )
             ],
             drive,
         )
@@ -3605,12 +3637,40 @@ def revise_segment_visuals(course_name, target_audience, topic_name, subtopic_na
                     parts.append(visual_part)
                 candidate_num += 1
         
-        # Handle full videos (frames only)
+        # Handle full videos / external-ref frames-only windows
         for candidate in frame_videos:
             video_type = candidate.get("type", "full_video")
             video_url = candidate.get("url", "")
             
-            if video_type == "full_video":
+            if video_type == "frames_only":
+                label_text = (
+                    f"\n--- Video {candidate_num} of {total_video_candidates} ---\n"
+                    f"ID: {candidate['id']}\n"
+                    f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps). "
+                    f"The attached media is the relevant window only.\n"
+                    f"URL: {video_url}\n"
+                )
+                parts.append(types.Part(text=label_text))
+                if "drive.google.com" in video_url.lower():
+                    drive_part = drive_parts_by_url.get(video_url)
+                    if drive_part is not None:
+                        parts.append(drive_part)
+                    else:
+                        parts.append(types.Part(text=f"[External Drive video could not be loaded: {video_url}]\n"))
+                else:
+                    clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+                    if clip_url:
+                        video_part = build_video_part(clip_url, start_seconds, end_seconds)
+                        if video_part:
+                            parts.append(video_part)
+                    else:
+                        embed_url = convert_watch_url_to_embed_url(video_url)
+                        if embed_url:
+                            video_part = build_video_part(embed_url, start_seconds=None, end_seconds=None)
+                            if video_part:
+                                parts.append(video_part)
+                candidate_num += 1
+            elif video_type == "full_video":
                 # Full video - frames only
                 embed_url = convert_watch_url_to_embed_url(video_url)
                 if embed_url:
@@ -4006,9 +4066,10 @@ def update_final_graphics_definition(original_text, updated_segments):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def regenerate_failed_segments(row_index, row, df, course_name, target_audience, drive, llm, failed_segments, feedback_by_segment, ws=None, use_only_drive_and_hvac=False, create_aux_search_columns_if_missing=False, enabled_sources=None, drive_video_mode=None):
+def regenerate_failed_segments(row_index, row, df, course_name, target_audience, drive, llm, failed_segments, feedback_by_segment, ws=None, use_only_drive_and_hvac=False, create_aux_search_columns_if_missing=False, enabled_sources=None, drive_video_mode=None, sheet_id=None):
     """
     Regenerate visuals for failed segments: new search queries, search execution, and revision.
+
 
     :param row_index: Row index in the dataframe
     :param row: Row data (series)
@@ -4023,17 +4084,20 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
     :param use_only_drive_and_hvac: If True, skip web search and other-channels video search during regeneration.
     :param create_aux_search_columns_if_missing: If True, create web_results and video_pool_other_channels when missing.
     :param drive_video_mode: Explicit Drive video mode ("all"/"nextech"). Takes precedence over Streamlit session_state; None falls back to session_state (default "all"). Needed by callers without session_state (e.g. the FastAPI review app).
+    :param sheet_id: Optional spreadsheet id for sheet-scoped Supabase external-ref search when ws is None (FastAPI revise path).
     :return: Tuple of (replaced_visual_ids_by_segment, old_asset_urls_by_visual_id)
     """
-    # Resolve which candidate sources regeneration may search. Internal pools (Section 5 defaults): drive_images, hvac_youtube, drive_videos — gated by enabled_sources when the UI provides it. Web images + other-channel YouTube are Section 9 fallbacks. When use_only_drive_and_hvac=True (Section 8 review/revise), never search them here even if those toggles are on in the asset library.
+    # Resolve which candidate sources regeneration may search. Internal pools (Section 5 defaults): drive_images, hvac_youtube, drive_videos, external_references — gated by enabled_sources when the UI provides it.
     if enabled_sources is not None:
         drive_images_enabled = SOURCE_DRIVE_IMAGES in enabled_sources
         hvac_youtube_enabled = SOURCE_HVAC_YOUTUBE in enabled_sources
         drive_videos_enabled = SOURCE_DRIVE_VIDEOS in enabled_sources
+        external_references_enabled = SOURCE_EXTERNAL_REFERENCES in enabled_sources
     else:
         drive_images_enabled = True
         hvac_youtube_enabled = True
         drive_videos_enabled = True
+        external_references_enabled = True
 
     if use_only_drive_and_hvac:
         web_images_enabled = False
@@ -4047,7 +4111,8 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
     print(
         f"  Regeneration enabled sources: drive_images={drive_images_enabled}, "
         f"hvac_youtube={hvac_youtube_enabled}, web_images={web_images_enabled}, "
-        f"other_channels={other_channels_enabled}, drive_videos={drive_videos_enabled}"
+        f"other_channels={other_channels_enabled}, drive_videos={drive_videos_enabled}, "
+        f"external_references={external_references_enabled}"
     )
     # Resolve Drive video search mode (all vs nextech). An explicit caller value wins (e.g. the FastAPI review app, which has no Streamlit session_state); otherwise fall back to session_state, defaulting to ALL.
     explicit_mode = str(drive_video_mode or "").strip().lower()
@@ -4092,6 +4157,20 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         else:
             df["drive_video_pool"] = ""
         print("  Created missing column for regeneration: drive_video_pool")
+    if external_references_enabled and EXTERNAL_REF_POOL_COLUMN not in df.columns:
+        df[EXTERNAL_REF_POOL_COLUMN] = ""
+        print(f"  Created missing column for regeneration: {EXTERNAL_REF_POOL_COLUMN}")
+
+    external_ref_sheet_id = str(sheet_id or "").strip()
+    if external_references_enabled and not external_ref_sheet_id and ws is not None:
+        try:
+            parent = getattr(ws, "spreadsheet", None)
+            external_ref_sheet_id = _resolve_sheet_id(parent) if parent is not None else ""
+        except Exception as sheet_id_err:
+            print(f"  WARNING: Could not resolve sheet_id for external-ref regen search: {sheet_id_err}")
+            external_ref_sheet_id = ""
+    if external_references_enabled and not external_ref_sheet_id:
+        print("  WARNING: external_ref_sheet_id empty; external-ref regen Supabase search will be skipped")
 
     slide_title = _safe_str(row.get("Slide Chunk Title", ""))
     slide_chunk = _safe_str(row.get("Slide Chunk", ""))
@@ -4316,11 +4395,42 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         else:
             print(f"Segment {segment_num}: Skipping video pool and other-channels search (transition slide)")
 
+        # External refs (images + video windows) — re-query Supabase with the new regen queries.
+        if external_references_enabled:
+            try:
+                print(f"    Segment {segment_num}: Searching external references (Supabase)...")
+                seg_num, external_ref_results = process_external_ref_search_segment(
+                    segment_num,
+                    queries,
+                    sheet_id=external_ref_sheet_id or None,
+                    k=max(REGEN_IMAGE_SEARCH_K, REGEN_VIDEO_SEARCH_K),
+                )
+                if external_ref_results:
+                    lines = [line.strip() for line in external_ref_results.splitlines() if line.strip()]
+                    df.at[row_index, EXTERNAL_REF_POOL_COLUMN] = replace_segment_block(
+                        _safe_str(df.at[row_index, EXTERNAL_REF_POOL_COLUMN]),
+                        segment_num,
+                        lines[1:] if lines and lines[0].startswith("---SEGMENT_") else lines,
+                    )
+                    print(f"      External ref search: {len(lines)} result(s)")
+                    if ws is not None:
+                        with _sheet_lock:
+                            save_to_sheet(ws, df)
+                        print(f"      Segment {segment_num}: Saved {EXTERNAL_REF_POOL_COLUMN} to sheet")
+                else:
+                    print(f"      External ref search: no results for segment {segment_num}")
+            except Exception as e:
+                print(f"  ERROR: External ref search failed for segment {segment_num}: {e}")
+                traceback.print_exc()
+        else:
+            print(f"    Segment {segment_num}: Skipping external reference search (source disabled)")
+
     row = df.loc[row_index]
     image_pool_text = _safe_str(row.get("image_pool", ""))
     video_pool_filtered_text = _safe_str(row.get("video_pool_filtered", ""))
     drive_results_text = _safe_str(row.get("drive_results", "")) if drive_images_enabled else ""
     web_results_text = _safe_str(row.get("web_results", "")) if web_images_enabled else ""
+    external_ref_pool_for_images = _safe_str(row.get("external_ref_pool", "")) if external_references_enabled else ""
 
     # Select images from new search results using feedback prompts
     print(f"  Selecting images from new search results for {len(failed_segments)} failed segment(s)...")
@@ -4334,20 +4444,33 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
 
             feedback = feedback_by_segment.get(segment_num, "")
 
-            # Only consider image sources that are enabled (drive images / web images).
-            drive_items = parse_urls_from_results(drive_results_text, segment_num) if drive_images_enabled else []
-            web_items = parse_urls_from_results(web_results_text, segment_num) if web_images_enabled else []
+            # Enabled image sources only (Drive / Web / External Refs), including freshly re-queried external_ref_pool.
+            image_sources_for_select = []
+            if enabled_sources is not None:
+                image_sources_for_select = [
+                    s for s in enabled_sources
+                    if s in (SOURCE_DRIVE_IMAGES, SOURCE_WEB_IMAGES, SOURCE_EXTERNAL_REFERENCES)
+                ]
+            else:
+                if drive_images_enabled:
+                    image_sources_for_select.append(SOURCE_DRIVE_IMAGES)
+                if web_images_enabled:
+                    image_sources_for_select.append(SOURCE_WEB_IMAGES)
+                if external_references_enabled:
+                    image_sources_for_select.append(SOURCE_EXTERNAL_REFERENCES)
 
-            seen_urls = set()
-            all_items = []
-            for item in drive_items + web_items:
-                url = item.get("url", "")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_items.append(item)
+            all_items = get_image_candidates(
+                {
+                    "drive_results": drive_results_text,
+                    "web_results": web_results_text,
+                    "external_ref_pool": external_ref_pool_for_images,
+                },
+                segment_num,
+                enabled_sources=image_sources_for_select or None,
+            )
 
-            all_urls = [item["url"] for item in all_items]
-            url_to_title = {item["url"]: item.get("title", "Untitled") for item in all_items}
+            all_urls = [item["url"] for item in all_items if item.get("url")]
+            url_to_title = {item["url"]: item.get("title", "Untitled") for item in all_items if item.get("url")}
 
             if not all_urls:
                 print(f"    Segment {segment_num}: No images found in new search results, skipping image selection")
@@ -4413,6 +4536,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
     video_pool_text = _safe_str(row.get("video_pool", "")) if hvac_youtube_enabled else ""
     video_pool_other_channels_text = _safe_str(row.get("video_pool_other_channels", "")) if other_channels_enabled else ""
     drive_video_pool_text = _safe_str(row.get("drive_video_pool", "")) if drive_videos_enabled else ""
+    external_ref_pool_text = _safe_str(row.get("external_ref_pool", "")) if external_references_enabled else ""
     video_pool_filtered_text = _safe_str(row.get("video_pool_filtered", ""))
 
     # Select videos from new search results using feedback prompts (skipped for transition slides)
@@ -4430,16 +4554,29 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
 
                 feedback = feedback_by_segment.get(segment_num, "")
 
-                # Get new video URLs from video_pool, video_pool_other_channels and drive_video_pool for this segment
+                # Get new video URLs from enabled pools for this segment (incl. external-ref frames-only)
                 video_urls_pool = parse_urls_from_video_pool(video_pool_text, segment_num)
                 video_items_other_channels = parse_video_items_from_pool_other_channels(video_pool_other_channels_text, segment_num)
                 drive_video_items = parse_drive_video_items_from_pool(drive_video_pool_text, segment_num) if drive_videos_enabled else []
+                external_frames_items = []
+                if external_ref_pool_text:
+                    _, _, _, external_frames_items = split_video_candidates(
+                        get_video_candidates(
+                            {"external_ref_pool": external_ref_pool_text},
+                            segment_num,
+                            enabled_sources=[SOURCE_EXTERNAL_REFERENCES],
+                        )
+                    )
 
-                if not video_urls_pool and not video_items_other_channels and not drive_video_items:
+                if not video_urls_pool and not video_items_other_channels and not drive_video_items and not external_frames_items:
                     print(f"    Segment {segment_num}: No videos found in new search results, skipping video selection")
                     continue
 
-                print(f"    Segment {segment_num}: Selecting from {len(video_urls_pool)} video(s) from pool, {len(video_items_other_channels)} from other channels and {len(drive_video_items)} from Google Drive with feedback...")
+                print(
+                    f"    Segment {segment_num}: Selecting from {len(video_urls_pool)} video(s) from pool, "
+                    f"{len(video_items_other_channels)} from other channels, {len(drive_video_items)} from Google Drive, "
+                    f"{len(external_frames_items)} external frames-only with feedback..."
+                )
 
                 # Select prompt and function based on visual_assignment_strategy
                 if visual_assignment_strategy == "1 Visual for the whole Slide":
@@ -4455,6 +4592,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                         llm=llm,
                         feedback=feedback,
                         drive_video_items=drive_video_items,
+                        external_frames_items=external_frames_items,
                     )
                 else:
                     selected_videos_text = select_videos_from_all_for_segment(
@@ -4470,10 +4608,17 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                         llm=llm,
                         feedback=feedback,
                         drive_video_items=drive_video_items,
+                        external_frames_items=external_frames_items,
                     )
 
                 if selected_videos_text:
-                    formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items)
+                    formatted_videos = format_selected_videos_for_segment(
+                        selected_videos_text,
+                        video_urls_pool,
+                        video_items_other_channels,
+                        drive_video_items,
+                        external_frames_items,
+                    )
                     if formatted_videos:
                         video_pool_filtered_segment_num = 1 if visual_assignment_strategy == "1 Visual for the whole Slide" else segment_num
                         video_pool_filtered_text = replace_segment_block(
@@ -4513,12 +4658,17 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                     vo_text = seg_text
                     break
 
-            # Parse images from image_pool first, fallback to drive_results + web_results if empty
+            # Parse images from image_pool first; fallback to Drive + Web + External Refs when empty.
             image_items = parse_urls_from_image_pool(image_pool_text, segment_num)
             if not image_items:
-                image_items = parse_urls_from_results(drive_results_text, segment_num)
-                image_items += parse_urls_from_results(web_results_text, segment_num)
-                print(f"    Segment {segment_num}: Using fallback image sources (drive_results + web_results)")
+                image_items = get_image_items_fallback_from_sources(
+                    drive_results_text,
+                    web_results_text,
+                    segment_num,
+                    enabled_sources=enabled_sources,
+                    external_ref_pool_text=_safe_str(row.get("external_ref_pool", "")) if external_references_enabled else "",
+                )
+                print(f"    Segment {segment_num}: Using fallback image sources (drive_results + web_results + external_ref_pool)")
             else:
                 print(f"    Segment {segment_num}: Using image_pool")
 
@@ -4527,13 +4677,19 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
                 video_items_filtered = []
             else:
                 video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num)
-                if not video_items_filtered and (video_pool_text or video_pool_other_channels_text or drive_video_pool_text):
+                external_ref_for_video_fallback = (
+                    _safe_str(row.get("external_ref_pool", "")) if external_references_enabled else ""
+                )
+                if not video_items_filtered and (
+                    video_pool_text or video_pool_other_channels_text or drive_video_pool_text or external_ref_for_video_fallback
+                ):
                     video_items_filtered = get_video_items_fallback_from_pools(
                         video_pool_text or "",
                         video_pool_other_channels_text or "",
                         segment_num,
                         drive_video_pool_text=drive_video_pool_text or "",
                         enabled_sources=enabled_sources,
+                        external_ref_pool_text=external_ref_for_video_fallback,
                     )
                     if video_items_filtered:
                         print(f"    Segment {segment_num}: video_pool_filtered empty, using fallback pools ({len(video_items_filtered)} video(s))")
@@ -4544,8 +4700,13 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
 
             embed_count = len([item for item in video_items_filtered if item.get("type") == "embed"])
             full_video_count = len([item for item in video_items_filtered if item.get("type") == "full_video"])
+            frames_only_count = len([item for item in video_items_filtered if item.get("type") == "frames_only"])
             drive_clip_count = len([item for item in video_items_filtered if item.get("type") == "drive_clip"])
-            print(f"    Segment {segment_num}: Aggregating ({len(image_items)} image(s), {embed_count} embed video(s), {full_video_count} full video(s), {drive_clip_count} drive clip(s))...")
+            print(
+                f"    Segment {segment_num}: Aggregating ({len(image_items)} image(s), "
+                f"{embed_count} embed, {full_video_count} full, {frames_only_count} frames-only, "
+                f"{drive_clip_count} drive clip(s))..."
+            )
 
             # Extract failed visuals for this segment
             failed_visuals = []
@@ -4961,6 +5122,7 @@ def run_review_loop_for_slide(criterion_name, prompt_template, row_index, row, d
                 video_pool_text=_safe_str(row.get("video_pool", "")),
                 video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
                 drive_video_pool_text=_safe_str(row.get("drive_video_pool", "")),
+                external_ref_pool_text=_safe_str(row.get("external_ref_pool", "")),
                 enabled_sources=enabled_sources,
             )
             if revised:
@@ -5671,6 +5833,7 @@ def _run_redundancy_loop_for_url(topic_name, subtopic_name, repeated_url, all_se
                 video_pool_text=_safe_str(row.get("video_pool", "")),
                 video_pool_other_channels_text=_safe_str(row.get("video_pool_other_channels", "")),
                 drive_video_pool_text=_safe_str(row.get("drive_video_pool", "")),
+                external_ref_pool_text=_safe_str(row.get("external_ref_pool", "")),
                 enabled_sources=enabled_sources,
             )
             if revised:

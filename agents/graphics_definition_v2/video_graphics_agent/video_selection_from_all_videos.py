@@ -23,6 +23,7 @@ from agents.graphics_definition_v2.candidate_search.candidate_wrapper import (
     get_video_candidates,
     split_video_candidates,
     video_row_has_candidates,
+    EXTERNAL_FRAMES_ONLY_MARKER,
 )
 
 load_dotenv()
@@ -1013,7 +1014,67 @@ def shortlist_video_urls_from_score_text(video_score_text, segment_num, top_n=2,
     return _shortlist_urls_from_segment_score_block(match.group(1), top_n=top_n, min_score=min_score)
 
 
-def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", entire_slide=False, drive_video_items=None):
+def append_external_frames_video_parts(parts, external_frames_items, drive, idx, total_videos):
+    """
+    Attach external-ref videos for multimodal scoring/selection.
+
+    :param parts: Multimodal parts list to extend
+    :param external_frames_items: List of dicts with title/url (url keeps start/end)
+    :param drive: Drive client for Drive clip downloads
+    :param idx: 1-based index of the next video label
+    :param total_videos: Total videos in this batch (for labels)
+    :return: Next 1-based index after appending
+    """
+    if not external_frames_items:
+        return idx
+
+    drive_urls = [
+        item.get("url", "")
+        for item in external_frames_items
+        if item.get("url") and "drive.google.com" in str(item.get("url", "")).lower()
+    ]
+    drive_parts_by_url = build_drive_video_parts_parallel(
+        drive_urls,
+        drive,
+        max_workers=len(drive_urls) or 1,
+    ) if drive_urls else {}
+
+    for item in external_frames_items:
+        video_url = str(item.get("url") or "").strip()
+        title = str(item.get("title") or "External ref video").strip()
+        if not video_url:
+            continue
+        label = (
+            f"\n--- Video {idx} of {total_videos} ---\n"
+            f"Title: {title}\n"
+            f"URL: {video_url}\n"
+            f"Usage: Can be used ONLY as still frames as images "
+            f"(NOT playable video clips with timestamps).\n"
+        )
+        parts.append(types.Part(text=label))
+        if "drive.google.com" in video_url.lower():
+            drive_part = drive_parts_by_url.get(video_url)
+            if drive_part is not None:
+                parts.append(drive_part)
+            else:
+                parts.append(types.Part(text=f"[External Drive video could not be loaded: {video_url}]\n"))
+        elif "youtube.com" in video_url.lower() or "youtu.be" in video_url.lower():
+            clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+            if clip_url:
+                parts.append(build_video_part(clip_url, start_seconds, end_seconds))
+            else:
+                embed_url = convert_watch_url_to_embed_url(video_url)
+                if embed_url:
+                    parts.append(build_video_part(embed_url, start_seconds=None, end_seconds=None))
+                else:
+                    parts.append(types.Part(text=f"[External YouTube video could not be loaded: {video_url}]\n"))
+        else:
+            parts.append(types.Part(text=f"[Unsupported external ref video URL: {video_url}]\n"))
+        idx += 1
+    return idx
+
+
+def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", entire_slide=False, drive_video_items=None, external_frames_items=None):
     """
     Score one batch of video candidates and return parsed (url, score) tuples.
 
@@ -1023,6 +1084,7 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
     :param video_urls_pool: Candidate URLs from video_pool (HVAC YouTube)
     :param video_items_other_channels: Candidate metadata items from other YouTube channels
     :param drive_video_items: Candidate items from drive_video_pool (Google Drive videos with title and URL)
+    :param external_frames_items: External-ref videos (frames-only; keep start/end window for loading)
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
@@ -1033,8 +1095,15 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
     """
     if drive_video_items is None:
         drive_video_items = []
+    if external_frames_items is None:
+        external_frames_items = []
     
-    total_videos = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
+    total_videos = (
+        len(video_urls_pool)
+        + len(video_items_other_channels)
+        + len(drive_video_items)
+        + len(external_frames_items)
+    )
     if total_videos == 0:
         return []
     video_candidates_list = []
@@ -1045,6 +1114,10 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
             video_candidates_list.append(url)
     for drive_item in drive_video_items:
         url = drive_item.get("url", "")
+        if url:
+            video_candidates_list.append(url)
+    for ext_item in external_frames_items:
+        url = ext_item.get("url", "")
         if url:
             video_candidates_list.append(url)
     video_candidates_text = "\n".join([f"{i+1}. {url}" for i, url in enumerate(video_candidates_list)])
@@ -1127,6 +1200,10 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
             )
         idx += 1
 
+    idx = append_external_frames_video_parts(
+        parts, external_frames_items, drive, idx, total_videos
+    )
+
     parts.append(types.Part(text=prompt_text))
     # print_multimodal_prompt(parts, f"VIDEO SCORING PROMPT ({'Entire Slide' if entire_slide else 'Segment'})")
     raw_text = invoke_gemini_multimodal(
@@ -1157,7 +1234,7 @@ def score_videos_batch(vo_text, slide_title, slide_chunk, video_urls_pool, video
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, drive_video_items=None):
+def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, drive_video_items=None, external_frames_items=None):
     """
     Select relevant videos from all available videos for a single segment using vision model.
 
@@ -1167,6 +1244,7 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     :param video_urls_pool: List of video URLs from video_pool (HVAC YouTube with timestamps)
     :param video_items_other_channels: List of video items from video_pool_other_channels (with metadata)
     :param drive_video_items: List of video items from drive_video_pool (Google Drive videos with title and URL)
+    :param external_frames_items: External-ref videos (frames-only; keep start/end window for loading)
     :param course_name: Course name
     :param topic_name: Topic name
     :param subtopic_name: Subtopic name
@@ -1177,6 +1255,8 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     """
     if drive_video_items is None:
         drive_video_items = []
+    if external_frames_items is None:
+        external_frames_items = []
     
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting videos for segment")
@@ -1186,10 +1266,16 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     print(f"🎥 Available videos (pool): {len(video_urls_pool)}")
     print(f"🎬 Available videos (other channels): {len(video_items_other_channels)}")
     print(f"📁 Available videos (Drive): {len(drive_video_items)}")
+    print(f"📎 Available videos (external frames-only): {len(external_frames_items)}")
     if feedback:
         print(f"📋 Using feedback-based selection")
     
-    total_videos = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
+    total_videos = (
+        len(video_urls_pool)
+        + len(video_items_other_channels)
+        + len(drive_video_items)
+        + len(external_frames_items)
+    )
     
     if total_videos == 0:
         print(f"⚠️  No videos available, returning empty selection")
@@ -1208,6 +1294,10 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
     # Add URLs from drive_video_pool (items have title and url)
     for drive_item in drive_video_items:
         video_url = drive_item.get("url", "")
+        if video_url:
+            video_candidates_list.append(video_url)
+    for ext_item in external_frames_items:
+        video_url = ext_item.get("url", "")
         if video_url:
             video_candidates_list.append(video_url)
     
@@ -1348,6 +1438,10 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         
         video_index += 1
     
+    video_index = append_external_frames_video_parts(
+        parts, external_frames_items, drive, video_index, total_videos
+    )
+    
     # Add prompt text at the end
     parts.append(types.Part(text=prompt_text))
     
@@ -1389,7 +1483,7 @@ def select_videos_from_all_for_segment(vo_text, slide_title, slide_chunk, video_
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, drive_video_items=None):
+def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls_pool, video_items_other_channels, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, drive_video_items=None, external_frames_items=None):
     """
     Select relevant videos from all available videos for entire slide using vision model.
 
@@ -1408,6 +1502,8 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     """
     if drive_video_items is None:
         drive_video_items = []
+    if external_frames_items is None:
+        external_frames_items = []
     
     print(f"\n{'─'*45}")
     print(f" 🎯 Selecting videos for entire slide")
@@ -1420,7 +1516,13 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     if feedback:
         print(f"📋 Using feedback-based selection")
     
-    total_videos = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
+    print(f"📎 Available videos (external frames-only): {len(external_frames_items)}")
+    total_videos = (
+        len(video_urls_pool)
+        + len(video_items_other_channels)
+        + len(drive_video_items)
+        + len(external_frames_items)
+    )
     
     if total_videos == 0:
         print(f"⚠️  No videos available, returning empty selection")
@@ -1439,6 +1541,10 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     # Add URLs from drive_video_pool (items have title and url)
     for drive_item in drive_video_items:
         video_url = drive_item.get("url", "")
+        if video_url:
+            video_candidates_list.append(video_url)
+    for ext_item in external_frames_items:
+        video_url = ext_item.get("url", "")
         if video_url:
             video_candidates_list.append(video_url)
     
@@ -1577,6 +1683,10 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
         
         video_index += 1
     
+    video_index = append_external_frames_video_parts(
+        parts, external_frames_items, drive, video_index, total_videos
+    )
+    
     # Add prompt text at the end
     parts.append(types.Part(text=prompt_text))
     
@@ -1609,7 +1719,7 @@ def select_videos_from_all_for_entire_slide(slide_title, slide_chunk, video_urls
     return selected_videos_text
 
 
-def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items=None):
+def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items=None, external_frames_items=None):
     """
     Parse and format selected videos for output to video_pool_filtered column.
 
@@ -1617,10 +1727,13 @@ def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, vi
     :param video_urls_pool: Original list of video URLs from video_pool (HVAC YouTube)
     :param video_items_other_channels: Original list of video items from video_pool_other_channels
     :param drive_video_items: Original list of video items from drive_video_pool (Google Drive with title and URL)
+    :param external_frames_items: External-ref frames-only items (preserve start/end; mark FramesOnly)
     :return: List of formatted video strings for the segment
     """
     if drive_video_items is None:
         drive_video_items = []
+    if external_frames_items is None:
+        external_frames_items = []
     
     if not selected_videos_text or selected_videos_text.strip() == "":
         return []
@@ -1670,6 +1783,15 @@ def format_selected_videos_for_segment(selected_videos_text, video_urls_pool, vi
         if drive_url in selected_urls:
             title = drive_item.get("title", "Drive Video")
             formatted_lines.append(f"Title: {title} | URL: {drive_url}")
+
+    # External-ref frames-only: keep start/end window URL, mark FramesOnly for downstream parsers.
+    for ext_item in external_frames_items:
+        ext_url = ext_item.get("url", "")
+        if ext_url in selected_urls:
+            title = ext_item.get("title", "External ref video")
+            formatted_lines.append(
+                f"Title: {title} | {EXTERNAL_FRAMES_ONLY_MARKER} | URL: {ext_url}"
+            )
     
     return formatted_lines
 
@@ -1705,7 +1827,7 @@ def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chu
     
     # Source-agnostic: the reader returns candidates from every enabled video source.
     combined = get_video_candidates(row, segment_idx, enabled_sources)
-    video_urls_pool, video_items_other_channels, drive_video_items = split_video_candidates(combined)
+    video_urls_pool, video_items_other_channels, drive_video_items, external_frames_items = split_video_candidates(combined)
 
     if shortlisted_urls:
         shortlist = set(shortlisted_urls)
@@ -1713,12 +1835,13 @@ def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chu
         video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
         # Exact URL match only (including start/end). Matching by Drive file id would re-include other clips from the same file that were not shortlisted.
         drive_video_items = [v for v in drive_video_items if v.get("url", "") in shortlist]
+        external_frames_items = [v for v in external_frames_items if v.get("url", "") in shortlist]
     
-    print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} from video_pool_other_channels, {len(drive_video_items)} from drive_video_pool")
-    total_unique = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
+    print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} from video_pool_other_channels, {len(drive_video_items)} from drive_video_pool, {len(external_frames_items)} external frames-only")
+    total_unique = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items) + len(external_frames_items)
     print(f"📎 Total unique videos: {total_unique}")
     
-    if not video_urls_pool and not video_items_other_channels and not drive_video_items:
+    if not video_urls_pool and not video_items_other_channels and not drive_video_items and not external_frames_items:
         print(f"⚠️ No videos available for segment {segment_idx}, skipping")
         return segment_idx, None
     
@@ -1734,12 +1857,13 @@ def process_video_selection_segment(segment_idx, vo_text, slide_title, slide_chu
         subtopic_name=subtopic_name,
         drive=drive,
         llm=llm,
-        drive_video_items=drive_video_items
+        drive_video_items=drive_video_items,
+        external_frames_items=external_frames_items,
     )
     
     if selected_videos_text:
         # Format the selected videos
-        formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items)
+        formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items, external_frames_items)
         if formatted_videos:
             # Format segment output: "---SEGMENT_N---\nURL\n..." or "---SEGMENT_N---\nTitle: ... | URL: ...\n..."
             segment_output = [f"---SEGMENT_{segment_idx}---"] + formatted_videos
@@ -1795,10 +1919,10 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
             
             # Source-agnostic: the reader returns candidates from every enabled video source.
             combined = get_video_candidates(row, 1, enabled_sources)
-            video_urls_pool, video_items_other_channels, drive_video_items = split_video_candidates(combined)
+            video_urls_pool, video_items_other_channels, drive_video_items, external_frames_items = split_video_candidates(combined)
             
-            print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} from video_pool_other_channels, {len(drive_video_items)} from drive_video_pool")
-            total_unique = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items)
+            print(f"🔗 Found {len(video_urls_pool)} videos from video_pool, {len(video_items_other_channels)} from video_pool_other_channels, {len(drive_video_items)} from drive_video_pool, {len(external_frames_items)} external frames-only")
+            total_unique = len(video_urls_pool) + len(video_items_other_channels) + len(drive_video_items) + len(external_frames_items)
             print(f"📎 Total unique videos: {total_unique}")
 
             shortlisted_urls = shortlist_video_urls_from_score_text(video_score_text, 1, top_n=2)
@@ -1808,8 +1932,9 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
                 video_items_other_channels = [v for v in video_items_other_channels if v.get("url", "") in shortlist]
                 # Exact URL match only (including start/end). Matching by Drive file id would re-include other clips from the same file that were not shortlisted.
                 drive_video_items = [v for v in drive_video_items if v.get("url", "") in shortlist]
+                external_frames_items = [v for v in external_frames_items if v.get("url", "") in shortlist]
             
-            if not video_urls_pool and not video_items_other_channels and not drive_video_items:
+            if not video_urls_pool and not video_items_other_channels and not drive_video_items and not external_frames_items:
                 print(f"⚠️ No videos available for entire slide, skipping")
                 return index, ""
             
@@ -1824,12 +1949,13 @@ def process_video_selection_row(index, row, course_name, drive, llm="gemini_3_fl
                 subtopic_name=subtopic_name,
                 drive=drive,
                 llm=llm,
-                drive_video_items=drive_video_items
+                drive_video_items=drive_video_items,
+                external_frames_items=external_frames_items,
             )
             
             if selected_videos_text:
                 # Format the selected videos
-                formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items)
+                formatted_videos = format_selected_videos_for_segment(selected_videos_text, video_urls_pool, video_items_other_channels, drive_video_items, external_frames_items)
                 if formatted_videos:
                     # Format output as SEGMENT_1: "---SEGMENT_1---\nURL\n..." or "---SEGMENT_1---\nTitle: ... | URL: ...\n..."
                     segment_output = [f"---SEGMENT_1---"] + formatted_videos
@@ -1948,7 +2074,8 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
                         b_pool = [x["url"] for x in batch if x["type"] == "pool"]
                         b_other = [x["meta"] for x in batch if x["type"] == "other"]
                         b_drive = [x["meta"] for x in batch if x["type"] == "drive"]
-                        futures.append(executor.submit(score_videos_batch, "", slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, True, b_drive))
+                        b_ext = [x["meta"] for x in batch if x["type"] == "external_frames"]
+                        futures.append(executor.submit(score_videos_batch, "", slide_title, slide_chunk, b_pool, b_other, course_name, topic_name, subtopic_name, drive, llm, True, b_drive, b_ext))
                     for future in futures:
                         set_results.append(future.result() or [])
             segment_blocks.append(format_video_score_segment(1, set_results))
@@ -1966,6 +2093,7 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
                             b_pool = [x["url"] for x in batch if x["type"] == "pool"]
                             b_other = [x["meta"] for x in batch if x["type"] == "other"]
                             b_drive = [x["meta"] for x in batch if x["type"] == "drive"]
+                            b_ext = [x["meta"] for x in batch if x["type"] == "external_frames"]
                             futures.append(
                                 executor.submit(
                                     score_videos_batch,
@@ -1981,6 +2109,7 @@ def process_video_scoring_row(index, row, course_name, drive, llm="gemini_3_flas
                                     llm,
                                     False,
                                     b_drive,
+                                    b_ext,
                                 )
                             )
                         for future in futures:

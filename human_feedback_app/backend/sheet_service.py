@@ -60,9 +60,6 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     parse_urls_from_image_pool,
     parse_urls_from_video_pool_filtered,
 )
-from agents.graphics_definition_v2.video_graphics_agent.video_selection_from_all_videos import (
-    parse_drive_video_items_from_pool,
-)
 from agents.graphics_definition_v2.candidate_search.pool_registry import (
     COURSE_INFO_ENABLED_SOURCES_KEY,
     decode_enabled_sources_from_course_info,
@@ -374,6 +371,233 @@ def _infer_source(asset_url: str, asset_type: str) -> str:
     return "drive"
 
 
+def _external_ref_match_keys(url: str) -> set:
+    """
+    Build normalized lookup keys for matching an asset URL to external-ref sheet URLs.
+
+    :param url: Asset URL (may include clip suffixes)
+    :return: Set of match keys (normalized URLs + Drive file id)
+    """
+    from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+        parse_drive_file_id,
+    )
+
+    keys = set()
+    text = (url or "").strip()
+    if not text:
+        return keys
+    base = text.split("(start=")[0].strip()
+    norm = _normalize_asset_url(base)
+    if norm:
+        keys.add(norm)
+        keys.add(norm.split("?")[0].rstrip("/"))
+    file_id = parse_drive_file_id(base)
+    if file_id:
+        keys.add(f"id:{file_id}")
+    return keys
+
+
+def _collect_external_ref_keys_from_text(text: str, out: set) -> None:
+    """
+    Extract external-ref match keys from free-text pool / log content into out.
+
+    :param text: Cell or log text that may contain asset URLs
+    :param out: Mutable set to update
+    :return: None
+    """
+    raw = (text or "").strip()
+    if not raw or raw.lower() == "nan":
+        return
+
+    # 1) Drive file ids anywhere in the cell (most reliable for HF labeling)
+    for file_id in re.findall(r"/file/d/([a-zA-Z0-9_-]+)", raw):
+        out.add(f"id:{file_id}")
+    for file_id in re.findall(r"/document/d/([a-zA-Z0-9_-]+)", raw):
+        out.add(f"id:{file_id}")
+    for file_id in re.findall(r"[?&]id=([a-zA-Z0-9_-]+)", raw):
+        out.add(f"id:{file_id}")
+
+    # 2) Line-based "URL:" values (standard pool format)
+    for line in raw.splitlines():
+        if "url:" in line.lower():
+            url_part = re.split(r"url:\s*", line, maxsplit=1, flags=re.IGNORECASE)[-1].strip()
+            if url_part:
+                out.update(_external_ref_match_keys(url_part))
+
+    # 3) Any http(s) URL including Drive clip suffixes
+    for match in re.findall(
+        r"https?://[^\s|>\"']+(?:\s*\(\s*start=\d+(?:&end=\d+)?\s*\))?",
+        raw,
+    ):
+        cleaned = match.rstrip(".,);]")
+        out.update(_external_ref_match_keys(cleaned))
+
+
+def _collect_frames_only_file_ids_from_text(text: str, out: set) -> None:
+    """
+    Collect Drive file ids marked FramesOnly: yes in video_pool_filtered text.
+
+    :param text: video_pool_filtered cell text
+    :param out: Mutable set of Drive file ids
+    :return: None
+    """
+    from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+        parse_drive_file_id,
+    )
+
+    raw = (text or "").strip()
+    if not raw or raw.lower() == "nan":
+        return
+    for line in raw.splitlines():
+        if "framesonly: yes" not in line.lower():
+            continue
+        file_id = parse_drive_file_id(line)
+        if file_id:
+            out.add(file_id)
+
+
+def _is_external_ref_pool_column(col_name: str) -> bool:
+    """True when a dataframe column is the external_ref_pool column."""
+    name = str(col_name or "").strip().lower().replace(" ", "_")
+    return name == "external_ref_pool" or name.endswith("_external_ref_pool")
+
+
+def _build_external_ref_key_set(df, session: Optional[UserSession] = None) -> Tuple[set, set]:
+    """
+    Build sheet-local sets for fast HF external-ref source labeling.
+
+    :param df: Slide Chunks dataframe
+    :param session: Optional session with sheet for Course info log
+    :return: Tuple of (external_ref_keys, frames_only_file_ids)
+    """
+    keys: set = set()
+    frames_only_ids: set = set()
+    if df is not None and not getattr(df, "empty", True):
+        for col in df.columns:
+            name = str(col).strip().lower().replace(" ", "_")
+            if _is_external_ref_pool_column(col):
+                for value in df[col].tolist():
+                    _collect_external_ref_keys_from_text(str(value or ""), keys)
+            elif name == "video_pool_filtered":
+                for value in df[col].tolist():
+                    _collect_frames_only_file_ids_from_text(str(value or ""), frames_only_ids)
+
+    sheet = getattr(session, "sheet", None) if session is not None else None
+    if sheet is not None:
+        try:
+            from agents.graphics_definition_v2.external_references.run_indexing_step import (
+                _read_extraction_log_assets,
+            )
+
+            for urls in (_read_extraction_log_assets(sheet) or {}).values():
+                for url in urls or []:
+                    keys.update(_external_ref_match_keys(str(url or "")))
+                    _collect_external_ref_keys_from_text(str(url or ""), keys)
+        except Exception as exc:
+            print(f"⚠️ Could not load external_ref_extraction_log for HF labeling: {exc}")
+
+    return keys, frames_only_ids
+
+
+def _row_external_ref_pool_text(row) -> str:
+    """Return this row's external_ref_pool cell text (case/space tolerant column name)."""
+    if row is None:
+        return ""
+    try:
+        for col in getattr(row, "index", []):
+            if _is_external_ref_pool_column(col):
+                return str(row.get(col, "") or "")
+    except Exception:
+        pass
+    return str(row.get("external_ref_pool", "") or "") if hasattr(row, "get") else ""
+
+
+def _resolve_source(
+    asset_url: str,
+    asset_type: str,
+    *,
+    drive=None,
+    video_type: str = "",
+    external_ref_keys: Optional[set] = None,
+    frames_only_file_ids: Optional[set] = None,
+    row_external_ref_pool_text: str = "",
+) -> str:
+    """
+    Label source for HF chips.
+
+    External refs:
+    - videos: FramesOnly / frames_only type in video_pool_filtered → external_ref_video
+    - Drive file ids marked FramesOnly anywhere on the sheet → external_ref_video
+    - URLs present in sheet-local external_ref_pool / extraction log → image or video chip
+    """
+    if str(video_type or "").strip().lower() == "frames_only":
+        return "external_ref_video"
+
+    from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+        parse_drive_file_id,
+    )
+
+    file_id = parse_drive_file_id(asset_url)
+    if file_id and frames_only_file_ids and file_id in frames_only_file_ids:
+        return "external_ref_video"
+
+    key_set = external_ref_keys or set()
+    if file_id and f"id:{file_id}" in key_set:
+        return (
+            "external_ref_video"
+            if str(asset_type or "").strip().lower() == "video"
+            else "external_ref_image"
+        )
+    if key_set and (_external_ref_match_keys(asset_url) & key_set):
+        return (
+            "external_ref_video"
+            if str(asset_type or "").strip().lower() == "video"
+            else "external_ref_image"
+        )
+
+    pool_text = row_external_ref_pool_text or ""
+    if file_id and file_id in pool_text:
+        return (
+            "external_ref_video"
+            if str(asset_type or "").strip().lower() == "video"
+            else "external_ref_image"
+        )
+
+    return _infer_source(asset_url, asset_type)
+
+
+def _video_type_for_url(row, segment_index: int, asset_url: str) -> str:
+    """Return video_pool_filtered type for a URL in this segment, or ''."""
+    from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+        parse_drive_file_id,
+    )
+
+    helpers = _import_slideshow_helpers()
+    safe_str = helpers["safe_str"]
+    target = _normalize_asset_url(asset_url)
+    target_id = parse_drive_file_id(asset_url)
+    if not target and not target_id:
+        return ""
+    video_pool_text = safe_str(row.get("video_pool_filtered", "")).strip()
+    if not video_pool_text or video_pool_text == "nan":
+        return ""
+    # Prefer FramesOnly when the same Drive file appears with that marker.
+    matched_type = ""
+    for item in parse_urls_from_video_pool_filtered(video_pool_text, segment_index):
+        item_url = str(item.get("url") or "")
+        item_type = str(item.get("type") or "")
+        if target and _normalize_asset_url(item_url) == target:
+            if item_type.lower() == "frames_only":
+                return item_type
+            matched_type = matched_type or item_type
+            continue
+        if target_id and parse_drive_file_id(item_url) == target_id:
+            if item_type.lower() == "frames_only":
+                return item_type
+            matched_type = matched_type or item_type
+    return matched_type
+
+
 def _label_from_asset(asset_url: str, asset_type: str) -> str:
     if not asset_url:
         return "no_asset.png"
@@ -393,6 +617,9 @@ def _alternatives_for_segment(
     segment_index: int,
     asset_type: str,
     exclude_url: str = "",
+    drive=None,
+    external_ref_keys: Optional[set] = None,
+    frames_only_file_ids: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
     """Parse image_pool / video_pool_filtered candidates for one segment."""
     helpers = _import_slideshow_helpers()
@@ -401,8 +628,17 @@ def _alternatives_for_segment(
     exclude = _normalize_asset_url(exclude_url)
     seen: set[str] = set()
     out: List[Dict[str, Any]] = []
+    key_set = external_ref_keys if external_ref_keys is not None else set()
+    frames_ids = frames_only_file_ids if frames_only_file_ids is not None else set()
+    row_pool_text = _row_external_ref_pool_text(row)
 
-    def add_candidate(title: str, url: str, atype: str, duration: str = "") -> None:
+    def add_candidate(
+        title: str,
+        url: str,
+        atype: str,
+        duration: str = "",
+        video_type: str = "",
+    ) -> None:
         url = (url or "").strip()
         if not url:
             return
@@ -417,7 +653,15 @@ def _alternatives_for_segment(
                 "title": (title or _label_from_asset(url, atype)).strip(),
                 "url": url,
                 "type": atype,
-                "source": _infer_source(url, atype),
+                "source": _resolve_source(
+                    url,
+                    atype,
+                    drive=drive,
+                    video_type=video_type,
+                    external_ref_keys=key_set,
+                    frames_only_file_ids=frames_ids,
+                    row_external_ref_pool_text=row_pool_text,
+                ),
                 "duration": (duration or "").strip(),
             }
         )
@@ -425,14 +669,29 @@ def _alternatives_for_segment(
     # 1. Add all candidates from the image pool
     image_pool_text = safe_str(row.get("image_pool", "")).strip()
     if image_pool_text and image_pool_text != "nan":
-        for item in parse_urls_from_image_pool(image_pool_text, segment_index):
-            add_candidate(
-                str(item.get("title") or ""),
-                str(item.get("url") or ""),
-                "image",
-            )
+        from agents.graphics_definition_v2.external_references.external_reference_extraction import (
+            parse_drive_file_id,
+        )
 
-    # 2. Add all candidates from the video pool
+        for item in parse_urls_from_image_pool(image_pool_text, segment_index):
+            url = str(item.get("url") or "")
+            file_id = parse_drive_file_id(url)
+            # FramesOnly Drive clips sometimes land in image_pool; keep them as ext-ref videos.
+            if file_id and file_id in frames_ids:
+                add_candidate(
+                    str(item.get("title") or ""),
+                    url,
+                    "video",
+                    video_type="frames_only",
+                )
+            else:
+                add_candidate(
+                    str(item.get("title") or ""),
+                    url,
+                    "image",
+                )
+
+    # 2. Add all candidates from the filtered video pool
     video_pool_text = safe_str(row.get("video_pool_filtered", "")).strip()
     if video_pool_text and video_pool_text != "nan":
         for item in parse_urls_from_video_pool_filtered(video_pool_text, segment_index):
@@ -442,16 +701,7 @@ def _alternatives_for_segment(
                 str(item.get("url") or ""),
                 "video",
                 str(meta.get("duration") or ""),
-            )
-
-    # 3. Add all candidates from the Google Drive video pool
-    drive_video_pool_text = safe_str(row.get("drive_video_pool", "")).strip()
-    if drive_video_pool_text and drive_video_pool_text != "nan":
-        for item in parse_drive_video_items_from_pool(drive_video_pool_text, segment_index):
-            add_candidate(
-                str(item.get("title") or "Drive video clip"),
-                str(item.get("url") or ""),
-                "video",
+                video_type=str(item.get("type") or ""),
             )
 
     return out
@@ -1403,6 +1653,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
     layout_feedback_col = get_round_column_name(LAYOUT_FEEDBACK_COLUMN, current_round)
 
     ui_slides: List[Dict[str, Any]] = []
+    external_ref_keys, frames_only_file_ids = _build_external_ref_key_set(df, session)
     for slide_idx, slide in enumerate(slides):
         row = df.iloc[slide["row_index"]]
         actions_map = _parse_actions_payload(safe_str(row.get(actions_col, "")))
@@ -1443,6 +1694,22 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
                     segment_index=seg_num,
                     asset_type=asset_type,
                     exclude_url=asset,
+                    drive=session.drive,
+                    external_ref_keys=external_ref_keys,
+                    frames_only_file_ids=frames_only_file_ids,
+                )
+                display_url = after_url or asset
+                display_type = detect_asset_type(display_url) if display_url else asset_type
+                # Always consult video_pool_filtered (FramesOnly can apply even if URL looks like an image).
+                video_type = _video_type_for_url(row, seg_num, display_url)
+                source = _resolve_source(
+                    display_url,
+                    display_type if display_type in ("image", "video") else asset_type,
+                    drive=session.drive,
+                    video_type=video_type,
+                    external_ref_keys=external_ref_keys,
+                    frames_only_file_ids=frames_only_file_ids,
+                    row_external_ref_pool_text=_row_external_ref_pool_text(row),
                 )
 
                 steps_out.append(
@@ -1458,7 +1725,7 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
                         "assetUrl": asset,
                         "beforeUrl": before_url,
                         "afterUrl": after_url or "",
-                        "source": _infer_source(asset, asset_type),
+                        "source": source,
                         "visualId": visual_id,
                         "segmentIndex": seg_num,
                         "stepIndex": step_num,

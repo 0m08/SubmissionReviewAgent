@@ -108,7 +108,6 @@ Always provide your output strictly in the following format:
 <evaluation_breakdown>
 Use this section as a structured reasoning and scratchpad space for you to evaluate visual–voiceover alignment for the slide.
 
-
 - Slide Understanding: State in your own words what the slide is about and what the voiceover segments are trying to convey.
 - Review of the assigned visuals: For each segment, list the assigned Visual IDs and briefly describe what is visibly shown in each visual (image or video).
 - Visual Alignment Analysis: For each segment, analyze whether the assigned visuals correctly support the respective part of the voiceover segment. 

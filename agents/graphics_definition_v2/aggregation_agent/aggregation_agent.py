@@ -10,8 +10,11 @@ from io import BytesIO
 from PIL import Image
 from agents.vector_store_image_search.graphics_retriever_agent import pil_to_base64_data_uri
 from agents.vector_store_image_search.create_vectorstore import download_image_from_drive
-from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_image_candidates
-from agents.graphics_definition_v2.candidate_search.candidate_wrapper import get_video_candidates
+from agents.graphics_definition_v2.candidate_search.candidate_wrapper import (
+    EXTERNAL_FRAMES_ONLY_MARKER,
+    get_image_candidates,
+    get_video_candidates,
+)
 from services.helper_functions import build_video_part, build_drive_video_parts_parallel
 from services.llm_service import extract_token_usage, log_token_usage
 from dotenv import load_dotenv
@@ -1509,25 +1512,28 @@ def parse_video_items_from_pool_other_channels(video_pool_other_channels_text, s
     return items
 
 
-def get_image_items_fallback_from_sources(drive_results_text, web_results_text, segment_num, enabled_sources=None):
+def get_image_items_fallback_from_sources(drive_results_text, web_results_text, segment_num, enabled_sources=None, external_ref_pool_text=""):
     """
-    Build image items list from the raw image sources (Drive images + Web images) when image_pool is empty. Routes through candidate_wrapper.get_image_candidates so source->column mapping and enabled_sources filtering live in one place.
+    Build image items list from raw image sources when image_pool is empty.
+
 
     :param drive_results_text: The drive_results column content
     :param web_results_text: The web_results column content
     :param segment_num: Segment number to extract for
     :param enabled_sources: Optional list of enabled source ids (None reads all present)
+    :param external_ref_pool_text: The external_ref_pool column content (mixed images + videos; wrapper keeps images only)
     :return: List of dicts with 'title' and 'url' keys
     """
 
     pseudo_row = {
         "drive_results": drive_results_text or "",
         "web_results": web_results_text or "",
+        "external_ref_pool": external_ref_pool_text or "",
     }
     return get_image_candidates(pseudo_row, segment_num, enabled_sources)
 
 
-def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channels_text, segment_num, drive_video_pool_text="", enabled_sources=None):
+def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channels_text, segment_num, drive_video_pool_text="", enabled_sources=None, external_ref_pool_text=""):
     """
     Build video items list from the raw source pools when video_pool_filtered is empty.
 
@@ -1538,6 +1544,7 @@ def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channe
     :param segment_num: Segment number to extract for
     :param drive_video_pool_text: The drive_video_pool column content (Drive clip lines)
     :param enabled_sources: Optional list of enabled source ids (None reads all present)
+    :param external_ref_pool_text: The external_ref_pool column content (mixed images + videos; wrapper keeps video clips only)
     :return: List of dicts with 'type' ('embed', 'full_video', or 'drive_clip'), 'url', and optional 'metadata'
     """
 
@@ -1546,6 +1553,7 @@ def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channe
         "video_pool": video_pool_text or "",
         "video_pool_other_channels": video_pool_other_channels_text or "",
         "drive_video_pool": drive_video_pool_text or "",
+        "external_ref_pool": external_ref_pool_text or "",
     }
 
     items = []
@@ -1562,6 +1570,13 @@ def get_video_items_fallback_from_pools(video_pool_text, video_pool_other_channe
             items.append({"type": "full_video", "url": url, "metadata": meta.get("metadata")})
         elif cand_type == "drive":
             items.append({"type": "drive_clip", "url": url, "metadata": {"title": cand.get("title", "")}})
+        elif cand_type == "external_frames":
+            # Preserve start/end window; frames-only selection permission.
+            items.append({
+                "type": "frames_only",
+                "url": url,
+                "metadata": {"title": cand.get("title", "")},
+            })
     return items
 
 
@@ -1624,8 +1639,14 @@ def parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num):
                         if channel_match:
                             channel = channel_match.group(1).strip()
                     
-                    # Drive clips carry their timestamps inside the URL suffix "(start=X&end=Y)" and must be treated as clippable, not frames-only full videos.
-                    line_type = "drive_clip" if "drive.google.com" in url.lower() else "full_video"
+                    # External-ref frames-only marker wins over Drive/YouTube URL shape.
+                    if EXTERNAL_FRAMES_ONLY_MARKER.lower() in metadata_part.lower() or EXTERNAL_FRAMES_ONLY_MARKER.lower() in line.lower():
+                        line_type = "frames_only"
+                    elif "drive.google.com" in url.lower():
+                        # Drive library clips with (start&end) remain clippable.
+                        line_type = "drive_clip"
+                    else:
+                        line_type = "full_video"
                     items.append({
                         "type": line_type,
                         "url": url,
@@ -2946,7 +2967,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     
     # Separate videos by type. YouTube embeds and Drive clips are both clippable (usable as video clips with timestamps or as still frames); full videos are frames-only.
     clippable_videos = [item for item in video_items_filtered if item.get("type") in ("embed", "drive_clip")]
-    full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
+    full_video_items = [item for item in video_items_filtered if item.get("type") in ("full_video", "frames_only")]
     
     # First section: clippable videos (clips or frames)
     if clippable_videos:
@@ -3124,7 +3145,9 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
         [
             item.get("url", "")
             for item in video_items_filtered
-            if item.get("type") == "drive_clip" and item.get("url")
+            if item.get("type") in ("drive_clip", "frames_only")
+            and item.get("url")
+            and "drive.google.com" in str(item.get("url", "")).lower()
         ],
         drive,
     )
@@ -3174,6 +3197,38 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
             else:
                 parts.append(types.Part(text=f"[Drive video could not be loaded: {video_url}]\n"))
                 print(f"⚠️ Failed to build Drive video part: {video_url}")
+        elif video_type == "frames_only":
+            # External-ref window: load with start/end, but ONLY still-frame selection is allowed.
+            label_text = (
+                f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                f"ID: {video_id}\n"
+                f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps).\n"
+                f"URL: {video_url}\n"
+            )
+            parts.append(types.Part(text=label_text))
+            if "drive.google.com" in video_url.lower():
+                drive_part = drive_parts_by_url.get(video_url)
+                if drive_part is not None:
+                    parts.append(drive_part)
+                    print(f"✅ Added external frames-only Drive video {candidate_num}: {video_url}")
+                    candidate_num += 1
+                else:
+                    parts.append(types.Part(text=f"[External Drive video could not be loaded: {video_url}]\n"))
+                    print(f"⚠️ Failed to build external frames-only Drive part: {video_url}")
+            else:
+                clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+                if clip_url:
+                    parts.append(build_video_part(clip_url, start_seconds, end_seconds))
+                    print(f"✅ Added external frames-only YouTube video {candidate_num}: start={start_seconds}s, end={end_seconds}s")
+                    candidate_num += 1
+                else:
+                    embed_url = convert_watch_url_to_embed_url(video_url)
+                    if embed_url:
+                        parts.append(build_video_part(embed_url, start_seconds=None, end_seconds=None))
+                        print(f"✅ Added external frames-only YouTube video {candidate_num} (no parseable window): {embed_url}")
+                        candidate_num += 1
+                    else:
+                        print(f"⚠️ Failed to load external frames-only video: {video_url}")
         elif video_type == "full_video":
             # Full video - frames only
             # Convert watch URL to embed URL
@@ -3312,7 +3367,7 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     # (usable as video clips with timestamps or as still frames); full videos are
     # frames-only.
     clippable_videos = [item for item in video_items_filtered if item.get("type") in ("embed", "drive_clip")]
-    full_video_items = [item for item in video_items_filtered if item.get("type") == "full_video"]
+    full_video_items = [item for item in video_items_filtered if item.get("type") in ("full_video", "frames_only")]
     
     # First section: clippable videos (clips or frames)
     if clippable_videos:
@@ -3395,7 +3450,9 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
         [
             item.get("url", "")
             for item in video_items_filtered
-            if item.get("type") == "drive_clip" and item.get("url")
+            if item.get("type") in ("drive_clip", "frames_only")
+            and item.get("url")
+            and "drive.google.com" in str(item.get("url", "")).lower()
         ],
         drive,
     )
@@ -3446,6 +3503,38 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
             else:
                 parts.append(types.Part(text=f"[Drive video could not be loaded: {video_url}]\n"))
                 print(f"⚠️ Failed to build Drive video part: {video_url}")
+        elif video_type == "frames_only":
+            # External-ref window: load with start/end, but ONLY still-frame selection is allowed.
+            label_text = (
+                f"\n--- Video {candidate_num} of {total_videos} ---\n"
+                f"ID: {video_id}\n"
+                f"Usage: Can be used ONLY as still frames (extracted from any point in the video) as images (NOT playable video clips with timestamps).\n"
+                f"URL: {video_url}\n"
+            )
+            parts.append(types.Part(text=label_text))
+            if "drive.google.com" in video_url.lower():
+                drive_part = drive_parts_by_url.get(video_url)
+                if drive_part is not None:
+                    parts.append(drive_part)
+                    print(f"✅ Added external frames-only Drive video {candidate_num}: {video_url}")
+                    candidate_num += 1
+                else:
+                    parts.append(types.Part(text=f"[External Drive video could not be loaded: {video_url}]\n"))
+                    print(f"⚠️ Failed to build external frames-only Drive part: {video_url}")
+            else:
+                clip_url, start_seconds, end_seconds = parse_video_url_timestamps(video_url)
+                if clip_url:
+                    parts.append(build_video_part(clip_url, start_seconds, end_seconds))
+                    print(f"✅ Added external frames-only YouTube video {candidate_num}: start={start_seconds}s, end={end_seconds}s")
+                    candidate_num += 1
+                else:
+                    embed_url = convert_watch_url_to_embed_url(video_url)
+                    if embed_url:
+                        parts.append(build_video_part(embed_url, start_seconds=None, end_seconds=None))
+                        print(f"✅ Added external frames-only YouTube video {candidate_num} (no parseable window): {embed_url}")
+                        candidate_num += 1
+                    else:
+                        print(f"⚠️ Failed to load external frames-only video: {video_url}")
         elif video_type == "full_video":
             # Full video - frames only
             # Convert watch URL to embed URL
@@ -3721,7 +3810,7 @@ def format_aggregation_definition_for_sheet(vo_text, graphics_definition_xml, se
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, layout_plan_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type="", inline_ref_url="", drive_video_pool_text="", enabled_sources=None):
+def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, image_pool_text, video_pool_filtered_text, drive_results_text, web_results_text, storyboard_text, layout_plan_text, course_name, topic_name, subtopic_name, drive, llm="gemini_3_flash_thinking", feedback=None, visual_assignment_strategy="Flexible, let the agent decide", video_pool_text="", video_pool_other_channels_text="", slide_type="", inline_ref_url="", drive_video_pool_text="", enabled_sources=None, external_ref_pool_text=""):
     """
     Process a single segment: aggregate graphics definition from images and videos.
     
@@ -3746,6 +3835,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     :param inline_ref_url: Pre-specified Drive URL from an inline [alt](url) marker; injected as the top-priority image candidate for this specific segment
     :param drive_video_pool_text: Optional; drive_video_pool column content, used as fallback when video_pool_filtered is empty.
     :param enabled_sources: Optional list of enabled source ids used to filter fallback sources (None reads all present).
+    :param external_ref_pool_text: Optional; external_ref_pool column content used as fallback for images and videos.
     :return: Tuple of (segment_idx, formatted_segment_text, formatted_eval_breakdown)
     """
     print(f"\n📦 Processing SEGMENT_{segment_idx}")
@@ -3754,11 +3844,15 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     image_items = parse_urls_from_image_pool(image_pool_text, segment_idx)
     used_fallback = False
     
-    # Fallback: if no images in image_pool, use image sources (Drive + Web), filtered by enabled_sources, via candidate_wrapper.
+    # Fallback: if no images in image_pool, use image sources (Drive + Web + External Refs), filtered by enabled_sources.
     if not image_items:
-        print(f" ⚠️  No images found in image_pool for segment {segment_idx}, falling back to image sources (drive_results + web_results)")
+        print(f" ⚠️  No images found in image_pool for segment {segment_idx}, falling back to image sources (drive_results + web_results + external_ref_pool)")
         image_items = get_image_items_fallback_from_sources(
-            drive_results_text, web_results_text, segment_idx, enabled_sources=enabled_sources
+            drive_results_text,
+            web_results_text,
+            segment_idx,
+            enabled_sources=enabled_sources,
+            external_ref_pool_text=external_ref_pool_text or "",
         )
         if image_items:
             used_fallback = True
@@ -3773,14 +3867,17 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
 
     # Parse video items from video_pool_filtered for this segment
     video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_idx)
-    # Fallback: if video_pool_filtered is empty, use the raw pools (HVAC YouTube + other channels + Drive videos), filtered by enabled_sources.
-    if not video_items_filtered and (video_pool_text or video_pool_other_channels_text or drive_video_pool_text):
+    # Fallback: if video_pool_filtered is empty, use the raw pools (HVAC + other + Drive + External Refs).
+    if not video_items_filtered and (
+        video_pool_text or video_pool_other_channels_text or drive_video_pool_text or external_ref_pool_text
+    ):
         video_items_filtered = get_video_items_fallback_from_pools(
             video_pool_text or "",
             video_pool_other_channels_text or "",
             segment_idx,
             drive_video_pool_text=drive_video_pool_text or "",
             enabled_sources=enabled_sources,
+            external_ref_pool_text=external_ref_pool_text or "",
         )
         if video_items_filtered:
             print(f" ⚠️  video_pool_filtered empty for segment {segment_idx}, using fallback pools ({len(video_items_filtered)} video(s))")
@@ -3791,7 +3888,7 @@ def process_aggregation_segment(segment_idx, vo_text, slide_title, slide_chunk, 
     
     if image_items:
         if used_fallback:
-            print(f" 🖼️  Found {len(image_items)} image candidates (from fallback: drive_results + web_results)")
+            print(f" 🖼️  Found {len(image_items)} image candidates (from fallback: drive_results + web_results + external_ref_pool)")
         else:
             print(f" 🖼️  Found {len(image_items)} image candidates (from image_pool)")
     else:
@@ -3937,6 +4034,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         drive_video_pool_text = str(row.get("drive_video_pool", "")).strip()
         drive_results_text = str(row.get("drive_results", "")).strip()
         web_results_text = str(row.get("web_results", "")).strip()
+        external_ref_pool_text = str(row.get("external_ref_pool", "")).strip()
         storyboard_text = str(row.get("storyboard_planning", "")).strip()
         layout_plan_text = str(row.get("layout_plan", "")).strip()
         if not layout_plan_text or layout_plan_text == "nan":
@@ -4016,11 +4114,15 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             
             used_fallback = False
             
-            # Fallback: if no images in image_pool, use image sources (Drive + Web), filtered by enabled_sources, via candidate_wrapper.
+            # Fallback: if no images in image_pool, use image sources (Drive + Web + External Refs), filtered by enabled_sources.
             if not image_items:
-                print(f" ⚠️  No images found in image_pool for entire slide, falling back to image sources (drive_results + web_results)")
+                print(f" ⚠️  No images found in image_pool for entire slide, falling back to image sources (drive_results + web_results + external_ref_pool)")
                 image_items = get_image_items_fallback_from_sources(
-                    drive_results_text, web_results_text, 1, enabled_sources=enabled_sources
+                    drive_results_text,
+                    web_results_text,
+                    1,
+                    enabled_sources=enabled_sources,
+                    external_ref_pool_text=external_ref_pool_text,
                 )
                 if image_items:
                     used_fallback = True
@@ -4031,11 +4133,17 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             # Parse video items from video_pool_filtered
             # For "entire slide" case, all candidates are under SEGMENT_1
             video_items_filtered = parse_urls_from_video_pool_filtered(video_pool_filtered_text, segment_num=1)  # Get all videos from SEGMENT_1
-            # Fallback: if video_pool_filtered is empty, use the raw pools (HVAC YouTube + other channels + Drive videos), filtered by enabled_sources.
-            if not video_items_filtered and (video_pool_text or video_pool_other_channels_text or drive_video_pool_text):
+            # Fallback: if video_pool_filtered is empty, use the raw pools (HVAC + other + Drive + External Refs).
+            if not video_items_filtered and (
+                video_pool_text or video_pool_other_channels_text or drive_video_pool_text or external_ref_pool_text
+            ):
                 video_items_filtered = get_video_items_fallback_from_pools(
-                    video_pool_text, video_pool_other_channels_text, 1,
-                    drive_video_pool_text=drive_video_pool_text, enabled_sources=enabled_sources,
+                    video_pool_text,
+                    video_pool_other_channels_text,
+                    1,
+                    drive_video_pool_text=drive_video_pool_text,
+                    enabled_sources=enabled_sources,
+                    external_ref_pool_text=external_ref_pool_text,
                 )
                 if video_items_filtered:
                     print(f" ⚠️  video_pool_filtered empty for entire slide, using fallback pools ({len(video_items_filtered)} video(s))")
@@ -4046,7 +4154,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
             
             if image_items:
                 if used_fallback:
-                    print(f" 🖼️  Found {len(image_items)} image candidates (from fallback: drive_results + web_results)")
+                    print(f" 🖼️  Found {len(image_items)} image candidates (from fallback: drive_results + web_results + external_ref_pool)")
                 else:
                     print(f" 🖼️  Found {len(image_items)} image candidates (from image_pool)")
             else:
@@ -4161,6 +4269,7 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
                         processed_ref_map.get(segment_idx, ""),
                         drive_video_pool_text,
                         enabled_sources,
+                        external_ref_pool_text,
                     ): (segment_idx, vo_text)
                     for segment_idx, vo_text in segments
                 }
