@@ -207,8 +207,12 @@ def run_generate_image_and_video_candidates(sheet, max_workers=50, use_only_driv
     :return: None
     """
     if enabled_sources is None or isinstance(enabled_sources, str):
-        if "graphics_v2_enabled_sources" in st.session_state:
-            enabled_sources = st.session_state["graphics_v2_enabled_sources"]
+
+        session_sources = st.session_state.get("graphics_v2_enabled_sources")
+        if isinstance(session_sources, (list, tuple)):
+            enabled_sources = list(session_sources)
+        else:
+            enabled_sources = None
 
     sources = resolve_enabled_sources(
         enabled_sources=enabled_sources,
