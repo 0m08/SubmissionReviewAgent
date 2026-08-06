@@ -41,6 +41,7 @@ from agents.graphics_definition_v2.candidate_search.pool_registry import (
     COURSE_INFO_ENABLED_SOURCES_KEY,
     DRIVE_VIDEO_MODE_ALL,
     DRIVE_VIDEO_MODE_NEXTECH,
+    SOURCE_DRIVE_VIDEOS,
     SOURCE_WEB_IMAGES,
     SOURCE_YOUTUBE_OTHER_CHANNELS,
     UI_KEY_DRIVE_IMAGES,
@@ -364,12 +365,155 @@ def _write_course_info_asset_libraries(sheet, sources, drive_video_mode):
         return False
 
 
+_GRAPHICS_V2_ASSET_UI_KEYS = (
+    UI_KEY_DRIVE_IMAGES,
+    UI_KEY_HVAC_YOUTUBE,
+    UI_KEY_WEB_AND_OTHER,
+    UI_KEY_DRIVE_VIDEOS,
+    UI_KEY_DRIVE_VIDEO_MODE,
+    UI_KEY_EXTERNAL_REFERENCES,
+)
+
+
+def _load_graphics_v2_asset_libs_from_course_info(force_write_if_blank=False):
+    """
+    Load Allowed Asset Search Libraries from Course info into session_state.
+
+    :param force_write_if_blank: If True and the cell is blank, write product defaults.
+    :return: Encoded fingerprint string, or None when no sheet is loaded.
+    """
+    sheet = st.session_state.get("sheet")
+    if sheet is None:
+        return None
+    raw = _course_info_asset_libraries_raw(sheet)
+    sources, mode = decode_enabled_sources_from_course_info(raw)
+    apply_enabled_sources_to_session_state(sources, mode, st.session_state)
+    encoded = encode_enabled_sources_for_course_info(sources, mode)
+    if force_write_if_blank and not (raw or "").strip():
+        _write_course_info_asset_libraries(sheet, sources, mode)
+    sheet_link = (st.session_state.get("sheet_link") or "").strip()
+    st.session_state["_graphics_v2_asset_libs_sheet_link"] = sheet_link
+    st.session_state["_graphics_v2_asset_libs_fingerprint"] = encoded
+    # Keep derived keys consistent for pipeline / background forwarding.
+    sources_full, drive_mode = enabled_sources_from_session_state(st.session_state)
+    st.session_state[UI_KEY_ENABLED_SOURCES] = [
+        s for s in sources_full if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+    ]
+    st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = bool(
+        st.session_state.get(UI_KEY_WEB_AND_OTHER, False)
+    )
+    if SOURCE_DRIVE_VIDEOS in sources_full:
+        st.session_state[UI_KEY_DRIVE_VIDEO_MODE] = drive_mode or DRIVE_VIDEO_MODE_ALL
+    return encoded
+
+
+def _graphics_v2_background_toggle_payload():
+    """
+    Build Graphics V2 toggle payload for background jobs from Course info (source of truth).
+
+    Falls back to current session_state if the sheet cannot be read.
+    """
+    encoded = _load_graphics_v2_asset_libs_from_course_info(force_write_if_blank=False)
+    if encoded is None:
+        sources_full, drive_mode = enabled_sources_from_session_state(st.session_state)
+        st.session_state[UI_KEY_ENABLED_SOURCES] = [
+            s for s in sources_full if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+        ]
+        st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = bool(
+            st.session_state.get(UI_KEY_WEB_AND_OTHER, False)
+        )
+    return {
+        "selected_topics": st.session_state.get("selected_topics", []),
+        "graphics_v2_enabled_sources": st.session_state.get(UI_KEY_ENABLED_SOURCES, []),
+        "graphics_v2_web_fallback_enabled": st.session_state.get(UI_KEY_WEB_FALLBACK_ENABLED, False),
+        "graphics_v2_drive_video_mode": st.session_state.get(UI_KEY_DRIVE_VIDEO_MODE, DRIVE_VIDEO_MODE_ALL),
+        UI_KEY_DRIVE_IMAGES: st.session_state.get(UI_KEY_DRIVE_IMAGES, False),
+        UI_KEY_HVAC_YOUTUBE: st.session_state.get(UI_KEY_HVAC_YOUTUBE, False),
+        UI_KEY_WEB_AND_OTHER: st.session_state.get(UI_KEY_WEB_AND_OTHER, False),
+        UI_KEY_DRIVE_VIDEOS: st.session_state.get(UI_KEY_DRIVE_VIDEOS, False),
+        UI_KEY_EXTERNAL_REFERENCES: st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, False),
+    }
+
+
+def _render_graphics_v2_topics_selector():
+    """Render Topics to run multiselect for Graphics Definition V2."""
+    try:
+        _, slide_chunks_df = get_sheet_data_and_df(st.session_state["sheet"], "Slide Chunks")
+        topic_series = slide_chunks_df.get("Topic")
+        available_topics = []
+        if topic_series is not None:
+            seen = set()
+            for value in topic_series.tolist():
+                topic = str(value).strip()
+                if not topic or topic.lower() == "nan":
+                    continue
+                if topic in seen:
+                    continue
+                seen.add(topic)
+                available_topics.append(topic)
+
+        label_to_topic = {
+            f"Topic {idx + 1} - {topic}": topic
+            for idx, topic in enumerate(available_topics)
+        }
+        selection_options = ["All Topics"] + list(label_to_topic.keys())
+        if "graphics_v2_topic_selection_labels" not in st.session_state:
+            st.session_state["graphics_v2_topic_selection_labels"] = ["All Topics"]
+
+        selected_labels = st.multiselect(
+            "Topics to run",
+            options=selection_options,
+            key="graphics_v2_topic_selection_labels",
+            help="Select one or more topics, or keep All Topics selected.",
+        )
+        if not selected_labels:
+            selected_labels = ["All Topics"]
+            st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
+        if "All Topics" in selected_labels and len(selected_labels) > 1:
+            selected_labels = [label for label in selected_labels if label != "All Topics"]
+            st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
+
+        selected_topics = [
+            label_to_topic[label]
+            for label in selected_labels
+            if label in label_to_topic
+        ]
+        if "All Topics" in selected_labels:
+            selected_topics = []
+        st.session_state["selected_topics"] = _normalize_selected_topics(selected_topics)
+
+        if st.session_state["selected_topics"]:
+            filtered_df = slide_chunks_df[
+                slide_chunks_df["Topic"].astype(str).str.strip().isin(st.session_state["selected_topics"])
+            ]
+            total_slides = len(filtered_df)
+        else:
+            total_slides = len(slide_chunks_df)
+
+        topic_scope = (
+            "All Topics"
+            if not st.session_state["selected_topics"]
+            else ", ".join(st.session_state["selected_topics"])
+        )
+        st.caption(f"Topic Scope: {topic_scope}  |  Total Slides: {total_slides}")
+    except Exception as e:
+        st.warning(f"Could not load topic selector: {e}")
+        st.session_state["selected_topics"] = []
+
+
+def _render_graphics_v2_run_setup_controls():
+    """Topics + asset libraries shown above the run buttons for Graphics Definition V2."""
+    _render_graphics_v2_topics_selector()
+    st.divider()
+    _render_graphics_v2_asset_library_controls()
+
+
 def _render_graphics_v2_asset_library_controls():
     """
     Render Graphics Definition V2 asset-library checkboxes.
 
     Course info column "Allowed Asset Search Libraries for the Graphics Agent" is source of
-    truth: load into toggles on sheet open; write back immediately when toggles change.
+    truth: load into toggles on sheet open; write back when toggles change.
     """
     defaults = {
         UI_KEY_DRIVE_IMAGES: True,
@@ -379,22 +523,20 @@ def _render_graphics_v2_asset_library_controls():
         UI_KEY_DRIVE_VIDEO_MODE: DRIVE_VIDEO_MODE_ALL,
         UI_KEY_EXTERNAL_REFERENCES: False,
     }
-    for key, default in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
-
     sheet = st.session_state.get("sheet")
     sheet_link = (st.session_state.get("sheet_link") or "").strip()
     applied_for = st.session_state.get("_graphics_v2_asset_libs_sheet_link")
-    if sheet is not None and applied_for != sheet_link:
-        raw = _course_info_asset_libraries_raw(sheet)
-        sources, mode = decode_enabled_sources_from_course_info(raw)
-        apply_enabled_sources_to_session_state(sources, mode, st.session_state)
-        encoded = encode_enabled_sources_for_course_info(sources, mode)
-        if not (raw or "").strip():
-            _write_course_info_asset_libraries(sheet, sources, mode)
-        st.session_state["_graphics_v2_asset_libs_sheet_link"] = sheet_link
-        st.session_state["_graphics_v2_asset_libs_fingerprint"] = encoded
+    missing_keys = any(k not in st.session_state for k in _GRAPHICS_V2_ASSET_UI_KEYS)
+
+    # Reload from sheet on first open for this sheet_link, OR when widget keys were lost
+    if sheet is not None and (applied_for != sheet_link or missing_keys):
+        _load_graphics_v2_asset_libs_from_course_info(
+            force_write_if_blank=(applied_for != sheet_link)
+        )
+    else:
+        for key, default in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = default
 
     st.markdown("**Asset libraries for this run**")
     st.caption(
@@ -675,6 +817,12 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             unsafe_allow_html=True
         )
 
+        # Graphics V2: setup (before-running note, topics, asset libs) above run buttons
+        if step_name == "Graphics Definition V2":
+            if top_instructions:
+                st.info(top_instructions)
+            _render_graphics_v2_run_setup_controls()
+
         # Two primary actions on the same row
         button_col1, button_col2 = st.columns([1, 1])
         with button_col1:
@@ -701,9 +849,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     The "{step_name}" agent has started running in the background for your sheet. 
                     You can now close this agent tab in your browser or even shut down your PC if you want. 
                     All the updates for this agent will be shared with you via email. 
-                    You will receive an email after 10-15 minutes confirming that the agent has started running successfully in the background. 
+                    You will receive an email after 10-20 minutes confirming that the agent has started running successfully in the background. 
                     You will also get another email once the agent has completed running all its steps successfully so that you can review the outputs. 
-                    (Ensure to check your "Spam" folder in case you dont see any email in your inbox after 10-15 minutes of you pressing this "Run the Agent in Background" button.)
+                    (Ensure to check your "Spam" folder in case you dont see any email in your inbox after 10-20 minutes of you pressing this "Run the Agent in Background" button.)
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -820,32 +968,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                         for toggle in top_toggles:
                             tkey = toggle["key"]
                             toggle_values[tkey] = st.session_state.get(tkey, toggle.get("default", False))
-                    if step_name == "Graphics Definition V2" and "selected_topics" in st.session_state:
-                        toggle_values["selected_topics"] = st.session_state.get("selected_topics", [])
-                        toggle_values["graphics_v2_enabled_sources"] = st.session_state.get(
-                            "graphics_v2_enabled_sources", []
-                        )
-                        toggle_values["graphics_v2_web_fallback_enabled"] = st.session_state.get(
-                            "graphics_v2_web_fallback_enabled", True
-                        )
-                        toggle_values["graphics_v2_drive_video_mode"] = st.session_state.get(
-                            "graphics_v2_drive_video_mode", "all"
-                        )
-                        toggle_values["graphics_v2_asset_drive_images"] = st.session_state.get(
-                            "graphics_v2_asset_drive_images", True
-                        )
-                        toggle_values["graphics_v2_asset_hvac_youtube"] = st.session_state.get(
-                            "graphics_v2_asset_hvac_youtube", True
-                        )
-                        toggle_values["graphics_v2_asset_web_and_other_youtube"] = st.session_state.get(
-                            "graphics_v2_asset_web_and_other_youtube", True
-                        )
-                        toggle_values["graphics_v2_asset_drive_videos"] = st.session_state.get(
-                            "graphics_v2_asset_drive_videos", True
-                        )
-                        toggle_values["graphics_v2_asset_external_references"] = st.session_state.get(
-                            "graphics_v2_asset_external_references", False
-                        )
+                    if step_name == "Graphics Definition V2":
+                        # Course info is source of truth — do not trust possibly-reset widget defaults.
+                        toggle_values.update(_graphics_v2_background_toggle_payload())
                     cmd = [
                         sys.executable,
                         "launch_agents_via_sdk.py",
@@ -963,72 +1088,9 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
     if "sheet" in st.session_state:
         step_global_count = 1  # So we can label steps 1,2,3 across sections
 
-        # Optional instructions shown above all sections (e.g. "before you run" setup)
-        if top_instructions:
+        # Optional instructions shown above all sections (Graphics V2 already showed these above buttons)
+        if top_instructions and step_name != "Graphics Definition V2":
             st.info(top_instructions)
-
-        if step_name == "Graphics Definition V2":
-            try:
-                _, slide_chunks_df = get_sheet_data_and_df(st.session_state["sheet"], "Slide Chunks")
-                topic_series = slide_chunks_df.get("Topic")
-                available_topics = []
-                if topic_series is not None:
-                    seen = set()
-                    for value in topic_series.tolist():
-                        topic = str(value).strip()
-                        if not topic or topic.lower() == "nan":
-                            continue
-                        if topic in seen:
-                            continue
-                        seen.add(topic)
-                        available_topics.append(topic)
-
-                label_to_topic = {
-                    f"Topic {idx + 1} - {topic}": topic
-                    for idx, topic in enumerate(available_topics)
-                }
-                selection_options = ["All Topics"] + list(label_to_topic.keys())
-                if "graphics_v2_topic_selection_labels" not in st.session_state:
-                    st.session_state["graphics_v2_topic_selection_labels"] = ["All Topics"]
-
-                selected_labels = st.multiselect(
-                    "Topics to run",
-                    options=selection_options,
-                    key="graphics_v2_topic_selection_labels",
-                    help="Select one or more topics, or keep All Topics selected.",
-                )
-                if not selected_labels:
-                    selected_labels = ["All Topics"]
-                    st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
-                if "All Topics" in selected_labels and len(selected_labels) > 1:
-                    selected_labels = [label for label in selected_labels if label != "All Topics"]
-                    st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
-
-                selected_topics = [
-                    label_to_topic[label]
-                    for label in selected_labels
-                    if label in label_to_topic
-                ]
-                if "All Topics" in selected_labels:
-                    selected_topics = []
-                st.session_state["selected_topics"] = _normalize_selected_topics(selected_topics)
-
-                if st.session_state["selected_topics"]:
-                    filtered_df = slide_chunks_df[
-                        slide_chunks_df["Topic"].astype(str).str.strip().isin(st.session_state["selected_topics"])
-                    ]
-                    total_slides = len(filtered_df)
-                else:
-                    total_slides = len(slide_chunks_df)
-
-                topic_scope = "All Topics" if not st.session_state["selected_topics"] else ", ".join(st.session_state["selected_topics"])
-                st.caption(f"Topic Scope: {topic_scope}  |  Total Slides: {total_slides}")
-            except Exception as e:
-                st.warning(f"Could not load topic selector: {e}")
-                st.session_state["selected_topics"] = []
-
-            st.divider()
-            _render_graphics_v2_asset_library_controls()
 
         # Optional toggles shown above all sections
         if top_toggles:
