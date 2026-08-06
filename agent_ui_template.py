@@ -822,6 +822,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
             if top_instructions:
                 st.info(top_instructions)
             _render_graphics_v2_run_setup_controls()
+            st.divider()
 
         # Two primary actions on the same row
         button_col1, button_col2 = st.columns([1, 1])
@@ -851,7 +852,7 @@ def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: b
                     All the updates for this agent will be shared with you via email. 
                     You will receive an email after 10-20 minutes confirming that the agent has started running successfully in the background. 
                     You will also get another email once the agent has completed running all its steps successfully so that you can review the outputs. 
-                    (Ensure to check your "Spam" folder in case you dont see any email in your inbox after 10-20 minutes of you pressing this "Run the Agent in Background" button.)
+                    (Ensure to check your "Spam" folder in case you don't see any email in your inbox after 10-20 minutes of you pressing this "Run the Agent in Background" button.)
                 </div>
                 """,
                 unsafe_allow_html=True
