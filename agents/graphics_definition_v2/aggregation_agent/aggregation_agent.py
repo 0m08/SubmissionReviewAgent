@@ -2988,7 +2988,7 @@ def aggregate_graphics_definition_for_segment(vo_text, slide_title, slide_chunk,
     
     if not video_candidates_text.strip():
         video_candidates_text = "No video candidates provided."
-        if str(slide_type).strip().lower() in ("transition", "transition slide"):
+        if str(slide_type).strip().lower() == "transition":
             video_candidates_text += " This is a Transition slide; only image candidates are available."
     
     # Use storyboard if provided, otherwise use empty string
@@ -3388,7 +3388,7 @@ def aggregate_graphics_definition_for_entire_slide(slide_title, slide_chunk, ima
     
     if not video_candidates_text.strip():
         video_candidates_text = "No video candidates provided."
-        if str(slide_type).strip().lower() in ("transition", "transition slide"):
+        if str(slide_type).strip().lower() == "transition":
             video_candidates_text += " This is a Transition slide; only image candidates are available for you to select from"   
     
     # Use storyboard if provided, otherwise use empty string

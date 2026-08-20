@@ -284,6 +284,11 @@ def run_all_automated_steps_for_cli(sections, state):
                     if not state.get("skip_manual_step"):
                         print(f"[INFO] Paused at manual step: {step['name']}")
                         continue
+                if step.get("pre_exec_func"):
+                    pre_kwargs = {
+                        a: state.get(k, k) for a, k in step.get("pre_exec_args", {}).items()
+                    }
+                    step["pre_exec_func"](**pre_kwargs)
                 kwargs = {a: state.get(k, k) for a, k in step.get("args", {}).items()}
                 fn_params = inspect.signature(step["func"]).parameters
                 if "selected_topics" in fn_params and "selected_topics" not in kwargs:

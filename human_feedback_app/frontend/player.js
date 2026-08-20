@@ -36,6 +36,13 @@ window.HFPlayer = (function () {
             slideTitle: slide.title || ("Slide " + (slideIdx + 1)),
             rowIndex: step.rowIndex,
             sceneTemplate: scene.template || "",
+            animationType: scene.animationType || "none",
+            labelText: scene.labelText || "",
+            bboxHighlights: scene.bboxHighlights || [],
+            iconOverlays: scene.iconOverlays || [],
+            slideType: slide.slideType || "",
+            slideChunk: slide.slideChunk || "",
+            topic: slide.topic || "",
           });
         });
       });
@@ -60,6 +67,15 @@ window.HFPlayer = (function () {
     }
   }
 
+  // Two visuals covering parts of the same sentence live in one scene. Handoff
+  // between those parts must not insert a pause — it is still one spoken line.
+  function sameSceneParts(a, b) {
+    return !!(a && b
+      && a.slideIdx === b.slideIdx
+      && String(a.sceneId) === String(b.sceneId)
+      && Math.max(a.partCount || 0, b.partCount || 0) > 1);
+  }
+
   function Controller(options) {
     this.slides = options.slides || [];
     this.resolveImageUrl = options.resolveImageUrl || function () { return ""; };
@@ -72,6 +88,8 @@ window.HFPlayer = (function () {
     this.cueIndex = 0;
     this.playing = false;
     this.speed = 1;
+    this.volume = 1;
+    this.muted = false;
     this.ccOn = true;
     this.pauseForReview = false;
     this.assetsReady = false;
@@ -81,6 +99,12 @@ window.HFPlayer = (function () {
     this._token = 0;
     this._ttsCache = Object.create(null);
     this._ttsInflight = Object.create(null);
+    this._ttsPad = Object.create(null);
+    this._ttsDur = Object.create(null);
+    this._ttsWords = Object.create(null);
+    this._pendingSeek = null;
+    this._primedAudio = null;
+    this._audioCtx = null;
     this._tickTimer = null;
     this._cueElapsed = 0;
     this._cueDuration = 0;
@@ -106,6 +130,8 @@ window.HFPlayer = (function () {
         return c.slideIdx === cue.slideIdx && c.sceneId === cue.sceneId;
       });
     }
+    const slideTiming = this._slideTiming();
+    const pad = this._ttsPad[String((cue && cue.voiceover) || "").trim()] || {};
     this.onState({
       cues: this.cues,
       cueIndex: this.cueIndex,
@@ -113,15 +139,58 @@ window.HFPlayer = (function () {
       sceneCues: sceneCues,
       playing: this.playing,
       speed: this.speed,
+      volume: this.volume,
+      muted: this.muted,
       ccOn: this.ccOn,
       pauseForReview: this.pauseForReview,
       cueElapsed: this._cueElapsed,
       cueDuration: this._cueDuration,
+      cueLead: pad.lead || 0,
+      cueTrail: pad.trail || 0,
+      cueWords: this._ttsWords[String((cue && cue.voiceover) || "").trim()] || null,
+      slideElapsed: slideTiming.elapsed,
+      slideDuration: slideTiming.duration,
       hasCues: this.cues.length > 0,
       assetsReady: this.assetsReady,
       preloadProgress: this.preloadProgress,
       preloading: this._preloading,
     });
+  };
+
+  Controller.prototype._rememberDuration = function (cueOrText, duration) {
+    const key = typeof cueOrText === "string"
+      ? String(cueOrText || "").trim()
+      : String((cueOrText && cueOrText.voiceover) || "").trim();
+    if (!key || !(duration > 0) || !isFinite(duration)) return;
+    this._ttsDur[key] = duration;
+  };
+
+  Controller.prototype._durationForCue = function (cue, index) {
+    if (!cue) return 0;
+    if (index === this.cueIndex && this._cueDuration > 0) return this._cueDuration;
+    const key = String(cue.voiceover || "").trim();
+    if (this._ttsDur[key] > 0) return this._ttsDur[key];
+    const pad = this._ttsPad[key];
+    if (pad && pad.duration > 0) return pad.duration;
+    return Math.max(1.2, key.length / 14);
+  };
+
+  Controller.prototype._slideTiming = function () {
+    const cue = this.cues[this.cueIndex];
+    if (!cue) return { elapsed: 0, duration: 0 };
+    const slideIdx = cue.slideIdx;
+    let duration = 0;
+    let elapsed = 0;
+    for (let i = 0; i < this.cues.length; i++) {
+      const c = this.cues[i];
+      if (c.slideIdx !== slideIdx) continue;
+      const d = this._durationForCue(c, i);
+      if (i < this.cueIndex) elapsed += d;
+      duration += d;
+    }
+    const currentDur = this._durationForCue(cue, this.cueIndex);
+    elapsed += Math.max(0, Math.min(currentDur, this._cueElapsed || 0));
+    return { elapsed: elapsed, duration: duration };
   };
 
   Controller.prototype._ytMountIdForCue = function (cue) {
@@ -244,6 +313,7 @@ window.HFPlayer = (function () {
 
   Controller.prototype.stop = function () {
     this.playing = false;
+    this._primedAudio = null;
     this._stopMedia({ destroyVideos: true });
     this.emit();
   };
@@ -253,14 +323,40 @@ window.HFPlayer = (function () {
     if (!key) return Promise.reject(new Error("empty voiceover"));
     if (this._ttsCache[key]) return Promise.resolve(this._ttsCache[key]);
     if (this._ttsInflight[key]) return this._ttsInflight[key];
-    const url = "/api/tts?voiceover=" + encodeURIComponent(key);
-    const promise = fetch(url, { credentials: "same-origin" }).then(function (res) {
+    const audioUrl = "/api/tts?voiceover=" + encodeURIComponent(key);
+    const wordsUrl = "/api/tts/words?voiceover=" + encodeURIComponent(key);
+    const promise = fetch(audioUrl, { credentials: "same-origin" }).then(function (res) {
       if (!res.ok) throw new Error("TTS request failed");
-      return res.blob();
-    }).then(function (blob) {
+      let marks = [];
+      const encoded = res.headers.get("X-TTS-Words");
+      if (encoded) {
+        try { marks = JSON.parse(atob(encoded)); } catch (_) { marks = []; }
+      }
+      return res.blob().then(function (blob) {
+        return { blob: blob, marks: marks };
+      });
+    }).then(function (pair) {
+      const blob = pair.blob;
+      const marks = pair.marks || [];
+      this._ttsWords[key] = marks;
       const objUrl = URL.createObjectURL(blob);
       this._ttsCache[key] = objUrl;
+      this._analyzeTtsSilence(key, blob);
       delete this._ttsInflight[key];
+      if (!marks.length) {
+        fetch(wordsUrl, { credentials: "same-origin" }).then(function (res) {
+          if (!res.ok) return { words: [] };
+          return res.json();
+        }).then(function (body) {
+          this._ttsWords[key] = (body && body.words) || [];
+          if (this.cues[this.cueIndex] && String(this.cues[this.cueIndex].voiceover || "").trim() === key) {
+            this.emit();
+          }
+        }.bind(this)).catch(function () {});
+      }
+      if (this.cues[this.cueIndex] && String(this.cues[this.cueIndex].voiceover || "").trim() === key) {
+        this.emit();
+      }
       return objUrl;
     }.bind(this)).catch(function (err) {
       delete this._ttsInflight[key];
@@ -268,6 +364,58 @@ window.HFPlayer = (function () {
     }.bind(this));
     this._ttsInflight[key] = promise;
     return promise;
+  };
+
+  Controller.prototype._analyzeTtsSilence = function (key, blob) {
+    const self = this;
+    if (!key || self._ttsPad[key] || !blob || !blob.arrayBuffer) return;
+    blob.arrayBuffer().then(function (ab) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      if (!self._audioCtx) self._audioCtx = new AC();
+      return self._audioCtx.decodeAudioData(ab.slice(0));
+    }).then(function (buf) {
+      if (!buf) return;
+      const data = buf.getChannelData(0);
+      const sr = buf.sampleRate || 24000;
+      const thresh = 0.02;
+      let first = 0;
+      let last = data.length - 1;
+      for (let i = 0; i < data.length; i++) {
+        if (Math.abs(data[i]) > thresh) { first = i; break; }
+      }
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (Math.abs(data[i]) > thresh) { last = i; break; }
+      }
+      // Keep a tiny pad so the first/last phoneme is not clipped.
+      const hold = 0.04;
+      self._ttsPad[key] = {
+        lead: Math.max(0, first / sr - hold),
+        trail: Math.max(0, (data.length - 1 - last) / sr - hold),
+        duration: buf.duration || (data.length / sr),
+      };
+      self._rememberDuration(key, self._ttsPad[key].duration);
+    }).catch(function () {});
+  };
+
+  Controller.prototype._primeNextAudio = function (fromIndex) {
+    const self = this;
+    const nextIdx = fromIndex + 1;
+    const cue = self.cues[nextIdx];
+    if (!cue) {
+      self._primedAudio = null;
+      return;
+    }
+    const vo = String(cue.voiceover || "").trim();
+    if (!vo) return;
+    self._fetchTtsUrl(vo).then(function (url) {
+      if (self.cueIndex !== fromIndex) return;
+      const audio = new Audio(url);
+      audio.preload = "auto";
+      self._bindAudio(audio);
+      self._primedAudio = { index: nextIdx, audio: audio, url: url, voiceover: vo };
+      try { audio.load(); } catch (_) {}
+    }).catch(function () {});
   };
 
   Controller.prototype._uniqueVoiceovers = function (fromIndex, count) {
@@ -443,10 +591,14 @@ window.HFPlayer = (function () {
     const self = this;
     if (!self.cues.length) return Promise.resolve();
     const idx = Math.max(0, Math.min(index, self.cues.length - 1));
+    const prevCue = self.cues[self._activeCueIndex];
     self._freezePrevCueVideo(self._activeCueIndex, idx);
     self.cueIndex = idx;
     self._activeCueIndex = idx;
     const cue = self.cues[idx];
+    const nextCue = self.cues[idx + 1];
+    const tightHandoff = sameSceneParts(prevCue, cue);
+    const tightToNext = sameSceneParts(cue, nextCue);
     self.prefetchVoiceovers(idx + 1, 8);
     self._stopMedia({ destroyVideos: false, resetDuration: true });
     const token = self._token;
@@ -457,8 +609,15 @@ window.HFPlayer = (function () {
     const isVideo = step.type === "video" && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl);
     const isDriveVideo = self._isDriveVideoCue(cue);
     const mountId = self._ytMountIdForCue(cue);
+    const voKey = String(cue.voiceover || "").trim();
 
-    const visualsPromise = self._waitForVisuals(cue, token);
+    const primed = (self._primedAudio && self._primedAudio.index === idx) ? self._primedAudio : null;
+    self._primedAudio = null;
+
+    // Same-scene image parts are already on screen — don't wait for preload/rAF.
+    const visualsPromise = (tightHandoff && !isVideo)
+      ? Promise.resolve(true)
+      : self._waitForVisuals(cue, token);
     const mountPromise = isVideo
       ? visualsPromise.then(function (alive) {
         if (!alive) return false;
@@ -466,26 +625,34 @@ window.HFPlayer = (function () {
       })
       : visualsPromise;
 
-    return withTimeout(Promise.all([
-      visualsPromise.then(function (alive) {
+    const ttsPromise = primed && primed.url
+      ? Promise.resolve(primed.url)
+      : visualsPromise.then(function (alive) {
         if (!alive) return null;
         return self._fetchTtsUrl(cue.voiceover);
-      }),
+      });
+
+    return withTimeout(Promise.all([
+      ttsPromise,
       mountPromise,
     ]).then(function (results) {
       return results[0];
-    }), 8000, null).then(function (audioUrl) {
+    }), tightHandoff ? 2500 : 8000, primed && primed.url ? primed.url : null).then(function (audioUrl) {
       if (token !== self._token || audioUrl == null) return;
       return new Promise(function (resolve) {
-        const audio = new Audio(audioUrl);
+        const audio = (primed && primed.audio && primed.url === audioUrl)
+          ? primed.audio
+          : new Audio(audioUrl);
         audio.preload = "auto";
-        audio.playbackRate = self.speed;
+        self._bindAudio(audio);
         self._audio = audio;
 
         let started = false;
+        let finished = false;
 
         function onDone() {
-          if (token !== self._token) return;
+          if (token !== self._token || finished) return;
+          finished = true;
           self._clearTick();
           if (isVideo && window.HFYoutube) {
             window.HFYoutube.freezePlayerAtEnd(mountId, rawUrl);
@@ -508,7 +675,6 @@ window.HFPlayer = (function () {
             }
           }
           if (isDriveVideo && !self._playDriveVideo(cue, true)) {
-            // Element may not be mounted yet on the very first paint; retry once.
             afterPaint(function () {
               if (token !== self._token) return;
               self._playDriveVideo(cue, true);
@@ -519,24 +685,50 @@ window.HFPlayer = (function () {
           self._tickTimer = setInterval(function () {
             if (token !== self._token || !self._audio) return;
             self._cueElapsed = self._audio.currentTime || 0;
+            if (tightToNext) {
+              const pad = self._ttsPad[voKey] || {};
+              const trail = pad.trail || 0;
+              if (trail > 0.08 && self._cueDuration > 0 && self._cueElapsed >= self._cueDuration - trail) {
+                onDone();
+                return;
+              }
+            }
             self.emit();
-          }, 120);
+          }, 50);
           self._prefetchUpcomingVideos(idx + 1, 2);
+          self._primeNextAudio(idx);
         }
 
         function onMetaReady() {
           if (token !== self._token || started) return;
           self._cueDuration = audio.duration || 0;
-          self._cueElapsed = 0;
+          self._rememberDuration(cue, self._cueDuration);
+          const pad = self._ttsPad[voKey] || {};
+          const pending = self._pendingSeek;
+          self._pendingSeek = null;
+          if (pending != null && pending >= 0) {
+            const t = Math.max(0, Math.min(self._cueDuration || pending, pending));
+            try { audio.currentTime = t; } catch (_) {}
+            self._cueElapsed = t;
+          } else {
+            const lead = tightHandoff ? (pad.lead || 0) : 0;
+            if (lead > 0.05) {
+              try { audio.currentTime = lead; } catch (_) {}
+              self._cueElapsed = lead;
+            } else {
+              self._cueElapsed = 0;
+            }
+          }
           self.emit();
           if (isVideo) {
             afterPaint(function () {
               if (token !== self._token || started) return;
-              // Always go through mount helper: it reattaches / swaps clips instantly when possible.
               self._mountVideoAsync(cue, token).then(function () {
                 afterPaint(startPlayback);
               });
             });
+          } else if (tightHandoff) {
+            startPlayback();
           } else {
             afterPaint(startPlayback);
           }
@@ -544,17 +736,19 @@ window.HFPlayer = (function () {
 
         audio.addEventListener("ended", onDone);
         audio.addEventListener("error", onDone);
-        audio.addEventListener("loadedmetadata", onMetaReady);
-        audio.addEventListener("canplay", onMetaReady);
-
-        setTimeout(function () {
-          if (!started && token === self._token) {
-            if (!self._cueDuration) self._cueDuration = audio.duration || 0;
-            onMetaReady();
-          }
-        }, 4000);
-
-        audio.load();
+        if (audio.readyState >= 1) {
+          onMetaReady();
+        } else {
+          audio.addEventListener("loadedmetadata", onMetaReady);
+          audio.addEventListener("canplay", onMetaReady);
+          setTimeout(function () {
+            if (!started && token === self._token) {
+              if (!self._cueDuration) self._cueDuration = audio.duration || 0;
+              onMetaReady();
+            }
+          }, tightHandoff ? 800 : 4000);
+          try { audio.load(); } catch (_) {}
+        }
       });
     }).catch(function () {
       return self._waitMs(800, token);
@@ -625,10 +819,17 @@ window.HFPlayer = (function () {
     self._playCue(self.cueIndex).then(function () {
       if (!self.playing) return;
       if (self.cueIndex < self.cues.length - 1) {
+        const cur = self.cues[self.cueIndex];
         self.cueIndex += 1;
         self._cueElapsed = 0;
         self._cueDuration = 0;
         self.emit();
+        const nxt = self.cues[self.cueIndex];
+        if (sameSceneParts(cur, nxt)) {
+          if (!self.playing) return;
+          self._runLoop();
+          return;
+        }
         afterPaint(function () {
           if (!self.playing) return;
           self._runLoop();
@@ -656,7 +857,7 @@ window.HFPlayer = (function () {
     }
     if (this._audio && this._cueDuration > 0 && this._cueElapsed > 0 && this._cueElapsed < this._cueDuration - 0.05) {
       this.playing = true;
-      this._audio.playbackRate = this.speed;
+      this._bindAudio(this._audio);
       const playPromise = this._audio.play();
       if (playPromise && playPromise.catch) playPromise.catch(function () {});
       const cue = this.cues[this.cueIndex];
@@ -685,6 +886,7 @@ window.HFPlayer = (function () {
     this.playing = false;
     // Halt the current native Drive clip before stepping back (YouTube is handled by _stopMedia + reattach; native <video> persists per slot, so pause it).
     this._pauseDriveVideo(this.cues[this.cueIndex]);
+    this._primedAudio = null;
     this._stopMedia({ destroyVideos: false });
     this.cueIndex = Math.max(0, this.cueIndex - 1);
     this._activeCueIndex = this.cueIndex;
@@ -700,6 +902,7 @@ window.HFPlayer = (function () {
     const wasPlaying = this.playing;
     this.playing = false;
     this._freezeCueVideo(this.cues[this.cueIndex]);
+    this._primedAudio = null;
     this._stopMedia({ destroyVideos: false });
     this.cueIndex = Math.min(this.cues.length - 1, this.cueIndex + 1);
     this._activeCueIndex = this.cueIndex;
@@ -716,6 +919,95 @@ window.HFPlayer = (function () {
     this.emit();
   };
 
+  Controller.prototype._audioVolume = function () {
+    if (this.muted) return 0;
+    return Math.max(0, Math.min(1, this.volume));
+  };
+
+  Controller.prototype._bindAudio = function (audio) {
+    if (!audio) return;
+    audio.playbackRate = this.speed;
+    audio.volume = this._audioVolume();
+  };
+
+  Controller.prototype.setVolume = function (v) {
+    this.volume = Math.max(0, Math.min(1, Number(v)));
+    if (this.volume > 0) this.muted = false;
+    if (this._audio) this._audio.volume = this._audioVolume();
+    this.emit();
+  };
+
+  Controller.prototype.toggleMute = function () {
+    this.muted = !this.muted;
+    if (this._audio) this._audio.volume = this._audioVolume();
+    this.emit();
+  };
+
+  Controller.prototype.seek = function (ratio) {
+    const cue = this.cues[this.cueIndex];
+    if (!cue) return;
+    const slideIdx = cue.slideIdx;
+    const indices = [];
+    const durs = [];
+    let total = 0;
+    for (let i = 0; i < this.cues.length; i++) {
+      if (this.cues[i].slideIdx !== slideIdx) continue;
+      const d = this._durationForCue(this.cues[i], i);
+      indices.push(i);
+      durs.push(d);
+      total += d;
+    }
+    if (!(total > 0)) return;
+    let target = Math.max(0, Math.min(1, Number(ratio) || 0)) * total;
+    for (let k = 0; k < indices.length; k++) {
+      const d = Math.max(0.01, durs[k]);
+      const isLast = k === indices.length - 1;
+      if (!isLast && target > d) {
+        target -= d;
+        continue;
+      }
+      const idx = indices[k];
+      const offset = Math.max(0, Math.min(d, target));
+      if (idx === this.cueIndex && this._audio && this._cueDuration > 0) {
+        try { this._audio.currentTime = offset; } catch (_) {}
+        this._cueElapsed = offset;
+        this._pendingSeek = null;
+        this.emit();
+        return;
+      }
+      this._seekToSlideCue(idx, offset);
+      return;
+    }
+  };
+
+  Controller.prototype._seekToSlideCue = function (idx, offset) {
+    if (idx < 0 || idx >= this.cues.length) return;
+    const wasPlaying = this.playing;
+    this.playing = false;
+    this._primedAudio = null;
+    this._pauseDriveVideo(this.cues[this.cueIndex]);
+    this._stopMedia({ destroyVideos: false });
+    this.cueIndex = idx;
+    this._activeCueIndex = -1;
+    this._pendingSeek = offset;
+    this._cueElapsed = offset;
+    this.emit();
+    if (wasPlaying) {
+      this.playing = true;
+      this._runLoop();
+    }
+  };
+
+  Controller.prototype.replay = function () {
+    if (!this.cues.length) return;
+    this.playing = false;
+    this._primedAudio = null;
+    this._pauseDriveVideo(this.cues[this.cueIndex]);
+    this._stopMedia({ destroyVideos: false });
+    this._activeCueIndex = -1;
+    this.play();
+  };
+
   Controller.prototype.toggleCc = function () {
     this.ccOn = !this.ccOn;
     this.emit();
@@ -730,6 +1022,8 @@ window.HFPlayer = (function () {
     const idx = this.cues.findIndex(function (c) { return c.slideIdx === slideIdx; });
     if (idx < 0) return;
     this.playing = false;
+    this._primedAudio = null;
+    this._pendingSeek = null;
     this._stopMedia({ destroyVideos: true });
     this.cueIndex = idx;
     this._activeCueIndex = idx;

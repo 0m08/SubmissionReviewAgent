@@ -2276,7 +2276,7 @@ def validate_video_score_row(row, enabled_sources=None):
     slide_type = str(row.get("Slide Type", "")).strip().lower()
 
     # Transition slides have no video candidates by design.
-    if slide_type in ("transition", "transition slide"):
+    if slide_type == "transition":
         return True, None
 
     # If row is not eligible for video scoring, treat as valid skip.
@@ -2338,7 +2338,7 @@ def validate_video_pool_filtered_row(row, enabled_sources=None):
     slide_type = str(row.get("Slide Type", "")).strip().lower()
 
     # Transition slides have no video candidates by design; empty video_pool_filtered is valid
-    if slide_type in ("transition", "transition slide"):
+    if slide_type == "transition":
         return True, None
 
     # Get Visual Assignment Strategy
@@ -2458,7 +2458,7 @@ def run_video_selection_from_all_videos_for_all_rows(sheet, llm="gemini_3_flash_
             slide_type = str(row.get("Slide Type", "")).strip().lower()
             
             # Transition slides: no video filtering; leave video_pool_filtered empty
-            if slide_type in ("transition", "transition slide"):
+            if slide_type == "transition":
                 continue
             
             # Skip if no video sources available (respecting enabled sources)

@@ -604,6 +604,9 @@ def run_review_finalized_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinkin
                 continue
             if existing_review and existing_review != "nan":
                 continue
+            if str(row.get("Slide Type", "")).strip().lower() == "transition":
+                df.at[index, "final_visuals_review"] = "-"
+                continue
 
             future = executor.submit(
                 process_review_finalized_visuals_row,
@@ -617,6 +620,7 @@ def run_review_finalized_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinkin
             futures_map[future] = index
 
         if not futures_map:
+            merge_and_save_columns(sheet, worksheet_name, df, ["final_visuals_review"])
             print("All rows already reviewed or no final_graphics_definition found.")
             return
 
@@ -719,6 +723,9 @@ def run_generate_alternative_visuals_from_web_for_all_rows(sheet, llm="gemini_3_
             final_graphics_definition = _safe_str(row.get("final_graphics_definition", "")).strip()
             if not final_review or final_review.lower() == "nan":
                 print(f"⏭️ Skipping row {index + 1}: final_visuals_review is empty.")
+                continue
+            if str(row.get("Slide Type", "")).strip().lower() == "transition":
+                print(f"⏭️ Skipping row {index + 1}: Transition slide (web fallback disabled).")
                 continue
             if not final_graphics_definition or final_graphics_definition.lower() == "nan":
                 print(f"⏭️ Skipping row {index + 1}: final_graphics_definition is empty.")
@@ -963,7 +970,7 @@ def _process_alternative_visuals_row(row_index, row, course_name, target_audienc
     if not visual_assignment_strategy or visual_assignment_strategy == "nan":
         visual_assignment_strategy = "Flexible, let the agent decide"
     slide_type = _safe_str(row.get("Slide Type", "")).strip().lower()
-    is_transition_slide = slide_type in ("transition", "transition slide")
+    is_transition_slide = slide_type == "transition"
 
     (
         failed_segments,

@@ -527,37 +527,61 @@ def run_slideshow_manifest_for_all_rows(sheet, llm="gemini_3_flash_thinking", ma
 
     print(f"Slideshow manifest: processing {len(rows_to_process)} row(s), max_workers={max_workers}")
 
-    futures_map = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for index, row in rows_to_process:
-            fut = executor.submit(
-                process_slideshow_manifest_row,
-                index,
-                row,
-                course_name,
-                drive,
-                llm,
+    def run_pass(rows_list, pass_num_desc):
+        futures_map = {}
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(rows_list))) as executor:
+            for idx, r_row in rows_list:
+                fut = executor.submit(
+                    process_slideshow_manifest_row,
+                    idx,
+                    r_row,
+                    course_name,
+                    drive,
+                    llm,
+                )
+                futures_map[fut] = idx
+
+            progress = SmartProgressBar(
+                total_tasks=len(futures_map),
+                description=f"Slideshow manifest ({pass_num_desc})",
+                save_interval=5,
             )
-            futures_map[fut] = index
 
-        progress = SmartProgressBar(
-            total_tasks=len(futures_map),
-            description="Slideshow manifest",
-            save_interval=5,
-        )
+            for future in as_completed(futures_map):
+                idx = futures_map[future]
+                try:
+                    row_index, manifest_xml = future.result()
+                    df.at[row_index, "slideshow_manifest"] = manifest_xml
+                    progress.update()
+                    if progress.should_save():
+                        save_to_sheet(ws, df)
+                except Exception as e:
+                    print(f"Slideshow manifest future error row {idx}: {e}")
+                    df.at[idx, "slideshow_manifest"] = f"ERROR: {str(e)}"
+                    progress.update()
 
-        for future in as_completed(futures_map):
-            index = futures_map[future]
-            try:
-                row_index, manifest_xml = future.result()
-                df.at[row_index, "slideshow_manifest"] = manifest_xml
-                progress.update()
-                if progress.should_save():
-                    save_to_sheet(ws, df)
-            except Exception as e:
-                print(f"Slideshow manifest future error row {index}: {e}")
-                df.at[index, "slideshow_manifest"] = f"ERROR: {str(e)}"
-                progress.update()
+    # Initial pass
+    run_pass(rows_to_process, "Initial Pass")
+
+    # Retry pass logic: check if any processed row has an "ERROR" prefix or failed to generate
+    max_retries = 2
+    for retry_pass in range(1, max_retries + 1):
+        failed_rows = []
+        for idx, row in df.iterrows():
+            fgd = str(row.get("final_graphics_definition", "")).strip()
+            manifest_val = str(df.at[idx, "slideshow_manifest"]).strip()
+            if not fgd or fgd == "nan":
+                continue
+            if not manifest_val or manifest_val == "nan" or manifest_val.startswith("ERROR:"):
+                # Clear existing error first so we try fresh
+                df.at[idx, "slideshow_manifest"] = ""
+                failed_rows.append((idx, df.loc[idx]))
+
+        if not failed_rows:
+            break
+
+        print(f"\n⚠️ Slideshow manifest pass ended with {len(failed_rows)} error/empty row(s). Retrying (Pass {retry_pass}/{max_retries})...")
+        run_pass(failed_rows, f"Retry Pass {retry_pass}")
 
     save_to_sheet(ws, df)
     format_worksheet(ws)

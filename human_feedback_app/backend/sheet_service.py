@@ -1539,10 +1539,114 @@ def _parse_per_scene_layout_feedback(feedback_str: str) -> Dict[str, str]:
     return {}
 
 
+def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
+    """Parse hero_animation_plan, hero_bbox_coordinates, and hero_icon_overlays from a row and group the parsed specifications by scene_id.
+    """
+    out = {}
+    if row is None:
+        return out
+
+    plan_cell = str(row.get("hero_animation_plan", "")).strip()
+    coords_cell = str(row.get("hero_bbox_coordinates", "")).strip()
+    icons_cell = str(row.get("hero_icon_overlays", "")).strip()
+
+    scene_header_re = re.compile(r"---Scene ID:\s*(\S+)---", re.IGNORECASE)
+
+    def split_blocks(text):
+        if not text or text.lower() == "nan" or text == "-":
+            return {}
+        matches = list(scene_header_re.finditer(text))
+        if not matches:
+            return {}
+        blocks = {}
+        for i, match in enumerate(matches):
+            start = match.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            scene_id = match.group(1).strip()
+            blocks[scene_id] = text[start:end].strip()
+        return blocks
+
+    plans = split_blocks(plan_cell)
+    coords = split_blocks(coords_cell)
+    icons = split_blocks(icons_cell)
+
+    scene_ids = set(plans.keys()) | set(coords.keys()) | set(icons.keys())
+
+    def extract_tag(text, tag):
+        match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL | re.IGNORECASE)
+        return match.group(1).strip() if match else ""
+
+    def extract_tags(text, tag):
+        return [m.strip() for m in re.findall(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL | re.IGNORECASE)]
+
+    for sid in scene_ids:
+        scene_data = {
+            "animationType": "none",
+            "labelText": "",
+            "bboxHighlights": [],
+            "iconOverlays": [],
+        }
+
+        # 1. Parse plan
+        p_block = plans.get(sid)
+        if p_block:
+            atype = extract_tag(p_block, "animation_type").lower()
+            if atype in ("none", "text_label", "bbox_highlight", "icon_overlay"):
+                scene_data["animationType"] = atype
+            if atype == "text_label":
+                scene_data["labelText"] = extract_tag(p_block, "label_text")
+
+        # 2. Parse coords
+        c_block = coords.get(sid)
+        if c_block:
+            highlights_list = []
+            h_blocks = extract_tags(c_block, "highlight")
+            for hb in h_blocks:
+                shape = extract_tag(hb, "shape") or "box"
+                box_str = extract_tag(hb, "box_2d")
+                box_2d = None
+                if box_str and "ERROR" not in box_str:
+                    try:
+                        box_2d = [int(v.strip()) for v in box_str.split(",") if v.strip().replace("-", "").isdigit()]
+                        if len(box_2d) != 4:
+                            box_2d = None
+                    except Exception:
+                        box_2d = None
+                highlights_list.append({
+                    "shape": shape,
+                    "box_2d": box_2d,
+                })
+            scene_data["bboxHighlights"] = highlights_list
+
+        # 3. Parse icons
+        i_block = icons.get(sid)
+        if i_block:
+            icons_list = []
+            i_blocks = extract_tags(i_block, "icon")
+            for ib in i_blocks:
+                concept = extract_tag(ib, "icon_concept")
+                target = extract_tag(ib, "target_description")
+                placement = extract_tag(ib, "placement_hint")
+                url = extract_tag(ib, "url")
+                if concept and concept.upper() != "N/A":
+                    icons_list.append({
+                        "concept": concept,
+                        "targetDescription": target,
+                        "placementHint": placement,
+                        "url": url if url.upper() != "N/A" else "",
+                    })
+            scene_data["iconOverlays"] = icons_list
+
+        out[sid] = scene_data
+
+    return out
+
+
 def _build_scenes_payload(
     manifest_xml: str,
     flat_steps: List[Dict[str, Any]],
     layout_feedback_str: str = "",
+    row: Any = None,
 ) -> List[Dict[str, Any]]:
     """Map manifest scenes onto the slide's ordered visuals.
 
@@ -1561,6 +1665,7 @@ def _build_scenes_payload(
         return []
 
     feedback_map = _parse_per_scene_layout_feedback(layout_feedback_str)
+    anim_data = _parse_scene_animation_data(row)
 
     # Try mapping by URL
     url_mapping_success = True
@@ -1595,6 +1700,13 @@ def _build_scenes_payload(
         # Successful URL-based match
         for sc in manifest_scenes:
             n = len(sc["slots"])
+            sc_id_str = str(sc["id"]).strip()
+            anim = anim_data.get(sc_id_str, {
+                "animationType": "none",
+                "labelText": "",
+                "bboxHighlights": [],
+                "iconOverlays": [],
+            })
             out.append(
                 {
                     "id": sc["id"],
@@ -1604,6 +1716,10 @@ def _build_scenes_payload(
                     "slotCount": n,
                     "visualIds": assigned_vids_by_scene[sc["id"]],
                     "layoutFeedback": feedback_map.get(sc["id"], ""),
+                    "animationType": anim["animationType"],
+                    "labelText": anim["labelText"],
+                    "bboxHighlights": anim["bboxHighlights"],
+                    "iconOverlays": anim["iconOverlays"],
                 }
             )
         return out
@@ -1615,6 +1731,13 @@ def _build_scenes_payload(
         n = len(sc["slots"])
         chunk = flat_steps[cursor : cursor + n]
         cursor += n
+        sc_id_str = str(sc["id"]).strip()
+        anim = anim_data.get(sc_id_str, {
+            "animationType": "none",
+            "labelText": "",
+            "bboxHighlights": [],
+            "iconOverlays": [],
+        })
         out.append(
             {
                 "id": sc["id"],
@@ -1624,6 +1747,10 @@ def _build_scenes_payload(
                 "slotCount": n,
                 "visualIds": [step.get("visualId") for step in chunk],
                 "layoutFeedback": feedback_map.get(sc["id"], ""),
+                "animationType": anim["animationType"],
+                "labelText": anim["labelText"],
+                "bboxHighlights": anim["bboxHighlights"],
+                "iconOverlays": anim["iconOverlays"],
             }
         )
     return out
@@ -1743,7 +1870,11 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
             _manifest_for_ui_row(session, row_index, row),
             flat_steps,
             layout_feedback,
+            row,
         )
+
+        slide_type = safe_str(row.get("Slide Type", "")).strip()
+        slide_chunk = safe_str(row.get(cmap.get("slide_chunk", "Slide Chunk"), "")).strip()
 
         ui_slides.append(
             {
@@ -1753,6 +1884,8 @@ def slides_to_ui_payload(session: UserSession) -> Dict[str, Any]:
                 "segmentationFeedback": seg_feedback,
                 "layoutFeedback": layout_feedback,
                 "scenes": scenes_payload,
+                "slideType": slide_type,
+                "slideChunk": slide_chunk,
             }
         )
 

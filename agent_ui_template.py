@@ -41,7 +41,10 @@ from agents.graphics_definition_v2.candidate_search.pool_registry import (
     COURSE_INFO_ENABLED_SOURCES_KEY,
     DRIVE_VIDEO_MODE_ALL,
     DRIVE_VIDEO_MODE_NEXTECH,
+    SOURCE_DRIVE_IMAGES,
     SOURCE_DRIVE_VIDEOS,
+    SOURCE_EXTERNAL_REFERENCES,
+    SOURCE_HVAC_YOUTUBE,
     SOURCE_WEB_IMAGES,
     SOURCE_YOUTUBE_OTHER_CHANNELS,
     UI_KEY_DRIVE_IMAGES,
@@ -410,28 +413,54 @@ def _load_graphics_v2_asset_libs_from_course_info(force_write_if_blank=False):
 def _graphics_v2_background_toggle_payload():
     """
     Build Graphics V2 toggle payload for background jobs from Course info (source of truth).
-
-    Falls back to current session_state if the sheet cannot be read.
     """
-    encoded = _load_graphics_v2_asset_libs_from_course_info(force_write_if_blank=False)
-    if encoded is None:
+    sheet = st.session_state.get("sheet")
+    sources_full = None
+    drive_mode = DRIVE_VIDEO_MODE_ALL
+
+    if sheet is not None:
+        try:
+            raw = _course_info_asset_libraries_raw(sheet)
+            sources_full, drive_mode = decode_enabled_sources_from_course_info(raw)
+        except Exception as exc:
+            print(f"⚠️ Could not read asset libraries for background payload: {exc}")
+            sources_full = None
+
+    if sources_full is None:
         sources_full, drive_mode = enabled_sources_from_session_state(st.session_state)
-        st.session_state[UI_KEY_ENABLED_SOURCES] = [
-            s for s in sources_full if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
-        ]
-        st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = bool(
-            st.session_state.get(UI_KEY_WEB_AND_OTHER, False)
-        )
+
+    source_set = {str(s).strip() for s in (sources_full or []) if str(s).strip()}
+    drive_images = SOURCE_DRIVE_IMAGES in source_set
+    hvac_youtube = SOURCE_HVAC_YOUTUBE in source_set
+    drive_videos = SOURCE_DRIVE_VIDEOS in source_set
+    external_refs = SOURCE_EXTERNAL_REFERENCES in source_set
+    web_and_other = (
+        SOURCE_WEB_IMAGES in source_set or SOURCE_YOUTUBE_OTHER_CHANNELS in source_set
+    )
+
+    mode = (drive_mode or DRIVE_VIDEO_MODE_ALL).strip().lower()
+    if mode not in (DRIVE_VIDEO_MODE_ALL, DRIVE_VIDEO_MODE_NEXTECH):
+        mode = DRIVE_VIDEO_MODE_ALL
+    if not drive_videos:
+        mode = DRIVE_VIDEO_MODE_ALL
+
+    enabled_primary = [
+        s
+        for s in (sources_full or [])
+        if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+    ]
+
     return {
         "selected_topics": st.session_state.get("selected_topics", []),
-        "graphics_v2_enabled_sources": st.session_state.get(UI_KEY_ENABLED_SOURCES, []),
-        "graphics_v2_web_fallback_enabled": st.session_state.get(UI_KEY_WEB_FALLBACK_ENABLED, False),
-        "graphics_v2_drive_video_mode": st.session_state.get(UI_KEY_DRIVE_VIDEO_MODE, DRIVE_VIDEO_MODE_ALL),
-        UI_KEY_DRIVE_IMAGES: st.session_state.get(UI_KEY_DRIVE_IMAGES, False),
-        UI_KEY_HVAC_YOUTUBE: st.session_state.get(UI_KEY_HVAC_YOUTUBE, False),
-        UI_KEY_WEB_AND_OTHER: st.session_state.get(UI_KEY_WEB_AND_OTHER, False),
-        UI_KEY_DRIVE_VIDEOS: st.session_state.get(UI_KEY_DRIVE_VIDEOS, False),
-        UI_KEY_EXTERNAL_REFERENCES: st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, False),
+        "graphics_v2_enabled_sources": enabled_primary,
+        "graphics_v2_web_fallback_enabled": web_and_other,
+        "graphics_v2_drive_video_mode": mode,
+        UI_KEY_DRIVE_IMAGES: drive_images,
+        UI_KEY_HVAC_YOUTUBE: hvac_youtube,
+        UI_KEY_WEB_AND_OTHER: web_and_other,
+        UI_KEY_DRIVE_VIDEOS: drive_videos,
+        UI_KEY_EXTERNAL_REFERENCES: external_refs,
+        UI_KEY_DRIVE_VIDEO_MODE: mode,
     }
 
 

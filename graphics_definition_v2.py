@@ -4,7 +4,7 @@ from agent_ui_template import agent_ui
 from agents.graphics_definition_v2.image_graphics_agent.segment_slide import (
     run_segment_slide_from_slide_chunk_for_all_rows,
     delete_segment_slide,
-    ensure_visual_assignment_strategy_column,
+    prepare_slide_chunks_for_layout_plan,
 )
 from agents.graphics_definition_v2.planning_layout.layout_plan import (
     run_layout_planning_agent_for_all_rows,
@@ -98,6 +98,10 @@ from agents.graphics_definition_v2.image_editing_for_layout.image_editing_based_
     run_image_editing_execution_for_all_rows,
     delete_image_editing_execution_columns,
 )
+from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
+    run_hero_animation_decision_for_all_rows,
+    delete_hero_animation_decision_columns,
+)
 from agents.graphics_definition_v2.image_editing_for_layout.image_edit_results_sheet import (
     run_populate_image_edit_results_sheet,
     delete_image_edit_results_sheet_data,
@@ -167,7 +171,7 @@ pipeline_sections = [
             {
                 "name": "Generate Layout Plan for each Slide",
                 "func": run_layout_planning_agent_for_all_rows,
-                "pre_exec_func": ensure_visual_assignment_strategy_column,
+                "pre_exec_func": prepare_slide_chunks_for_layout_plan,
                 "pre_exec_args": {
                     "sheet": "sheet",
                     "worksheet_name": "Slide Chunks"
@@ -493,6 +497,27 @@ pipeline_sections = [
             },
         ]
     },
+    {
+        "section_name": "Section 14: Hero Overlay Animation Decision",
+        "steps": [
+            {
+                "name": "Decide Hero Overlay Animation",
+                "func": run_hero_animation_decision_for_all_rows,
+                "depends_on": ["Apply edited asset URLs to slideshow manifest"],
+                "args": {
+                    "sheet": "sheet",
+                    "llm": "gemini_3_flash_thinking",
+                    "max_workers": 50,
+                },
+                "estimated_time": "5-20 minutes",
+                "description": "Decides whether the video player should add a short instructional overlay animation on top of the hero images, locates bbox coordinates, and generates icon overlay images",
+                "delete_func": delete_hero_animation_decision_columns,
+                "delete_args": {
+                    "sheet": "sheet"
+                },
+            },
+        ]
+    },
     # {
     #     "section_name": "Section 13: Image Edit Results Sheet",
     #     "steps": [
@@ -549,27 +574,7 @@ pipeline_sections = [
     #         # },
     #     ]
     # },
-    # {
-    #     "section_name": "Section 8: Layout Agent",
-    #     "steps": [
-    #         {
-    #             "name": "Run Layout Agent",
-    #             "func": run_layout_agent_for_all_rows,
-    #             "depends_on": [],
-    #             "args": {
-    #                 "sheet": "sheet",
-    #                 "llm": "gemini_3_flash_thinking",
-    #                 "max_workers": 50,
-    #             },
-    #             "estimated_time": "15-30 minutes",
-    #             "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
-    #             "delete_func": delete_layout_columns,
-    #             "delete_args": {
-    #                 "sheet": "sheet"
-    #             }
-    #         },
-    #     ]
-    # },
+ 
     # {
     #     "section_name": "Section 8: Download Assets to Drive",
     #     "steps": [

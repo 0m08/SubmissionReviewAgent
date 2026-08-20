@@ -4188,7 +4188,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         visual_assignment_strategy = "Flexible, let the agent decide"
 
     slide_type = str(row.get("Slide Type", "")).strip().lower()
-    skip_video_candidates = slide_type in ("transition", "transition slide")
+    skip_video_candidates = slide_type == "transition"
     if skip_video_candidates:
         print("Transition slide: skipping video candidate generation and filtering in regeneration loop")
 
@@ -6017,7 +6017,7 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
 
         # Transition slides: skip review-revise; set columns and return
         slide_type = str(row.get("Slide Type", "")).strip().lower()
-        if slide_type in ("transition", "transition slide"):
+        if slide_type == "transition":
             df.at[row_index, "graphics_review_v2_notes"] = "-"
             df.at[row_index, "review_complete"] = "TRUE"
             df.at[row_index, "revision_tracking"] = "-"

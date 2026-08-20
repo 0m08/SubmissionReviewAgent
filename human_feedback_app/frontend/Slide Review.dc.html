@@ -5,15 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/static/review-api.js?v=8"></script>
 <script src="/static/youtube-player.js?v=14"></script>
-<script src="/static/player.js?v=18"></script>
+<script src="/static/player.js?v=24"></script>
 <script src="/static/support.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="/static/animations/hero-stills.js?v=6"></script>
+<script src="/static/animations/split-comparison.js?v=16"></script>
+<script src="/static/animations/main-inset.js?v=8"></script>
+<script src="/static/animations/multi-panel-grid.js?v=3"></script>
+<script src="/static/animations/scene-transitions.js?v=1"></script>
+<script src="/static/animations/treatment-rotator.js?v=8"></script>
+<script src="/static/animations/index.js?v=8"></script>
 </head>
 <body>
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -258,73 +266,134 @@
   }
   .hf-player-root {
     flex: 1;
+    width: 100%;
     min-width: 0;
     min-height: 0;
+    display: grid;
+    place-items: center;
+    background: #000000;
+    color: #333;
+    container-type: size;
+  }
+  /* SkillCat-style player frame, matching 16:9 stage plus 56px bottom controls. */
+  .hf-player-theater {
+    --sc-orange: rgb(240, 87, 37);          /* #F05725 */
+    --sc-base-top: rgb(233, 233, 233);      /* player shell */
+    --sc-base-bottom: rgb(207, 207, 207);
+    --sc-seek-top: rgb(245, 245, 245);
+    --sc-seek-bottom: rgb(199, 199, 199);
+    --sc-seek-track: rgb(231, 231, 231);
+    --sc-seek-border: rgb(184, 184, 184);
+    --sc-btn-border: rgb(177, 177, 177);
+    --sc-icon-hover: rgb(85, 85, 85);
+    --sc-white: #fff;
+
+    width: min(100cqw, calc(100cqh * 1385 / 839));
+    height: min(100cqh, calc(100cqw * 839 / 1385));
     display: flex;
     flex-direction: column;
-    background: #0f1115;
-    color: #f3f4f6;
+    background: linear-gradient(180deg, var(--sc-base-top) 0%, var(--sc-base-bottom) 100%);
+    border: 1px solid #b7b7b7;
+    border-radius: 0 !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset, 0 10px 40px rgba(0,0,0,0.4);
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .hf-player-theater,
+  .hf-player-stage,
+  .hf-player-letterbox,
+  .hf-player-frame,
+  .hf-player-scene-canvas,
+  .hf-player-scene-slot,
+  .hf-player-fade-shell,
+  .hf-hero-motion-wrapper {
+    border-radius: 0 !important;
   }
   .hf-player-stage {
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 6px 12px 0;
-    overflow: hidden;
+    position: relative;
+    background: #ffffff;
   }
-  .hf-player-header {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-    min-height: 0;
-    overflow: hidden;
-  }
-  .hf-player-slide-meta {
-    flex-shrink: 0;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    text-transform: none;
-    color: #9ca3af;
-    white-space: nowrap;
-  }
-  .hf-player-slide-title {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: -0.01em;
-    color: #f3f4f6;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-  .hf-player-frame-wrap {
-    flex: 1;
-    min-height: 0;
+  .hf-player-letterbox {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding-bottom: 4px;
+    background: #ffffff;
+    overflow: hidden;
   }
   .hf-player-frame {
     position: relative;
-    min-height: 0;
-    border-radius: 12px;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     background: #ffffff;
-    box-shadow: 0 16px 40px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.06);
+    border-radius: 0;
+    box-shadow: none;
   }
   .hf-player-frame.hf-player-frame--layout,
   .hf-player-frame.hf-player-frame--fill {
+    width: 100%;
     height: 100%;
-    width: auto;
     max-width: 100%;
-    flex: 0 0 auto;
-    aspect-ratio: 1808 / 748;
+    max-height: 100%;
+    flex: none;
+  }
+  .hf-player-course-timeline {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    z-index: 36;
+    pointer-events: none;
+    background: transparent;
+  }
+  .hf-player-course-timeline-fill {
+    height: 100%;
+    width: 0%;
+    background: #ff5a17;
+    border-radius: 0 2px 2px 0;
+    transition: width 0.35s ease;
+  }
+  .hf-player-title-badge {
+    position: absolute;
+    z-index: 35;
+    top: 18px;
+    left: 0;
+    height: 32px;
+    display: inline-flex;
+    align-items: stretch;
+    max-width: 46%;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,.05));
+    pointer-events: none;
+  }
+  .hf-player-title-chip {
+    width: 42px;
+    background: #ff5a17;
+    flex-shrink: 0;
+    border-radius: 0;
+  }
+  .hf-player-title-text {
+    min-width: 0;
+    width: max-content;
+    max-width: 100%;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    padding: 0 12px 0 10px;
+    color: #f35a1f;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
+    border-radius: 0;
   }
   .hf-player-frame img,
   .hf-player-frame .hf-player-yt-mount {
@@ -358,8 +427,11 @@
     transition: none !important;
   }
   .hf-player-scene-slot.is-active {
-    box-shadow: inset 0 0 0 3px #f97316;
     outline: none;
+    box-shadow: none;
+  }
+  .hf-player-scene-slot.is-awaiting-visual {
+    box-shadow: none !important;
   }
   .hf-player-scene-slot-inner {
     position: absolute;
@@ -384,27 +456,44 @@
   .hf-player-fade-shell.is-faded {
     opacity: 0;
   }
+  .hf-player-fade-shell.hf-gsap-transitioning {
+    transition: none !important;
+  }
+  .hf-scene-transition-veil {
+    position: absolute;
+    inset: 0;
+    background: #0d0f12;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: 40;
+  }
   .hf-player-caption {
     position: absolute;
     left: 50%;
-    bottom: 14px;
-    max-width: 82%;
+    bottom: 10px;
     transform: translateX(-50%);
-    padding: 10px 14px;
-    border-radius: 8px;
-    background: rgba(8, 10, 14, 0.88);
-    color: #f8fafc;
-    font-size: 14px;
-    line-height: 1.4;
+    width: auto;
+    max-width: 60%;
+    display: inline-block;
+    padding: 10px;
+    margin: 0 0 10px 0;
+    border-radius: 4px;
+    background: #31373a;
+    color: #ffffff;
     text-align: center;
-    font-weight: 500;
+    font-family: "Open Sans", Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.5;
+    text-shadow: -1px 0 #000, 0 1px #000, 1px 0 #000, 0 -1px #000;
+    box-shadow: none;
     pointer-events: none;
     z-index: 31;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-    transition: opacity 0.7s ease;
   }
-  .hf-player-caption.is-caption-fading {
-    opacity: 0;
+  .hf-player-caption.is-held {
+    opacity: 0 !important;
+    transition: none !important;
   }
   .hf-player-scene-slot img {
     width: 100%;
@@ -433,113 +522,392 @@
     display: none;
   }
   .hf-player-controls {
-    flex-shrink: 0;
-    padding: 6px 16px 8px;
-    background: #0f1115;
-    border-top: 1px solid rgba(255,255,255,0.06);
-  }
-  .hf-player-progress {
-    height: 3px;
-    border-radius: 99px;
-    background: rgba(255,255,255,0.12);
-    overflow: hidden;
+    flex: 0 0 46px;
+    height: 46px;
     display: flex;
-    margin-bottom: 8px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 5px 8px 5px 6px;
+    gap: 6px;
+    background: linear-gradient(180deg, var(--sc-base-top) 0%, var(--sc-base-bottom) 100%);
+    border-top: 1px solid #bebebe;
+    box-sizing: border-box;
+    overflow: visible;
   }
-  .hf-player-toolbar {
+  .hf-player-seek {
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 3px 3px 4px;
+    border: 1px solid var(--sc-btn-border);
+    border-radius: 3px;
+    background: linear-gradient(180deg, var(--sc-seek-top) 0%, var(--sc-seek-bottom) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+    box-sizing: border-box;
+    overflow: visible;
+  }
+  .hf-player-progress-track {
+    position: relative;
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 100%;
+    border: 1px solid var(--sc-seek-border);
+    border-radius: 3px;
+    background: var(--sc-seek-track);
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .hf-player-progress-fill {
+    height: 100%;
+    background: #ffffff;
+    pointer-events: none;
+    transition: width 0.14s linear;
+  }
+  .hf-player-seek-actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    height: 100%;
+    padding-left: 4px;
+    margin-left: 2px;
+    border-left: 1px solid rgba(150,150,150,.45);
+    overflow: visible;
+  }
+  .hf-player-speed-wrap {
+    position: relative;
+    flex-shrink: 0;
+    z-index: 40;
+  }
+  .hf-player-speed-menu {
+    display: none;
+    position: absolute;
+    right: -8px;
+    bottom: calc(100% + 12px);
+    width: 228px;
+    padding: 16px 0 10px;
+    background: #2a2a2a;
+    border-radius: 14px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.38);
+    z-index: 50;
+  }
+  .hf-player-speed-wrap.is-open .hf-player-speed-menu {
+    display: block;
+  }
+  .hf-player-speed-menu-title {
+    padding: 0 20px 12px;
+    color: #ececec;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .hf-player-speed-option {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .hf-player-transport {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
-  }
-  .hf-player-transport-controls {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .hf-player-btn-skip {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
+    width: 100%;
+    height: 42px;
+    padding: 0 20px;
     border: none;
-    border-radius: 11px;
-    background: rgba(255, 255, 255, 0.07);
-    color: #7c8490;
+    background: transparent;
+    color: #ffffff;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    text-align: left;
     cursor: pointer;
-    padding: 0;
+    box-sizing: border-box;
+  }
+  .hf-player-speed-option:hover {
+    background: #353535;
+  }
+  .hf-player-speed-option.is-selected {
+    background: #3f3f3f;
+  }
+  .hf-player-speed-check {
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
-    transition: background 0.15s ease, color 0.15s ease;
+    opacity: 0;
   }
-  .hf-player-btn-skip:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.11);
-    color: #c4cad4;
+  .hf-player-speed-option.is-selected .hf-player-speed-check {
+    opacity: 1;
   }
-  .hf-player-btn-skip:disabled {
-    opacity: 0.32;
-    cursor: default;
-  }
-  .hf-player-btn-play {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 50px;
-    height: 50px;
+  .hf-player-seek .hf-player-icon-btn {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
     border: none;
     border-radius: 50%;
-    background: #ffffff;
-    color: #11151a;
+    background: transparent;
+    box-shadow: none;
+  }
+  .hf-player-seek .hf-player-icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+  .hf-player-seek .hf-player-icon-btn:hover {
+    background: rgba(0,0,0,.06);
+  }
+  .hf-player-seek .hf-player-icon-btn.is-on {
+    box-shadow: none;
+    background: rgba(240,87,37,.14);
+  }
+  .hf-player-btn-play {
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    background: transparent;
+    border: none;
+    outline: none;
     cursor: pointer;
     padding: 0;
+    display: grid;
+    place-items: center;
     flex-shrink: 0;
-    transition: transform 0.12s ease, background 0.12s ease;
   }
-  .hf-player-btn-play:hover {
-    transform: scale(1.04);
+  .hf-player-btn-play svg {
+    width: 12px;
+    height: 15px;
+    fill: var(--sc-orange) !important;
+    stroke: none !important;
   }
-  .hf-player-btn-play:active {
-    transform: scale(0.98);
+  .hf-player-btn-play:hover svg {
+    fill: var(--sc-icon-hover) !important;
   }
   .hf-player-btn-play .hf-player-icon-pause { display: none; }
   .hf-player-btn-play .hf-player-icon-play { display: block; }
   .hf-player-btn-play.is-playing .hf-player-icon-pause { display: block; }
   .hf-player-btn-play.is-playing .hf-player-icon-play { display: none; }
-  .hf-player-actions {
+
+  .hf-player-icon-btn {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 28px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #c9c9c9;
+    background: linear-gradient(180deg, #f4f4f4 0%, #dedede 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.75),
+      0 1px 0 rgba(255,255,255,.35);
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .hf-player-icon-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none !important;
+    stroke: var(--sc-orange) !important;
+    stroke-width: 2.3 !important;
+    stroke-linecap: round !important;
+    stroke-linejoin: round !important;
+  }
+  .hf-player-icon-btn:hover svg {
+    stroke: var(--sc-icon-hover) !important;
+  }
+  .hf-player-icon-btn.is-on {
+    box-shadow: inset 0 0 0 2px var(--sc-orange);
+  }
+  .hf-player-icon-btn.is-square {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 28px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    background: var(--sc-orange);
+    border: 1px solid rgba(255,255,255,.55);
+    box-shadow: none;
+  }
+  .hf-player-icon-btn.is-square svg {
+    width: 16px;
+    height: 16px;
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+    stroke-width: 1.8 !important;
+    stroke-linecap: round !important;
+    stroke-linejoin: round !important;
+  }
+  .hf-player-icon-btn.is-square svg path[fill="none"] {
+    fill: none !important;
+  }
+  .hf-player-icon-btn.is-square:hover {
+    filter: none;
+  }
+  .hf-player-icon-btn.is-square:active {
+    transform: none;
+  }
+  .hf-player-icon-btn.is-square.is-muted {
+    opacity: .58;
+  }
+  .hf-player-icon-btn.is-cc {
+    position: relative;
+    background: #e6e6e6;
+    border: 1px solid #d4d4d4;
+    box-shadow: none;
+  }
+  .hf-player-icon-btn.is-cc svg {
+    width: 16px;
+    height: 16px;
+    fill: #ffffff !important;
+    stroke: none !important;
+  }
+  .hf-player-icon-btn.is-cc svg rect {
+    fill: #e6e6e6 !important;
+    stroke: none !important;
+  }
+  .hf-player-icon-btn.is-cc:hover {
+    background: #dcdcdc;
+  }
+  .hf-player-icon-btn.is-cc:hover svg {
+    fill: #ffffff !important;
+    stroke: none !important;
+  }
+  .hf-player-icon-btn.is-cc:hover svg rect {
+    fill: #dcdcdc !important;
+  }
+  .hf-player-icon-btn.is-cc.is-on {
+    background: var(--sc-orange);
+    border-color: var(--sc-orange);
+    box-shadow: none;
+  }
+  .hf-player-icon-btn.is-cc.is-on svg {
+    fill: #ffffff !important;
+    stroke: none !important;
+  }
+  .hf-player-icon-btn.is-cc.is-on svg rect {
+    fill: var(--sc-orange) !important;
+  }
+  .hf-player-icon-btn.is-cc.is-on:hover {
+    background: #f16943;
+    border-color: #f16943;
+  }
+  .hf-player-icon-btn.is-cc.is-on:hover svg rect {
+    fill: #f16943 !important;
+  }
+
+  .hf-player-nav-btn {
+    flex: 0 0 auto;
+    height: 28px;
+    min-width: 62px;
+    border-radius: 6px;
+    padding: 0 9px;
+    background: var(--sc-orange);
+    border: 1px solid var(--sc-btn-border);
+    color: #ffffff;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    box-shadow: 0 1px 0 rgb(207,207,207);
+    cursor: pointer;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: filter 0.2s, transform 0.1s;
+  }
+  .hf-player-nav-btn:hover:not(:disabled) {
+    filter: brightness(.98);
+  }
+  .hf-player-nav-btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .hf-player-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+    box-shadow: none;
+    transform: none;
+  }
+  .hf-player-vol-wrap {
+    position: relative;
+    width: 32px;
+    height: 28px;
+    flex: 0 0 32px;
+    z-index: 30;
+  }
+  .hf-player-vol-pop {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    width: 32px;
+    height: 148px;
+    padding: 12px 0 36px;
+    background: var(--sc-orange);
+    border: 1px solid rgba(255,255,255,.7);
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.16);
+    align-items: center;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    z-index: 1;
+  }
+  .hf-player-vol-wrap:hover .hf-player-vol-pop,
+  .hf-player-vol-wrap:focus-within .hf-player-vol-pop {
+    display: flex;
+  }
+  .hf-player-vol-wrap:hover .hf-player-icon-btn.is-square,
+  .hf-player-vol-wrap:focus-within .hf-player-icon-btn.is-square {
+    background: transparent;
+    border-color: transparent;
+    position: relative;
+    z-index: 2;
+  }
+  .hf-player-vol-slider {
+    width: 18px;
+    height: 108px;
     display: flex;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
+    justify-content: center;
   }
-  .hf-player-time {
-    font-size: 11px;
-    font-weight: 600;
-    color: #6b7280;
-    white-space: nowrap;
-    margin-left: 2px;
+  .hf-player-vol-pop input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 108px;
+    height: 18px;
+    margin: 0;
+    background: transparent;
+    transform: rotate(-90deg);
+    cursor: pointer;
   }
-  .hf-player-progress-seg {
-    height: 100%;
-    position: relative;
-    background: rgba(255,255,255,0.08);
-    border-right: 1px solid rgba(0,0,0,0.35);
+  .hf-player-vol-pop input[type="range"]::-webkit-slider-runnable-track {
+    height: 3px;
+    background: #d5d5d5;
+    border: none;
+    border-radius: 2px;
   }
-  .hf-player-progress-seg:last-child { border-right: none; }
-  .hf-player-progress-fill {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    background: #f97316;
-    border-radius: 99px;
-    transition: width 0.14s linear;
+  .hf-player-vol-pop input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 6px;
+    height: 16px;
+    margin-top: -6.5px;
+    background: #d8d8d8;
+    border: none;
+    border-radius: 1px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.08);
+  }
+  .hf-player-vol-pop input[type="range"]::-moz-range-track {
+    height: 3px;
+    background: #d5d5d5;
+    border: none;
+    border-radius: 2px;
+  }
+  .hf-player-vol-pop input[type="range"]::-moz-range-thumb {
+    width: 6px;
+    height: 16px;
+    background: #d8d8d8;
+    border: none;
+    border-radius: 1px;
   }
   .hf-player-loading {
     position: absolute;
@@ -605,6 +973,96 @@
   html[data-theme="dark"] .hf-view-toggle button.is-active {
     background: #e8eaed;
     color: #11151a;
+  }
+
+  /* Experimental Hero Motion styling */
+  .hf-hero-motion-wrapper {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0d0f12; /* Rich dark background behind blurred backdrop */
+  }
+  /* Override .hf-player-scene-slot img / .hf-player-frame img white backgrounds — those paint letterbox bars over the blur layer when object-fit is contain. */
+  .hf-hero-motion-wrapper img,
+  .hf-hero-bg-blur,
+  .hf-player-scene-slot .hf-hero-bg-blur,
+  .hf-player-frame .hf-hero-bg-blur {
+    background: transparent !important;
+  }
+  .hf-hero-shutter {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    box-sizing: border-box;
+    background: #ffffff;
+    z-index: 8;
+    pointer-events: none;
+    will-change: transform;
+  }
+  .hf-hero-shutter.is-left {
+    left: 0;
+  }
+  .hf-hero-shutter.is-right {
+    right: 0;
+  }
+  .hf-hero-motion-target,
+  .hf-player-scene-slot .hf-hero-motion-target,
+  .hf-player-frame .hf-hero-motion-target {
+    width: 100%;
+    height: 100%;
+    display: block;
+    will-change: transform;
+    transform-origin: 50% 50%;
+    object-fit: contain !important;
+    background: transparent !important;
+  }
+
+  /* Two-panel split motion overlays */
+  .hf-split-vignette-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;
+    opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 35%, rgba(0,0,0,0.72) 100%);
+  }
+  .hf-split-sweep-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    background: linear-gradient(105deg, rgba(255,255,255,0) 40%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0) 60%);
+  }
+  .hf-split-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    margin-left: -1px;
+    background: linear-gradient(180deg, rgba(249,115,22,0.15), rgba(249,115,22,0.55), rgba(249,115,22,0.15));
+    z-index: 6;
+    pointer-events: none;
+    transform: scaleY(0);
+    transform-origin: 50% 0%;
+  }
+  .hf-split-motion-target {
+    transform-origin: 50% 50%;
+    will-change: transform, filter, clip-path;
+  }
+  .hf-player-scene-slot .hf-split-fg,
+  .hf-player-frame .hf-split-fg {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain !important;
+    background: transparent !important;
+    z-index: 2;
   }
 </style>
 </helmet>
@@ -1344,12 +1802,12 @@
         </div>
       </sc-if>
       <sc-if value="{{ !playerEmpty }}" hint-placeholder-val="{{ true }}">
-        <div class="hf-player-stage">
-          <div class="hf-player-header">
-            <span class="hf-player-slide-meta">Slide {{ playerSlideNum }} / {{ playerSlideTotal }}</span>
-            <h2 class="hf-player-slide-title">{{ playerSlideTitle }}</h2>
-          </div>
-          <div class="hf-player-frame-wrap">
+        <div class="hf-player-theater">
+          <div class="hf-player-stage">
+            <div class="hf-player-course-timeline" aria-hidden="true">
+              <div class="hf-player-course-timeline-fill" style="width: {{ playerCoursePct }}%;"></div>
+            </div>
+            <div class="hf-player-letterbox">
             <div class="hf-player-frame {{ playerFrameClass }}" style="{{ playerFrameStyle }}">
               <sc-if value="{{ playerShowLoading }}" hint-placeholder-val="{{ false }}">
                 <div class="hf-player-loading">
@@ -1372,7 +1830,10 @@
               <sc-if value="{{ !playerUseSceneLayout }}" hint-placeholder-val="{{ false }}">
               <div class="hf-player-visual-stage" data-player-visual-key="{{ playerVisualKey }}">
               <sc-if value="{{ playerShowImage }}" hint-placeholder-val="{{ true }}">
-                <img src="{{ playerVisualUrl }}" alt="{{ playerVisualLabel }}" style="width: 100%; height: 100%; object-fit: contain; background: #ffffff;" />
+                <div class="hf-hero-motion-wrapper" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; background: #0d0f12;">
+                  <img src="{{ playerVisualUrl }}" alt="" class="hf-hero-bg-blur" loading="eager" decoding="async" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(28px) brightness(0.65); opacity: 0.85; transform: scale(1.08); pointer-events: none; z-index: 1; background: transparent !important;" />
+                  <img src="{{ playerVisualUrl }}" alt="{{ playerVisualLabel }}" loading="eager" decoding="async" style="position: relative; width: 100%; height: 100%; object-fit: contain; display: block; background: transparent !important; z-index: 2;" />
+                </div>
               </sc-if>
               <sc-if value="{{ playerShowYtMount }}" hint-placeholder-val="{{ false }}">
                 <div id="hf-player-yt-active" class="hf-player-yt-mount"></div>
@@ -1388,48 +1849,79 @@
               </div>
               </sc-if>
               </div>
+              <sc-if value="{{ playerSlideTitle }}" hint-placeholder-val="{{ true }}">
+              <div class="hf-player-title-badge">
+                <span class="hf-player-title-chip"></span>
+                <span class="hf-player-title-text">{{ playerSlideTitle }}</span>
+              </div>
+              </sc-if>
               <div class="hf-player-overlay">
-                <div class="hf-player-caption {{ playerCaptionFadeClass }}" style="{{ playerCaptionStyle }}">{{ playerCaption }}</div>
+                <div class="hf-player-caption {{ playerCaptionHoldClass }}" style="{{ playerCaptionStyle }}">{{ playerCaption }}</div>
               </div>
               <sc-if value="{{ playerVisualLabel }}" hint-placeholder-val="{{ false }}">
                 <div class="hf-player-file-label">{{ playerVisualLabel }}</div>
               </sc-if>
             </div>
-          </div>
-        </div>
-        <div class="hf-player-controls">
-          <div class="hf-player-progress">
-            <sc-for list="{{ playerProgressSegs }}" as="seg" hint-placeholder-count="2">
-              <div class="hf-player-progress-seg" style="width: {{ seg.widthPct }}%;">
-                <div class="hf-player-progress-fill" style="width: {{ seg.fillPct }}%;"></div>
-              </div>
-            </sc-for>
-          </div>
-          <div class="hf-player-toolbar">
-            <div class="hf-player-transport">
-              <div class="hf-player-transport-controls">
-                <button class="hf-player-btn-skip" onClick="{{ onPlayerPrev }}" disabled="{{ playerPrevDisabled }}" title="Previous part">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="2.5" height="14" rx="0.5"/><path d="M20 5v14l-12-7 12-7z"/></svg>
-                </button>
-                <button class="hf-player-btn-play {{ playerPlayBtnClass }}" onClick="{{ onPlayerTogglePlay }}" title="Play / Pause">
-                  <svg class="hf-player-icon-pause" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-                  <svg class="hf-player-icon-play" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="margin-left: 2px;"><path d="M8 5v14l11-7z"/></svg>
-                </button>
-                <button class="hf-player-btn-skip" onClick="{{ onPlayerNext }}" disabled="{{ playerNextDisabled }}" title="Next part">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5v14l12-7-12-7z"/><rect x="16.5" y="5" width="2.5" height="14" rx="0.5"/></svg>
-                </button>
-              </div>
-              <span style="font-size: 12px; font-weight: 700; color: #d1d5db;">{{ playerPartLabel }}</span>
-              <span class="hf-player-time" data-player-time></span>
             </div>
-            <div class="hf-player-actions">
-              <button onClick="{{ onPlayerAdjustVisual }}" style="{{ playerAdjustBtnStyle }}">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                Adjust visual
+          </div>
+          <div class="hf-player-controls">
+            <div class="hf-player-seek">
+              <button class="hf-player-btn-play {{ playerPlayBtnClass }}" onClick="{{ onPlayerTogglePlay }}" title="Play / Pause">
+                <svg class="hf-player-icon-pause" width="15" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="0.5"/><rect x="14" y="5" width="4" height="14" rx="0.5"/></svg>
+                <svg class="hf-player-icon-play" width="15" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.8v14.4L18.8 12z"/></svg>
               </button>
-              <button onClick="{{ onPlayerToggleSpeed }}" style="{{ playerChipBtnStyle }}">{{ playerSpeedLabel }}</button>
-              <button onClick="{{ onPlayerToggleCc }}" style="{{ playerCcBtnStyle }}">CC</button>
+
+              <div class="hf-player-progress-track" onClick="{{ onPlayerSeek }}" title="Seek">
+                <div class="hf-player-progress-fill" style="width: {{ playerSeekPct }}%;"></div>
+              </div>
+
+              <div class="hf-player-seek-actions">
+                <div class="hf-player-speed-wrap">
+                  <button class="hf-player-icon-btn {{ playerSpeedClass }}" onClick="{{ onPlayerToggleSpeed }}" title="{{ playerSpeedLabel }}">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 13V8"/><path d="M12 5V3"/></svg>
+                  </button>
+                  <div class="hf-player-speed-menu">
+                    <div class="hf-player-speed-menu-title">Playback Speed</div>
+                    <sc-for list="{{ playerSpeedOptions }}" as="opt" hint-placeholder-count="5">
+                      <button class="hf-player-speed-option {{ opt.selectedClass }}" onClick="{{ opt.onSelect }}">
+                        <span>{{ opt.label }}</span>
+                        <svg class="hf-player-speed-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+                <button class="hf-player-icon-btn" onClick="{{ onPlayerReplay }}" title="Replay">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+                </button>
+              </div>
             </div>
+            <div class="hf-player-vol-wrap">
+              <div class="hf-player-vol-pop">
+                <div class="hf-player-vol-slider">
+                  <input type="range" min="0" max="1" step="0.01" value="{{ playerVolume }}" onChange="{{ onPlayerVolumeInput }}" title="Volume" />
+                </div>
+              </div>
+              <button class="hf-player-icon-btn is-square {{ playerMuteClass }}" onClick="{{ onPlayerToggleMute }}" title="Volume">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M4 9h4l5-4v14l-5-4H4z"/>
+                  <path d="M16 8.5c1.5 1.5 1.5 5.5 0 7" fill="none"/>
+                  <path d="M18.3 6.4c2.8 2.8 2.8 8.4 0 11.2" fill="none"/>
+                </svg>
+              </button>
+            </div>
+            <button class="hf-player-icon-btn is-cc {{ playerCcClass }}" onClick="{{ onPlayerToggleCc }}" title="Captions">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4.2 3.8h15.6A2.7 2.7 0 0 1 22.5 6.5v8.2a2.7 2.7 0 0 1-2.7 2.7h-5.5L12 21.2l-2.3-3.8H4.2A2.7 2.7 0 0 1 1.5 14.7V6.5A2.7 2.7 0 0 1 4.2 3.8z"/>
+                <rect x="6.6" y="8" width="10.8" height="1.8" rx="0.7"/>
+                <rect x="6.6" y="11.6" width="7.6" height="1.8" rx="0.7"/>
+              </svg>
+            </button>
+            <button class="hf-player-nav-btn" onClick="{{ onPlayerPrev }}" disabled="{{ playerPrevDisabled }}" title="Previous">
+              ‹ PREV
+            </button>
+            <button class="hf-player-nav-btn" onClick="{{ onPlayerNext }}" disabled="{{ playerNextDisabled }}" title="Next">
+              NEXT ›
+            </button>
           </div>
         </div>
       </sc-if>
@@ -1453,6 +1945,68 @@
       </div>
     </sc-for>
   </div>
+
+  <sc-if value="{{ showDownloadModal }}" hint-placeholder-val="{{ false }}">
+    <div class="hf-modal-backdrop" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100;">
+      <div class="hf-modal-content" style="background: #1e293b; color: #fff; width: 480px; max-width: 90%; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); padding: 24px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; font-size: 16px; font-weight: 700;">Download Slide Videos</h3>
+          <button onClick="{{ onCloseDownloadModal }}" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 4px;" disabled="{{ isDownloadingVideos }}">&times;</button>
+        </div>
+        
+        <div style="font-size: 13px; color: #94a3b8;">
+          Select slides to render into one continuous MP4. Uses the Player motion setting currently selected in the toolbar (Zoom / Drift / Diagonal / Pull-out).
+        </div>
+
+        <div style="max-height: 240px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; background: rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; gap: 10px; align-items: center; padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.05); justify-content: space-between;">
+            <span style="font-size: 11px; font-weight: 700; color: #38bdf8; cursor: pointer;" onClick="{{ onSelectAllSlides }}">Select All</span>
+            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; cursor: pointer;" onClick="{{ onDeselectAllSlides }}">Deselect All</span>
+          </div>
+          <sc-for list="{{ downloadModalSlides }}" as="item" hint-placeholder-count="3">
+            <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer; padding: 6px; border-radius: 6px;" style-hover="background: rgba(255,255,255,0.05);">
+              <input type="checkbox" checked="{{ item.selected }}" onChange="{{ item.onToggle }}" style="width: 16px; height: 16px; accent-color: #3b82f6;" />
+              <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px;">
+                <strong>Slide {{ item.num }}</strong>: {{ item.title }}
+              </span>
+            </label>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 12px; font-weight: 600; color: #94a3b8;">Narration Voice</label>
+          <select value="{{ downloadVoice }}" onChange="{{ onDownloadVoiceChange }}" style="background: #0f172a; border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px; border-radius: 6px; font-size: 13px;">
+            <option value="en-US-AvaNeural">Ava (US, female, warm)</option>
+            <option value="en-US-AndrewNeural">Andrew (US, male, neutral)</option>
+            <option value="en-US-EmmaNeural">Emma (US, female, energetic)</option>
+            <option value="en-US-BrianNeural">Brian (US, male, calm)</option>
+            <option value="en-CA-LiamNeural">Liam (Canada, male, clean)</option>
+          </select>
+        </div>
+
+        <sc-if value="{{ isDownloadingVideos }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); border-radius: 8px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div class="hf-spinner" style="width: 18px; height: 18px; border: 2px solid #3b82f6; border-top-color: transparent; border-radius: 99px; animation: gdspin 0.8s linear infinite; flex-shrink: 0;"></div>
+              <span style="font-size: 13px; font-weight: 500; color: #60a5fa; line-height: 1.35;">{{ downloadStatusMessage }}</span>
+            </div>
+            <div style="height: 8px; border-radius: 99px; background: rgba(15,23,42,0.55); overflow: hidden;">
+              <div style="height: 100%; width: {{ downloadProgressPct }}%; background: linear-gradient(90deg, #3b82f6, #22d3ee); border-radius: 99px; transition: width 0.35s ease;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #93c5fd;">
+              <span>{{ downloadProgressPct }}%</span>
+              <span>{{ downloadEtaLabel }}</span>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 8px;">
+          <button onClick="{{ onCloseDownloadModal }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;" style-hover="background: rgba(255,255,255,0.05);" disabled="{{ isDownloadingVideos }}">Cancel</button>
+          <button onClick="{{ onStartDownloadVideos }}" style="background: #10b981; border: none; color: #fff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;" style-hover="background: #059669;" disabled="{{ isDownloadingVideos }}">Download</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script>
@@ -1491,14 +2045,62 @@ class Component extends DCLogic {
   appView = 'review';
   playerSnap = { hasCues: false, cues: [], playing: false, ccOn: true, pauseForReview: false, speed: 1, cueElapsed: 0, cueDuration: 0, assetsReady: false, preloadProgress: 0, preloading: false };
   _player = null;
-  _playerSpeeds = [1, 1.25, 1.5];
+  _playerSpeeds = [
+    { value: 1.5, label: '1.5x' },
+    { value: 1.25, label: '1.25x' },
+    { value: 1, label: 'Normal' },
+    { value: 0.75, label: '0.75x' },
+    { value: 0.5, label: '0.5x' },
+  ];
+  _playerSpeedClose = null;
+  heroMotionTreatment = (() => {
+    try {
+      return localStorage.getItem('hf_hero_motion_treatment') || 'zoom_in';
+    } catch (_) {
+      return 'zoom_in';
+    }
+  })();
+  insetMotionTreatment = (() => {
+    try {
+      const v = localStorage.getItem('hf_inset_motion_treatment') || 'keep_main_reveal';
+      if (v === 'inset_pop' || v === 'inset_fade' || v === 'seam_wipe' || v === 'dim_desaturate' || v === 'gentle_zoom') return 'keep_main_reveal';
+      return v;
+    } catch (_) {
+      return 'keep_main_reveal';
+    }
+  })();
+  gridMotionTreatment = (() => {
+    try {
+      const v = localStorage.getItem('hf_grid_motion_treatment') || 'scale_emphasis';
+      if (v === 'dim_desaturate') return 'scale_emphasis';
+      if (v === 'fade_in') return 'reveal';
+      return v;
+    } catch (_) {
+      return 'scale_emphasis';
+    }
+  })();
+  sceneTransitionTreatment = (() => {
+    try {
+      return localStorage.getItem('hf_scene_transition') || 'crossfade';
+    } catch (_) {
+      return 'crossfade';
+    }
+  })();
   _imgPreloadCache = Object.create(null);
   _playerPrepareToken = 0;
   _playerVideoSyncToken = 0;
-  _playerCaptionFadeClass = '';
-  _playerCaptionFadeTimer = null;
+  _playerCaptionHold = false;
+  _playerCaptionHoldTimer = null;
   _playerLastSceneKey = '';
   _playerLastVisualKey = '';
+  showDownloadModal = false;
+  isDownloadingVideos = false;
+  downloadStatusMessage = '';
+  downloadProgressPct = 0;
+  downloadEtaLabel = '';
+  downloadVoice = 'en-US-AvaNeural';
+  downloadSelectedSlides = {};
+  _downloadPollToken = 0;
 
   _isLayoutRevisingForRow(rowIndex) {
     if (rowIndex == null || !this._pendingJobs) return false;
@@ -1526,10 +2128,12 @@ class Component extends DCLogic {
   };
   SCENE_LAYOUTS = {
     single_visual_hero:        { name: 'Single visual', rects: [[0,0,1808,748]] },
-    two_item_split_comparison: { name: 'Two-item split', rects: [[0,0,892,748],[916,0,892,748]] },
-    main_plus_supporting_inset:{ name: 'Main + inset', rects: [[0,0,1193,748],[1217,0,591,748]] },
-    multi_panel_grid_3:        { name: 'Multi-panel grid', rects: [[0,0,586,748],[611,0,586,748],[1222,0,586,748]] },
-    multi_panel_grid_4:        { name: 'Multi-panel grid', rects: [[0,0,892,362],[916,0,892,362],[0,386,892,362],[916,386,892,362]] },
+    // Flush abut — no center gutter (old rects left a 24px white seam: 892 then 916).
+    two_item_split_comparison: { name: 'Two-item split', rects: [[0,0,904,748],[904,0,904,748]] },
+    // Flush abut — old rects left a 24px white seam (1193 then 1217).
+    main_plus_supporting_inset:{ name: 'Main + inset', rects: [[0,0,1193,748],[1193,0,615,748]] },
+    multi_panel_grid_3:        { name: 'Multi-panel grid', rects: [[0,0,603,748],[603,0,603,748],[1206,0,602,748]] },
+    multi_panel_grid_4:        { name: 'Multi-panel grid', rects: [[0,0,904,374],[904,0,904,374],[0,374,904,374],[904,374,904,374]] },
   };
 
   GRADS = {
@@ -1615,6 +2219,47 @@ class Component extends DCLogic {
     document.documentElement.setAttribute('data-theme', this.themeMode);
   }
 
+  _rebuildTreatmentRotator() {
+    if (!window.HFTreatmentRotator || !this._player) return;
+    window.HFTreatmentRotator.rebuildFromCues(this._player.cues || []);
+  }
+
+  _normalizePlayerTemplate(cue) {
+    const raw = String((cue && cue.sceneTemplate) || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (window.HFTreatmentRotator && window.HFTreatmentRotator.normalizeTemplate) {
+      return window.HFTreatmentRotator.normalizeTemplate(cue && cue.sceneTemplate);
+    }
+    return raw;
+  }
+
+  _playerTreatmentForCue(cue) {
+    if (window.HFTreatmentRotator && cue) {
+      return window.HFTreatmentRotator.getTreatment(cue);
+    }
+    const raw = this._normalizePlayerTemplate(cue);
+    if (raw.indexOf('split') !== -1) return 'hold_and_reveal';
+    if (raw.indexOf('inset') !== -1) return this.insetMotionTreatment || 'keep_main_reveal';
+    if (raw.indexOf('grid') !== -1 || raw.indexOf('multi_panel') !== -1) return this.gridMotionTreatment || 'scale_emphasis';
+    return this.heroMotionTreatment || 'zoom_in';
+  }
+
+  _syncPlayerMotion(forceRestart) {
+    if (!window.HFPlayerMotion || !this.playerSnap || !this.playerSnap.cue) return;
+    const cue = this.playerSnap.cue;
+    const treatment = this._playerTreatmentForCue(cue);
+    window.HFPlayerMotion.syncHeroStill({
+      cue: cue,
+      duration: this.playerSnap.cueDuration || 0,
+      playing: this.playerSnap.playing,
+      treatment: treatment,
+      splitTreatment: treatment,
+      insetTreatment: treatment,
+      gridTreatment: treatment,
+      elapsed: this.playerSnap.cueElapsed || 0,
+      forceRestart: !!forceRestart,
+    });
+  }
+
   onThemeChange(e) {
     this.themeMode = e.target.value === 'dark' ? 'dark' : 'light';
     try { localStorage.setItem('hf_theme', this.themeMode); } catch (_) {}
@@ -1626,6 +2271,214 @@ class Component extends DCLogic {
     this.showLayoutPanel = !this.showLayoutPanel;
     try { localStorage.setItem('hf_show_layout_panel', String(this.showLayoutPanel)); } catch (_) {}
     this.forceUpdate();
+  }
+
+  onOpenDownloadModal() {
+    this.showDownloadModal = true;
+    this.downloadSelectedSlides = {};
+    if (this.current >= 0 && this.current < this.slides.length) {
+      this.downloadSelectedSlides[this.current] = true;
+    }
+    this.isDownloadingVideos = false;
+    this.downloadStatusMessage = '';
+    this.downloadProgressPct = 0;
+    this.downloadEtaLabel = '';
+    this._downloadPollToken += 1;
+    this.forceUpdate();
+  }
+
+  onCloseDownloadModal() {
+    if (this.isDownloadingVideos) return;
+    this.showDownloadModal = false;
+    this.forceUpdate();
+  }
+
+  onSelectAllSlides() {
+    this.downloadSelectedSlides = {};
+    this.slides.forEach((_, idx) => {
+      this.downloadSelectedSlides[idx] = true;
+    });
+    this.forceUpdate();
+  }
+
+  onDeselectAllSlides() {
+    this.downloadSelectedSlides = {};
+    this.forceUpdate();
+  }
+
+  onDownloadVoiceChange(e) {
+    this.downloadVoice = e.target.value;
+    this.forceUpdate();
+  }
+
+  slideRowIndex(slide) {
+    if (!slide) return null;
+    const step = slide.segments && slide.segments[0] && slide.segments[0].steps && slide.segments[0].steps[0];
+    if (!step || step.rowIndex == null || step.rowIndex === '') return null;
+    const n = Number(step.rowIndex);
+    return Number.isInteger(n) ? n : null;
+  }
+
+  formatDownloadEta(seconds) {
+    const s = Math.max(0, Math.round(Number(seconds) || 0));
+    if (!s) return '';
+    if (s < 60) return '~' + s + 's remaining';
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    if (m < 60) return r ? '~' + m + 'm ' + r + 's remaining' : '~' + m + 'm remaining';
+    const h = Math.floor(m / 60);
+    const rm = m % 60;
+    return rm ? '~' + h + 'h ' + rm + 'm remaining' : '~' + h + 'h remaining';
+  }
+
+  sleepMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async pollDownloadJob(jobId, pollToken) {
+    while (pollToken === this._downloadPollToken) {
+      const statusRes = await fetch('/api/download-slide-videos/' + encodeURIComponent(jobId), {
+        method: 'GET',
+        credentials: 'same-origin',
+      });
+      if (!statusRes.ok) {
+        let errText = await statusRes.text();
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed && parsed.detail) {
+            errText = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+          }
+        } catch (_) {}
+        throw new Error(errText || 'Failed to check render progress.');
+      }
+      const status = await statusRes.json();
+      if (pollToken !== this._downloadPollToken) return null;
+
+      this.downloadProgressPct = Math.max(0, Math.min(100, Number(status.percent) || 0));
+      this.downloadStatusMessage = status.message || 'Rendering...';
+      this.downloadEtaLabel = this.formatDownloadEta(status.eta_seconds);
+      this.forceUpdate();
+
+      if (status.status === 'completed' && status.ready) return status;
+      if (status.status === 'failed') {
+        throw new Error(status.error || 'Render failed on server.');
+      }
+      await this.sleepMs(1500);
+    }
+    return null;
+  }
+
+  async onStartDownloadVideos() {
+    const selectedIdxs = Object.keys(this.downloadSelectedSlides)
+      .filter(idx => this.downloadSelectedSlides[idx])
+      .map(Number);
+      
+    if (selectedIdxs.length === 0) {
+      alert("Please select at least one slide to download.");
+      return;
+    }
+
+    // Sheet row indexes live on steps (rowIndex), not on the slide object.
+    const rowIndexes = selectedIdxs
+      .map((idx) => this.slideRowIndex(this.slides[idx]))
+      .filter((rowIdx) => Number.isInteger(rowIdx));
+
+    if (rowIndexes.length === 0) {
+      alert("Could not resolve sheet row indexes for the selected slides.");
+      return;
+    }
+
+    const pollToken = ++this._downloadPollToken;
+    this.isDownloadingVideos = true;
+    this.downloadProgressPct = 0;
+    this.downloadEtaLabel = '';
+    this.downloadStatusMessage = "Starting render on server...";
+    this.forceUpdate();
+
+    try {
+      const response = await fetch('/api/download-slide-videos', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          row_indexes: rowIndexes,
+          voice: this.downloadVoice,
+          quality: 'fast',
+          hero_motion: this.heroMotionTreatment || 'zoom_in'
+        })
+      });
+
+      if (!response.ok) {
+        let errText = await response.text();
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed && parsed.detail) {
+            errText = typeof parsed.detail === 'string'
+              ? parsed.detail
+              : JSON.stringify(parsed.detail);
+          }
+        } catch (_) {}
+        throw new Error(errText || "Render failed on backend.");
+      }
+
+      const started = await response.json();
+      const jobId = started.job_id || started.id;
+      if (!jobId) throw new Error('Server did not return a render job id.');
+
+      this.downloadStatusMessage = started.message || 'Queued for render...';
+      this.downloadProgressPct = Number(started.percent) || 0;
+      this.forceUpdate();
+
+      const status = await this.pollDownloadJob(jobId, pollToken);
+      if (!status || pollToken !== this._downloadPollToken) return;
+
+      this.downloadStatusMessage = "Downloading file...";
+      this.downloadProgressPct = 100;
+      this.downloadEtaLabel = '';
+      this.forceUpdate();
+
+      const fileRes = await fetch('/api/download-slide-videos/' + encodeURIComponent(jobId) + '/file', {
+        method: 'GET',
+        credentials: 'same-origin',
+      });
+      if (!fileRes.ok) {
+        let errText = await fileRes.text();
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed && parsed.detail) {
+            errText = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+          }
+        } catch (_) {}
+        throw new Error(errText || 'Failed to download rendered file.');
+      }
+
+      const blob = await fileRes.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = status.filename || (selectedIdxs.length === 1
+        ? ('slide_' + (selectedIdxs[0] + 1) + '.mp4')
+        : 'selected_slides.mp4');
+      
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      this.showDownloadModal = false;
+    } catch (err) {
+      alert("Error generating video: " + err.message);
+    } finally {
+      if (pollToken === this._downloadPollToken) {
+        this.isDownloadingVideos = false;
+        this.downloadStatusMessage = "";
+        this.downloadProgressPct = 0;
+        this.downloadEtaLabel = '';
+        this.forceUpdate();
+      }
+    }
   }
 
   approveBtnStyle() {
@@ -1689,6 +2542,8 @@ class Component extends DCLogic {
       segmentationFeedback: slide.segmentationFeedback || '',
       layoutFeedback: slide.layoutFeedback || '',
       scenes: slide.scenes || [],
+      slideType: slide.slideType || '',
+      slideChunk: slide.slideChunk || '',
       segments: (slide.segments || []).map((seg, segIdx) => ({
         steps: (seg.steps || []).map((st, stepIdx) => {
           const key = st.rowIndex + ':' + st.visualId;
@@ -2022,6 +2877,12 @@ class Component extends DCLogic {
     if (this._pollTimer) clearInterval(this._pollTimer);
     if (this._manifestSyncTimer) clearInterval(this._manifestSyncTimer);
     if (this._player) this._player.stop();
+    if (window.HFPlayerMotion) {
+      window.HFPlayerMotion.kill();
+    }
+    if (window.HFSceneTransition) {
+      window.HFSceneTransition.kill();
+    }
   }
 
   _initPlayer() {
@@ -2042,13 +2903,16 @@ class Component extends DCLogic {
         const durationChanged = (self._playerLastDuration || 0) !== (snap.cueDuration || 0);
         const ccChanged = self.playerSnap.ccOn !== snap.ccOn;
         const speedChanged = self.playerSnap.speed !== snap.speed;
+        const volumeChanged = self.playerSnap.volume !== snap.volume || self.playerSnap.muted !== snap.muted;
         const preloadChanged = self.playerSnap.preloading !== snap.preloading
           || self.playerSnap.assetsReady !== snap.assetsReady
           || self.playerSnap.preloadProgress !== snap.preloadProgress;
         const prevCue = self.playerSnap && self.playerSnap.cue ? self.playerSnap.cue : self._playerPrevCue;
-        self.playerSnap = snap;
+        if (!cueChanged) {
+          self.playerSnap = snap;
+        }
         // Avoid forceUpdate on play/pause or duration ticks — full re-render destroys YouTube iframes.
-        if (cueChanged || ccChanged || speedChanged || preloadChanged) {
+        if (cueChanged || ccChanged || speedChanged || volumeChanged || preloadChanged) {
           self._playerLastCue = snap.cueIndex;
           self._playerLastPlaying = snap.playing;
           self._playerLastDuration = snap.cueDuration || 0;
@@ -2063,8 +2927,18 @@ class Component extends DCLogic {
             });
           }
         } else {
-          if (playChanged) self._playerLastPlaying = snap.playing;
-          if (durationChanged) self._playerLastDuration = snap.cueDuration || 0;
+          if (playChanged) {
+            self._playerLastPlaying = snap.playing;
+            if (window.HFPlayerMotion && snap.cue) {
+              self._syncPlayerMotion(false);
+            }
+          }
+          if (durationChanged) {
+            self._playerLastDuration = snap.cueDuration || 0;
+            if (window.HFPlayerMotion && snap.cue) {
+              self._syncPlayerMotion(false);
+            }
+          }
           self._patchPlayerProgress(snap);
           if (playChanged) self._patchPlayerPlayButton(snap.playing);
         }
@@ -2087,62 +2961,230 @@ class Component extends DCLogic {
     const prevKey = prevCue ? (prevCue.slideIdx + ':' + prevCue.sceneId) : '';
     const nextKey = nextCue ? (nextCue.slideIdx + ':' + nextCue.sceneId) : '';
     const sceneChanged = prevKey !== nextKey;
+    const needsShellFade = this._playerCueNeedsShellFade(prevCue, nextCue);
 
-    if (sceneChanged) {
-      this._pulsePlayerCaptionFade();
-    }
+    if (needsShellFade) this._setCaptionHold(true);
     if (nextCue) this._preloadPlayerSceneImages(nextCue);
 
-    const applyContent = () => {
+    const applyContent = (done) => {
+      this.playerSnap = snap;
       const latestSnap = this.playerSnap || snap;
       this.forceUpdate();
       requestAnimationFrame(() => {
-        const shell = document.querySelector('.hf-player-fade-shell');
-        if (shell) shell.classList.remove('is-faded');
+        const shellNow = document.querySelector('.hf-player-fade-shell');
+        if (shellNow) shellNow.classList.remove('is-faded');
         if (window.HFYoutube && window.HFYoutube.reattachAll) window.HFYoutube.reattachAll();
         this._patchPlayerProgress(latestSnap);
         this._patchPlayerPlayButton(latestSnap.playing);
         if (nextCue) this._schedulePlayerSceneVideoSync(nextCue);
+        this._syncPlayerMotion(sceneChanged);
+        if (needsShellFade) this._setCaptionHold(false);
+        if (typeof done === 'function') done();
       });
     };
 
-    const needsShellFade = this._playerCueNeedsShellFade(prevCue, nextCue);
     if (!needsShellFade) {
       applyContent();
-      // Instantly proceed with narration for panel reveals (0ms delay)
       this._playerVisualFadePromise = Promise.resolve();
       return this._playerVisualFadePromise;
     }
 
     const shell = document.querySelector('.hf-player-fade-shell');
-    if (!shell) {
-      this._playerVisualFadePromise = Promise.resolve();
+    // Auto mode: always crossfade between scenes (no rotator / dropdown).
+    const treatment = 'crossfade';
+
+    if (!shell || !window.HFSceneTransition) {
       applyContent();
+      this._playerVisualFadePromise = Promise.resolve();
       return this._playerVisualFadePromise;
     }
 
-    shell.classList.add('is-faded');
-    if (this._playerVisualFadeTimer) clearTimeout(this._playerVisualFadeTimer);
-    this._playerVisualFadePromise = new Promise((resolve) => {
-      this._playerVisualFadeTimer = setTimeout(() => {
-        applyContent();
-        // Let the fade-in begin before voiceover/visual sync continues.
-        requestAnimationFrame(() => setTimeout(resolve, 420));
-      }, 820);
+    if (this._playerVisualFadeTimer) {
+      clearTimeout(this._playerVisualFadeTimer);
+      this._playerVisualFadeTimer = null;
+    }
+
+    this._playerVisualFadePromise = window.HFSceneTransition.run({
+      treatment: treatment,
+      shell: shell,
+      onSwap: (done) => applyContent(done),
     });
     return this._playerVisualFadePromise;
   }
-  _pulsePlayerCaptionFade() {
-    if (this._playerCaptionFadeTimer) clearTimeout(this._playerCaptionFadeTimer);
-    this._playerCaptionFadeClass = 'is-caption-fading';
-    const caption = document.querySelector('.hf-player-caption');
-    if (caption) caption.classList.add('is-caption-fading');
-    this._playerCaptionFadeTimer = setTimeout(() => {
-      this._playerCaptionFadeClass = '';
-      this._playerCaptionFadeTimer = null;
-      const el = document.querySelector('.hf-player-caption');
-      if (el) el.classList.remove('is-caption-fading');
-    }, 700);
+  _captionWordChunks(text) {
+    const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const groups = [];
+    for (let i = 0; i < words.length; i += 6) {
+      groups.push(words.slice(i, i + 6));
+    }
+    if (groups.length > 1 && groups[groups.length - 1].length <= 2) {
+      const tail = groups.pop();
+      groups[groups.length - 1] = groups[groups.length - 1].concat(tail);
+    }
+    return groups.map((g) => g.join(' '));
+  }
+
+  _alignSpokenWordsWithOriginal(marks, voiceover) {
+    if (!voiceover) return marks;
+    const rawTokens = String(voiceover).trim().split(/\s+/).filter(Boolean);
+    if (!rawTokens.length) return marks;
+
+    const origTokens = [];
+    rawTokens.forEach(token => {
+      if (/[\-\—\–\/]/.test(token)) {
+        const subTokens = token.split(/([\-\—\–\/]+)/);
+        subTokens.forEach(sub => {
+          if (!sub) return;
+          if (/^[\-\—\–\/]+$/.test(sub)) {
+            if (origTokens.length > 0) {
+              origTokens[origTokens.length - 1] += sub;
+            } else {
+              origTokens.push(sub);
+            }
+          } else {
+            origTokens.push(sub);
+          }
+        });
+      } else {
+        origTokens.push(token);
+      }
+    });
+
+    const normalize = s => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+
+    const origNormalized = origTokens.map(normalize);
+    const spokenNormalized = marks.map(m => normalize(m.text));
+
+    let origIdx = 0;
+    const alignedMarks = [];
+
+    for (let i = 0; i < marks.length; i++) {
+      const spokenNorm = spokenNormalized[i];
+      if (!spokenNorm) {
+        alignedMarks.push(marks[i]);
+        continue;
+      }
+
+      let foundIdx = -1;
+      for (let j = 0; j < 5; j++) {
+        const checkIdx = origIdx + j;
+        if (checkIdx >= origTokens.length) break;
+        const origNorm = origNormalized[checkIdx];
+        if (!origNorm) continue;
+        if (origNorm === spokenNorm) {
+          foundIdx = checkIdx;
+          break;
+        }
+      }
+
+      if (foundIdx !== -1) {
+        alignedMarks.push({
+          ...marks[i],
+          text: origTokens[foundIdx]
+        });
+        origIdx = foundIdx + 1;
+      } else {
+        alignedMarks.push(marks[i]);
+      }
+    }
+    return alignedMarks;
+  }
+
+  _captionChunksFromWords(marks, voiceover) {
+    const aligned = this._alignSpokenWordsWithOriginal(marks, voiceover);
+    const words = (aligned || []).filter((w) => w && String(w.text || '').trim());
+    if (!words.length) return [];
+    const groups = [];
+    for (let i = 0; i < words.length; i += 6) {
+      groups.push(words.slice(i, i + 6));
+    }
+    if (groups.length > 1 && groups[groups.length - 1].length <= 2) {
+      const tail = groups.pop();
+      groups[groups.length - 1] = groups[groups.length - 1].concat(tail);
+    }
+    return groups.map((g) => {
+      const last = g[g.length - 1];
+      return {
+        text: g.map((w) => String(w.text || '').trim()).join(' '),
+        start: Number(g[0].offset) || 0,
+        end: (Number(last.offset) || 0) + (Number(last.duration) || 0),
+      };
+    });
+  }
+
+  _captionChunkForSnap(snap) {
+    const cue = snap && snap.cue;
+    if (!cue) return '';
+    const marks = snap.cueWords;
+    if (marks && marks.length) {
+      const chunks = this._captionChunksFromWords(marks, cue.voiceover);
+      if (!chunks.length) return '';
+      const elapsed = snap.cueElapsed || 0;
+      let text = chunks[0].text;
+      for (let i = 0; i < chunks.length; i++) {
+        if (elapsed >= chunks[i].start) text = chunks[i].text;
+        else break;
+      }
+      return text;
+    }
+    const chunks = this._captionWordChunks(cue.voiceover || '');
+    if (!chunks.length) return '';
+    const duration = snap.cueDuration || 0;
+    if (!(duration > 0) || chunks.length === 1) return chunks[0];
+    const lead = Math.max(0, snap.cueLead || 0);
+    const trail = Math.max(0, snap.cueTrail || 0);
+    const start = lead;
+    const end = Math.max(start + 0.08, duration - trail);
+    const span = end - start;
+    const t = Math.max(0, Math.min(0.999, ((snap.cueElapsed || 0) - start) / span));
+    const weights = chunks.map((c) => c.split(/\s+/).length);
+    const totalW = weights.reduce((a, b) => a + b, 0) || 1;
+    let acc = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      acc += weights[i] / totalW;
+      if (t < acc || i === chunks.length - 1) return chunks[i];
+    }
+    return chunks[chunks.length - 1];
+  }
+
+  _patchPlayerCaption(snap) {
+    const el = document.querySelector('.hf-player-caption');
+    if (!el) return;
+    const text = this._captionChunkForSnap(snap);
+    const show = !!(snap && snap.ccOn && text);
+    el.style.display = show ? 'inline-block' : 'none';
+    if (el.textContent !== text) el.textContent = text;
+    if (this._playerCaptionHold) {
+      el.classList.add('is-held');
+      el.style.transition = 'none';
+      el.style.opacity = '0';
+    }
+  }
+
+  _setCaptionHold(hold) {
+    if (this._playerCaptionHoldTimer) {
+      clearTimeout(this._playerCaptionHoldTimer);
+      this._playerCaptionHoldTimer = null;
+    }
+    this._playerCaptionHold = !!hold;
+    const el = document.querySelector('.hf-player-caption');
+    if (hold) {
+      if (el) {
+        el.classList.add('is-held');
+        el.style.transition = 'none';
+        el.style.opacity = '0';
+      }
+      return;
+    }
+    if (!el) return;
+    this._patchPlayerCaption(this.playerSnap);
+    el.classList.remove('is-held');
+    el.style.transition = 'none';
+    el.style.opacity = '0';
+    void el.offsetWidth;
+    el.style.transition = 'opacity 0.28s ease';
+    el.style.opacity = '1';
   }
   _playerSceneEnterClass(cue) {
     return '';
@@ -2226,6 +3268,19 @@ class Component extends DCLogic {
         });
       });
     });
+
+    if (this._player && this._player.cues) {
+      this._player.cues.forEach((cue) => {
+        if (cue.iconOverlays && cue.iconOverlays.length > 0) {
+          cue.iconOverlays.forEach((icon) => {
+            if (icon.url) {
+              add(this.proxyImageUrl(icon.url, 'image'));
+            }
+          });
+        }
+      });
+    }
+
     return urls;
   }
   _preloadPlayerImages(onProgress) {
@@ -2435,46 +3490,68 @@ class Component extends DCLogic {
       img.src = url;
     });
   }
+  _courseTimelinePct(snap) {
+    const cues = (snap && snap.cues) || [];
+    const cue = snap && snap.cue;
+    if (!cue || !cues.length) return 0;
+    const seen = Object.create(null);
+    let slideCount = 0;
+    let currentPos = 0;
+    cues.forEach((c) => {
+      if (seen[c.slideIdx]) return;
+      seen[c.slideIdx] = true;
+      if (c.slideIdx === cue.slideIdx) currentPos = slideCount;
+      slideCount += 1;
+    });
+    if (slideCount <= 0) return 0;
+    const lastCue = cues[cues.length - 1];
+    const onLastSlide = cue.slideIdx === lastCue.slideIdx;
+    const onLastCue = snap.cueIndex >= cues.length - 1;
+    const slideDone = (snap.slideDuration > 0 && (snap.slideElapsed || 0) >= snap.slideDuration * 0.98)
+      || (snap.cueDuration > 0 && (snap.cueElapsed || 0) >= snap.cueDuration * 0.98);
+    if (onLastSlide && onLastCue && !snap.playing && slideDone) return 100;
+    return Math.min(100, (currentPos / slideCount) * 100);
+  }
   _patchPlayerProgress(snap) {
-    const fills = document.querySelectorAll('.hf-player-progress-fill');
-    if (!fills.length) return;
-    const sceneCues = snap.sceneCues || [];
-    const cue = snap.cue;
-    const currentSceneIdx = cue ? sceneCues.findIndex((sc) => sc.visualId === cue.visualId) : -1;
-    fills.forEach((el, idx) => {
-      let fillPct = 0;
-      if (currentSceneIdx >= 0) {
-        if (idx < currentSceneIdx) fillPct = 100;
-        else if (idx === currentSceneIdx && snap.cueDuration > 0) {
-          fillPct = Math.min(100, (snap.cueElapsed / snap.cueDuration) * 100);
-        }
-      }
-      
-      // If a segment just reset to 0%, disable transition temporarily to prevent backwards animation flicker
+    const el = document.querySelector('.hf-player-progress-fill');
+    if (el) {
+      const slideDur = snap.slideDuration || 0;
+      const fillPct = slideDur > 0
+        ? Math.min(100, ((snap.slideElapsed || 0) / slideDur) * 100)
+        : (snap.cueDuration > 0
+          ? Math.min(100, (snap.cueElapsed / snap.cueDuration) * 100)
+          : 0);
       const currentWidth = parseFloat(el.style.width || '0');
       if (fillPct === 0 && currentWidth > 50) {
         el.style.transition = 'none';
         el.style.width = '0%';
-        // Force layout flush so disable-transition applies immediately
         void el.offsetHeight;
         el.style.transition = '';
       } else {
         el.style.width = fillPct.toFixed(2) + '%';
       }
-    });
-    const timeEl = document.querySelector('.hf-player-time[data-player-time]');
-    if (timeEl) {
-      timeEl.textContent = this.formatPlayerTime(snap.cueElapsed) + ' / ' + this.formatPlayerTime(snap.cueDuration);
     }
+    const courseEl = document.querySelector('.hf-player-course-timeline-fill');
+    if (courseEl) courseEl.style.width = this._courseTimelinePct(snap).toFixed(2) + '%';
+    this._patchPlayerCaption(snap);
   }
   _patchPlayerPlayButton(playing) {
     const btn = document.querySelector('.hf-player-btn-play');
     if (!btn) return;
     btn.classList.toggle('is-playing', !!playing);
   }
+  _closePlayerSpeedMenu() {
+    const wrap = document.querySelector('.hf-player-speed-wrap');
+    if (wrap) wrap.classList.remove('is-open');
+    if (this._playerSpeedClose) {
+      document.removeEventListener('click', this._playerSpeedClose, true);
+      this._playerSpeedClose = null;
+    }
+  }
   _ensurePlayer() {
     if (!this._player) this._initPlayer();
     else this._player.setSlides(this.slides);
+    this._rebuildTreatmentRotator();
   }
   formatPlayerTime(s) {
     s = Math.max(0, Math.floor(s || 0));
@@ -2493,6 +3570,7 @@ class Component extends DCLogic {
         const cue = this._player.cues[this._player.cueIndex];
         if (cue) this._preloadPlayerSceneImages(cue);
         this.forceUpdate();
+        requestAnimationFrame(() => this._syncPlayerMotion(true));
         this.preparePlayerPlayback().then(() => {
           if (this._player && this._player.cues.length) {
             const cue = this._player.cues[this._player.cueIndex];
@@ -2505,12 +3583,15 @@ class Component extends DCLogic {
       return;
     }
     if (this._player) this._player.stop();
+    if (window.HFSceneTransition) window.HFSceneTransition.kill();
+    this._closePlayerSpeedMenu();
     this.appView = 'review';
     this.forceUpdate();
   }
   exitPlayerAdjustVisual() {
     const cue = this.playerSnap && this.playerSnap.cue;
     if (this._player) this._player.stop();
+    if (window.HFSceneTransition) window.HFSceneTransition.kill();
     this.appView = 'review';
     if (!cue) { this.forceUpdate(); return; }
     this._sceneCollapsed[this.sceneKey(cue.rowIndex, cue.sceneId)] = false;
@@ -2572,11 +3653,13 @@ class Component extends DCLogic {
         fillPct: fillPct.toFixed(2),
       };
     });
-    const chipBase = {
-      height: '30px', padding: '0 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)',
-      background: 'rgba(255,255,255,0.06)', color: '#f3f4f6', fontFamily: 'inherit', fontWeight: 700,
-      fontSize: '12px', cursor: 'pointer',
-    };
+    const slideDur = snap.slideDuration || 0;
+    const seekPct = slideDur > 0
+      ? Math.min(100, ((snap.slideElapsed || 0) / slideDur) * 100)
+      : (snap.cueDuration > 0
+        ? Math.min(100, (snap.cueElapsed / snap.cueDuration) * 100)
+        : 0);
+    const captionNow = self._captionChunkForSnap(snap);
     return {
       playerEmpty: !snap.hasCues,
       playerShowLoading: !!snap.preloading || (!snap.assetsReady && snap.hasCues),
@@ -2584,9 +3667,10 @@ class Component extends DCLogic {
       playerLoadingLabel: snap.preloading ? 'Preparing playback...' : 'Loading assets...',
       playerSlideNum: cue ? cue.slideIdx + 1 : 1,
       playerSlideTotal: total,
+      playerCoursePct: self._courseTimelinePct(snap).toFixed(2),
       playerSlideTitle: cue ? cue.slideTitle : '',
       playerVisualKey: cue ? (cue.slideIdx + ':' + cue.sceneId + ':' + cue.visualId) : '',
-      playerCaptionFadeClass: self._playerCaptionFadeClass || '',
+      playerCaptionHoldClass: self._playerCaptionHold ? 'is-held' : '',
       playerShowImage: visualType === 'image' && !!visualUrl,
       playerShowYtMount: showYtMount,
       playerYtMountId: cue ? self.ytMountIdForCue(cue) : 'hf-player-yt-mount',
@@ -2597,42 +3681,64 @@ class Component extends DCLogic {
       playerShowPlaceholder: (visualType === 'image' && !visualUrl) || (visualType === 'video' && !showYtMount) || (visualType === 'drivevideo' && !driveVideoUrl),
       playerVisualUrl: visualUrl,
       playerVisualLabel: visualLabel,
-      playerCaption: cue ? (cue.voiceover || '') : '',
+      playerCaption: captionNow,
       playerCaptionStyle: {
-        display: (snap.ccOn && cue && cue.voiceover) ? 'block' : 'none',
-        left: '50%',
-        maxWidth: '78%',
-        transform: 'translateX(-50%)',
-        bottom: '20px',
+        display: (snap.ccOn && captionNow) ? 'inline-block' : 'none',
       },
-      playerShowCaption: !!snap.ccOn && !!cue && !!cue.voiceover,
+      playerShowCaption: !!snap.ccOn && !!captionNow,
       playerProgressSegs: progressSegs,
       playerPartLabel: cue ? ('Part ' + (cue.partIdx + 1) + ' / ' + cue.partCount) : '',
       playerPlaying: !!snap.playing,
       playerPlayBtnClass: snap.playing ? 'is-playing' : '',
       playerPrevDisabled: !snap.hasCues || snap.cueIndex <= 0,
       playerNextDisabled: !snap.hasCues || snap.cueIndex >= (snap.cues || []).length - 1,
-      playerAdjustBtnStyle: {
-        ...chipBase, display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '0 10px',
-      },
-      playerChipBtnStyle: chipBase,
-      playerCcBtnStyle: {
-        ...chipBase,
-        background: snap.ccOn ? '#2563eb' : 'rgba(255,255,255,0.06)',
-        borderColor: snap.ccOn ? '#2563eb' : 'rgba(255,255,255,0.14)',
-      },
-      playerTimeCurrent: self.formatPlayerTime(snap.cueElapsed),
-      playerTimeTotal: self.formatPlayerTime(snap.cueDuration),
-      playerSpeedLabel: snap.speed === 1 ? '1x' : (snap.speed + 'x'),
+      playerSeekPct: seekPct.toFixed(2),
+      playerVolume: snap.volume == null ? 1 : snap.volume,
+      playerMuteClass: snap.muted ? 'is-muted' : '',
+      playerCcClass: snap.ccOn ? 'is-on' : '',
+      playerSpeedLabel: 'Playback Speed',
+      playerSpeedClass: snap.speed !== 1 ? 'is-on' : '',
+      playerSpeedOptions: self._playerSpeeds.map((opt) => ({
+        label: opt.label,
+        selectedClass: snap.speed === opt.value ? 'is-selected' : '',
+        onSelect: (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          self._closePlayerSpeedMenu();
+          if (self._player) self._player.setSpeed(opt.value);
+        },
+      })),
       onPlayerTogglePlay: () => { if (self._player) self._player.togglePlay(); },
       onPlayerPrev: () => { if (self._player) self._player.prev(); },
       onPlayerNext: () => { if (self._player) self._player.next(); },
-      onPlayerAdjustVisual: () => self.exitPlayerAdjustVisual(),
-      onPlayerToggleSpeed: () => {
+      onPlayerReplay: () => { if (self._player) self._player.replay(); },
+      onPlayerToggleMute: () => { if (self._player) self._player.toggleMute(); },
+      onPlayerVolumeInput: (e) => {
         if (!self._player) return;
-        const speeds = self._playerSpeeds;
-        const idx = speeds.indexOf(self._player.speed);
-        self._player.setSpeed(speeds[(idx < 0 ? 0 : idx + 1) % speeds.length]);
+        self._player.setVolume(e.target.value);
+      },
+      onPlayerSeek: (e) => {
+        if (!self._player) return;
+        const bar = e.currentTarget;
+        if (!bar || !bar.getBoundingClientRect) return;
+        const r = bar.getBoundingClientRect();
+        const t = r.width ? (e.clientX - r.left) / r.width : 0;
+        self._player.seek(t);
+      },
+      onPlayerToggleSpeed: (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (e && e.preventDefault) e.preventDefault();
+        const wrap = document.querySelector('.hf-player-speed-wrap');
+        if (!wrap) return;
+        const open = !wrap.classList.contains('is-open');
+        self._closePlayerSpeedMenu();
+        if (open) {
+          wrap.classList.add('is-open');
+          self._playerSpeedClose = (ev) => {
+            if (wrap.contains(ev.target)) return;
+            self._closePlayerSpeedMenu();
+          };
+          setTimeout(() => document.addEventListener('click', self._playerSpeedClose, true), 0);
+        }
       },
       onPlayerToggleCc: () => { if (self._player) self._player.toggleCc(); },
     };
@@ -2666,13 +3772,34 @@ class Component extends DCLogic {
     const layoutN = sceneDef.slotCount || refs.length;
     const rects = this.sceneRects(template, layoutN);
     const h = React.createElement;
+    const normT = this.SCENE_TEMPLATE_ALIASES[template] || template;
+    const isSingleHero = (normT === 'single_visual_hero' || layoutN <= 1);
+    const isSplitComparison = (normT === 'two_item_split_comparison' && refs.length === 2);
+    const isMainInset = (normT === 'main_plus_supporting_inset' && refs.length === 2);
+    const isMultiPanel = (normT === 'multi_panel_grid' && (refs.length === 3 || refs.length === 4));
+    const useBlurFill = isSingleHero || isSplitComparison || isMainInset || isMultiPanel;
+    const motionTreatment = this._playerTreatmentForCue(cue);
+    // Focus treatments need both panels visible from the start so inactive can dim
+    // in place — progressive reveal leaves a blank half, then a black flash on cue change.
+    const splitKeepBothMounted = isSplitComparison && (
+      motionTreatment === 'dim_desaturate'
+      || motionTreatment === 'hold_and_reveal'
+      || motionTreatment === 'scale_emphasis'
+      || motionTreatment === 'wipe_reveal'
+      || motionTreatment === 'slide_in'
+      || motionTreatment === 'slide_up'
+      || motionTreatment === 'center_then_split'
+    );
+    // Mount both so GSAP (not CSS is-revealed) can hide/dim the inset until its cue.
+    const insetKeepBothMounted = isMainInset && motionTreatment !== 'off' && motionTreatment !== 'none';
+    const gridKeepAllMounted = isMultiPanel && motionTreatment !== 'off' && motionTreatment !== 'none';
     const activePartIdx = cue.partIdx != null
       ? cue.partIdx
       : Math.max(0, refs.findIndex((ref) => ref.st.visualId === cue.visualId));
 
     const slots = refs.map((ref, k) => {
       const st = ref.st;
-      const isRevealed = k <= activePartIdx;
+      const isRevealed = splitKeepBothMounted || insetKeepBothMounted || gridKeepAllMounted || k <= activePartIdx;
       const isActive = k === activePartIdx;
       const r = rects[k] || [0, 0, this.CANVAS_W, this.CANVAS_H];
       const x = r[0], y = r[1], w = r[2], ht = r[3];
@@ -2688,12 +3815,12 @@ class Component extends DCLogic {
       });
       let inner = null;
       if (isVideo) {
-        inner = h('div', { className: 'hf-player-scene-slot-inner', key: 'slot-inner-' + k },
+        inner = h('div', { className: 'hf-player-scene-slot-inner hf-split-motion-target', key: 'slot-inner-' + k },
           h('div', { id: slotMountId, className: 'hf-player-yt-mount', style: { width: '100%', height: '100%' } })
         );
       } else if (v.type === 'video' && this.isDriveVideoUrl(raw)) {
         // Native clip (pre-trimmed start->end) for Drive videos in scene layout. No autoplay/loop: the HFPlayer controller drives play/pause/freeze in sync with narration via the deterministic per-slot id below.
-        inner = h('div', { className: 'hf-player-scene-slot-inner', key: 'slot-inner-' + k },
+        inner = h('div', { className: 'hf-player-scene-slot-inner hf-split-motion-target', key: 'slot-inner-' + k },
           h('video', {
             id: this.driveVideoIdForCue({ slideIdx: cue.slideIdx, sceneId: cue.sceneId, partIdx: k, partCount: refs.length }),
             src: this.proxyVideoUrl(raw),
@@ -2708,9 +3835,55 @@ class Component extends DCLogic {
       } else {
         const imgUrl = this.displayImageUrl(v);
         if (this.canShowImage(imgUrl, v.type)) {
-          inner = h('div', { className: 'hf-player-scene-slot-inner', key: 'slot-inner-' + k },
-            h('img', { src: imgUrl, alt: v.label || 'visual', loading: 'eager', decoding: 'async', style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' } })
-          );
+          if (useBlurFill) {
+            const motionClass = isSingleHero ? 'hf-hero-motion-target' : 'hf-split-motion-target hf-split-fg';
+            const useCenterSplit = isSingleHero && motionTreatment === 'center_split';
+            inner = h('div', {
+              className: 'hf-player-scene-slot-inner hf-hero-motion-wrapper' + ((isSplitComparison || isMainInset || isMultiPanel) ? ' hf-split-fill-wrapper' : '') + (useCenterSplit ? ' is-center-split' : ''),
+              key: 'slot-inner-' + k,
+            },
+              h('img', {
+                src: imgUrl,
+                alt: '',
+                className: 'hf-hero-bg-blur',
+                loading: 'eager',
+                decoding: 'async',
+                style: {
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  filter: 'blur(28px) brightness(0.65)',
+                  opacity: 0.85,
+                  transform: 'scale(1.08)',
+                  pointerEvents: 'none',
+                  zIndex: 1
+                }
+              }),
+              h('img', {
+                src: imgUrl,
+                alt: v.label || 'visual',
+                loading: 'eager',
+                decoding: 'async',
+                className: motionClass,
+                style: {
+                  position: 'relative',
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  zIndex: 2,
+                  display: 'block'
+                }
+              }),
+              useCenterSplit ? h('div', { key: 'shutter-l', className: 'hf-hero-shutter is-left', 'aria-hidden': 'true' }) : null,
+              useCenterSplit ? h('div', { key: 'shutter-r', className: 'hf-hero-shutter is-right', 'aria-hidden': 'true' }) : null
+            );
+          } else {
+            inner = h('div', { className: 'hf-player-scene-slot-inner hf-split-motion-target', key: 'slot-inner-' + k },
+              h('img', { src: imgUrl, alt: v.label || 'visual', loading: 'eager', decoding: 'async', style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' } })
+            );
+          }
         } else {
           const grad = this.GRADS[v.tone] || this.GRADS.gray;
           inner = h('div', {
@@ -2725,26 +3898,47 @@ class Component extends DCLogic {
         }
       }
       const slotClass = (isRevealed ? 'is-revealed ' : '') + (isActive ? 'is-active' : '');
+      const flushJoin = isSplitComparison || isMainInset || isMultiPanel;
+      const n = refs.length;
       const posStyle = {
         position: 'absolute',
-        left: (x / this.CANVAS_W * 100) + '%',
-        top: (y / this.CANVAS_H * 100) + '%',
-        width: (w / this.CANVAS_W * 100) + '%',
-        height: (ht / this.CANVAS_H * 100) + '%',
-        borderRadius: '11px',
+        borderRadius: flushJoin ? '0' : '11px',
         overflow: 'hidden',
-        background: '#ffffff',
-        outline: isActive ? 'none' : '1px solid rgba(0,0,0,0.06)',
+        background: flushJoin ? '#ffffff' : 'transparent',
+        outline: flushJoin || isActive ? 'none' : '1px solid rgba(0,0,0,0.06)',
         outlineOffset: '-1px',
         zIndex: isActive ? 2 : 1,
       };
+      if (isMultiPanel && n === 4) {
+        const col = k % 2;
+        const row = Math.floor(k / 2);
+        posStyle.left = col === 0 ? '0' : 'calc(50% - 1px)';
+        posStyle.right = col === 1 ? '0' : '50%';
+        posStyle.top = row === 0 ? '0' : 'calc(50% - 1px)';
+        posStyle.bottom = row === 1 ? '0' : '50%';
+      } else if (flushJoin && (n === 2 || n === 3)) {
+        posStyle.top = '0';
+        posStyle.bottom = '0';
+        if (k === 0) {
+          posStyle.left = '0';
+          posStyle.right = ((this.CANVAS_W - w) / this.CANVAS_W * 100) + '%';
+        } else if (k === n - 1) {
+          posStyle.left = 'calc(' + (x / this.CANVAS_W * 100) + '% - 1px)';
+          posStyle.right = '0';
+        } else {
+          posStyle.left = 'calc(' + (x / this.CANVAS_W * 100) + '% - 1px)';
+          posStyle.right = ((this.CANVAS_W - x - w) / this.CANVAS_W * 100) + '%';
+        }
+      } else {
+        posStyle.left = (x / this.CANVAS_W * 100) + '%';
+        posStyle.top = (y / this.CANVAS_H * 100) + '%';
+        posStyle.width = (w / this.CANVAS_W * 100) + '%';
+        posStyle.height = (ht / this.CANVAS_H * 100) + '%';
+      }
       return { posStyle, innerEl: inner, slotClass: slotClass.trim() };
     });
 
-    const sceneCaptionText = refs
-      .map((ref) => String(ref.st.voiceover || '').trim())
-      .filter(Boolean)
-      .join(' ');
+    const captionText = this._captionChunkForSnap(snap);
 
     return {
       playerUseSceneLayout: true,
@@ -2753,15 +3947,15 @@ class Component extends DCLogic {
       playerCanvasStyle: {},
       playerFrameClass: 'hf-player-frame--layout',
       playerFrameStyle: {},
-      playerCaption: sceneCaptionText,
+      playerCaption: captionText,
       playerCaptionStyle: {
-        display: (snap && snap.ccOn && sceneCaptionText) ? 'block' : 'none',
+        display: (snap && snap.ccOn && captionText) ? 'inline-block' : 'none',
         left: '50%',
         maxWidth: '78%',
         transform: 'translateX(-50%)',
         bottom: '20px',
       },
-      playerShowCaption: !!(snap && snap.ccOn && sceneCaptionText),
+      playerShowCaption: !!(snap && snap.ccOn && captionText),
     };
   }
 
@@ -4337,7 +5531,31 @@ class Component extends DCLogic {
       onClose: () => this.removeToast(t.id),
     }));
 
+    const downloadModalSlides = this.slides.map((slide, idx) => ({
+      index: idx,
+      num: idx + 1,
+      title: slide.title,
+      selected: !!this.downloadSelectedSlides[idx],
+      onToggle: () => {
+        this.downloadSelectedSlides[idx] = !this.downloadSelectedSlides[idx];
+        this.forceUpdate();
+      }
+    }));
+
     return {
+      showDownloadModal: this.showDownloadModal,
+      isDownloadingVideos: this.isDownloadingVideos,
+      downloadStatusMessage: this.downloadStatusMessage,
+      downloadProgressPct: this.downloadProgressPct || 0,
+      downloadEtaLabel: this.downloadEtaLabel || '',
+      downloadVoice: this.downloadVoice,
+      downloadModalSlides,
+      onOpenDownloadModal: () => this.onOpenDownloadModal(),
+      onCloseDownloadModal: () => this.onCloseDownloadModal(),
+      onSelectAllSlides: () => this.onSelectAllSlides(),
+      onDeselectAllSlides: () => this.onDeselectAllSlides(),
+      onDownloadVoiceChange: (e) => this.onDownloadVoiceChange(e),
+      onStartDownloadVideos: () => this.onStartDownloadVideos(),
       courseName: this.courseName || 'Course',
       appView: this.appView,
       appShellClass: this.appView === 'player' ? 'hf-app-shell hf-app-shell--player' : 'hf-app-shell',

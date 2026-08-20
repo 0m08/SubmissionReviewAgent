@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +16,7 @@ from human_feedback_app.backend.auth import ensure_google_clients, get_current_s
 from human_feedback_app.backend.asset_service import image_response, video_clip_response
 from human_feedback_app.backend.config import BRAND_ASSETS_DIR, BRAND_FALLBACK_DIR, FRONTEND_DIR
 from human_feedback_app.backend.jobs import JobCancelled, revision_queue
-from human_feedback_app.backend.tts_service import synthesize_tts_mp3_bytes
+from human_feedback_app.backend.tts_service import encode_tts_words_header, synthesize_tts_with_words
 from human_feedback_app.backend.revise_worker import run_row_revision
 from human_feedback_app.backend.segmentation_worker import run_row_segmentation_revision
 from human_feedback_app.backend.layout_worker import run_row_layout_revision
@@ -100,6 +100,13 @@ class LayoutReviseRequest(BaseModel):
     feedback: str = Field(min_length=3)
 
 
+class DownloadVideosRequest(BaseModel):
+    row_indexes: List[int]
+    voice: Optional[str] = "en-US-AvaNeural"
+    quality: Optional[str] = "fast"
+    hero_motion: Optional[str] = "zoom_in"
+
+
 def session_dep(request: Request) -> UserSession:
     return get_current_session(request)
 
@@ -167,15 +174,84 @@ def api_asset_video(request: Request, url: str = Query(min_length=8), session: U
 @api_router.get("/tts")
 def api_tts(voiceover: str = Query(min_length=1), session: UserSession = Depends(session_dep)) -> Response:
     try:
-        data, _ = synthesize_tts_mp3_bytes(voiceover)
+        data, words = synthesize_tts_with_words(voiceover)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
+    headers = {"Cache-Control": "public, max-age=86400"}
+    encoded = encode_tts_words_header(words)
+    if encoded:
+        headers["X-TTS-Words"] = encoded
     return Response(
         content=data,
         media_type="audio/mpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers=headers,
+    )
+
+
+@api_router.get("/tts/words")
+def api_tts_words(voiceover: str = Query(min_length=1), session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
+    try:
+        _, words = synthesize_tts_with_words(voiceover)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
+    return {"words": words}
+
+
+@api_router.post("/download-slide-videos")
+def api_start_download_slide_videos(
+    body: DownloadVideosRequest,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    ensure_google_clients(session)
+    if not body.row_indexes:
+        raise HTTPException(status_code=400, detail="No slides selected.")
+
+    from human_feedback_app.backend.player_video_jobs import video_render_jobs
+
+    job = video_render_jobs.start(
+        session=session,
+        row_indexes=body.row_indexes,
+        voice=body.voice or "en-US-AvaNeural",
+        hero_motion=body.hero_motion or "zoom_in",
+    )
+    return {"job_id": job.id, **job.to_dict()}
+
+
+@api_router.get("/download-slide-videos/{job_id}")
+def api_download_slide_videos_status(
+    job_id: str,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    from human_feedback_app.backend.player_video_jobs import video_render_jobs
+
+    job = video_render_jobs.get(job_id, session.session_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Render job not found")
+    return job.to_dict()
+
+
+@api_router.get("/download-slide-videos/{job_id}/file")
+def api_download_slide_videos_file(
+    job_id: str,
+    session: UserSession = Depends(session_dep),
+):
+    from human_feedback_app.backend.player_video_jobs import video_render_jobs
+
+    job = video_render_jobs.get(job_id, session.session_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Render job not found")
+    if job.status.value != "completed" or not job.output_path:
+        raise HTTPException(status_code=409, detail=job.error or "Render is not ready yet")
+    if not Path(job.output_path).exists():
+        raise HTTPException(status_code=404, detail="Rendered file is missing on server")
+    return FileResponse(
+        job.output_path,
+        media_type=job.output_media_type or "application/octet-stream",
+        filename=job.output_name or "slide_video",
     )
 
 
