@@ -1540,13 +1540,14 @@ def _parse_per_scene_layout_feedback(feedback_str: str) -> Dict[str, str]:
 
 
 def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
-    """Parse hero_animation_plan, hero_bbox_coordinates, and hero_icon_overlays from a row and group the parsed specifications by scene_id.
+    """Parse hero_animation_plan, multivisual_animation_plan, hero_bbox_coordinates, and hero_icon_overlays from a row and group the parsed specifications by scene_id.
     """
     out = {}
     if row is None:
         return out
 
     plan_cell = str(row.get("hero_animation_plan", "")).strip()
+    multivisual_plan_cell = str(row.get("multivisual_animation_plan", "")).strip()
     coords_cell = str(row.get("hero_bbox_coordinates", "")).strip()
     icons_cell = str(row.get("hero_icon_overlays", "")).strip()
 
@@ -1567,6 +1568,9 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
         return blocks
 
     plans = split_blocks(plan_cell)
+    multivisual_plans = split_blocks(multivisual_plan_cell)
+    plans.update(multivisual_plans)
+
     coords = split_blocks(coords_cell)
     icons = split_blocks(icons_cell)
 

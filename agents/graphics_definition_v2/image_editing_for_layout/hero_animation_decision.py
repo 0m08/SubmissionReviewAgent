@@ -63,7 +63,6 @@ Visual URL: {primary_visual_url}
 
 You will also receive a multimodal preview of this assigned asset for this single hero scene.
 
-
 ## Allowed animation types (choose exactly ONE)
 
 Use only these four values for <animation_type>. No aliases. No invented types.
@@ -98,7 +97,7 @@ Do NOT choose text_label when:
 
 3) bbox_highlight
 
-One or more rectangle or circle outlines animate onto the hero image to emphasize specific visible regions.
+One or more rectangle outlines animate onto the hero image to emphasize specific visible regions.
 
 You may output one highlight, or several, when the narration span clearly points to more than one distinct spot in the same still (e.g. two valves, a leak and the nearby fitting, supply vs return). Prefer as few highlights as will make the point. 
 
@@ -196,7 +195,7 @@ Describe this one visible target using position in the frame, nearby landmarks, 
 </target_description>
 
 <highlight_shape>
-box | circle 
+box
 </highlight_shape>
 
 </highlight>

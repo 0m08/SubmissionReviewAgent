@@ -132,6 +132,9 @@ window.HFPlayer = (function () {
     }
     const slideTiming = this._slideTiming();
     const pad = this._ttsPad[String((cue && cue.voiceover) || "").trim()] || {};
+    if (cue) {
+      this._syncDriveVideoTime(cue);
+    }
     this.onState({
       cues: this.cues,
       cueIndex: this.cueIndex,
@@ -233,6 +236,48 @@ window.HFPlayer = (function () {
     if (!el) return false;
     try { el.pause(); } catch (_) {}
     return true;
+  };
+
+  Controller.prototype._syncDriveVideoTime = function (cue) {
+    if (!this._isDriveVideoCue(cue)) return;
+    const el = this._driveVidElForCue(cue);
+    if (!el) return;
+    try {
+      if (el.readyState >= 1) {
+        const videoDur = el.duration || 0;
+        if (videoDur > 0) {
+          if (this._cueElapsed >= videoDur) {
+            if (!el.paused) {
+              try { el.pause(); } catch (_) {}
+            }
+            if (Math.abs(el.currentTime - videoDur) > 0.1) {
+              try { el.currentTime = videoDur; } catch (_) {}
+            }
+          } else {
+            const targetTime = Math.max(0, Math.min(videoDur, this._cueElapsed));
+            const diff = Math.abs(el.currentTime - targetTime);
+            if (diff > 0.15) {
+              try { el.currentTime = targetTime; } catch (_) {}
+            }
+            if (this.playing) {
+              if (el.paused) {
+                const p = el.play();
+                if (p && p.catch) p.catch(function () {});
+              }
+            } else {
+              if (!el.paused) {
+                try { el.pause(); } catch (_) {}
+              }
+            }
+          }
+        }
+      } else {
+        if (this.playing && el.paused) {
+          const p = el.play();
+          if (p && p.catch) p.catch(function () {});
+        }
+      }
+    } catch (_) {}
   };
 
   Controller.prototype._clearTick = function () {
@@ -727,6 +772,73 @@ window.HFPlayer = (function () {
                 afterPaint(startPlayback);
               });
             });
+          } else if (isDriveVideo) {
+            const vidEl = self._driveVidElForCue(cue);
+            if (vidEl) {
+              if (vidEl.readyState >= 3) {
+                if (tightHandoff) {
+                  startPlayback();
+                } else {
+                  afterPaint(startPlayback);
+                }
+              } else {
+                let vidReady = false;
+                const vidTimeout = setTimeout(function () {
+                  if (vidReady || token !== self._token || started) return;
+                  vidReady = true;
+                  if (tightHandoff) {
+                    startPlayback();
+                  } else {
+                    afterPaint(startPlayback);
+                  }
+                }, 1500);
+
+                function onVidReady() {
+                  if (vidReady || token !== self._token || started) return;
+                  vidReady = true;
+                  clearTimeout(vidTimeout);
+                  vidEl.removeEventListener("canplay", onVidReady);
+                  vidEl.removeEventListener("loadedmetadata", onVidReady);
+                  if (tightHandoff) {
+                    startPlayback();
+                  } else {
+                    afterPaint(startPlayback);
+                  }
+                }
+
+                vidEl.addEventListener("canplay", onVidReady);
+                vidEl.addEventListener("loadedmetadata", onVidReady);
+                try { vidEl.load(); } catch (_) {}
+              }
+            } else {
+              setTimeout(function () {
+                if (token !== self._token || started) return;
+                const retryEl = self._driveVidElForCue(cue);
+                if (retryEl && retryEl.readyState < 3) {
+                  let vidReady2 = false;
+                  const vidTimeout2 = setTimeout(function () {
+                    if (vidReady2 || token !== self._token || started) return;
+                    vidReady2 = true;
+                    startPlayback();
+                  }, 1200);
+
+                  function onVidReady2() {
+                    if (vidReady2 || token !== self._token || started) return;
+                    vidReady2 = true;
+                    clearTimeout(vidTimeout2);
+                    retryEl.removeEventListener("canplay", onVidReady2);
+                    retryEl.removeEventListener("loadedmetadata", onVidReady2);
+                    startPlayback();
+                  }
+
+                  retryEl.addEventListener("canplay", onVidReady2);
+                  retryEl.addEventListener("loadedmetadata", onVidReady2);
+                  try { retryEl.load(); } catch (_) {}
+                } else {
+                  startPlayback();
+                }
+              }, 100);
+            }
           } else if (tightHandoff) {
             startPlayback();
           } else {

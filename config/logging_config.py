@@ -233,6 +233,9 @@ def setup_logging(env: Optional[str] = None, default_level: str = "INFO") -> Non
 
     logging.config.dictConfig(config)
     
+    # Suppress noisy warnings from opentelemetry instrumentor
+    logging.getLogger("opentelemetry.instrumentation.instrumentor").setLevel(logging.ERROR)
+    
     # Override handleError on all handlers to prevent recursion
     def safe_handle_error(handler):
         """Create a safe handleError method for a handler"""

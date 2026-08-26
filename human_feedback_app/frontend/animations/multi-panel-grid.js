@@ -6,6 +6,7 @@ window.HFMultiPanelGrid = (function () {
   let lastPartIdx = -1;
   let lastTreatment = '';
   let entranceDone = {};
+  let labelEntranceDone = {};
 
   const TEMPLATE = 'multi_panel_grid';
   const SEQUENTIAL = ['reveal', 'slide_in'];
@@ -72,6 +73,7 @@ window.HFMultiPanelGrid = (function () {
     lastPartIdx = -1;
     lastTreatment = '';
     entranceDone = {};
+    labelEntranceDone = {};
   }
 
   // 3-up: left / top / right. 4-up: each cell from its corner.
@@ -165,6 +167,83 @@ window.HFMultiPanelGrid = (function () {
           resetSlot(slot);
           break;
 
+        case 'label_slide_up': {
+          gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
+          gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
+          const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
+          if (labelBadge) {
+            if (idx <= activeIdx) {
+              if (instant) {
+                gsap.set(labelBadge, { autoAlpha: 1, y: 0 });
+              } else if (idx === activeIdx && !labelEntranceDone[idx]) {
+                gsap.fromTo(labelBadge, 
+                  { autoAlpha: 0, y: 60 },
+                  { autoAlpha: 1, y: 0, duration: 0.85, ease: 'back.out(1.25)', overwrite: 'auto' }
+                );
+                labelEntranceDone[idx] = true;
+              } else {
+                gsap.set(labelBadge, { autoAlpha: 1, y: 0 });
+              }
+            } else {
+              gsap.set(labelBadge, { autoAlpha: 0 });
+            }
+          }
+          break;
+        }
+
+        case 'label_corner_slide': {
+          gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
+          gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
+          const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
+          if (labelBadge) {
+            if (idx <= activeIdx) {
+              if (instant) {
+                gsap.set(labelBadge, { autoAlpha: 1, x: 0, y: 0 });
+              } else if (idx === activeIdx && !labelEntranceDone[idx]) {
+                let fromX = 0, fromY = 0;
+                if (idx === 0) { fromX = -80; fromY = -80; }
+                else if (idx === 1) { fromX = 80; fromY = -80; }
+                else if (idx === 2) { fromX = -80; fromY = 80; }
+                else if (idx === 3) { fromX = 80; fromY = 80; }
+                gsap.fromTo(labelBadge, 
+                  { autoAlpha: 0, x: fromX, y: fromY },
+                  { autoAlpha: 1, x: 0, y: 0, duration: 0.85, ease: 'back.out(1.25)', overwrite: 'auto' }
+                );
+                labelEntranceDone[idx] = true;
+              } else {
+                gsap.set(labelBadge, { autoAlpha: 1, x: 0, y: 0 });
+              }
+            } else {
+              gsap.set(labelBadge, { autoAlpha: 0 });
+            }
+          }
+          break;
+        }
+
+        case 'label_fade': {
+          gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
+          gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
+          const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
+          if (labelBadge) {
+            if (idx <= activeIdx) {
+              if (instant) {
+                gsap.set(labelBadge, { autoAlpha: 1 });
+              } else if (idx === activeIdx && !labelEntranceDone[idx]) {
+                gsap.fromTo(labelBadge, 
+                  { autoAlpha: 0 },
+                  { autoAlpha: 1, duration: 0.75, ease: 'power2.out', overwrite: 'auto' }
+                );
+                labelEntranceDone[idx] = true;
+              } else {
+                gsap.set(labelBadge, { autoAlpha: 1 });
+              }
+            } else {
+              gsap.set(labelBadge, { autoAlpha: 0 });
+            }
+          }
+          break;
+        }
+
         case 'scale_emphasis':
           tween(target, Object.assign({
             scale: isActive ? 1.06 : 0.92,
@@ -186,6 +265,22 @@ window.HFMultiPanelGrid = (function () {
   }
 
   function poseIdle(treatment, slots, partIdx) {
+    if (treatment === 'label_slide_up' || treatment === 'label_corner_slide' || treatment === 'label_fade') {
+      slots.forEach(function (slot, idx) {
+        gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
+        gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
+        const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
+        if (labelBadge) {
+          if (idx <= partIdx) {
+            gsap.set(labelBadge, { autoAlpha: 1, x: 0, y: 0 });
+          } else {
+            gsap.set(labelBadge, { autoAlpha: 0 });
+          }
+        }
+      });
+      return;
+    }
+
     slots.forEach(function (slot, idx) {
       const target = motionTarget(slot);
       gsap.set(slot, { filter: 'brightness(1) saturate(1)' });

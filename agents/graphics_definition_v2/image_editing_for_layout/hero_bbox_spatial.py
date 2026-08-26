@@ -2,14 +2,17 @@ import json
 import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
 
 import streamlit as st
 from dotenv import load_dotenv
 from google.genai import types
 from langsmith import traceable
+from PIL import Image, ImageDraw, ImageFont
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
     invoke_gemini_multimodal,
+    load_image_from_url,
 )
 from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
     _COORDS_COLUMN,
@@ -46,6 +49,101 @@ Output a JSON array only. One object per target, same order, no markdown fences,
 
 [{{"index": 1, "box_2d": [ymin, xmin, ymax, xmax], "label": "short name"}}, ...]
 """
+
+hero_bbox_spatial_refine_prompt = """You are a spatial localization model reviewing your own previous attempt.
+
+We have overlaid your previously generated bounding boxes on top of the image in orange with numbered labels (e.g. [1], [2]) matching each target index.
+
+Please carefully inspect the overlaid orange boxes and identify any mistakes:
+1. Incorrect placement: Is the orange box off-target, misaligned, or not tightly enclosing the correct object?
+2. Size issues: Is the orange box extremely small (resembling a thin horizontal or vertical line instead of a box)?
+3. Interference: Are the orange boxes overlapping or intersecting each other? Each target's box must be entirely separate.
+4. Edge/Corner clipping: Is the orange box touching the slide's edges or corners awkwardly? Ensure the box fits cleanly.
+
+Based on your review, output a revised, highly accurate set of bounding boxes that perfectly, tightly, and cleanly encloses ONLY the described targets.
+- box_2d is [ymin, xmin, ymax, xmax]
+- Each value is an integer from 0 to 1000, normalized to the image height and width
+- ymin < ymax and xmin < xmax
+- CRITICAL: Bounding boxes for different targets must NEVER overlap or intersect with each other. Keep them entirely distinct.
+
+Targets (in order):
+
+{targets_block}
+
+Output a JSON array only. One object per target, same order, no markdown fences, no extra keys besides index, box_2d, and label:
+
+[{{"index": 1, "box_2d": [ymin, xmin, ymax, xmax], "label": "short name"}}, ...]
+"""
+
+
+def draw_bboxes_on_image(pil_img, boxes):
+    """
+    Draw orange bounding boxes and indices on a PIL image.
+    
+    :param pil_img: Original PIL Image.
+    :param boxes: List of [ymin, xmin, ymax, xmax] lists (or None).
+    :return: Annotated PIL Image.
+    """
+    draw_img = pil_img.copy().convert("RGB")
+    draw = ImageDraw.Draw(draw_img)
+    width, height = draw_img.size
+    
+    # Select size proportional to image height
+    font_size = max(12, int(height * 0.022))
+    
+    # Try loading clean font
+    font = None
+    for font_name in ["arial.ttf", "LiberationSans-Regular.ttf", "Helvetica.ttf"]:
+        try:
+            font = ImageFont.truetype(font_name, size=font_size)
+            break
+        except IOError:
+            continue
+    if font is None:
+        font = ImageFont.load_default()
+        
+    for idx, box in enumerate(boxes):
+        if not box:
+            continue
+        ymin, xmin, ymax, xmax = box
+        
+        # Scale to pixels
+        py_min = int((ymin / 1000.0) * height)
+        px_min = int((xmin / 1000.0) * width)
+        py_max = int((ymax / 1000.0) * height)
+        px_max = int((xmax / 1000.0) * width)
+        
+        orange_color = (240, 85, 35) # RGB for #F05523
+        
+        # Draw thick orange border
+        thickness = max(2, int(width * 0.005))
+        for t in range(thickness):
+            draw.rectangle(
+                [px_min + t, py_min + t, px_max - t, py_max - t],
+                outline=orange_color
+            )
+            
+        # Draw index badge [idx+1]
+        label_text = f"[{idx + 1}]"
+        try:
+            # Pillow 10+ uses textbbox
+            left, top, right, bottom = draw.textbbox((0, 0), label_text, font=font)
+            text_width = right - left
+            text_height = bottom - top
+        except AttributeError:
+            text_width, text_height = draw.textsize(label_text, font=font)
+            
+        badge_left = px_min
+        badge_top = max(0, py_min - text_height - 6)
+        badge_right = px_min + text_width + 8
+        badge_bottom = py_min
+        
+        # Draw badge background
+        draw.rectangle([badge_left, badge_top, badge_right, badge_bottom], fill=orange_color)
+        # Write white text
+        draw.text((badge_left + 4, badge_top + 2), label_text, fill=(255, 255, 255), font=font)
+        
+    return draw_img
 
 _SCENE_HEADER_RE = re.compile(r"---Scene ID:\s*(\S+)---", re.IGNORECASE)
 _ANIMATION_TYPE_RE = re.compile(
@@ -113,11 +211,9 @@ def parse_bbox_highlights_from_plan_block(block_text):
         if not inner_stripped or inner_stripped.upper() == "N/A":
             continue
         target = _extract_tag_inner(inner, _TARGET_RE)
-        shape = _extract_tag_inner(inner, _SHAPE_RE).lower()
         if not target or target.upper() == "N/A":
             continue
-        if shape not in ("box", "circle"):
-            shape = "box"
+        shape = "box"
         highlights.append({"target_description": target, "shape": shape})
     return highlights
 
@@ -231,7 +327,8 @@ def _format_highlights_xml(highlights, boxes):
 )
 def generate_hero_bbox_coordinates_for_scene(scene_id, asset_url, highlights, drive, llm="gemini_3_flash_thinking"):
     """
-    Locate bbox_highlight targets on one hero still using Gemini spatial understanding.
+    Locate bbox_highlight targets on one hero still using Gemini spatial understanding,
+    with an automatic "+1 prompt" self-correction overlay refinement loop.
 
     :param scene_id: Scene id from slideshow_manifest.
     :param asset_url: Final hero image URL.
@@ -243,32 +340,58 @@ def generate_hero_bbox_coordinates_for_scene(scene_id, asset_url, highlights, dr
     target_lines = []
     for i, highlight in enumerate(highlights, start=1):
         target_lines.append(f"{i}. {highlight['target_description']}")
-    prompt_text = hero_bbox_spatial_prompt.format(targets_block="\n".join(target_lines))
+    
+    targets_block_text = "\n".join(target_lines)
+    prompt_text = hero_bbox_spatial_prompt.format(targets_block=targets_block_text)
 
-    parts = []
-    parts.append(types.Part(text=f"Hero image URL: {asset_url}\n"))
-    visual_part = build_visual_part_only(asset_url, drive)
-    if not visual_part:
+    # 1. Load original image
+    pil_image = load_image_from_url(asset_url, drive, "candidate")
+    if not pil_image:
         raise ValueError(f"Failed to load hero image for spatial locate, scene {scene_id}: {asset_url}")
-    parts.append(visual_part)
-    parts.append(types.Part(text=prompt_text))
 
-    # print(f"\nHero BBox Spatial - Scene ID: {scene_id}")
-    # print("\n" + "=" * 80)
-    # print("📝 FORMATTED SPATIAL PROMPT")
-    # print("=" * 80)
-    # print(f"Assigned single-hero visual asset URL: {asset_url}")
-    # print("[INLINE IMAGE attached]")
-    # print(prompt_text)
-    # print("=" * 80 + "\n")
+    buffered_orig = BytesIO()
+    pil_image.convert("RGB").save(buffered_orig, format="JPEG")
+    visual_part_orig = types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=buffered_orig.getvalue()))
 
-    response_text = invoke_gemini_multimodal(parts, llm=llm, temperature=0.1)
-    # print("📤 Hero BBox Spatial Full Response from LLM:\n")
-    # print(response_text or "")
-    # print("\n" + "=" * 100 + "\n")
+    # First pass LLM call
+    parts_pass1 = []
+    parts_pass1.append(types.Part(text=f"Hero image URL: {asset_url}\n"))
+    parts_pass1.append(visual_part_orig)
+    parts_pass1.append(types.Part(text=prompt_text))
 
-    boxes = parse_spatial_boxes_json(response_text, len(highlights))
-    return _format_highlights_xml(highlights, boxes)
+    response_text_pass1 = invoke_gemini_multimodal(parts_pass1, llm=llm, temperature=0.1)
+    first_pass_boxes = parse_spatial_boxes_json(response_text_pass1, len(highlights))
+
+    # If any box is generated, run the self-correcting refinement pass (the "+1 prompt" approach)
+    if any(b is not None for b in first_pass_boxes):
+        try:
+            # 2. Annotate the image with first pass boxes
+            annotated_img = draw_bboxes_on_image(pil_image, first_pass_boxes)
+            buffered_annotated = BytesIO()
+            annotated_img.convert("RGB").save(buffered_annotated, format="JPEG")
+            visual_part_annotated = types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=buffered_annotated.getvalue()))
+
+            # Second pass LLM call (the self-correcting "+1 prompt")
+            refine_prompt = hero_bbox_spatial_refine_prompt.format(targets_block=targets_block_text)
+            parts_pass2 = []
+            parts_pass2.append(types.Part(text=f"Hero image URL: {asset_url}\n"))
+            parts_pass2.append(visual_part_annotated)
+            parts_pass2.append(types.Part(text=refine_prompt))
+
+            response_text_pass2 = invoke_gemini_multimodal(parts_pass2, llm=llm, temperature=0.1)
+            second_pass_boxes = parse_spatial_boxes_json(response_text_pass2, len(highlights))
+            
+            # Merge or fall back: if second pass succeeded, use it, otherwise keep first pass
+            final_boxes = []
+            for b1, b2 in zip(first_pass_boxes, second_pass_boxes):
+                final_boxes.append(b2 if b2 is not None else b1)
+                
+            return _format_highlights_xml(highlights, final_boxes)
+        except Exception as err:
+            print(f"Warning: Self-correction refinement failed for scene {scene_id}, falling back to first-pass boxes. Error: {err}")
+            traceback.print_exc()
+
+    return _format_highlights_xml(highlights, first_pass_boxes)
 
 
 @traceable(

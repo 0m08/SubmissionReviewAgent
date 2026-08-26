@@ -76,6 +76,11 @@ window.HFTreatmentRotator = (function () {
       main_plus_supporting_inset: 0,
       multi_panel_grid: 0,
     };
+    const labelCounters = {
+      two_item_split_comparison: 0,
+      main_plus_supporting_inset: 0,
+      multi_panel_grid: 0,
+    };
     const seen = Object.create(null);
 
     const topicStartIndex = Math.floor(Math.random() * 4);
@@ -113,6 +118,29 @@ window.HFTreatmentRotator = (function () {
         return;
       }
 
+      if (animType === 'text_label' && (layout === 'two_item_split_comparison' || layout === 'main_plus_supporting_inset' || layout === 'multi_panel_grid')) {
+        let labelList;
+        if (layout === 'multi_panel_grid') {
+          const slotCount = cue.partCount || 3;
+          if (slotCount === 4) {
+            labelList = ['label_corner_slide', 'label_fade'];
+          } else {
+            labelList = ['label_slide_up', 'label_fade'];
+          }
+        } else {
+          labelList = ['label_slide', 'label_fade'];
+        }
+        const idx = labelCounters[layout] % labelList.length;
+        byScene[key] = {
+          layout: layout,
+          treatment: labelList[idx],
+          index: idx,
+          occurrence: labelCounters[layout],
+        };
+        labelCounters[layout] += 1;
+        return;
+      }
+
       const list = LISTS[layout];
       const idx = counters[layout] % list.length;
       byScene[key] = {
@@ -134,6 +162,12 @@ window.HFTreatmentRotator = (function () {
     const entry = getEntry(cue);
     if (entry) return entry.treatment;
     const layout = layoutKey(cue && cue.sceneTemplate);
+    if (layout && cue && cue.animationType === 'text_label') {
+      if (layout === 'multi_panel_grid') {
+        return (cue.partCount === 4) ? 'label_corner_slide' : 'label_slide_up';
+      }
+      return 'label_slide';
+    }
     return layout ? DEFAULTS[layout] : 'off';
   }
 

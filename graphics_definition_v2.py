@@ -98,9 +98,9 @@ from agents.graphics_definition_v2.image_editing_for_layout.image_editing_based_
     run_image_editing_execution_for_all_rows,
     delete_image_editing_execution_columns,
 )
-from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
-    run_hero_animation_decision_for_all_rows,
-    delete_hero_animation_decision_columns,
+from agents.graphics_definition_v2.image_editing_for_layout.multivisual_animation_decision import (
+    run_overlay_animation_decisions_for_all_rows,
+    delete_overlay_animation_decisions_columns,
 )
 from agents.graphics_definition_v2.image_editing_for_layout.image_edit_results_sheet import (
     run_populate_image_edit_results_sheet,
@@ -126,7 +126,6 @@ TOP_INSTRUCTIONS = (
                     "- **1 Visual for the whole Slide**: One visual gets assigned for the entire slide.\n\n"
                     "Also choose **Asset libraries for this run** below (Drive Images, HVAC YouTube, Google Drive Videos, External References, and Web Images and Videos)."
 )
-
 
 
 pipeline_sections = [
@@ -436,82 +435,82 @@ pipeline_sections = [
             },
         ]
     },
+    # {
+    #     "section_name": "Section 11: Scene Edit Planning",
+    #     "steps": [
+    #         {
+    #             "name": "Generate Scene Edit Plan",
+    #             "func": run_scene_edit_planning_for_all_rows,
+    #             "depends_on": ["Generate Slideshow Manifest"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "llm": "gemini_3_flash_thinking",
+    #                 "max_workers": 50,
+    #             },
+    #             "estimated_time": "10-30 minutes",
+    #             "description": "Parses slideshow_manifest scene-by-scene and generates scene_edit_plan output by running the image edit planning agent once per scene with multimodal slot assets.",
+    #             "delete_func": delete_scene_edit_plan_columns,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
+    # {
+    #     "section_name": "Section 12: Scene Edit Execution",
+    #     "steps": [
+    #         {
+    #             "name": "Run Scene Edit Execution",
+    #             "func": run_image_editing_execution_for_all_rows,
+    #             "depends_on": ["Generate Scene Edit Plan"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "max_workers": 50,
+    #             },
+    #             "estimated_time": "20-120 minutes",
+    #             "description": "Per instructional slot, runs an edit -> review -> regenerate loop.",
+    #             "delete_func": delete_image_editing_execution_columns,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
+    # {
+    #     "section_name": "Section 13: Apply edited images to slideshow manifest",
+    #     "steps": [
+    #         {
+    #             "name": "Apply edited asset URLs to slideshow manifest",
+    #             "func": run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
+    #             "depends_on": ["Run Scene Edit Execution"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "max_workers": 30,
+    #             },
+    #             "estimated_time": "1-5 minutes",
+    #             "description": "Replace the Original Image URLs with the Edited Image URLs in the slideshow_manifest and final_graphics_definition columns",
+    #             "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
     {
-        "section_name": "Section 11: Scene Edit Planning",
+        "section_name": "Section 14: Overlay Animation Decisions",
         "steps": [
             {
-                "name": "Generate Scene Edit Plan",
-                "func": run_scene_edit_planning_for_all_rows,
+                "name": "Decide Overlay Animations",
+                "func": run_overlay_animation_decisions_for_all_rows,
                 "depends_on": ["Generate Slideshow Manifest"],
                 "args": {
                     "sheet": "sheet",
                     "llm": "gemini_3_flash_thinking",
                     "max_workers": 50,
                 },
-                "estimated_time": "10-30 minutes",
-                "description": "Parses slideshow_manifest scene-by-scene and generates scene_edit_plan output by running the image edit planning agent once per scene with multimodal slot assets.",
-                "delete_func": delete_scene_edit_plan_columns,
-                "delete_args": {
-                    "sheet": "sheet"
-                },
-            },
-        ]
-    },
-    {
-        "section_name": "Section 12: Scene Edit Execution",
-        "steps": [
-            {
-                "name": "Run Scene Edit Execution",
-                "func": run_image_editing_execution_for_all_rows,
-                "depends_on": ["Generate Scene Edit Plan"],
-                "args": {
-                    "sheet": "sheet",
-                    "max_workers": 50,
-                },
-                "estimated_time": "20-120 minutes",
-                "description": "Per instructional slot, runs an edit -> review -> regenerate loop.",
-                "delete_func": delete_image_editing_execution_columns,
-                "delete_args": {
-                    "sheet": "sheet"
-                },
-            },
-        ]
-    },
-    {
-        "section_name": "Section 13: Apply edited images to slideshow manifest",
-        "steps": [
-            {
-                "name": "Apply edited asset URLs to slideshow manifest",
-                "func": run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
-                "depends_on": ["Run Scene Edit Execution"],
-                "args": {
-                    "sheet": "sheet",
-                    "max_workers": 30,
-                },
-                "estimated_time": "1-5 minutes",
-                "description": "Replace the Original Image URLs with the Edited Image URLs in the slideshow_manifest and final_graphics_definition columns",
-                "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
-                "delete_args": {
-                    "sheet": "sheet"
-                },
-            },
-        ]
-    },
-    {
-        "section_name": "Section 14: Hero Overlay Animation Decision",
-        "steps": [
-            {
-                "name": "Decide Hero Overlay Animation",
-                "func": run_hero_animation_decision_for_all_rows,
-                "depends_on": ["Apply edited asset URLs to slideshow manifest"],
-                "args": {
-                    "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
-                    "max_workers": 50,
-                },
                 "estimated_time": "5-20 minutes",
-                "description": "Decides whether the video player should add a short instructional overlay animation on top of the hero images, locates bbox coordinates, and generates icon overlay images",
-                "delete_func": delete_hero_animation_decision_columns,
+                "description": "Decides overlay animations: adds instructional overlays/bbox highlights for hero images, and plans text label overlays symmetrically for multi-visual layouts.",
+                "delete_func": delete_overlay_animation_decisions_columns,
                 "delete_args": {
                     "sheet": "sheet"
                 },
