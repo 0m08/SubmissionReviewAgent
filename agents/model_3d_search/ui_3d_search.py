@@ -433,26 +433,22 @@ def render_3d_model_search_tab(drive=None):  # noqa: C901
                                     unsafe_allow_html=True,
                                 )
 
-                            # ── Hyperlinked Name (bold electric blue with link symbol) ──
+                            # ── Model Title ──
+                            st.markdown(
+                                f"<div style='font-size:0.95rem;font-weight:700;margin:0.5rem 0 0.2rem;"
+                                f"line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' "
+                                f"title='{display_name}'>{display_name}</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                            # ── Links (3D Model Source & Thumbnail) ──
+                            links_html = "<div style='display:flex;flex-wrap:wrap;gap:0.3rem 0.8rem;margin:0.3rem 0;font-size:0.82rem;font-weight:600;'>"
                             if drive_url and drive_url != "#":
-                                st.markdown(
-                                    f"<a href='{drive_url}' target='_blank' rel='noopener noreferrer' "
-                                    f"style='color:#2563eb;font-size:0.95rem;font-weight:700;width:100%;"
-                                    f"text-decoration:none;display:block;margin:0.6rem 0 0.3rem;line-height:1.3;"
-                                    f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' "
-                                    f"onmouseover=\"this.style.color='#1d4ed8';this.style.textDecoration='underline'\" "
-                                    f"onmouseout=\"this.style.color='#2563eb';this.style.textDecoration='none'\" "
-                                    f"title='Open {display_name} in Google Drive'>🔗 {display_name}</a>",
-                                    unsafe_allow_html=True,
-                                )
-                            else:
-                                st.markdown(
-                                    f"<p style='color:#2563eb;font-size:0.95rem;font-weight:700;width:100%;"
-                                    f"margin:0.6rem 0 0.3rem;line-height:1.3;"
-                                    f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' "
-                                    f"title='{display_name}'>{display_name}</p>",
-                                    unsafe_allow_html=True,
-                                )
+                                links_html += f"<a href='{drive_url}' target='_blank' rel='noopener noreferrer' style='color:#2563eb;text-decoration:none;' onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\" title='3D Model Source'>🔗 3D Model Source</a>"
+                            if preview_url:
+                                links_html += f"<a href='{preview_url}' target='_blank' rel='noopener noreferrer' style='color:#2563eb;text-decoration:none;' onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\" title='Thumbnail'>🔗 Thumbnail</a>"
+                            links_html += "</div>"
+                            st.markdown(links_html, unsafe_allow_html=True)
 
             # pad remaining empty columns in last row
             last_row = rows[-1] if rows else []
