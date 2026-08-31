@@ -1,0 +1,20 @@
+{
+  "skills": {
+    "working-with-google-sheets": {
+      "skill_id": "skill_01EbAue3YY2p8AgnsVja4DMr",
+      "version": "1787590354617753",
+      "hash": "1ed75e084c727d9c929e7094ec8bb2d23752c1ca8b9ba6d558ee568e6ee7bfac"
+    },
+    "editing-course-content": {
+      "skill_id": "skill_01PQzGfQ6LHh18EwmAtjPSCA",
+      "version": "1788078675924710",
+      "hash": "1060ecf2c05f1e0e21533cb1de7462467ec829c273b91468f6736349bd35dcc6"
+    }
+  },
+  "sa_file_id": "file_01F1PY5QZUBQHgkKqeEdK8CD",
+  "sa_client_email": "gdrive-for-streamlit@youtube-search-444517.iam.gserviceaccount.com",
+  "environment_id": "env_01NnRHoiaCB8bZtEYYgnxzDq",
+  "agent_id": "agent_014dzS39qRzF5uxwHvAVpJXE",
+  "agent_version": 5,
+  "shared_memory_store_id": "memstore_017nmNYseyX4C1RHr7uWnCi5"
+}
