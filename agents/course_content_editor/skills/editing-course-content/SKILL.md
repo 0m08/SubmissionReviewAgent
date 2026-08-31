@@ -118,50 +118,59 @@ Different SkillCat courses were written (and corrected) in genuinely
 different voices — narrative vs. clinical vs. procedural-imperative, British
 vs. American spelling, some allow meta-narration openers ("In this topic we
 will look at…"), some ban it. Six style guides are available, each extracted
-from that course's manually-corrected slide chunks and backed by verbatim
+from one course's manually-corrected slide chunks and backed by verbatim
 quotes (orthography, sentence/paragraph shape, voice, hooks, transitions,
 titles, formatting, plus 3 full worked examples). **Read the full guide
 before rewriting prose in that voice — don't work from the label alone:**
 
-| File | Label | One-line description |
+**Always refer to a style by its label** ("Direct Trade Explainer," "Trade
+Mentor," etc.) when talking to the user or reasoning out loud about which one
+applies — never by the name of the course it happened to be extracted from.
+The style is what's being reused; the source course is just provenance
+(recorded inside each file for traceability, not a name to speak in). A user
+may still name the source course to point at a style ("write it like the
+Fundamentals course") — recognize that, but answer back using the label.
+
+| Style label | File | One-line description |
 |---|---|---|
-| `references/writing-styles/fundamentals.md` | Guided Walkthrough | Plain, second-person narration that follows a single concrete scenario (a drop of water, a flushed toilet) step by step through a system, using short declarative sentences and almost no formatting. |
-| `references/writing-styles/fixture-components.md` | Direct Trade Explainer | Plain, matter-of-fact prose that walks a technician component-by-component through a fixture, naming trade terms plainly and closing most slides with a forward-pointing "here's what's next" sentence. |
-| `references/writing-styles/hand-tools.md` | Trade Mentor | A working plumber explaining tools to an apprentice — short, plain, third-person "plumbers do X" sentences that open each mini-topic with an everyday scenario or rhetorical question and close it by teeing up the next. |
-| `references/writing-styles/specialty-tools.md` | Scenario-Driven Technician Voice | Short, plain-spoken paragraphs that drop a working plumber into a specific job scenario, then walk them tool-by-tool through what to grab and why, addressed directly as "you." |
-| `references/writing-styles/water-line.md` | Direct-Address Field Guide | Short, single-topic-per-slide prose that speaks to the technician as "you" in the moment of doing the job, moving from a real-world trigger ("when you're servicing...") to the plain fact the technician needs to know. |
-| `references/writing-styles/residential.md` | Plain Sequential Descriptive | Short, plain-spoken, third-person prose that walks through a fixture or component one connection at a time, stitched together with simple sequencing words ("Next," "Then," "Finally," "Because"). |
+| Guided Walkthrough | `references/writing-styles/guided-walkthrough.md` | Plain, second-person narration that follows a single concrete scenario (a drop of water, a flushed toilet) step by step through a system, using short declarative sentences and almost no formatting. |
+| Direct Trade Explainer | `references/writing-styles/direct-trade-explainer.md` | Plain, matter-of-fact prose that walks a technician component-by-component through a fixture, naming trade terms plainly and closing most slides with a forward-pointing "here's what's next" sentence. |
+| Trade Mentor | `references/writing-styles/trade-mentor.md` | A working plumber explaining tools to an apprentice — short, plain, third-person "plumbers do X" sentences that open each mini-topic with an everyday scenario or rhetorical question and close it by teeing up the next. |
+| Scenario-Driven Technician Voice | `references/writing-styles/scenario-driven-technician-voice.md` | Short, plain-spoken paragraphs that drop a working plumber into a specific job scenario, then walk them tool-by-tool through what to grab and why, addressed directly as "you." |
+| Direct-Address Field Guide | `references/writing-styles/direct-address-field-guide.md` | Short, single-topic-per-slide prose that speaks to the technician as "you" in the moment of doing the job, moving from a real-world trigger ("when you're servicing...") to the plain fact the technician needs to know. |
+| Plain Sequential Descriptive | `references/writing-styles/plain-sequential-descriptive.md` | Short, plain-spoken, third-person prose that walks through a fixture or component one connection at a time, stitched together with simple sequencing words ("Next," "Then," "Finally," "Because"). |
 
 **Quick-differentiate cheat sheet** — fastest tells if you're inferring a
-style from a sheet's own untouched slides (step 3 below), cheapest to check
+style from a sheet's own untouched slides (step 4 below), cheapest to check
 first:
 
 - **Curly apostrophes (’) instead of straight (')** → almost certainly
-  `residential.md` — the only one of the six that isn't straight-quote by
-  default.
+  **Plain Sequential Descriptive** — the only one of the six that isn't
+  straight-quote by default.
 - **Numbers spelled out, never digits, even for measurements** →
-  `fundamentals.md`. Every other style uses digits for specs/measurements.
-- **No numbers/measurements at all in the sample** → could be
-  `residential.md` (0 numerals found in its whole corpus) — check for curly
-  apostrophes too before committing.
+  **Guided Walkthrough**. Every other style uses digits for specs/measurements.
+- **No numbers/measurements at all in the sample** → could be **Plain
+  Sequential Descriptive** (0 numerals found in its whole corpus) — check for
+  curly apostrophes too before committing.
 - **Direct "you" address is the *default* voice, not occasional** →
-  `specialty-tools.md` or `water-line.md`. Distinguish by hook style:
-  Specialty drops the reader into a job scenario ("You're installing a new
-  fixture..."); Water Line opens with a servicing-moment trigger ("When
-  you're servicing a residential plumbing system...").
+  **Scenario-Driven Technician Voice** or **Direct-Address Field Guide**.
+  Distinguish by hook style: Scenario-Driven drops the reader into a job
+  scenario ("You're installing a new fixture..."); Direct-Address opens with
+  a servicing-moment trigger ("When you're servicing a residential plumbing
+  system...").
 - **Third-person, semicolons used occasionally to join two independent
-  clauses** → `fixture-components.md` or `hand-tools.md`. Distinguish by
+  clauses** → **Direct Trade Explainer** or **Trade Mentor**. Distinguish by
   whether tool names get a plain-language alias clause on first mention
   ("a basin wrench, also called a sink or faucet wrench") — that's
-  `specialty-tools.md`, not these two. Hand Tools leans more toward
-  trade-wisdom asides/rhetorical questions; Fixture leans more toward plain
-  component-by-component walkthroughs.
+  Scenario-Driven Technician Voice, not these two. Trade Mentor leans more
+  toward trade-wisdom asides/rhetorical questions; Direct Trade Explainer
+  leans more toward plain component-by-component walkthroughs.
 
 **A note on isolated British-spelling slips:** three of the six guides
-(`fundamentals.md`, `residential.md`, `specialty-tools.md`) each
-independently flag exactly *one* stray British spelling ("equalise,"
-"Recognising," "colouring") in an otherwise all-American corpus. That
-repeated single-slip pattern across otherwise-unrelated courses is more
+(Guided Walkthrough, Plain Sequential Descriptive, Scenario-Driven Technician
+Voice) each independently flag exactly *one* stray British spelling
+("equalise," "Recognising," "colouring") in an otherwise all-American corpus.
+That repeated single-slip pattern across otherwise-unrelated courses is more
 consistent with a residual quirk from the *original AI-generated draft*
 leaking through one uncaught sentence than a trait of the human editors who
 corrected the rest — don't read it as house style in any of the three
@@ -170,14 +179,25 @@ guides; default to American spelling regardless.
 **Picking which style applies, in this order:**
 
 1. **The user names one.** If they say "write it like the Fundamentals
-   course" or name a style label, use that — it overrides everything below.
+   course" or name a style label directly ("Direct Trade Explainer"), use
+   that — it overrides everything below.
 2. **Check the per-user memory store** (see Using memory, below) for a
    `/preferred_style.md` memory. If present and the user hasn't overridden it
    this session, use it.
-3. **Infer from the sheet's own untouched slides.** Read a few slides you
-   are *not* editing this turn and compare their orthography/voice/formatting
-   against each style guide's fingerprint. If one is a clear match, use it.
-4. **No confident match:** say so in one sentence, proceed in a neutral
+3. **For slide-chunk work, ask before you start reviewing or editing** if
+   neither 1 nor 2 resolved a style: name the styles table above (labels
+   only) in one short message and ask which one to write in, before you read
+   slide content for the purpose of matching voice. Don't silently infer and
+   proceed — a wrong guess means rewriting later. For research notes this
+   matters far less (notes are rarely rewritten in a specific "voice"), so
+   asking is optional there.
+4. **If the user says "you decide" (or equivalent), or for research-notes
+   work where asking felt unnecessary): infer from the sheet's own untouched
+   slides.** Read a few slides you are *not* editing this turn and compare
+   their orthography/voice/formatting against each style guide's
+   fingerprint. If one is a clear match, use it, and say which one you picked
+   and why in one sentence.
+5. **No confident match:** say so in one sentence, proceed in a neutral
    default voice (match the sheet's own existing tone as closely as you can
    without forcing it into one of the labeled styles), and don't fabricate a
    match — a wrong style guess is worse than no style guess.
