@@ -105,6 +105,78 @@ def save_to_sheet(worksheet, df):
     return
 
 
+@try_n_times(n=5, wait=2, backoff="exponential")
+def update_sheet_row_ranges(worksheet, df, row_indices, columns):
+    """
+    Write only specific rows/columns to a worksheet without rewriting the entire sheet.
+
+    Args:
+        worksheet: gspread Worksheet object
+        df: DataFrame containing the values to write
+        row_indices: Iterable of dataframe row indices to persist
+        columns: Column names to write (must exist in df)
+    """
+    if not row_indices:
+        return
+
+    columns = [col for col in columns if col in df.columns]
+    if not columns:
+        return
+
+    col_pos = {name: idx + 1 for idx, name in enumerate(df.columns)}
+    col_numbers = [col_pos[col] for col in columns]
+    min_col, max_col = min(col_numbers), max(col_numbers)
+    span_cols = [col for col in df.columns if min_col <= col_pos[col] <= max_col]
+
+    existing_header_len = len(worksheet.row_values(1))
+    if len(df.columns) > existing_header_len:
+        header_range = f"{rowcol_to_a1(1, 1)}:{rowcol_to_a1(1, len(df.columns))}"
+        worksheet.update(
+            range_name=header_range,
+            values=[df.columns.astype(str).tolist()],
+            value_input_option="USER_ENTERED",
+        )
+
+    batch_payload = []
+    for row_index in row_indices:
+        sheet_row = int(row_index) + 2
+        row_values = [str(df.at[row_index, col]) for col in span_cols]
+        cell_range = f"{rowcol_to_a1(sheet_row, min_col)}:{rowcol_to_a1(sheet_row, max_col)}"
+        batch_payload.append({"range": cell_range, "values": [row_values]})
+
+    worksheet.batch_update(batch_payload, value_input_option="USER_ENTERED")
+
+
+@try_n_times(n=5, wait=2, backoff="exponential")
+def delete_worksheet_rows(worksheet, row_indices):
+    """
+    Delete data rows from a worksheet by dataframe row index.
+
+    Args:
+        worksheet: gspread Worksheet object
+        row_indices: 0-based dataframe row indices (sheet row = index + 2)
+    """
+    if not row_indices:
+        return
+
+    # API row indices are 0-based; row 0 is the header.
+    api_start_indices = sorted({int(row_index) + 1 for row_index in row_indices}, reverse=True)
+    requests = [
+        {
+            "deleteDimension": {
+                "range": {
+                    "sheetId": worksheet.id,
+                    "dimension": "ROWS",
+                    "startIndex": start_index,
+                    "endIndex": start_index + 1,
+                }
+            }
+        }
+        for start_index in api_start_indices
+    ]
+    worksheet.spreadsheet.batch_update({"requests": requests})
+
+
 _MERGE_SAVE_LOCK = threading.Lock()
 
 
