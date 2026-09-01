@@ -179,7 +179,10 @@ def format_context_block(lo_id: int, topic_name: str, row) -> str:
     """
     subtopic = get_outline_field(row, "subtopic")
     lo = get_outline_field(row, "learning_objectives")
-    rn = get_outline_field(row, "research_notes")
+    # Only the Research Notes body is normalized. Topic/Subtopic/LO are the
+    # write-back identity key and are left byte-exact; commit_context.py
+    # normalizes both sides when matching, so either form resolves.
+    rn = normalize_punctuation(get_outline_field(row, "research_notes"))
 
     parts = [
         f"###LO ID: {lo_id}",
@@ -219,6 +222,34 @@ def build_context_for_topic(topic_name: str, outline_df) -> str:
         for lo_id, (_, row) in enumerate(matches.iterrows())
     ]
     return "\n\n".join(blocks) + "\n"
+
+
+# Curly quotes in source content cannot be reliably reproduced by a model
+# writing an edit tool's old_string — it emits the straight ASCII equivalent,
+# which then matches nothing, making those spans effectively uneditable. The
+# workspace is a working copy, so we normalize quotes on the way in. Applied
+# symmetrically in commit_context.py's identity matching so a normalized
+# workspace block still matches its unnormalized sheet row.
+_PUNCT_MAP = {
+    "‘": "'", "’": "'",   # single curly quotes
+    "‚": "'", "‛": "'",
+    "“": '"', "”": '"',   # double curly quotes
+    "„": '"', "‟": '"',
+    "′": "'", "″": '"',   # prime / double prime
+}
+
+
+def normalize_punctuation(text: str) -> str:
+    """Fold curly quote characters to their straight ASCII equivalents.
+
+    Deliberately leaves em/en dashes, ellipses, degree signs and accented
+    letters alone — those round-trip through an edit tool without trouble.
+    """
+    if not text:
+        return text
+    for src, dst in _PUNCT_MAP.items():
+        text = text.replace(src, dst)
+    return text
 
 
 def slugify(name: str) -> str:

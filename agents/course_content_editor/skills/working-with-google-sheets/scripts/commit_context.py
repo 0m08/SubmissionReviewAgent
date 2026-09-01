@@ -41,7 +41,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from _common import eprint, open_sheet
+from _common import eprint, normalize_punctuation, open_sheet
 
 
 LO_BLOCK_START = re.compile(r"^###LO ID:\s*(.+)$", re.MULTILINE)
@@ -181,18 +181,24 @@ def main() -> int:
 
     # Build the identity index. Verified unique on a live sheet even though
     # (Topic, Subtopic) alone is not.
-    key = list(zip(
-        df[topic_col].astype(str).str.strip(),
-        df[subtopic_col].astype(str).str.strip(),
-        df[lo_col].astype(str).str.strip(),
-    ))
+    # Identity is compared with punctuation normalized on BOTH sides: the
+    # workspace may carry straight quotes where the sheet has curly ones (see
+    # _common.normalize_punctuation), and an identity field must still match.
+    def _k(*parts) -> tuple:
+        return tuple(normalize_punctuation(str(p).strip()) for p in parts)
+
+    key = [_k(t, s_, l) for t, s_, l in zip(
+        df[topic_col].astype(str),
+        df[subtopic_col].astype(str),
+        df[lo_col].astype(str),
+    )]
     index_by_key: dict[tuple, list[int]] = {}
     for i, k in enumerate(key):
         index_by_key.setdefault(k, []).append(i)
 
     matched, unmatched, ambiguous, blanked = 0, [], [], []
     for edit in edits:
-        k = (edit["Topic"].strip(), edit["Subtopic"].strip(), edit["Learning Objective"].strip())
+        k = _k(edit["Topic"], edit["Subtopic"], edit["Learning Objective"])
         rows = index_by_key.get(k)
         if not rows:
             unmatched.append(edit)

@@ -48,13 +48,19 @@ from anthropic.lib import files_from_dir
 
 SKILL_DIR = Path(__file__).parent / "skills"
 CONFIG_PATH = Path(__file__).parent / "managed_agent_config.yaml"
+EDITOR_CONFIG_PATH = Path(__file__).parent / "editor_agent_config.yaml"
 STATE_PATH = Path(__file__).parent / "deploy_state.json"
 
 # dir name under skills/  ->  human-readable title shown in the console.
 SKILLS = {
     "working-with-google-sheets": "Working with Google Sheets (Course Content Editor)",
-    "editing-course-content": "Editing Course Content",
+    "editing-slide-chunks": "Editing Slide Chunks",
+    "editing-research-notes": "Editing Research Notes",
 }
+
+# The editor worker gets only the editing skills — it has no bash tool, so the
+# sheets scripts would be unusable, and omitting them keeps its context narrow.
+EDITOR_SKILLS = ("editing-slide-chunks", "editing-research-notes")
 
 ENVIRONMENT_NAME = "course-content-editor-env"
 
@@ -177,7 +183,7 @@ def ensure_shared_memory_store(client: anthropic.Anthropic, state: dict) -> str:
             "recurring preferences about how slide chunks and research notes should "
             "be written, that apply across all users and courses (not one-off "
             "corrections, and not any single course's writing style — those live in "
-            "the editing-course-content skill's writing-styles reference instead)."
+            "the editing-slide-chunks skill's writing-styles reference instead)."
         ),
     )
     state["shared_memory_store_id"] = store.id
@@ -206,8 +212,10 @@ def ensure_environment(client: anthropic.Anthropic, state: dict) -> str:
     return env.id
 
 
-def ensure_agent(client: anthropic.Anthropic, state: dict, skill_refs: list[dict]) -> str:
-    cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+def _upsert_agent(client: anthropic.Anthropic, state: dict, cfg: dict,
+                  skill_refs: list[dict], id_key: str, version_key: str,
+                  label: str, multiagent: dict | None = None) -> str:
+    """Create or update one agent, tracking its id/version under the given keys."""
     agent_kwargs = dict(
         name=cfg["name"],
         model=cfg["model"],
@@ -216,24 +224,80 @@ def ensure_agent(client: anthropic.Anthropic, state: dict, skill_refs: list[dict
         tools=cfg.get("tools", []),
         skills=skill_refs,
     )
-    # multiagent is optional — only set it if the config declares a roster,
-    # so an agent with none defined doesn't send a spurious null and clear
-    # a roster that was set some other way.
-    if cfg.get("multiagent"):
-        agent_kwargs["multiagent"] = cfg["multiagent"]
-    if state.get("agent_id"):
-        # update() uses optimistic concurrency — it requires the version
-        # being updated FROM, not just the new field values.
+    # multiagent is optional — only set it when there is a roster, so an agent
+    # without one doesn't send a spurious null. The editor must never get one:
+    # roster members cannot themselves delegate.
+    if multiagent:
+        agent_kwargs["multiagent"] = multiagent
+    if state.get(id_key):
+        # update() uses optimistic concurrency — it requires the version being
+        # updated FROM, not just the new field values.
         agent = client.beta.agents.update(
-            state["agent_id"], version=state["agent_version"], **agent_kwargs
+            state[id_key], version=state[version_key], **agent_kwargs
         )
-        print(f"  agent: updated {agent.id} -> version {agent.version}")
+        print(f"  {label}: updated {agent.id} -> version {agent.version}")
     else:
         agent = client.beta.agents.create(**agent_kwargs)
-        state["agent_id"] = agent.id
-        print(f"  agent: created {agent.id}")
-    state["agent_version"] = agent.version
+        state[id_key] = agent.id
+        print(f"  {label}: created {agent.id}")
+    state[version_key] = agent.version
     return agent.id
+
+
+def ensure_editor_agent(client: anthropic.Anthropic, state: dict,
+                        skill_refs: list[dict]) -> str:
+    """The editorial worker rostered by the coordinator.
+
+    It has no bash and no write tool, so it cannot run the commit scripts,
+    cannot hand-roll a Python rewrite of a block file, and cannot replace a
+    file wholesale — the three ways a delegated copy has damaged a workspace
+    or written to the sheet unasked. It has no multiagent block either, so it
+    cannot delegate further.
+    """
+    cfg = yaml.safe_load(EDITOR_CONFIG_PATH.read_text(encoding="utf-8"))
+    by_name = dict(zip(SKILLS, skill_refs))  # upload_skills builds refs in SKILLS order
+    editor_refs = [by_name[name] for name in EDITOR_SKILLS]
+    return _upsert_agent(client, state, cfg, editor_refs,
+                         "editor_agent_id", "editor_agent_version", "editor agent")
+
+
+def ensure_agent(client: anthropic.Anthropic, state: dict, skill_refs: list[dict],
+                 editor_agent_id: str) -> str:
+    cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    multiagent = cfg.get("multiagent")
+    if multiagent:
+        # Resolve the symbolic roster entry "editor" to the agent id built from
+        # editor_agent_config.yaml. Every other entry passes through untouched,
+        # so the YAML stays the single readable source of truth for the roster.
+        resolved = []
+        for entry in multiagent.get("agents", []):
+            resolved.append(editor_agent_id if entry == "editor" else entry)
+        if editor_agent_id not in resolved:
+            print("ERROR: managed_agent_config.yaml multiagent.agents must include "
+                  "'editor'; the coordinator would spawn full-powered copies of "
+                  "itself instead of the restricted editor.", file=sys.stderr)
+            sys.exit(2)
+        multiagent = dict(multiagent, agents=resolved)
+    agent_id = _upsert_agent(client, state, cfg, skill_refs,
+                             "agent_id", "agent_version", "agent",
+                             multiagent=multiagent)
+    # Verify the roster actually landed. A coordinator whose roster silently
+    # degrades to self-only still runs — it just spawns full-powered copies of
+    # itself instead of the narrow editor, which looks like working delegation
+    # in the logs while bypassing every capability restriction the editor has.
+    if multiagent:
+        entries = client.beta.agents.retrieve(agent_id).multiagent.agents
+        # Advisor entries carry {type, model} and no id — skip them here.
+        rostered = {getattr(a, "id", None) for a in entries} - {None}
+        advisors = [getattr(a, "model", None) for a in entries
+                    if getattr(a, "type", None) == "advisor"]
+        if editor_agent_id not in rostered:
+            print(f"ERROR: editor {editor_agent_id} missing from coordinator roster "
+                   f"after update (roster={sorted(rostered)}).", file=sys.stderr)
+            sys.exit(2)
+        print(f"  roster verified: editor + self ({len(rostered)} agents"
+              + (f", advisor={advisors[0]}" if advisors else ", no advisor") + ")")
+    return agent_id
 
 
 def main() -> None:
@@ -267,12 +331,17 @@ def main() -> None:
     ensure_shared_memory_store(client, state)
     save_state(state)
 
-    print("Creating/updating agent...")
-    ensure_agent(client, state, skill_refs)
+    print("Creating/updating editor agent...")
+    editor_agent_id = ensure_editor_agent(client, state, skill_refs)
+    save_state(state)
+
+    print("Creating/updating coordinator agent...")
+    ensure_agent(client, state, skill_refs, editor_agent_id)
     save_state(state)
 
     print("\nDone. Resource IDs:")
     print(f"  agent_id        = {state['agent_id']}")
+    print(f"  editor_agent_id = {state.get('editor_agent_id')}")
     print(f"  environment_id  = {state['environment_id']}")
     print(f"  sa_file_id      = {state.get('sa_file_id') or '(none — set GDRIVE_SA_B64 and re-run)'}")
     print(f"  shared_memory_store_id = {state.get('shared_memory_store_id')}")

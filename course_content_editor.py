@@ -199,6 +199,25 @@ st.markdown(
         word-wrap: break-word;
         width: 50%;
     }
+    /* Whole-topic redline: one row per line, so the per-cell grid of the
+       paragraph table would box every single line. Drop the horizontal
+       rules and tighten the padding — the topic then reads as one
+       continuous document with a single rule down the middle, which is
+       what makes a 40-line topic legible. */
+    .cce-diff-doc td {
+        border: none;
+        border-right: 1px solid var(--cce-rule);
+        padding: 0.1rem 0.7rem;
+    }
+    .cce-diff-doc td:last-child {
+        border-right: none;
+    }
+    /* Topic / Subtopic / [Slide Type] Title lines — the spine of the
+       document view. */
+    .cce-diff-doc .cce-diff-head {
+        font-weight: 650;
+        padding-top: 0.35rem;
+    }
     /* Unchanged paragraph — full-width context row, muted, no color coding. */
     .cce-diff-ctx {
         color: var(--cce-ink-soft);
@@ -913,28 +932,77 @@ def _block_repr(b: dict) -> str:
     return f"{b.get('Slide Type', '')}|{b.get('Slide Chunk Title', '')}|{b.get('Slide Chunk', '')}"
 
 
-def diff_topic_file(before_text: str, after_text: str) -> list[dict]:
-    """Per-block cards where a 1:1 correspondence survives; everything else
-    (merge/split/reorder) becomes one grouped structural card spanning the
-    old block range -> new block range, since there's no clean per-block
-    mapping once blocks are merged."""
-    before_blocks = _parse_topic_blocks(before_text)
-    after_blocks = _parse_topic_blocks(after_text)
-    sm = difflib.SequenceMatcher(
-        None, [_block_repr(b) for b in before_blocks], [_block_repr(b) for b in after_blocks], autojunk=False
-    )
-    cards = []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            continue
-        if tag == "replace" and (i2 - i1) == 1 and (j2 - j1) == 1:
-            cards.append({"kind": "topic_block", "before": before_blocks[i1], "after": after_blocks[j1]})
+def _topic_groups(blocks: list[dict]) -> list[dict]:
+    """Consecutive blocks sharing a Topic, in sheet order. Consecutive, not
+    keyed by name: a renamed topic must still group with its old self, and
+    grouping by name would instead scatter it into a "deleted" and an
+    "added" group."""
+    groups: list[dict] = []
+    for b in blocks:
+        name = b.get("Topic", "")
+        if groups and groups[-1]["topic"] == name:
+            groups[-1]["blocks"].append(b)
         else:
-            cards.append({
-                "kind": "topic_structural",
-                "before": before_blocks[i1:i2],
-                "after": after_blocks[j1:j2],
-            })
+            groups.append({"topic": name, "blocks": [b]})
+    return groups
+
+
+def flatten_topic_group(group: dict) -> str:
+    """One topic rendered as the plain text the diff runs over — topic name,
+    then each slide's subtopic/type/title header followed by its chunk.
+
+    Diffing this flattened form (rather than field-by-field per block) is
+    what the slide-chunks checklist view does, and it's why that view reads
+    well: every kind of edit — a retitled slide, a moved paragraph, a
+    renamed topic or subtopic, a slide split in two — shows up as ordinary
+    line changes in one continuous document, instead of having to be
+    classified into a card type first."""
+    lines = [f"Topic: {group['topic']}"]
+    last_sub = None
+    for b in group["blocks"]:
+        sub = b.get("Subtopic", "")
+        if sub != last_sub:
+            lines += ["", f"Subtopic: {sub}"]
+            last_sub = sub
+        lines += ["", f"[{b.get('Slide Type', '')}] {b.get('Slide Chunk Title', '')}"]
+        lines += b.get("Slide Chunk", "").split("\n")
+    return "\n".join(lines)
+
+
+def diff_topic_file(before_text: str, after_text: str) -> list[dict]:
+    """One card per topic, not per slide.
+
+    Per-slide cards forced every edit into a before/after slide pair, which
+    can't represent the edits that don't map that way — a renamed topic or
+    subtopic, a slide split in two, content moved between slides — and left
+    those rendering as an unreadable "structural change" summary. A topic is
+    the smallest unit that all of those stay inside, so the card is the
+    topic and its body is a full text redline of it.
+
+    Topics are matched between before and after by content similarity (the
+    same order-preserving matcher the paragraph diff uses) so a topic whose
+    name changed still pairs with its original."""
+    before_groups = _topic_groups(_parse_topic_blocks(before_text))
+    after_groups = _topic_groups(_parse_topic_blocks(after_text))
+    before_flat = [flatten_topic_group(g) for g in before_groups]
+    after_flat = [flatten_topic_group(g) for g in after_groups]
+    pairs, _unmatched_old, _unmatched_new = _best_paragraph_matching(before_flat, after_flat, threshold=0.2)
+    pair_map = dict(pairs)
+
+    cards: list[dict] = []
+    ni_cursor = 0
+    for oi, group in enumerate(before_groups):
+        if oi not in pair_map:
+            cards.append({"kind": "topic_group", "before": group, "after": None})
+            continue
+        ni = pair_map[oi]
+        for k in range(ni_cursor, ni):
+            cards.append({"kind": "topic_group", "before": None, "after": after_groups[k]})
+        if before_flat[oi] != after_flat[ni]:
+            cards.append({"kind": "topic_group", "before": group, "after": after_groups[ni]})
+        ni_cursor = ni + 1
+    for k in range(ni_cursor, len(after_groups)):
+        cards.append({"kind": "topic_group", "before": None, "after": after_groups[k]})
     return cards
 
 
@@ -1204,6 +1272,63 @@ def paragraph_diff_html(before: str, after: str) -> str:
     return f'<table class="cce-diff-table"><tbody>{"".join(rows)}</tbody></table>'
 
 
+def text_diff_html(before: str, after: str) -> str:
+    """Side-by-side line redline of two flattened topics: unchanged lines as
+    full-width context, changed line pairs word-highlighted on each side,
+    pure additions/removals in their own column.
+
+    Same shape as compare_text_versions in services/helper_functions.py —
+    the slide-chunks checklist diff — so the two views read alike; the
+    difference is only that this one uses the page's own cce-diff-* styling
+    and the shared word tokenizer."""
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    sm = difflib.SequenceMatcher(None, before_lines, after_lines, autojunk=False)
+    rows = []
+
+    def classes(line: str, base: str) -> str:
+        # The structural lines flatten_topic_group emits (topic name,
+        # subtopic name, the [Type] Title header of each slide) carry the
+        # reader through a topic that can run dozens of lines, so they get
+        # their own weight instead of reading as more body prose.
+        head = line.startswith(("Topic: ", "Subtopic: ", "["))
+        return f"{base} cce-diff-head" if head else base
+
+    def cell(css: str, inner: str, raw: str) -> str:
+        # A visually empty cell still needs a non-breaking space, or the
+        # blank lines that separate slides collapse to zero height and the
+        # two columns drift out of vertical alignment.
+        return f'<td class="{classes(raw, css)}">{inner or "&nbsp;"}</td>'
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for line in before_lines[i1:i2]:
+                rows.append(
+                    f'<tr><td class="{classes(line, "cce-diff-ctx")}" colspan="2">'
+                    f'{html.escape(line) or "&nbsp;"}</td></tr>'
+                )
+        elif tag == "replace":
+            old_lines, new_lines = before_lines[i1:i2], after_lines[j1:j2]
+            for k in range(max(len(old_lines), len(new_lines))):
+                if k < len(old_lines) and k < len(new_lines):
+                    old_html, new_html = _word_diff_pair(old_lines[k], new_lines[k])
+                    rows.append(
+                        f'<tr>{cell("cce-diff-old", old_html, old_lines[k])}'
+                        f'{cell("cce-diff-new", new_html, new_lines[k])}</tr>'
+                    )
+                elif k < len(old_lines):
+                    rows.append(f'<tr>{cell("cce-diff-old", html.escape(old_lines[k]), old_lines[k])}<td></td></tr>')
+                else:
+                    rows.append(f'<tr><td></td>{cell("cce-diff-new", html.escape(new_lines[k]), new_lines[k])}</tr>')
+        elif tag == "delete":
+            for line in before_lines[i1:i2]:
+                rows.append(f'<tr>{cell("cce-diff-old", html.escape(line), line)}<td></td></tr>')
+        elif tag == "insert":
+            for line in after_lines[j1:j2]:
+                rows.append(f'<tr><td></td>{cell("cce-diff-new", html.escape(line), line)}</tr>')
+    return f'<table class="cce-diff-table cce-diff-doc"><tbody>{"".join(rows)}</tbody></table>'
+
+
 def format_topic_block_for_message(b: dict) -> str:
     parts = ["####**Topic:**", b.get("Topic", ""), "####**Subtopic:**", b.get("Subtopic", ""),
               "####**Slide Chunk:**"]
@@ -1404,18 +1529,27 @@ with tab_review:
                             unsafe_allow_html=True,
                         )
 
-                    elif card["kind"] == "topic_block":
-                        b, a = card["before"], card["after"]
+                    elif card["kind"] == "topic_group":
+                        before_g, after_g = card["before"], card["after"]
+                        before_flat = flatten_topic_group(before_g) if before_g else ""
+                        after_flat = flatten_topic_group(after_g) if after_g else ""
+                        before_name = before_g["topic"] if before_g else ""
+                        after_name = after_g["topic"] if after_g else ""
                         badge = (f'<span class="cce-badge cce-badge-{status}">{status}</span>' if status
                                  else '<span class="cce-badge cce-badge-pending">pending</span>')
-                        title_diff = word_diff_html(b.get("Slide Chunk Title", ""), a.get("Slide Chunk Title", ""))
-                        content_diff = paragraph_diff_html(b.get("Slide Chunk", ""), a.get("Slide Chunk", ""))
+                        if not before_g:
+                            label = f'<ins>{html.escape(after_name)}</ins>'
+                            meta = f"New topic · {len(after_g['blocks'])} slides"
+                        elif not after_g:
+                            label = f'<del>{html.escape(before_name)}</del>'
+                            meta = f"Removed topic · {len(before_g['blocks'])} slides"
+                        else:
+                            label = word_diff_html(before_name, after_name)
+                            meta = (f"Topic · {len(before_g['blocks'])} → {len(after_g['blocks'])} slides")
                         st.markdown(
-                            f'<div class="cce-card-label">{title_diff}{badge}</div>'
-                            f'<div class="cce-card-meta">Slide · Topic: {html.escape(b.get("Topic",""))} · '
-                            f'Subtopic: {html.escape(b.get("Subtopic",""))} · '
-                            f'{html.escape(b.get("Slide Type",""))}</div>'
-                            f'<div class="cce-diff-text">{content_diff}</div>',
+                            f'<div class="cce-card-label">{label}{badge}</div>'
+                            f'<div class="cce-card-meta">{html.escape(meta)}</div>'
+                            f'<div class="cce-diff-text">{text_diff_html(before_flat, after_flat)}</div>',
                             unsafe_allow_html=True,
                         )
                         c1, c2, c3 = st.columns([1, 1, 2])
@@ -1423,70 +1557,33 @@ with tab_review:
                             st.session_state.cce_approvals[card_id] = "accepted"
                             st.rerun()
                         if c2.button("Reject", key=f"rej_{card_id}"):
-                            msg = (
-                                f'Revert the slide chunk titled "{a.get("Slide Chunk Title","")}" '
-                                f'(Topic "{b.get("Topic","")}", Subtopic "{b.get("Subtopic","")}") back to exactly '
-                                f'this original block (keep everything else as-is):\n\n{format_topic_block_for_message(b)}'
+                            # Quote the original blocks verbatim rather than
+                            # naming the topic: after a rename the agent has
+                            # no other handle on what the old version was.
+                            original = "\n\n".join(
+                                format_topic_block_for_message(b) for b in (before_g["blocks"] if before_g else [])
                             )
-                            st.session_state.cce_approvals[card_id] = "rejected"
-                            with st.spinner("Reverting…"):
-                                send_turn_blocking(msg, log_action="block_rejected")
-                            st.rerun()
-                        with c3.popover("Request changes"):
-                            note = st.text_area("What should change about this slide?", key=f"note_{card_id}")
-                            if st.button("Send", key=f"sendnote_{card_id}"):
+                            if original:
                                 msg = (
-                                    f'For the slide currently titled "{a.get("Slide Chunk Title","")}" '
-                                    f'(Topic "{b.get("Topic","")}", Subtopic "{b.get("Subtopic","")}"): {note}'
+                                    f'Revert Topic "{after_name or before_name}" back to exactly these original '
+                                    f"blocks, including its original topic name (keep every other topic "
+                                    f"as-is):\n\n{original}"
                                 )
-                                with st.spinner("Working…"):
-                                    send_turn_blocking(msg, log_action="block_change_requested")
-                                st.rerun()
-
-                    elif card["kind"] == "topic_structural":
-                        befores, afters = card["before"], card["after"]
-                        topic_name = (befores[0].get("Topic") if befores else afters[0].get("Topic", "")) if (befores or afters) else ""
-                        subtopic_name = (befores[0].get("Subtopic") if befores else afters[0].get("Subtopic", "")) if (befores or afters) else ""
-                        badge = (f'<span class="cce-badge cce-badge-{status}">{status}</span>' if status
-                                 else '<span class="cce-badge cce-badge-pending">pending</span>')
-                        st.markdown(
-                            f'<div class="cce-card-label">Structural change ({len(befores)} → {len(afters)} slides)'
-                            f'{badge}</div>'
-                            f'<div class="cce-card-meta">Topic: {html.escape(topic_name)} · '
-                            f'Subtopic: {html.escape(subtopic_name)}</div>',
-                            unsafe_allow_html=True,
-                        )
-                        bcol, acol = st.columns(2)
-                        with bcol:
-                            st.caption(f"Before ({len(befores)})")
-                            for b in befores:
-                                st.markdown(f'<div class="cce-diff-text"><del>{html.escape(b.get("Slide Chunk Title",""))}</del></div>',
-                                            unsafe_allow_html=True)
-                        with acol:
-                            st.caption(f"After ({len(afters)})")
-                            for a in afters:
-                                st.markdown(f'<div class="cce-diff-text"><ins>{html.escape(a.get("Slide Chunk Title",""))}</ins></div>',
-                                            unsafe_allow_html=True)
-                        c1, c2, c3 = st.columns([1, 1, 2])
-                        if c1.button("Accept", key=f"acc_{card_id}"):
-                            st.session_state.cce_approvals[card_id] = "accepted"
-                            st.rerun()
-                        if c2.button("Reject", key=f"rej_{card_id}"):
-                            segment = "\n\n".join(format_topic_block_for_message(b) for b in befores) or "(no blocks — this was an insertion)"
-                            msg = (
-                                f'Revert this section of Topic "{topic_name}", Subtopic "{subtopic_name}" back to '
-                                f"exactly these original blocks (keep everything else as-is):\n\n{segment}"
-                            )
+                            else:
+                                msg = (
+                                    f'Remove the topic "{after_name}" you just added — it did not exist in the '
+                                    f"original content. Keep every other topic as-is."
+                                )
                             st.session_state.cce_approvals[card_id] = "rejected"
                             with st.spinner("Reverting…"):
-                                send_turn_blocking(msg, log_action="structural_rejected")
+                                send_turn_blocking(msg, log_action="topic_rejected")
                             st.rerun()
                         with c3.popover("Request changes"):
-                            note = st.text_area("What should change about this section?", key=f"note_{card_id}")
+                            note = st.text_area("What should change in this topic?", key=f"note_{card_id}")
                             if st.button("Send", key=f"sendnote_{card_id}"):
-                                msg = f'For the section of Topic "{topic_name}", Subtopic "{subtopic_name}" you just restructured: {note}'
+                                msg = f'For Topic "{after_name or before_name}": {note}'
                                 with st.spinner("Working…"):
-                                    send_turn_blocking(msg, log_action="structural_change_requested")
+                                    send_turn_blocking(msg, log_action="topic_change_requested")
                                 st.rerun()
 
         if not any_cards:

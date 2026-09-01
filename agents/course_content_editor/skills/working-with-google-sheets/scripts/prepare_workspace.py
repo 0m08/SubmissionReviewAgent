@@ -58,7 +58,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from _common import build_context_for_topic, eprint, open_sheet, slugify
+from _common import (build_context_for_topic, eprint, normalize_punctuation,
+                     open_sheet, slugify)
 
 
 DEFAULT_SOURCE_TAB = "Slide Chunks"
@@ -86,11 +87,14 @@ def _get(row, key):
 
 def format_block(block_id: int, row) -> str:
     """Slide-chunk block text. Unchanged from the trusted checklist skill."""
-    topic = _get(row, "topic")
-    subtopic = _get(row, "subtopic")
-    slide_type = _get(row, "slide_type")
-    title = _get(row, "slide_chunk_title")
-    content = _get(row, "slide_chunk")
+    # normalize_punctuation: curly quotes make a span uneditable by the edit
+    # tool (see _common.normalize_punctuation). commit_workspace.py writes a
+    # fresh tab rather than matching rows, so folding them here is lossless.
+    topic = normalize_punctuation(_get(row, "topic"))
+    subtopic = normalize_punctuation(_get(row, "subtopic"))
+    slide_type = normalize_punctuation(_get(row, "slide_type"))
+    title = normalize_punctuation(_get(row, "slide_chunk_title"))
+    content = normalize_punctuation(_get(row, "slide_chunk"))
 
     parts = [
         f"###Block ID: {block_id}",
