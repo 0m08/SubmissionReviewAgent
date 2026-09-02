@@ -111,6 +111,14 @@ def session_dep(request: Request) -> UserSession:
     return get_current_session(request)
 
 
+@api_router.get("/player-theme")
+def api_player_theme() -> Dict[str, str]:
+    """Course player style variables from human_feedback_app/player_config.py."""
+    from human_feedback_app.player_config_loader import load_player_theme
+
+    return load_player_theme()
+
+
 @api_router.get("/me")
 def api_me(session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
     return {

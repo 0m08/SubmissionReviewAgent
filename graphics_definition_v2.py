@@ -456,13 +456,13 @@ pipeline_sections = [
     #         },
     #     ]
     # },
-    # {
+    #   {
     #     "section_name": "Section 12: Scene Edit Execution",
     #     "steps": [
     #         {
     #             "name": "Run Scene Edit Execution",
     #             "func": run_image_editing_execution_for_all_rows,
-    #             "depends_on": ["Generate Scene Edit Plan"],
+    #             "depends_on": [],
     #             "args": {
     #                 "sheet": "sheet",
     #                 "max_workers": 50,
@@ -482,7 +482,7 @@ pipeline_sections = [
     #         {
     #             "name": "Apply edited asset URLs to slideshow manifest",
     #             "func": run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
-    #             "depends_on": ["Run Scene Edit Execution"],
+    #             "depends_on": [],
     #             "args": {
     #                 "sheet": "sheet",
     #                 "max_workers": 30,

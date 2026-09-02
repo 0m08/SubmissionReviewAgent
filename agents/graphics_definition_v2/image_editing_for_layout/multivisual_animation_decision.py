@@ -1,5 +1,6 @@
 import re
 import traceback
+import threading
 import os
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,18 +24,17 @@ from agents.graphics_definition_v2.review_agent.review_and_revise import (
     is_youtube_url,
 )
 from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
-    make_slot_narration_resolver_from_fgd,
-)
-from agents.graphics_definition_v2.review_agent.layout_revision_agent import (
-    make_agent_scene_preview_image,
+    normalize_when_vo_line,
+    parse_when_vo_assigned_pairs,
+    urls_match_for_graphics_assignment,
 )
 from services.sheets_service import (
     clear_worksheet,
     format_worksheet,
     get_sheet_data_and_df,
+    merge_and_save_columns,
     save_to_sheet,
 )
-from services.smart_progress_bar import SmartProgressBar
 
 load_dotenv()
 
@@ -158,11 +158,6 @@ def _clean_asset_url(url):
     return s
 
 def _make_robust_slot_narration_resolver(fgd_text):
-    from agents.graphics_definition_v2.slideshow_manifest.slideshow_manifest import (
-        parse_when_vo_assigned_pairs,
-        normalize_when_vo_line,
-        urls_match_for_graphics_assignment,
-    )
     pairs = parse_when_vo_assigned_pairs(fgd_text or "")
     # Clean the paired URLs
     cleaned_pairs = []
@@ -249,6 +244,10 @@ def _upload_composed_preview_to_drive(pil_image, drive, slide_title):
     return None
 
 def _append_scene_slots_multimodal_parts(parts, scene, resolver, drive, slide_title=None):
+    from agents.graphics_definition_v2.review_agent.layout_revision_agent import (
+        make_agent_scene_preview_image,
+    )
+
     # Try baking a unified composed layout screenshot first (with the slide title in the image)
     try:
         clean_scene = {**scene, "narration": ""}
@@ -374,6 +373,85 @@ def _extract_xml_tag(text, tag):
     match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else "N/A"
 
+def collect_multivisual_decision_scene_tasks(
+    index, row, course_name, target_audience, drive, llm="gemini_3_flash_thinking"
+):
+    """
+    Build ordered scene specs and async tasks for multi-visual scenes on one row.
+
+    :return: Tuple (ordered_specs, async_tasks, immediate_cell_value).
+    """
+    from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
+        PENDING,
+    )
+
+    manifest_text = str(row.get("slideshow_manifest", "")).strip()
+    if not manifest_text or manifest_text == "nan" or manifest_text.startswith("ERROR:"):
+        return [], [], ""
+
+    scenes = parse_scenes_from_slideshow_manifest(manifest_text)
+    if not scenes:
+        return [], [], "ERROR: No scenes parsed from slideshow_manifest"
+
+    topic_name = str(row.get("Topic", "")).strip()
+    subtopic_name = str(row.get("Subtopic", "")).strip()
+    slide_title = str(row.get("Slide Chunk Title", "")).strip()
+    slide_content = str(row.get("Slide Chunk", "")).strip()
+    slide_type = str(row.get("Slide Type", "")).strip()
+    if slide_type == "nan":
+        slide_type = ""
+    final_graphics_definition = str(row.get("final_graphics_definition", "")).strip()
+
+    ordered_specs = []
+    async_tasks = []
+    for fallback_idx, scene in enumerate(scenes, start=1):
+        scene_id = str(scene.get("id", "")).strip() or str(fallback_idx)
+        if not _is_multivisual_scene(scene):
+            continue
+        ordered_specs.append((fallback_idx, scene_id, PENDING))
+        async_tasks.append(
+            {
+                "phase": "multivisual",
+                "row_index": index,
+                "sort_key": fallback_idx,
+                "scene_id": scene_id,
+                "course_name": course_name,
+                "target_audience": target_audience,
+                "topic_name": topic_name,
+                "subtopic_name": subtopic_name,
+                "slide_type": slide_type,
+                "slide_title": slide_title,
+                "slide_content": slide_content,
+                "final_graphics_definition": final_graphics_definition,
+                "scene": scene,
+                "drive": drive,
+                "llm": llm,
+            }
+        )
+
+    if not ordered_specs:
+        return [], [], ""
+    return ordered_specs, async_tasks, None
+
+
+def worker_multivisual_decision_scene(task):
+    """Run one multi-visual overlay decision scene task."""
+    _, plan_text = generate_multivisual_animation_decision_for_scene(
+        course_name=task["course_name"],
+        target_audience=task["target_audience"],
+        topic_name=task["topic_name"],
+        subtopic_name=task["subtopic_name"],
+        slide_type=task["slide_type"],
+        slide_title=task["slide_title"],
+        slide_content=task["slide_content"],
+        scene=task["scene"],
+        final_graphics_definition=task["final_graphics_definition"],
+        drive=task["drive"],
+        llm=task["llm"],
+    )
+    return task["row_index"], task["sort_key"], task["scene_id"], plan_text
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -446,6 +524,7 @@ def process_multivisual_animation_decision_row(index, row, course_name, target_a
 )
 def run_multivisual_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
     worksheet_name = "Slide Chunks"
+    print("Multi-visual overlay step: starting...")
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
     
     if _PLAN_COLUMN not in df.columns:
@@ -469,59 +548,97 @@ def run_multivisual_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_t
             rows_to_process.append((index, row))
 
     if rows_to_process:
-        print(f"Multi-visual animation decision: processing {len(rows_to_process)} row(s), max_workers={max_workers}")
-        futures_map = {}
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for index, row in rows_to_process:
-                fut = executor.submit(
-                    process_multivisual_animation_decision_row,
-                    index,
-                    row,
-                    course_name,
-                    target_audience,
-                    drive,
-                    llm,
-                )
-                futures_map[fut] = index
+        from agents.graphics_definition_v2.image_editing_for_layout.hero_bbox_spatial import (
+            split_hero_plan_scene_blocks,
+        )
+        from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
+            GLOBAL_API_SEMAPHORE_LIMIT,
+            OverlayStepProgress,
+            build_cached_row_text,
+            execute_nested_row_scene_batch,
+        )
 
-            progress = SmartProgressBar(
-                total_tasks=len(futures_map),
-                description="Multi-visual overlay animation decision",
-                save_interval=5,
+        sheet_lock = threading.Lock()
+
+        def _merge_multivisual_row(row_index, plan_text):
+            if not plan_text:
+                return
+            current_all_plans = str(df.at[row_index, _PLAN_COLUMN]).strip()
+            if (
+                current_all_plans
+                and current_all_plans != "nan"
+                and not current_all_plans.startswith("ERROR:")
+            ):
+                existing_blocks_dict = {
+                    sid: body for sid, body in split_hero_plan_scene_blocks(current_all_plans)
+                }
+                for n_sid, n_body in split_hero_plan_scene_blocks(plan_text):
+                    existing_blocks_dict[n_sid] = n_body
+                merged_text = "\n\n".join(
+                    _scene_block(sid, body)
+                    for sid, body in sorted(existing_blocks_dict.items(), key=lambda x: x[0])
+                )
+                df.at[row_index, _PLAN_COLUMN] = merged_text
+            else:
+                df.at[row_index, _PLAN_COLUMN] = plan_text
+
+        row_jobs = []
+        for index, row in rows_to_process:
+            specs, tasks, immediate = collect_multivisual_decision_scene_tasks(
+                index, row, course_name, target_audience, drive, llm
+            )
+            if immediate is not None:
+                if immediate:
+                    df.at[index, _PLAN_COLUMN] = immediate
+            elif specs:
+                if tasks:
+                    row_jobs.append(
+                        {
+                            "phase": "multivisual",
+                            "row_index": index,
+                            "ordered_specs": specs,
+                            "tasks": tasks,
+                        }
+                    )
+                else:
+                    merged = build_cached_row_text(specs, _scene_block, "")
+                    if merged:
+                        _merge_multivisual_row(index, merged)
+
+        progress = OverlayStepProgress(
+            description="Multi-visual overlay animation decision",
+            save_interval=5,
+        )
+
+        if row_jobs:
+            total_scenes = sum(len(j["tasks"]) for j in row_jobs)
+            progress.add_tasks(total_scenes)
+            print(
+                f"Multi-visual: {total_scenes} scene task(s) in {len(row_jobs)} row(s), "
+                f"row_workers={max_workers}, api_semaphore={GLOBAL_API_SEMAPHORE_LIMIT}"
             )
 
-            for future in as_completed(futures_map):
-                index = futures_map[future]
-                try:
-                    row_index, plan_text = future.result()
-                    if plan_text:
-                        # Safely merge with existing hero animation plan if present
-                        current_all_plans = str(df.at[row_index, _PLAN_COLUMN]).strip()
-                        if current_all_plans and current_all_plans != "nan" and not current_all_plans.startswith("ERROR:"):
-                            # Split blocks of existing plans and overwrite/merge new ones
-                            from agents.graphics_definition_v2.image_editing_for_layout.hero_bbox_spatial import split_hero_plan_scene_blocks
-                            existing_blocks = split_hero_plan_scene_blocks(current_all_plans)
-                            existing_blocks_dict = {sid: body for sid, body in existing_blocks}
-                            
-                            new_blocks = split_hero_plan_scene_blocks(plan_text)
-                            for n_sid, n_body in new_blocks:
-                                existing_blocks_dict[n_sid] = n_body
-                                
-                            merged_text = "\n\n".join(_scene_block(sid, body) for sid, body in sorted(existing_blocks_dict.items(), key=lambda x: x[0]))
-                            df.at[row_index, _PLAN_COLUMN] = merged_text
-                        else:
-                            df.at[row_index, _PLAN_COLUMN] = plan_text
-                    progress.update()
-                    if progress.should_save():
-                        save_to_sheet(ws, df)
-                except Exception as e:
-                    print(f"Multi-visual animation decision future error row {index}: {e}")
-                    progress.update()
+            execute_nested_row_scene_batch(
+                row_jobs=row_jobs,
+                worker_by_phase={"multivisual": worker_multivisual_decision_scene},
+                scene_block_fn=_scene_block,
+                on_row_complete=lambda _phase, row_index, text: _merge_multivisual_row(
+                    row_index, text
+                ),
+                max_row_workers=max_workers,
+                api_semaphore_limit=GLOBAL_API_SEMAPHORE_LIMIT,
+                progress=progress,
+                log_label="Multi-visual",
+                log_every=5,
+                on_checkpoint=lambda: save_to_sheet(ws, df),
+                empty_fallback="",
+                sheet_lock=sheet_lock,
+            )
         save_to_sheet(ws, df)
     else:
-        print("Multi-visual animation decision: no rows to process.")
+        print("Multi-visual: no rows to process.")
     format_worksheet(ws)
-    print("Multi-visual animation decision: complete.")
+    print("Multi-visual overlay step: complete.")
 
 
 def delete_multivisual_animation_decision_columns(sheet):
@@ -552,13 +669,13 @@ def run_overlay_animation_decisions_for_all_rows(sheet, llm="gemini_3_flash_thin
     from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
         run_hero_animation_decision_for_all_rows,
     )
-    print("Running Hero Overlay Animation Decisions...")
+    print("Overlay animation step: starting hero (single-visual) decisions...")
     run_hero_animation_decision_for_all_rows(sheet, llm=llm, max_workers=max_workers)
-    
-    print("Running Multi-Visual Overlay Animation Decisions...")
+
+    print("Overlay animation step: starting multi-visual decisions...")
     run_multivisual_animation_decision_for_all_rows(sheet, llm=llm, max_workers=max_workers)
-    
-    print("Overlay Animation Decisions step complete.")
+
+    print("Overlay animation step: complete.")
 
 
 def delete_overlay_animation_decisions_columns(sheet):

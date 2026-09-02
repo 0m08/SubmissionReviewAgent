@@ -4191,7 +4191,5 @@ def main():
     )
 
 
-if __name__ == "__main__":
-    main()
-else:
+if __name__ in ("__main__", "__page__"):
     main()

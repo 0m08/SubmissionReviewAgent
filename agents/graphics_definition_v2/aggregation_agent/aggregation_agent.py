@@ -2832,9 +2832,17 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
                 or "quota" in error_str.lower()
                 or "quotaExceeded" in error_str
             )
+            is_transient_error = is_quota_error or (
+                "503" in error_str
+                or "UNAVAILABLE" in error_str
+                or "deadline expired" in error_str.lower()
+                or "DEADLINE_EXCEEDED" in error_str
+                or "504" in error_str
+                or "502" in error_str
+            )
 
-            # Only retry quota/transient errors; otherwise raise immediately.
-            if not is_quota_error:
+            # Retry quota and transient server/timeout errors; otherwise raise immediately.
+            if not is_transient_error:
                 raise
 
             # Try to extract retry delay (Google GenAI errors sometimes include retryDelay).
@@ -2875,12 +2883,13 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
                 retry_delay = retry_delay + 1.0
 
             if retries < max_retries - 1:
-                print(f"  ⚠️  Gemini quota/rate limit hit. Waiting {retry_delay:.1f}s before retry {retries + 1}/{max_retries}...")
+                reason = "quota/rate limit" if is_quota_error else "transient API error"
+                print(f"  ⚠️  Gemini {reason}. Waiting {retry_delay:.1f}s before retry {retries + 1}/{max_retries}...")
                 time.sleep(retry_delay)
                 retries += 1
                 continue
             else:
-                print(f"  ❌ Max retries ({max_retries}) exceeded for Gemini quota/rate limit error.")
+                print(f"  ❌ Max retries ({max_retries}) exceeded for Gemini API error.")
                 raise
     try:
         token_usage = extract_token_usage(response)

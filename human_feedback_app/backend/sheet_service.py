@@ -1540,7 +1540,7 @@ def _parse_per_scene_layout_feedback(feedback_str: str) -> Dict[str, str]:
 
 
 def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
-    """Parse hero_animation_plan, multivisual_animation_plan, hero_bbox_coordinates, and hero_icon_overlays from a row and group the parsed specifications by scene_id.
+    """Parse hero overlay plan/coords/icons/callouts/emphasis from a row, grouped by scene_id.
     """
     out = {}
     if row is None:
@@ -1550,6 +1550,8 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
     multivisual_plan_cell = str(row.get("multivisual_animation_plan", "")).strip()
     coords_cell = str(row.get("hero_bbox_coordinates", "")).strip()
     icons_cell = str(row.get("hero_icon_overlays", "")).strip()
+    callouts_cell = str(row.get("hero_callout_overlays", "")).strip()
+    emphasis_cell = str(row.get("hero_emphasis_overlays", "")).strip()
 
     scene_header_re = re.compile(r"---Scene ID:\s*(\S+)---", re.IGNORECASE)
 
@@ -1573,8 +1575,16 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
 
     coords = split_blocks(coords_cell)
     icons = split_blocks(icons_cell)
+    callouts = split_blocks(callouts_cell)
+    emphasis = split_blocks(emphasis_cell)
 
-    scene_ids = set(plans.keys()) | set(coords.keys()) | set(icons.keys())
+    scene_ids = (
+        set(plans.keys())
+        | set(coords.keys())
+        | set(icons.keys())
+        | set(callouts.keys())
+        | set(emphasis.keys())
+    )
 
     def extract_tag(text, tag):
         match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL | re.IGNORECASE)
@@ -1589,16 +1599,41 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
             "labelText": "",
             "bboxHighlights": [],
             "iconOverlays": [],
+            "calloutCards": [],
+            "emphasisMaskUrl": "",
+            "emphasisMode": "darken",
         }
 
         # 1. Parse plan
         p_block = plans.get(sid)
         if p_block:
             atype = extract_tag(p_block, "animation_type").lower()
-            if atype in ("none", "text_label", "bbox_highlight", "icon_overlay"):
+            if atype in (
+                "none",
+                "text_label",
+                "bbox_highlight",
+                "icon_overlay",
+                "callout_card",
+                "emphasis_style",
+            ):
                 scene_data["animationType"] = atype
             if atype == "text_label":
                 scene_data["labelText"] = extract_tag(p_block, "label_text")
+            if atype == "callout_card" and not callouts.get(sid):
+                plan_callouts = []
+                for cb in extract_tags(p_block, "callout"):
+                    header = extract_tag(cb, "header")
+                    body = extract_tag(cb, "body")
+                    if not header and not body:
+                        continue
+                    plan_callouts.append({
+                        "header": header,
+                        "body": body,
+                        "iconConcept": extract_tag(cb, "icon_concept"),
+                        "position": extract_tag(cb, "position") or "center_left",
+                        "url": "",
+                    })
+                scene_data["calloutCards"] = plan_callouts
 
         # 2. Parse coords
         c_block = coords.get(sid)
@@ -1640,6 +1675,48 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
                         "url": url if url.upper() != "N/A" else "",
                     })
             scene_data["iconOverlays"] = icons_list
+
+        # 4. Parse callout cards (enriched overlays with optional icon URLs)
+        co_block = callouts.get(sid)
+        if co_block:
+            callouts_list = []
+            for cb in extract_tags(co_block, "callout"):
+                header = extract_tag(cb, "header")
+                body = extract_tag(cb, "body")
+                if not header and not body:
+                    continue
+                icon_concept = extract_tag(cb, "icon_concept")
+                position = extract_tag(cb, "position") or "center_left"
+                url = extract_tag(cb, "url")
+                callouts_list.append({
+                    "header": header,
+                    "body": body,
+                    "iconConcept": icon_concept,
+                    "position": position,
+                    "url": url if url.upper() != "N/A" else "",
+                })
+            if callouts_list:
+                scene_data["calloutCards"] = callouts_list
+                if scene_data["animationType"] == "none":
+                    scene_data["animationType"] = "callout_card"
+
+        # 5. Parse emphasis mask (full-image PNG: white = subject, black = background)
+        em_block = emphasis.get(sid)
+        if em_block:
+            mask_url = extract_tag(em_block, "mask_url")
+            mode = extract_tag(em_block, "emphasis_mode").lower()
+            if mask_url and mask_url.upper() != "N/A" and not mask_url.upper().startswith("ERROR"):
+                scene_data["emphasisMaskUrl"] = mask_url
+                scene_data["emphasisMode"] = mode if mode in ("darken", "sepia") else "darken"
+                if scene_data["animationType"] == "none":
+                    scene_data["animationType"] = "emphasis_style"
+            elif scene_data["animationType"] == "emphasis_style" and mode in ("darken", "sepia"):
+                scene_data["emphasisMode"] = mode
+
+        if scene_data["animationType"] == "emphasis_style" and not scene_data["emphasisMaskUrl"] and p_block:
+            plan_mode = extract_tag(p_block, "emphasis_mode").lower()
+            if plan_mode in ("darken", "sepia"):
+                scene_data["emphasisMode"] = plan_mode
 
         out[sid] = scene_data
 
@@ -1710,6 +1787,9 @@ def _build_scenes_payload(
                 "labelText": "",
                 "bboxHighlights": [],
                 "iconOverlays": [],
+                "calloutCards": [],
+                "emphasisMaskUrl": "",
+                "emphasisMode": "darken",
             })
             out.append(
                 {
@@ -1724,6 +1804,9 @@ def _build_scenes_payload(
                     "labelText": anim["labelText"],
                     "bboxHighlights": anim["bboxHighlights"],
                     "iconOverlays": anim["iconOverlays"],
+                    "calloutCards": anim["calloutCards"],
+                    "emphasisMaskUrl": anim.get("emphasisMaskUrl", ""),
+                    "emphasisMode": anim.get("emphasisMode", "darken"),
                 }
             )
         return out
@@ -1741,6 +1824,9 @@ def _build_scenes_payload(
             "labelText": "",
             "bboxHighlights": [],
             "iconOverlays": [],
+            "calloutCards": [],
+            "emphasisMaskUrl": "",
+            "emphasisMode": "darken",
         })
         out.append(
             {
@@ -1755,6 +1841,9 @@ def _build_scenes_payload(
                 "labelText": anim["labelText"],
                 "bboxHighlights": anim["bboxHighlights"],
                 "iconOverlays": anim["iconOverlays"],
+                "calloutCards": anim["calloutCards"],
+                "emphasisMaskUrl": anim.get("emphasisMaskUrl", ""),
+                "emphasisMode": anim.get("emphasisMode", "darken"),
             }
         )
     return out

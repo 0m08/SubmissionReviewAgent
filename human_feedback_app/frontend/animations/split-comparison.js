@@ -29,6 +29,34 @@ window.HFSplitComparison = (function () {
     return document.querySelector('[data-player-scene="' + sceneKeyForCue(cue) + '"]');
   }
 
+  function applySlantLayout(cue, enable) {
+    const canvas = getCanvas(cue);
+    if (!canvas) return;
+    if (!enable) {
+      canvas.classList.remove('is-slant-split');
+      canvas.style.removeProperty('--hf-slant-left-clip');
+      canvas.style.removeProperty('--hf-slant-right-clip');
+      return;
+    }
+    const cfg = window.HFSplitSlant && window.HFSplitSlant.config
+      ? window.HFSplitSlant.config()
+      : null;
+    const polys = window.HFSplitSlant && window.HFSplitSlant.computeSlantClipPolygons
+      ? window.HFSplitSlant.computeSlantClipPolygons(cfg || { topXPct: 0.58, bottomXPct: 0.42 })
+      : null;
+    canvas.classList.add('is-slant-split');
+    if (polys) {
+      canvas.style.setProperty('--hf-slant-left-clip', polys.left);
+      canvas.style.setProperty('--hf-slant-right-clip', polys.right);
+    }
+  }
+
+  function isLabelTreatment(treatment) {
+    return treatment === 'label_slide'
+      || treatment === 'label_fade'
+      || treatment === 'label_slant_fade';
+  }
+
   function getSlots(cue) {
     const canvas = getCanvas(cue);
     if (!canvas) return [];
@@ -226,6 +254,14 @@ window.HFSplitComparison = (function () {
       ambientTween.kill();
       ambientTween = null;
     }
+    if (sceneKey) {
+      const canvas = document.querySelector('[data-player-scene="' + sceneKey + '"]');
+      if (canvas) {
+        canvas.classList.remove('is-slant-split');
+        canvas.style.removeProperty('--hf-slant-left-clip');
+        canvas.style.removeProperty('--hf-slant-right-clip');
+      }
+    }
     resetOwnedSlots();
     sceneKey = '';
     lastPartIdx = -1;
@@ -294,6 +330,30 @@ window.HFSplitComparison = (function () {
           break;
         }
 
+        case 'label_slant_fade': {
+          gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
+          gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
+          const slantBadge = slot.querySelector('.hf-player-slot-label-badge');
+          if (slantBadge) {
+            if (idx <= activeIdx) {
+              if (instant) {
+                gsap.set(slantBadge, { autoAlpha: 1 });
+              } else if (idx === activeIdx && !labelEntranceDone[idx]) {
+                gsap.fromTo(slantBadge,
+                  { autoAlpha: 0 },
+                  { autoAlpha: 1, duration: 0.75, ease: 'power2.out', overwrite: 'auto' }
+                );
+                labelEntranceDone[idx] = true;
+              } else {
+                gsap.set(slantBadge, { autoAlpha: 1 });
+              }
+            } else {
+              gsap.set(slantBadge, { autoAlpha: 0 });
+            }
+          }
+          break;
+        }
+
         case 'hold_and_reveal':
           gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
           if (idx < activeIdx) showSpoken(slot);
@@ -318,7 +378,7 @@ window.HFSplitComparison = (function () {
   }
 
   function poseIdle(treatment, slots, partIdx) {
-    if (treatment === 'label_slide' || treatment === 'label_fade') {
+    if (isLabelTreatment(treatment)) {
       slots.forEach(function (slot, idx) {
         gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
         gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
@@ -426,6 +486,8 @@ window.HFSplitComparison = (function () {
 
     const slots = getSlots(cue);
     if (slots.length < 2) return;
+
+    applySlantLayout(cue, treatment === 'label_slant_fade');
 
     const key = sceneKeyForCue(cue);
     const partIdx = cue.partIdx != null ? cue.partIdx : 0;

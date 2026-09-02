@@ -1,75 +1,275 @@
 // treatment-rotator.js
 // Whole-course per-layout animation cycling for the Player.
+// Allowed treatments come from config (layout_anims_* / label_anims_*).
 // Each layout has its own ordered list and counter. Counters advance once per
 // unique scene (not per part). When a list is exhausted, it wraps.
 window.HFTreatmentRotator = (function () {
-  const LISTS = {
-    single_visual_hero: ['zoom_in', 'still', 'center_split'],
+  const FALLBACK_LISTS = {
+    single_visual_hero: ["zoom_in", "still", "center_split"],
     two_item_split_comparison: [
-      'hold_and_reveal',
-      'scale_emphasis',
-      'slide_in',
-      'wipe_reveal',
-      'slide_up',
-      'center_then_split',
+      "hold_and_reveal",
+      "scale_emphasis",
+      "slide_in",
+      "wipe_reveal",
+      "slide_up",
+      "center_then_split",
     ],
-    main_plus_supporting_inset: ['keep_main_reveal', 'inset_slide'],
-    multi_panel_grid: ['scale_emphasis', 'reveal', 'slide_in'],
+    main_plus_supporting_inset: ["keep_main_reveal", "inset_slide"],
+    multi_panel_grid: ["scale_emphasis", "reveal", "slide_in"],
   };
 
-  const TOPIC_TRANSITION_LIST = [
-    'fade_in_right',
-    'fade_in_top_right',
-    'fade_in_bottom_right',
-    'fade_in_only'
+  const FALLBACK_TOPIC = [
+    "fade_in_right",
+    "fade_in_top_right",
+    "fade_in_bottom_right",
+    "fade_in_only",
   ];
 
-  const DEFAULTS = {
-    single_visual_hero: 'zoom_in',
-    two_item_split_comparison: 'hold_and_reveal',
-    main_plus_supporting_inset: 'keep_main_reveal',
-    multi_panel_grid: 'scale_emphasis',
+  const FALLBACK_LABELS = {
+    two_item_split_comparison: ["label_slant_fade", "label_slide", "label_fade"],
+    main_plus_supporting_inset: ["label_slide", "label_fade"],
+    multi_panel_3: ["label_slide_up", "label_fade"],
+    multi_panel_4: ["label_corner_slide", "label_fade"],
   };
 
+  const FALLBACK_CALLOUT = ["callout_slide", "callout_fade"];
+
+  const CONFIG_KEYS = {
+    single_visual_hero: "layout_anims_hero",
+    two_item_split_comparison: "layout_anims_split",
+    main_plus_supporting_inset: "layout_anims_inset",
+    multi_panel_grid: "layout_anims_multi_panel",
+  };
+
+  const LABEL_CONFIG_KEYS = {
+    two_item_split_comparison: "label_anims_split",
+    main_plus_supporting_inset: "label_anims_inset",
+    multi_panel_3: "label_anims_multi_panel_3",
+    multi_panel_4: "label_anims_multi_panel_4",
+  };
+
+  const CALLOUT_POSITIONS = [
+    "top_left",
+    "top_center",
+    "top_right",
+    "center_left",
+    "center",
+    "center_right",
+    "bottom_left",
+    "bottom_center",
+    "bottom_right",
+  ];
+
   let byScene = Object.create(null);
+  let byCallout = Object.create(null);
+  let lastCues = null;
+  let splitLabelReady = true;
+  let onAssignmentsReady = null;
+  let resolveImageUrl = null;
+
+  function themeList(key, fallback) {
+    if (window.HFPlayerTheme && typeof window.HFPlayerTheme.list === "function") {
+      const fromTheme = window.HFPlayerTheme.list(key, (fallback || []).join(", "));
+      if (fromTheme && fromTheme.length) return fromTheme;
+    }
+    return (fallback || []).slice();
+  }
+
+  function resolvedLists() {
+    return {
+      single_visual_hero: themeList(
+        CONFIG_KEYS.single_visual_hero,
+        FALLBACK_LISTS.single_visual_hero
+      ),
+      two_item_split_comparison: themeList(
+        CONFIG_KEYS.two_item_split_comparison,
+        FALLBACK_LISTS.two_item_split_comparison
+      ),
+      main_plus_supporting_inset: themeList(
+        CONFIG_KEYS.main_plus_supporting_inset,
+        FALLBACK_LISTS.main_plus_supporting_inset
+      ),
+      multi_panel_grid: themeList(
+        CONFIG_KEYS.multi_panel_grid,
+        FALLBACK_LISTS.multi_panel_grid
+      ),
+    };
+  }
+
+  function topicList() {
+    return themeList("layout_anims_topic", FALLBACK_TOPIC);
+  }
+
+  function labelListFor(layout, cue) {
+    if (layout === "multi_panel_grid") {
+      const slotCount = (cue && cue.partCount) || 3;
+      if (slotCount === 4) {
+        return themeList(LABEL_CONFIG_KEYS.multi_panel_4, FALLBACK_LABELS.multi_panel_4);
+      }
+      return themeList(LABEL_CONFIG_KEYS.multi_panel_3, FALLBACK_LABELS.multi_panel_3);
+    }
+    if (layout === "two_item_split_comparison") {
+      return themeList(
+        LABEL_CONFIG_KEYS.two_item_split_comparison,
+        FALLBACK_LABELS.two_item_split_comparison
+      );
+    }
+    if (layout === "main_plus_supporting_inset") {
+      return themeList(
+        LABEL_CONFIG_KEYS.main_plus_supporting_inset,
+        FALLBACK_LABELS.main_plus_supporting_inset
+      );
+    }
+    return ["label_fade"];
+  }
+
+  function defaultsFrom(lists) {
+    return {
+      single_visual_hero: lists.single_visual_hero[0] || "zoom_in",
+      two_item_split_comparison: lists.two_item_split_comparison[0] || "hold_and_reveal",
+      main_plus_supporting_inset: lists.main_plus_supporting_inset[0] || "keep_main_reveal",
+      multi_panel_grid: lists.multi_panel_grid[0] || "scale_emphasis",
+    };
+  }
 
   function normalizeTemplate(template) {
-    const t = String(template || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const t = String(template || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
     const aliases = {
-      single_hero: 'single_visual_hero',
-      hero: 'single_visual_hero',
-      two_item_split: 'two_item_split_comparison',
-      split_comparison: 'two_item_split_comparison',
-      main_plus_inset: 'main_plus_supporting_inset',
-      main_plus_supporting: 'main_plus_supporting_inset',
-      main_visual_plus_inset: 'main_plus_supporting_inset',
-      multi_panel: 'multi_panel_grid',
-      grid: 'multi_panel_grid',
+      single_hero: "single_visual_hero",
+      hero: "single_visual_hero",
+      two_item_split: "two_item_split_comparison",
+      split_comparison: "two_item_split_comparison",
+      main_plus_inset: "main_plus_supporting_inset",
+      main_plus_supporting: "main_plus_supporting_inset",
+      main_visual_plus_inset: "main_plus_supporting_inset",
+      multi_panel: "multi_panel_grid",
+      grid: "multi_panel_grid",
     };
     return aliases[t] || t;
   }
 
   function isTopicTransition(cue) {
     if (!cue) return false;
-    if ((cue.slideType || '').trim().toLowerCase() !== 'transition') return false;
-    const t = String(cue.topic || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    const c = String(cue.slideChunk || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    const st = String(cue.slideTitle || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if ((cue.slideType || "").trim().toLowerCase() !== "transition") return false;
+    const t = String(cue.topic || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    const c = String(cue.slideChunk || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    const st = String(cue.slideTitle || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
     return t && (c === t || st === t);
   }
 
   function sceneKey(slideIdx, sceneId) {
-    return String(slideIdx) + ':' + String(sceneId);
+    return String(slideIdx) + ":" + String(sceneId);
   }
 
   function layoutKey(template) {
     const t = normalizeTemplate(template);
-    return LISTS[t] ? t : '';
+    return FALLBACK_LISTS[t] ? t : "";
+  }
+
+  function normalizeCalloutPosition(position) {
+    const pos = String(position || "center_left")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    return CALLOUT_POSITIONS.indexOf(pos) >= 0 ? pos : "center_left";
+  }
+
+  function calloutCardKey(slideIdx, sceneId, cardIdx) {
+    return String(slideIdx) + ":" + String(sceneId) + ":" + String(cardIdx);
+  }
+
+  function calloutList() {
+    return themeList("callout_anims", FALLBACK_CALLOUT);
+  }
+
+  // Per grid position across the course: cycle callout_anims from config.
+  function rebuildCalloutEntrances(cues) {
+    byCallout = Object.create(null);
+    const positionCounts = Object.create(null);
+    const anims = calloutList();
+    const animLen = Math.max(anims.length, 1);
+    CALLOUT_POSITIONS.forEach(function (pos) {
+      positionCounts[pos] = 0;
+    });
+
+    (cues || []).forEach(function (cue) {
+      if (!cue || (cue.animationType || "none") !== "callout_card") return;
+      const cards = cue.calloutCards || [];
+      cards.forEach(function (callout, cardIdx) {
+        const pos = normalizeCalloutPosition(callout && callout.position);
+        positionCounts[pos] += 1;
+        const occurrence = positionCounts[pos];
+        const idx = (occurrence - 1) % animLen;
+        byCallout[calloutCardKey(cue.slideIdx, cue.sceneId, cardIdx)] = {
+          entrance: anims[idx] || "callout_fade",
+          position: pos,
+          occurrence: occurrence,
+        };
+      });
+    });
+  }
+
+  function assignSplitLabelTreatmentsAsync(cues) {
+    if (!window.HFSplitSlant || typeof window.HFSplitSlant.assignSplitLabelScenes !== "function") {
+      splitLabelReady = true;
+      return Promise.resolve([]);
+    }
+    splitLabelReady = false;
+    return window.HFSplitSlant.assignSplitLabelScenes(
+      cues,
+      resolveImageUrl,
+      layoutKey,
+      sceneKey
+    ).then(function (assignments) {
+      (assignments || []).forEach(function (entry) {
+        byScene[entry.key] = {
+          layout: "two_item_split_comparison",
+          treatment: entry.treatment,
+          index: entry.index,
+          occurrence: entry.occurrence,
+        };
+      });
+      splitLabelReady = true;
+      if (typeof onAssignmentsReady === "function") {
+        onAssignmentsReady();
+      }
+      return assignments;
+    }).catch(function () {
+      splitLabelReady = true;
+      if (typeof onAssignmentsReady === "function") {
+        onAssignmentsReady();
+      }
+      return [];
+    });
   }
 
   // Rebuild from player cues in play order. Unique scenes only.
-  function rebuildFromCues(cues) {
+  function rebuildFromCues(cues, options) {
+    lastCues = cues || [];
+    options = options || {};
+    if (typeof options.resolveImageUrl === "function") {
+      resolveImageUrl = options.resolveImageUrl;
+    }
+    if (typeof options.onReady === "function") {
+      onAssignmentsReady = options.onReady;
+    }
     byScene = Object.create(null);
+    rebuildCalloutEntrances(lastCues);
+    const lists = resolvedLists();
+    const topics = topicList();
+    const defaults = defaultsFrom(lists);
     const counters = {
       single_visual_hero: 0,
       two_item_split_comparison: 0,
@@ -83,20 +283,21 @@ window.HFTreatmentRotator = (function () {
     };
     const seen = Object.create(null);
 
-    const topicStartIndex = Math.floor(Math.random() * 4);
+    const topicLen = Math.max(topics.length, 1);
+    const topicStartIndex = Math.floor(Math.random() * topicLen);
     let topicTransitionCounter = 0;
 
-    (cues || []).forEach(function (cue) {
+    lastCues.forEach(function (cue) {
       if (!cue) return;
       const key = sceneKey(cue.slideIdx, cue.sceneId);
       if (seen[key]) return;
       seen[key] = true;
 
       if (isTopicTransition(cue)) {
-        const idx = (topicStartIndex + topicTransitionCounter) % 4;
+        const idx = (topicStartIndex + topicTransitionCounter) % topicLen;
         byScene[key] = {
-          layout: 'topic_transition',
-          treatment: TOPIC_TRANSITION_LIST[idx],
+          layout: "topic_transition",
+          treatment: topics[idx] || FALLBACK_TOPIC[0],
           index: idx,
           occurrence: topicTransitionCounter,
         };
@@ -104,32 +305,40 @@ window.HFTreatmentRotator = (function () {
         return;
       }
 
-      const layout = layoutKey(cue.sceneTemplate || '');
+      const layout = layoutKey(cue.sceneTemplate || "");
       if (!layout) return;
 
-      const animType = cue.animationType || 'none';
-      if (layout === 'single_visual_hero' && animType !== 'none') {
+      const animType = cue.animationType || "none";
+      if (layout === "single_visual_hero" && animType !== "none") {
         byScene[key] = {
           layout: layout,
-          treatment: 'still',
+          treatment: "still",
           index: -1,
           occurrence: -1,
         };
         return;
       }
 
-      if (animType === 'text_label' && (layout === 'two_item_split_comparison' || layout === 'main_plus_supporting_inset' || layout === 'multi_panel_grid')) {
-        let labelList;
-        if (layout === 'multi_panel_grid') {
-          const slotCount = cue.partCount || 3;
-          if (slotCount === 4) {
-            labelList = ['label_corner_slide', 'label_fade'];
-          } else {
-            labelList = ['label_slide_up', 'label_fade'];
-          }
-        } else {
-          labelList = ['label_slide', 'label_fade'];
-        }
+      if (
+        animType === "text_label" &&
+        layout === "two_item_split_comparison"
+      ) {
+        byScene[key] = {
+          layout: layout,
+          treatment: "label_fade",
+          index: -1,
+          occurrence: -1,
+          pendingSplitLabel: true,
+        };
+        return;
+      }
+
+      if (
+        animType === "text_label" &&
+        (layout === "main_plus_supporting_inset" ||
+          layout === "multi_panel_grid")
+      ) {
+        const labelList = labelListFor(layout, cue);
         const idx = labelCounters[layout] % labelList.length;
         byScene[key] = {
           layout: layout,
@@ -141,7 +350,17 @@ window.HFTreatmentRotator = (function () {
         return;
       }
 
-      const list = LISTS[layout];
+      const list = lists[layout];
+      if (!list || !list.length) {
+        byScene[key] = {
+          layout: layout,
+          treatment: defaults[layout] || "off",
+          index: 0,
+          occurrence: counters[layout],
+        };
+        counters[layout] += 1;
+        return;
+      }
       const idx = counters[layout] % list.length;
       byScene[key] = {
         layout: layout,
@@ -151,6 +370,12 @@ window.HFTreatmentRotator = (function () {
       };
       counters[layout] += 1;
     });
+
+    assignSplitLabelTreatmentsAsync(lastCues);
+  }
+
+  function reloadLists() {
+    if (lastCues) rebuildFromCues(lastCues);
   }
 
   function getEntry(cue) {
@@ -162,13 +387,13 @@ window.HFTreatmentRotator = (function () {
     const entry = getEntry(cue);
     if (entry) return entry.treatment;
     const layout = layoutKey(cue && cue.sceneTemplate);
-    if (layout && cue && cue.animationType === 'text_label') {
-      if (layout === 'multi_panel_grid') {
-        return (cue.partCount === 4) ? 'label_corner_slide' : 'label_slide_up';
-      }
-      return 'label_slide';
+    if (layout && cue && cue.animationType === "text_label") {
+      const labelList = labelListFor(layout, cue);
+      return labelList[0] || "label_fade";
     }
-    return layout ? DEFAULTS[layout] : 'off';
+    const lists = resolvedLists();
+    const defaults = defaultsFrom(lists);
+    return layout ? defaults[layout] : "off";
   }
 
   function getLayout(cue) {
@@ -179,16 +404,43 @@ window.HFTreatmentRotator = (function () {
 
   function treatmentsFor(layout) {
     const key = layoutKey(layout);
-    return key ? LISTS[key].slice() : [];
+    if (!key) return [];
+    return resolvedLists()[key].slice();
+  }
+
+  function getCalloutEntrance(cue, cardIdx) {
+    if (!cue) {
+      return { entrance: "callout_fade", position: "center_left", occurrence: 0 };
+    }
+    const key = calloutCardKey(cue.slideIdx, cue.sceneId, cardIdx);
+    if (byCallout[key]) return byCallout[key];
+    const pos = normalizeCalloutPosition(
+      cue.calloutCards &&
+        cue.calloutCards[cardIdx] &&
+        cue.calloutCards[cardIdx].position
+    );
+    const anims = calloutList();
+    return { entrance: anims[0] || "callout_fade", position: pos, occurrence: 1 };
+  }
+
+  function isSplitLabelReady() {
+    return splitLabelReady;
   }
 
   return {
     rebuildFromCues: rebuildFromCues,
+    reloadLists: reloadLists,
+    isSplitLabelReady: isSplitLabelReady,
     getTreatment: getTreatment,
     getLayout: getLayout,
     getEntry: getEntry,
+    getCalloutEntrance: getCalloutEntrance,
+    calloutList: calloutList,
+    normalizeCalloutPosition: normalizeCalloutPosition,
     treatmentsFor: treatmentsFor,
     normalizeTemplate: normalizeTemplate,
-    LISTS: LISTS,
+    get LISTS() {
+      return resolvedLists();
+    },
   };
 })();

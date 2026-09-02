@@ -11,7 +11,6 @@ from langsmith import traceable
 from PIL import Image, ImageDraw, ImageFont
 
 from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
-    invoke_gemini_multimodal,
     load_image_from_url,
 )
 from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
@@ -25,12 +24,14 @@ from agents.graphics_definition_v2.image_editing_for_layout.image_edit_planning 
     parse_scenes_from_slideshow_manifest,
 )
 from agents.graphics_definition_v2.review_agent.review_and_revise import (
-    build_visual_part_only,
+    invoke_gemini_multimodal,
 )
 from services.sheets_service import save_to_sheet
 from services.smart_progress_bar import SmartProgressBar
 
 load_dotenv()
+
+_MAX_SPATIAL_REVIEW_ROUNDS = 3
 
 hero_bbox_spatial_prompt = """You are a spatial localization model. Locate regions in the provided still image.
 
@@ -39,7 +40,7 @@ Return bounding boxes for each listed target. Coordinates use Gemini spatial und
 - Each value is an integer from 0 to 1000, normalized to the image height and width
 - ymin < ymax and xmin < xmax
 - The box must tightly enclose only the described target
-- CRITICAL: Bounding boxes for different targets must NEVER overlap or intersect with each other. Keep them entirely distinct.
+- CRITICAL: Bounding boxes for different targets must NEVER overlap, intersect, or touch each other. Do not let two boxes share a common edge or corner (e.g. one box's right edge flush against another's left edge). Leave a visible gap between every pair of boxes.
 
 Targets (in order):
 
@@ -58,21 +59,28 @@ Please carefully inspect the overlaid orange boxes and identify any mistakes:
 1. Incorrect placement: Is the orange box off-target, misaligned, or not tightly enclosing the correct object?
 2. Size issues: Is the orange box extremely small (resembling a thin horizontal or vertical line instead of a box)?
 3. Interference: Are the orange boxes overlapping or intersecting each other? Each target's box must be entirely separate.
-4. Edge/Corner clipping: Is the orange box touching the slide's edges or corners awkwardly? Ensure the box fits cleanly.
+4. Touching / shared edges: Do any two orange boxes share a common side or corner (flush adjacency with no gap)? Even without overlap, edge-to-edge contact makes boxes look merged. Separate them with clear space between every pair.
+5. Edge/Corner clipping: Is the orange box touching the slide's edges or corners awkwardly? Ensure the box fits cleanly.
 
-Based on your review, output a revised, highly accurate set of bounding boxes that perfectly, tightly, and cleanly encloses ONLY the described targets.
+If ALL orange boxes pass every checklist item above, output ONLY:
+{{"action": "keep"}}
+
+If ANY checklist item fails for any box, output:
+{{"action": "revise", "boxes": [{{"index": 1, "box_2d": [ymin, xmin, ymax, xmax], "label": "short name"}}, ...]}}
+
+Rules for revise:
 - box_2d is [ymin, xmin, ymax, xmax]
 - Each value is an integer from 0 to 1000, normalized to the image height and width
 - ymin < ymax and xmin < xmax
-- CRITICAL: Bounding boxes for different targets must NEVER overlap or intersect with each other. Keep them entirely distinct.
+- One object per target, same order as the targets list
+- CRITICAL: Bounding boxes for different targets must NEVER overlap, intersect, or touch each other. Keep them entirely distinct.
+- Do NOT revise if all boxes already look correct — prefer "keep" to avoid unnecessary changes.
 
 Targets (in order):
 
 {targets_block}
 
-Output a JSON array only. One object per target, same order, no markdown fences, no extra keys besides index, box_2d, and label:
-
-[{{"index": 1, "box_2d": [ymin, xmin, ymax, xmax], "label": "short name"}}, ...]
+Output JSON only — no markdown fences.
 """
 
 
@@ -144,6 +152,25 @@ def draw_bboxes_on_image(pil_img, boxes):
         draw.text((badge_left + 4, badge_top + 2), label_text, fill=(255, 255, 255), font=font)
         
     return draw_img
+
+
+def _pil_to_jpeg_part(pil_image):
+    """Encode a PIL image as a Gemini JPEG inline Part."""
+    buffered = BytesIO()
+    pil_image.convert("RGB").save(buffered, format="JPEG")
+    return types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=buffered.getvalue()))
+
+
+def _bbox_review_prompt_text(refine_prompt, review_round):
+    """Review prompt for one in-chat review round."""
+    if review_round <= 1:
+        return refine_prompt
+    return (
+        f"Review round {review_round} of {_MAX_SPATIAL_REVIEW_ROUNDS}. "
+        "The attached image shows your latest orange box overlay after your previous revision.\n\n"
+        f"{refine_prompt}"
+    )
+
 
 _SCENE_HEADER_RE = re.compile(r"---Scene ID:\s*(\S+)---", re.IGNORECASE)
 _ANIMATION_TYPE_RE = re.compile(
@@ -291,6 +318,57 @@ def parse_spatial_boxes_json(response_text, expected_count):
     return boxes
 
 
+_REFINE_KEEP_ACTIONS = frozenset(
+    {"keep", "pass", "approve", "ok", "accept", "no_change", "unchanged"}
+)
+
+
+def parse_spatial_refine_response(response_text, expected_count, first_pass_boxes):
+    """
+    Parse pass-2 bbox review JSON (keep vs revise).
+
+    :return: Tuple of (boxes list, kept_pass1 bool).
+    """
+    if not response_text:
+        return first_pass_boxes, True
+
+    text = str(response_text).strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+
+    obj_match = re.search(r"\{.*\}", text, re.DOTALL)
+    if obj_match:
+        try:
+            payload = json.loads(obj_match.group(0))
+            if isinstance(payload, dict):
+                action = str(payload.get("action", "")).lower().strip()
+                if action in _REFINE_KEEP_ACTIONS:
+                    return first_pass_boxes, True
+                if action == "revise":
+                    boxes_raw = payload.get("boxes") or payload.get("objects")
+                    if boxes_raw is not None:
+                        revised = parse_spatial_boxes_json(
+                            json.dumps(boxes_raw), expected_count
+                        )
+                        final_boxes = []
+                        for b1, b2 in zip(first_pass_boxes, revised):
+                            final_boxes.append(b2 if b2 is not None else b1)
+                        return final_boxes, False
+                    return first_pass_boxes, True
+        except json.JSONDecodeError:
+            pass
+
+    # Legacy: bare JSON array means revise
+    revised = parse_spatial_boxes_json(response_text, expected_count)
+    if any(b is not None for b in revised):
+        final_boxes = []
+        for b1, b2 in zip(first_pass_boxes, revised):
+            final_boxes.append(b2 if b2 is not None else b1)
+        return final_boxes, False
+    return first_pass_boxes, True
+
+
 def _format_highlights_xml(highlights, boxes):
     """
     Build the sheet XML for one bbox scene.
@@ -327,8 +405,10 @@ def _format_highlights_xml(highlights, boxes):
 )
 def generate_hero_bbox_coordinates_for_scene(scene_id, asset_url, highlights, drive, llm="gemini_3_flash_thinking"):
     """
-    Locate bbox_highlight targets on one hero still using Gemini spatial understanding,
-    with an automatic "+1 prompt" self-correction overlay refinement loop.
+    Locate bbox_highlight targets on one hero still using one multi-turn Gemini chat.
+
+    Turn 1: locate boxes on the original still.
+    Turns 2–4: up to three in-chat review rounds (keep → exit; revise → update overlay).
 
     :param scene_id: Scene id from slideshow_manifest.
     :param asset_url: Final hero image URL.
@@ -340,58 +420,108 @@ def generate_hero_bbox_coordinates_for_scene(scene_id, asset_url, highlights, dr
     target_lines = []
     for i, highlight in enumerate(highlights, start=1):
         target_lines.append(f"{i}. {highlight['target_description']}")
-    
+
     targets_block_text = "\n".join(target_lines)
     prompt_text = hero_bbox_spatial_prompt.format(targets_block=targets_block_text)
+    refine_prompt = hero_bbox_spatial_refine_prompt.format(targets_block=targets_block_text)
 
-    # 1. Load original image
     pil_image = load_image_from_url(asset_url, drive, "candidate")
     if not pil_image:
         raise ValueError(f"Failed to load hero image for spatial locate, scene {scene_id}: {asset_url}")
 
-    buffered_orig = BytesIO()
-    pil_image.convert("RGB").save(buffered_orig, format="JPEG")
-    visual_part_orig = types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=buffered_orig.getvalue()))
+    conversation_history = None
 
-    # First pass LLM call
-    parts_pass1 = []
-    parts_pass1.append(types.Part(text=f"Hero image URL: {asset_url}\n"))
-    parts_pass1.append(visual_part_orig)
-    parts_pass1.append(types.Part(text=prompt_text))
+    # print("\n" + "=" * 80)
+    # print(f"📍 HERO BBOX SPATIAL — Scene {scene_id} — CHAT TURN 1 (locate)")
+    # print("=" * 80)
+    # print("📝 FORMATTED PROMPT")
+    # print("-" * 80)
+    # print(prompt_text)
+    # print("-" * 80)
 
-    response_text_pass1 = invoke_gemini_multimodal(parts_pass1, llm=llm, temperature=0.1)
-    first_pass_boxes = parse_spatial_boxes_json(response_text_pass1, len(highlights))
+    locate_parts = [
+        types.Part(text=f"Hero image URL: {asset_url}\n"),
+        _pil_to_jpeg_part(pil_image),
+        types.Part(text=prompt_text),
+    ]
+    response_text, conversation_history = invoke_gemini_multimodal(
+        locate_parts,
+        llm=llm,
+        temperature=0.1,
+        conversation_history=conversation_history,
+    )
 
-    # If any box is generated, run the self-correcting refinement pass (the "+1 prompt" approach)
-    if any(b is not None for b in first_pass_boxes):
-        try:
-            # 2. Annotate the image with first pass boxes
-            annotated_img = draw_bboxes_on_image(pil_image, first_pass_boxes)
-            buffered_annotated = BytesIO()
-            annotated_img.convert("RGB").save(buffered_annotated, format="JPEG")
-            visual_part_annotated = types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=buffered_annotated.getvalue()))
+    # print("🤖 MODEL RESPONSE (turn 1 / locate)")
+    # print("-" * 80)
+    # print(response_text or "")
+    # print("=" * 80 + "\n")
 
-            # Second pass LLM call (the self-correcting "+1 prompt")
-            refine_prompt = hero_bbox_spatial_refine_prompt.format(targets_block=targets_block_text)
-            parts_pass2 = []
-            parts_pass2.append(types.Part(text=f"Hero image URL: {asset_url}\n"))
-            parts_pass2.append(visual_part_annotated)
-            parts_pass2.append(types.Part(text=refine_prompt))
+    current_boxes = parse_spatial_boxes_json(response_text, len(highlights))
+    if not any(b is not None for b in current_boxes):
+        return _format_highlights_xml(highlights, current_boxes)
 
-            response_text_pass2 = invoke_gemini_multimodal(parts_pass2, llm=llm, temperature=0.1)
-            second_pass_boxes = parse_spatial_boxes_json(response_text_pass2, len(highlights))
-            
-            # Merge or fall back: if second pass succeeded, use it, otherwise keep first pass
-            final_boxes = []
-            for b1, b2 in zip(first_pass_boxes, second_pass_boxes):
-                final_boxes.append(b2 if b2 is not None else b1)
-                
-            return _format_highlights_xml(highlights, final_boxes)
-        except Exception as err:
-            print(f"Warning: Self-correction refinement failed for scene {scene_id}, falling back to first-pass boxes. Error: {err}")
-            traceback.print_exc()
+    try:
+        for review_round in range(1, _MAX_SPATIAL_REVIEW_ROUNDS + 1):
+            annotated_img = draw_bboxes_on_image(pil_image, current_boxes)
+            review_text = _bbox_review_prompt_text(refine_prompt, review_round)
+            review_parts = [
+                types.Part(
+                    text=(
+                        f"Hero image URL: {asset_url}\n"
+                        f"Review round {review_round} of {_MAX_SPATIAL_REVIEW_ROUNDS}. "
+                        "Orange boxes show your current result.\n"
+                    )
+                ),
+                _pil_to_jpeg_part(annotated_img),
+                types.Part(text=review_text),
+            ]
 
-    return _format_highlights_xml(highlights, first_pass_boxes)
+            # print("\n" + "=" * 80)
+            # print(
+            #     f"🔎 HERO BBOX SPATIAL — Scene {scene_id} — "
+            #     f"CHAT TURN {review_round + 1} (review {review_round}/{_MAX_SPATIAL_REVIEW_ROUNDS})"
+            # )
+            # print("=" * 80)
+            # print("📝 FORMATTED PROMPT")
+            # print("-" * 80)
+            # print(review_text)
+            # print("-" * 80)
+
+            review_response, conversation_history = invoke_gemini_multimodal(
+                review_parts,
+                llm=llm,
+                temperature=0.1,
+                conversation_history=conversation_history,
+            )
+
+            # print(f"🤖 MODEL RESPONSE (review round {review_round})")
+            # print("-" * 80)
+            # print(review_response or "")
+            # print("=" * 80 + "\n")
+
+            revised_boxes, kept = parse_spatial_refine_response(
+                review_response, len(highlights), current_boxes
+            )
+            current_boxes = revised_boxes
+            if kept:
+                print(
+                    f"✅ Scene {scene_id}: review round {review_round} — keep (exit chat)."
+                )
+                break
+            print(f"🔄 Scene {scene_id}: review round {review_round} — revise.")
+            if review_round >= _MAX_SPATIAL_REVIEW_ROUNDS:
+                print(
+                    f"ℹ️ Scene {scene_id}: max review rounds ({_MAX_SPATIAL_REVIEW_ROUNDS}) "
+                    "reached — using latest boxes as final (no further review)."
+                )
+    except Exception as err:
+        print(
+            f"Warning: Bbox in-chat review failed for scene {scene_id}, "
+            f"using best boxes so far. Error: {err}"
+        )
+        traceback.print_exc()
+
+    return _format_highlights_xml(highlights, current_boxes)
 
 
 @traceable(
@@ -403,6 +533,70 @@ def generate_hero_bbox_coordinates_for_scene(scene_id, asset_url, highlights, dr
         "user_email": st.session_state.get("user_email", "anonymous"),
     }
 )
+def collect_bbox_scene_tasks(index, row, llm):
+    """
+    Build ordered scene specs and async tasks for bbox_highlight scenes on one row.
+
+    :return: Tuple (ordered_specs, async_tasks, immediate_cell_value).
+    """
+    from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
+        PENDING,
+    )
+
+    plan_text = str(row.get(_PLAN_COLUMN, "")).strip()
+    if not plan_text or plan_text == "nan" or plan_text == "-":
+        return [], [], "-"
+    if plan_text.startswith("ERROR:"):
+        return [], [], f"ERROR: plan not ready ({plan_text[:80]})"
+
+    scenes = parse_scenes_from_slideshow_manifest(str(row.get("slideshow_manifest", "")).strip())
+    scene_by_id = {str(sc.get("id", "")).strip(): sc for sc in scenes}
+
+    ordered_specs = []
+    async_tasks = []
+    any_bbox = False
+    for sort_key, (scene_id, block) in enumerate(split_hero_plan_scene_blocks(plan_text), start=1):
+        highlights = parse_bbox_highlights_from_plan_block(block)
+        if not highlights:
+            continue
+        any_bbox = True
+        scene = scene_by_id.get(scene_id)
+        asset_url = _hero_primary_asset_url(scene) if scene else ""
+        if not asset_url:
+            ordered_specs.append((sort_key, scene_id, "ERROR: Missing primary_visual URL"))
+            continue
+        if _is_video_asset_url(asset_url):
+            continue
+        ordered_specs.append((sort_key, scene_id, PENDING))
+        async_tasks.append(
+            {
+                "phase": "spatial",
+                "row_index": index,
+                "sort_key": sort_key,
+                "scene_id": scene_id,
+                "asset_url": asset_url,
+                "highlights": highlights,
+                "llm": llm,
+            }
+        )
+
+    if not any_bbox:
+        return [], [], "-"
+    return ordered_specs, async_tasks, None
+
+
+def worker_bbox_scene(task):
+    """Run one bbox spatial scene task."""
+    inner = generate_hero_bbox_coordinates_for_scene(
+        scene_id=task["scene_id"],
+        asset_url=task["asset_url"],
+        highlights=task["highlights"],
+        drive=task["drive"],
+        llm=task["llm"],
+    )
+    return task["row_index"], task["sort_key"], task["scene_id"], inner
+
+
 def process_hero_bbox_spatial_row(index, row, drive, llm="gemini_3_flash_thinking"):
     """
     Fill bbox coordinates for bbox_highlight scenes on one Slide Chunks row.

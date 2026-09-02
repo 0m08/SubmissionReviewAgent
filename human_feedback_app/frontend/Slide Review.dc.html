@@ -3,17 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/static/load-config.js?v=31"></script>
 <script src="/static/review-api.js?v=8"></script>
 <script src="/static/youtube-player.js?v=14"></script>
-<script src="/static/player.js?v=24"></script>
+<script src="/static/player.js?v=26"></script>
 <script src="/static/support.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="/static/animations/hero-stills.js?v=6"></script>
-<script src="/static/animations/split-comparison.js?v=16"></script>
+<script src="/static/animations/hero-stills.js?v=47"></script>
+<script src="/static/animations/split-slant-eligibility.js?v=1"></script>
+<script src="/static/animations/split-comparison.js?v=17"></script>
 <script src="/static/animations/main-inset.js?v=8"></script>
 <script src="/static/animations/multi-panel-grid.js?v=3"></script>
 <script src="/static/animations/scene-transitions.js?v=1"></script>
-<script src="/static/animations/treatment-rotator.js?v=8"></script>
+<script src="/static/animations/treatment-rotator.js?v=12"></script>
 <script src="/static/animations/index.js?v=8"></script>
 </head>
 <body>
@@ -21,10 +23,44 @@
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Open+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
+  :root {
+    --hf-slide-title-font: 'Fira Sans', system-ui, sans-serif;
+    --hf-slide-title-font-weight: 800;
+    --hf-slide-title-font-size: 15px;
+    --hf-slide-title-text-color: #f35a1f;
+    --hf-slide-title-bg: rgba(255, 255, 255, 0.8);
+    --hf-slide-title-accent: #ff5a17;
+    --hf-slide-title-chip-width: 42px;
+    --hf-slide-title-height: 32px;
+    --hf-slide-title-radius: 0;
+    --hf-slide-title-padding: 0 12px 0 10px;
+    --hf-slide-title-shadow: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.05));
+    --hf-slide-title-blur: 4px;
+    --hf-caption-font: "Open Sans", Helvetica, Arial, sans-serif;
+    --hf-caption-font-weight: 400;
+    --hf-caption-font-size: 13px;
+    --hf-caption-text-color: #ffffff;
+    --hf-caption-bg: #31373a;
+    --hf-caption-radius: 4px;
+    --hf-caption-padding: 10px;
+    --hf-caption-max-width: 60%;
+    --hf-caption-line-height: 1.5;
+    --hf-caption-text-shadow: -1px 0 #000, 0 1px #000, 1px 0 #000, 0 -1px #000;
+    --hf-player-chrome-font: Arial, Helvetica, sans-serif;
+    --hf-player-nav-font-weight: 800;
+    --hf-player-nav-font-size: 12px;
+    --hf-player-nav-text-color: #ffffff;
+    --hf-player-speed-title-font-weight: 700;
+    --hf-player-speed-title-font-size: 16px;
+    --hf-player-speed-title-text-color: #ececec;
+    --hf-player-speed-option-font-weight: 500;
+    --hf-player-speed-option-font-size: 15px;
+    --hf-player-speed-option-text-color: #ffffff;
+  }
   body { font-family: 'Public Sans', system-ui, sans-serif; background: #eef0f3; color: #11151a; -webkit-font-smoothing: antialiased; }
   html[data-theme="dark"] body { background: #0f1115; color: #e8eaed; }
   html[data-theme="dark"] .hf-header { background: #161a22 !important; border-bottom-color: #2a303c !important; }
@@ -296,10 +332,8 @@
     border: 1px solid #b7b7b7;
     border-radius: 0 !important;
     box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset, 0 10px 40px rgba(0,0,0,0.4);
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--hf-player-chrome-font);
   }
-  .hf-player-theater,
-  .hf-player-stage,
   .hf-player-letterbox,
   .hf-player-frame,
   .hf-player-scene-canvas,
@@ -362,16 +396,16 @@
     z-index: 35;
     top: 18px;
     left: 0;
-    height: 32px;
+    height: var(--hf-slide-title-height);
     display: inline-flex;
     align-items: stretch;
     max-width: 46%;
-    filter: drop-shadow(0 1px 1px rgba(0,0,0,.05));
+    filter: var(--hf-slide-title-shadow);
     pointer-events: none;
   }
   .hf-player-title-chip {
-    width: 42px;
-    background: #ff5a17;
+    width: var(--hf-slide-title-chip-width);
+    background: var(--hf-slide-title-accent);
     flex-shrink: 0;
     border-radius: 0;
   }
@@ -379,21 +413,21 @@
     min-width: 0;
     width: max-content;
     max-width: 100%;
-    background: rgba(255, 255, 255, 0.8);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    background: var(--hf-slide-title-bg);
+    backdrop-filter: blur(var(--hf-slide-title-blur));
+    -webkit-backdrop-filter: blur(var(--hf-slide-title-blur));
     display: flex;
     align-items: center;
-    padding: 0 12px 0 10px;
-    color: #f35a1f;
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 15px;
-    font-weight: 700;
+    padding: var(--hf-slide-title-padding);
+    color: var(--hf-slide-title-text-color);
+    font-family: var(--hf-slide-title-font);
+    font-size: var(--hf-slide-title-font-size);
+    font-weight: var(--hf-slide-title-font-weight);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     box-sizing: border-box;
-    border-radius: 0;
+    border-radius: var(--hf-slide-title-radius);
   }
   .hf-player-frame img,
   .hf-player-frame .hf-player-yt-mount {
@@ -474,19 +508,19 @@
     bottom: 10px;
     transform: translateX(-50%);
     width: auto;
-    max-width: 60%;
+    max-width: var(--hf-caption-max-width);
     display: inline-block;
-    padding: 10px;
+    padding: var(--hf-caption-padding);
     margin: 0 0 10px 0;
-    border-radius: 4px;
-    background: #31373a;
-    color: #ffffff;
+    border-radius: var(--hf-caption-radius);
+    background: var(--hf-caption-bg);
+    color: var(--hf-caption-text-color);
     text-align: center;
-    font-family: "Open Sans", Helvetica, Arial, sans-serif;
-    font-size: 13px;
-    font-weight: 400;
-    line-height: 1.5;
-    text-shadow: -1px 0 #000, 0 1px #000, 1px 0 #000, 0 -1px #000;
+    font-family: var(--hf-caption-font);
+    font-size: var(--hf-caption-font-size);
+    font-weight: var(--hf-caption-font-weight);
+    line-height: var(--hf-caption-line-height);
+    text-shadow: var(--hf-caption-text-shadow);
     box-shadow: none;
     pointer-events: none;
     z-index: 31;
@@ -537,32 +571,40 @@
   .hf-player-seek {
     min-width: 0;
     flex: 1 1 auto;
-    height: 28px;
+    height: 26px;
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 3px 3px 3px 4px;
+    padding: 3px 4px 3px 5px;
     border: 1px solid var(--sc-btn-border);
-    border-radius: 3px;
+    border-radius: 4px;
     background: linear-gradient(180deg, var(--sc-seek-top) 0%, var(--sc-seek-bottom) 100%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.85),
+      0 1px 0 rgba(0,0,0,.06);
     box-sizing: border-box;
     overflow: visible;
   }
+  /* Nested timeline: outer bar → recessed track → white fill */
   .hf-player-progress-track {
     position: relative;
     min-width: 0;
     flex: 1 1 auto;
-    height: 100%;
+    height: 16px;
+    padding: 1px;
     border: 1px solid var(--sc-seek-border);
     border-radius: 3px;
     background: var(--sc-seek-track);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
     overflow: hidden;
     cursor: pointer;
+    box-sizing: border-box;
   }
   .hf-player-progress-fill {
     height: 100%;
+    border-radius: 2px;
     background: #ffffff;
+    box-shadow: 0 0 0 1px rgba(180, 180, 180, 0.35);
     pointer-events: none;
     transition: width 0.14s linear;
   }
@@ -598,10 +640,10 @@
   }
   .hf-player-speed-menu-title {
     padding: 0 20px 12px;
-    color: #ececec;
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 16px;
-    font-weight: 700;
+    color: var(--hf-player-speed-title-text-color);
+    font-family: var(--hf-player-chrome-font);
+    font-size: var(--hf-player-speed-title-font-size);
+    font-weight: var(--hf-player-speed-title-font-weight);
     line-height: 1.2;
   }
   .hf-player-speed-option {
@@ -613,10 +655,10 @@
     padding: 0 20px;
     border: none;
     background: transparent;
-    color: #ffffff;
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 15px;
-    font-weight: 500;
+    color: var(--hf-player-speed-option-text-color);
+    font-family: var(--hf-player-chrome-font);
+    font-size: var(--hf-player-speed-option-font-size);
+    font-weight: var(--hf-player-speed-option-font-weight);
     text-align: left;
     cursor: pointer;
     box-sizing: border-box;
@@ -637,17 +679,17 @@
     opacity: 1;
   }
   .hf-player-seek .hf-player-icon-btn {
-    flex: 0 0 24px;
-    width: 24px;
-    height: 24px;
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
     border: none;
     border-radius: 50%;
     background: transparent;
     box-shadow: none;
   }
   .hf-player-seek .hf-player-icon-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 13px;
+    height: 13px;
   }
   .hf-player-seek .hf-player-icon-btn:hover {
     background: rgba(0,0,0,.06);
@@ -657,9 +699,9 @@
     background: rgba(240,87,37,.14);
   }
   .hf-player-btn-play {
-    flex: 0 0 22px;
-    width: 22px;
-    height: 22px;
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
     background: transparent;
     border: none;
     outline: none;
@@ -670,7 +712,7 @@
     flex-shrink: 0;
   }
   .hf-player-btn-play svg {
-    width: 12px;
+    width: 13px;
     height: 15px;
     fill: var(--sc-orange) !important;
     stroke: none !important;
@@ -800,10 +842,10 @@
     padding: 0 9px;
     background: var(--sc-orange);
     border: 1px solid var(--sc-btn-border);
-    color: #ffffff;
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 12px;
-    font-weight: 800;
+    color: var(--hf-player-nav-text-color);
+    font-family: var(--hf-player-chrome-font);
+    font-size: var(--hf-player-nav-font-size);
+    font-weight: var(--hf-player-nav-font-weight);
     text-transform: uppercase;
     box-shadow: 0 1px 0 rgb(207,207,207);
     cursor: pointer;
@@ -1050,6 +1092,55 @@
     transform: scaleY(0);
     transform-origin: 50% 0%;
   }
+  .hf-player-scene-canvas.is-slant-split {
+    background: #0d0f12;
+  }
+  .hf-player-scene-canvas.is-slant-split .hf-player-scene-slot:first-child {
+    clip-path: var(--hf-slant-left-clip, polygon(0 0, 100% 0, 100% 56%, 84% 100%, 0 100%));
+    z-index: 2;
+  }
+  .hf-player-scene-canvas.is-slant-split .hf-player-scene-slot:last-child {
+    clip-path: var(--hf-slant-right-clip, polygon(16% 0, 100% 0, 100% 100%, 0 100%));
+    z-index: 1;
+  }
+  .hf-player-scene-canvas.is-slant-split::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 7;
+    background: linear-gradient(
+      108deg,
+      transparent 49.6%,
+      rgba(249, 115, 22, 0.55) 49.85%,
+      rgba(249, 115, 22, 0.55) 50.15%,
+      transparent 50.4%
+    );
+  }
+  .hf-player-slot-label-badge--slant {
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
+    margin: 0 !important;
+    max-width: 46%;
+    z-index: 16;
+  }
+  .hf-player-slot-label-badge--slant-left {
+    top: 26%;
+    right: 5%;
+    border-radius: 999px 0 0 999px;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
+    text-align: right;
+    padding-right: 18px !important;
+  }
+  .hf-player-slot-label-badge--slant-right {
+    top: 54%;
+    left: 5%;
+    border-radius: 0 999px 999px 0;
+    clip-path: polygon(12px 0, 100% 0, 100% 100%, 0 100%);
+    text-align: left;
+    padding-left: 18px !important;
+  }
   .hf-split-motion-target {
     transform-origin: 50% 50%;
     will-change: transform, filter, clip-path;
@@ -1073,7 +1164,7 @@
     <div style="display: flex; flex-direction: column; gap: 4px;">
     <div style="display: flex; align-items: center; gap: 12px;">
         <div style="width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #4f46e5, #7c6df2); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 17px; flex-shrink: 0;">G</div>
-        <span class="hf-app-title" style="font-weight: 800; font-size: 20px; letter-spacing: -0.02em; color: #4338ca; line-height: 1.1;">Gfffraphics Review</span>
+        <span class="hf-app-title" style="font-weight: 800; font-size: 20px; letter-spacing: -0.02em; color: #4338ca; line-height: 1.1;">Graphics Review</span>
       </div>
       <div style="line-height: 1.35;">
         <span style="display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; margin-bottom: 3px;">COURSE NAME:</span>
@@ -1821,7 +1912,7 @@
               </sc-if>
               <div class="hf-player-fade-shell">
               <sc-if value="{{ playerUseSceneLayout }}" hint-placeholder-val="{{ true }}">
-                <div class="hf-player-scene-canvas" data-player-scene="{{ playerSceneKey }}" style="{{ playerCanvasStyle }}">
+                <div class="hf-player-scene-canvas {{ playerSceneCanvasClass }}" data-player-scene="{{ playerSceneKey }}" style="{{ playerCanvasStyle }}">
                   <sc-for list="{{ playerSceneSlots }}" as="slot" hint-placeholder-count="1">
                     <div class="hf-player-scene-slot {{ slot.slotClass }}" style="{{ slot.posStyle }}">{{ slot.innerEl }}</div>
                   </sc-for>
@@ -1878,7 +1969,10 @@
               <div class="hf-player-seek-actions">
                 <div class="hf-player-speed-wrap">
                   <button class="hf-player-icon-btn {{ playerSpeedClass }}" onClick="{{ onPlayerToggleSpeed }}" title="{{ playerSpeedLabel }}">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 13V8"/><path d="M12 5V3"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9"/>
+                      <path d="M12 12 L18.2 5.8"/>
+                    </svg>
                   </button>
                   <div class="hf-player-speed-menu">
                     <div class="hf-player-speed-menu-title">Playback Speed</div>
@@ -2221,7 +2315,20 @@ class Component extends DCLogic {
 
   _rebuildTreatmentRotator() {
     if (!window.HFTreatmentRotator || !this._player) return;
-    window.HFTreatmentRotator.rebuildFromCues(this._player.cues || []);
+    const self = this;
+    window.HFTreatmentRotator.rebuildFromCues(this._player.cues || [], {
+      resolveImageUrl: function (step) {
+        if (!step) return '';
+        const v = self.visualOf(step);
+        return self.displayImageUrl(v);
+      },
+      onReady: function () {
+        self.forceUpdate();
+        requestAnimationFrame(function () {
+          self._syncPlayerMotion(true);
+        });
+      },
+    });
   }
 
   _normalizePlayerTemplate(cue) {
@@ -3789,6 +3896,9 @@ class Component extends DCLogic {
     const isMultiPanel = (normT === 'multi_panel_grid' && (refs.length === 3 || refs.length === 4));
     const useBlurFill = isSingleHero || isSplitComparison || isMainInset || isMultiPanel;
     const motionTreatment = this._playerTreatmentForCue(cue);
+    const isSlantLabelSplit = isSplitComparison
+      && cue.animationType === 'text_label'
+      && motionTreatment === 'label_slant_fade';
     // Focus treatments need both panels visible from the start so inactive can dim
     // in place — progressive reveal leaves a blank half, then a black flash on cue change.
     const splitKeepBothMounted = isSplitComparison && (
@@ -3949,35 +4059,73 @@ class Component extends DCLogic {
         const labelsList = cue.labelText.split(';').map(s => s.trim());
         const labelTextStr = labelsList[k];
         if (labelTextStr && labelTextStr.toUpperCase() !== 'N/A' && labelTextStr.trim() !== '') {
+          const theme = window.HFPlayerTheme;
+          const tGet = (key, fallback) =>
+            theme && theme.get ? (theme.get(key) || fallback) : fallback;
+          const tSize = (key, fallback) =>
+            theme && theme.fontSizePx ? theme.fontSizePx(key) : fallback;
+          const tWeight = (key, fallback) =>
+            theme && theme.fontWeight ? theme.fontWeight(key) : fallback;
+          const tFont = (key, fallback) =>
+            theme && theme.fontStack ? theme.fontStack(key) : fallback;
+
+          const transform = String(tGet('panel_label_text_transform', 'none')).toLowerCase();
+          let displayLabel = labelTextStr;
+          if (transform === 'uppercase') displayLabel = labelTextStr.toUpperCase();
+          else if (transform === 'lowercase') displayLabel = labelTextStr.toLowerCase();
+          else if (transform === 'capitalize') {
+            displayLabel = labelTextStr.replace(/\b\w/g, (c) => c.toUpperCase());
+          }
+
+          const labelBadgeClass = isSlantLabelSplit
+            ? ('hf-player-slot-label-badge hf-player-slot-label-badge--slant '
+              + (k === 0 ? 'hf-player-slot-label-badge--slant-left' : 'hf-player-slot-label-badge--slant-right'))
+            : 'hf-player-slot-label-badge';
+
           const labelBadge = h('div', {
             key: 'slot-label-badge-' + k,
-            className: 'hf-player-slot-label-badge',
+            className: labelBadgeClass,
             'data-slot-idx': k,
-            style: {
+            style: isSlantLabelSplit ? {
               position: 'absolute',
-              bottom: '15px',
+              background: tGet('panel_label_bg', '#f05725'),
+              color: tGet('panel_label_text_color', '#ffffff'),
+              padding: tGet('panel_label_padding', '10px 22px'),
+              fontSize: tSize('panel_label_font_size', '18px'),
+              fontWeight: tWeight('panel_label_font_weight', '700'),
+              fontFamily: tFont('panel_label_font', "'Public Sans', 'Open Sans', 'Segoe UI', Arial, sans-serif"),
+              letterSpacing: tGet('panel_label_letter_spacing', '0'),
+              textTransform: transform === 'none' ? 'none' : transform,
+              boxShadow: tGet('panel_label_shadow', '0 4px 12px rgba(0, 0, 0, 0.3)'),
+              zIndex: 15,
+              pointerEvents: 'none',
+              whiteSpace: tGet('panel_label_white_space', 'nowrap'),
+              opacity: 0,
+            } : {
+              position: 'absolute',
+              bottom: tSize('panel_label_bottom', '15px'),
               left: '0',
               right: '0',
               marginLeft: 'auto',
               marginRight: 'auto',
               width: 'fit-content',
-              background: '#ff5a17', // SkillCat Orange
-              color: '#ffffff',
-              padding: '8px 24px',
-              borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: '800',
-              fontFamily: "'Public Sans', 'Open Sans', 'Segoe UI', Arial, sans-serif",
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              textAlign: 'center',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+              background: tGet('panel_label_bg', '#f05725'),
+              color: tGet('panel_label_text_color', '#ffffff'),
+              padding: tGet('panel_label_padding', '10px 22px'),
+              borderRadius: tSize('panel_label_radius', '10px'),
+              fontSize: tSize('panel_label_font_size', '18px'),
+              fontWeight: tWeight('panel_label_font_weight', '700'),
+              fontFamily: tFont('panel_label_font', "'Public Sans', 'Open Sans', 'Segoe UI', Arial, sans-serif"),
+              letterSpacing: tGet('panel_label_letter_spacing', '0'),
+              textTransform: transform === 'none' ? 'none' : transform,
+              textAlign: tGet('panel_label_text_align', 'center'),
+              boxShadow: tGet('panel_label_shadow', '0 4px 12px rgba(0, 0, 0, 0.3)'),
               zIndex: 15,
               pointerEvents: 'none',
-              whiteSpace: 'nowrap',
-              opacity: 0, // Prevent pre-animation flash
+              whiteSpace: tGet('panel_label_white_space', 'nowrap'),
+              opacity: 0,
             }
-          }, labelTextStr.toUpperCase());
+          }, displayLabel);
 
           if (inner && inner.props) {
             let kids = inner.props.children;
@@ -4003,11 +4151,22 @@ class Component extends DCLogic {
 
     const captionText = this._captionChunkForSnap(snap);
 
+    let playerCanvasStyle = {};
+    if (isSlantLabelSplit && window.HFSplitSlant && window.HFSplitSlant.computeSlantClipPolygons) {
+      const cfg = window.HFSplitSlant.config ? window.HFSplitSlant.config() : { topXPct: 0.58, bottomXPct: 0.42 };
+      const polys = window.HFSplitSlant.computeSlantClipPolygons(cfg);
+      playerCanvasStyle = {
+        '--hf-slant-left-clip': polys.left,
+        '--hf-slant-right-clip': polys.right,
+      };
+    }
+
     return {
       playerUseSceneLayout: true,
       playerSceneSlots: slots,
       playerSceneKey: cue.slideIdx + ':' + cue.sceneId,
-      playerCanvasStyle: {},
+      playerSceneCanvasClass: isSlantLabelSplit ? 'is-slant-split' : '',
+      playerCanvasStyle: playerCanvasStyle,
       playerFrameClass: 'hf-player-frame--layout',
       playerFrameStyle: {},
       playerCaption: captionText,
