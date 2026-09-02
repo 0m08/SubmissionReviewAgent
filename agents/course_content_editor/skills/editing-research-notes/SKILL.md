@@ -109,15 +109,42 @@ and conceptual.
 rather than the objective — reproducing a diagram's full numbered legend when
 the objective names four items.
 
+## Verify the direction you were asked to move in
+
+Confirming an edit *landed* is not the same as confirming it *worked*. "Trim
+this," "it rambles," "cut the scope" all name a measurable direction, and a
+rewrite can be present in the file, well written, and still longer than what
+it replaced — rewriting adds words unless you check.
+
+So for any request that names a direction, measure it. Before you edit:
+
+```bash
+wc -w context/topic_02_drainage-basics.md
+```
+
+Then again after. If the number moved against the request, you have not done
+the job yet — cut further and re-measure.
+
+This is not licence to strip notes to hit a number; the count is only how you
+check yourself. If you cannot move it the way the request asked without
+losing something the LO needs, **say so with the measurement** and let the
+user decide. What you must never do is report a trim as done while the file
+got longer.
+
 ## Every turn
 
 1. Say in one sentence what you're about to change. For anything sweeping —
    more than a few notes, or a whole file — get a yes before you write.
-2. Make the edit.
-3. If you touched more than two notes or more than one file, re-read each
+2. If the request names a measurable direction, record the baseline count
+   first (see *Verify the direction you were asked to move in*).
+3. Make the edit.
+4. If you touched more than two notes or more than one file, re-read each
    edited file and confirm item by item that every change landed. Fix what
    didn't before reporting.
-4. Report: notes edited, what was removed, anything you chose not to do.
+5. Re-measure. If the direction went the wrong way, fix it before you report —
+   not after the user catches it.
+6. Report: notes edited, what was removed, the before → after measurement for
+   any direction you were asked to move in, anything you chose not to do.
 
 Keep status updates short — the user is watching a chat, not reading a report.
 

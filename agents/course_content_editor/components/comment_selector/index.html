@@ -1,0 +1,439 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* This runs in an iframe, which cannot see the page's stylesheet — so the
+     plain-view styling is restated here. Keep it in sync with the .cce-*
+     rules in course_content_editor.py. */
+  :root {
+    --paper: #faf6ee;
+    --ink: #241f18;
+    --ink-soft: #6b6153;
+    --rule: #ddd3bf;
+    --accent: #a8492f;
+    --hl: #fdf0c8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2px 2px 10px;
+    background: transparent;
+    color: var(--ink);
+    font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 0.94rem;
+    line-height: 1.55;
+  }
+  .blk { padding: 0.1rem 0 0.5rem; }
+  .blk-meta {
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .blk-title {
+    font-family: Georgia, serif;
+    font-weight: 600;
+    font-size: 1.02rem;
+    margin: 0.1rem 0 0.3rem;
+  }
+  .blk p { margin: 0 0 0.55rem; }
+  .blk img {
+    display: block;
+    max-width: min(100%, 380px);
+    max-height: 240px;
+    width: auto; height: auto;
+    object-fit: contain;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: #fff;
+    margin: 0.5rem 0;
+  }
+  mark.hl {
+    background: var(--hl);
+    border-bottom: 1px solid #e3c86a;
+    padding: 0 1px;
+    border-radius: 2px;
+  }
+  mark.hl.active { background: #ffe08a; }
+
+  /* Floating "Comment" button, positioned at the end of the selection. */
+  #bubble {
+    position: absolute;
+    display: none;
+    z-index: 40;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 0.28rem 0.6rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  #editor {
+    position: absolute;
+    display: none;
+    z-index: 41;
+    /* Never wider than the frame: a selection near the right edge would
+       otherwise open a fixed-width panel that runs off screen. */
+    width: min(320px, calc(100vw - 20px));
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 0.55rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.16);
+  }
+  #editor .q {
+    font-size: 0.76rem;
+    color: var(--ink-soft);
+    font-style: italic;
+    border-left: 2px solid var(--rule);
+    padding-left: 0.45rem;
+    margin-bottom: 0.4rem;
+    max-height: 4.4em;
+    overflow: hidden;
+  }
+  #editor textarea {
+    width: 100%;
+    min-height: 62px;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    resize: vertical;
+  }
+  .row { display: flex; gap: 0.4rem; justify-content: flex-end; margin-top: 0.4rem; }
+  button.b {
+    font: inherit; font-size: 0.8rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+    background: #fff; color: var(--ink);
+    cursor: pointer;
+  }
+  button.b.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.b:disabled { opacity: 0.45; cursor: default; }
+
+  #panel { border-top: 1px solid var(--rule); margin-top: 0.6rem; padding-top: 0.5rem; }
+  #panel h4 {
+    margin: 0 0 0.4rem; font-size: 0.78rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft);
+  }
+  .cmt {
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.35rem;
+    background: rgba(255,255,255,0.6);
+    cursor: pointer;
+  }
+  .cmt .where { font-size: 0.72rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+  .cmt .quote { font-size: 0.78rem; color: var(--ink-soft); font-style: italic; margin: 0.15rem 0; }
+  .cmt .note { font-size: 0.85rem; }
+  .cmt .del { float: right; border: none; background: none; cursor: pointer; color: var(--ink-soft); font-size: 0.95rem; line-height: 1; }
+  .hint { font-size: 0.78rem; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+  <div id="content"></div>
+  <button id="bubble">Comment</button>
+  <div id="editor">
+    <div class="q" id="ed-quote"></div>
+    <textarea id="ed-note" placeholder="What should change here?"></textarea>
+    <div class="row">
+      <button class="b" id="ed-cancel">Cancel</button>
+      <button class="b primary" id="ed-save">Add</button>
+    </div>
+  </div>
+  <div id="panel"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Streamlit component protocol, hand-rolled. A custom component only needs
+// three postMessage calls, so there is no build step, no npm, and no React
+// here — the whole thing is this file.
+// ---------------------------------------------------------------------------
+function post(type, extra) {
+  window.parent.postMessage(Object.assign({isStreamlitMessage: true, type: type}, extra || {}), "*");
+}
+function setValue(value) { post("streamlit:setComponentValue", {value: value, dataType: "json"}); }
+let lastH = 0;
+function syncHeight() {
+  const h = Math.ceil(document.body.scrollHeight) + 8;
+  if (h !== lastH) { lastH = h; post("streamlit:setFrameHeight", {height: h}); }
+}
+
+let BLOCKS = [], COMMENTS = [], FILE = "", nonce = 0, rendered = false;
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function renderContent() {
+  const host = document.getElementById("content");
+  host.innerHTML = "";
+  BLOCKS.forEach(b => {
+    const d = document.createElement("div");
+    d.className = "blk";
+    d.dataset.blockId = b.id;
+    d.dataset.blockLabel = b.label || ("Block " + b.id);
+    const meta = document.createElement("div");
+    meta.className = "blk-meta";
+    meta.textContent = b.subtopic || "";
+    const t = document.createElement("div");
+    t.className = "blk-title";
+    t.textContent = b.label || "";
+    const body = document.createElement("div");
+    body.className = "blk-body";
+    body.innerHTML = b.html || "";   // built server-side by _plain_paragraph_html
+    d.appendChild(meta); d.appendChild(t); d.appendChild(body);
+    host.appendChild(d);
+  });
+  // Re-apply highlights for comments that survived a rerun.
+  COMMENTS.forEach(c => { if (c.quote) highlightFirstMatch(c.quote, c.id); });
+}
+
+function renderPanel() {
+  const p = document.getElementById("panel");
+  if (!COMMENTS.length) {
+    p.innerHTML = '<div class="hint">Select any text above — across blocks if you like — to comment on it.</div>';
+    syncHeight();
+    return;
+  }
+  let h = "<h4>" + COMMENTS.length + " comment" + (COMMENTS.length === 1 ? "" : "s") + "</h4>";
+  COMMENTS.forEach((c, i) => {
+    h += '<div class="cmt" data-cid="' + c.id + '">' +
+           '<button class="del" data-del="' + c.id + '" title="Remove">×</button>' +
+           '<div class="where">' + esc(c.where) + '</div>' +
+           '<div class="quote">“' + esc(trunc(c.quote, 160)) + '”</div>' +
+           '<div class="note">' + esc(c.note) + '</div>' +
+         '</div>';
+  });
+  h += '<div class="row"><button class="b primary" id="send">Send ' + COMMENTS.length +
+       ' comment' + (COMMENTS.length === 1 ? "" : "s") + ' to the agent</button></div>';
+  p.innerHTML = h;
+  p.querySelectorAll("[data-del]").forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation(); removeComment(btn.dataset.del); };
+  });
+  const send = document.getElementById("send");
+  if (send) send.onclick = () => emit("send");
+  syncHeight();
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, n) + "…" : s; }
+
+// ---------------------------------------------------------------------------
+// Selection -> which blocks does it touch?
+// ---------------------------------------------------------------------------
+function blockOf(node) {
+  while (node && node !== document.body) {
+    if (node.nodeType === 1 && node.dataset && node.dataset.blockId !== undefined) return node;
+    node = node.parentNode;
+  }
+  return null;
+}
+
+function blocksInRange(range) {
+  // Every block element the range intersects, in document order. This is what
+  // makes a selection spanning two slides work: the answer is a list, never a
+  // single id.
+  const hit = [];
+  document.querySelectorAll("#content .blk").forEach(el => {
+    if (range.intersectsNode(el)) hit.push(el);
+  });
+  return hit;
+}
+
+function describe(els) {
+  if (!els.length) return "";
+  if (els.length === 1) return els[0].dataset.blockLabel;
+  return els[0].dataset.blockLabel + "  →  " + els[els.length - 1].dataset.blockLabel;
+}
+
+// Wrap every text node the range touches, splitting at the boundaries. Works
+// across element and block boundaries, where Range.surroundContents throws.
+function wrapRange(range, cid) {
+  const nodes = [];
+  const walker = document.createTreeWalker(
+    document.getElementById("content"), NodeFilter.SHOW_TEXT, {
+      acceptNode: n => (range.intersectsNode(n) && n.nodeValue.trim())
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+    });
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  nodes.forEach(n => {
+    let start = 0, end = n.nodeValue.length;
+    if (n === range.startContainer) start = range.startOffset;
+    if (n === range.endContainer) end = range.endOffset;
+    if (end <= start) return;
+    let target = n;
+    if (end < target.nodeValue.length) target.splitText(end);
+    if (start > 0) target = target.splitText(start);
+    const m = document.createElement("mark");
+    m.className = "hl";
+    m.dataset.cid = cid;
+    target.parentNode.insertBefore(m, target);
+    m.appendChild(target);
+  });
+}
+
+function highlightFirstMatch(quote, cid) {
+  // Restoring highlights after a Streamlit rerun: match on the text itself,
+  // since offsets do not survive a re-render.
+  const host = document.getElementById("content");
+  const needle = quote.replace(/\s+/g, " ").trim().slice(0, 60);
+  if (!needle) return;
+  const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, null);
+  while (walker.nextNode()) {
+    const n = walker.currentNode;
+    const i = n.nodeValue.indexOf(needle.slice(0, Math.min(needle.length, n.nodeValue.length)));
+    if (i >= 0 && needle.length > 3) {
+      const r = document.createRange();
+      r.setStart(n, i);
+      r.setEnd(n, Math.min(n.nodeValue.length, i + needle.length));
+      try { wrapRange(r, cid); } catch (e) {}
+      return;
+    }
+  }
+}
+
+function unhighlight(cid) {
+  document.querySelectorAll('mark.hl[data-cid="' + cid + '"]').forEach(m => {
+    const parent = m.parentNode;
+    while (m.firstChild) parent.insertBefore(m.firstChild, m);
+    parent.removeChild(m);
+    parent.normalize();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Interaction
+// ---------------------------------------------------------------------------
+const bubble = document.getElementById("bubble");
+const editor = document.getElementById("editor");
+let pending = null;   // {range, quote, where}
+
+// Anchor a floating element near (x, y) but keep it inside the frame.
+// Measuring requires the element to be laid out, so it is shown hidden
+// first — otherwise offsetWidth is 0 and the clamp does nothing.
+function place(el, x, y) {
+  el.style.visibility = "hidden";
+  el.style.display = "block";
+  const maxX = Math.max(4, window.innerWidth - el.offsetWidth - 8);
+  el.style.left = Math.max(4, Math.min(x, maxX)) + "px";
+  el.style.top = Math.max(4, y) + "px";
+  el.style.visibility = "visible";
+  // The panel can extend past the last paragraph; the frame has to grow to
+  // match or it is clipped by the iframe rather than by the window.
+  syncHeight();
+}
+
+document.addEventListener("mouseup", (e) => {
+  if (editor.contains(e.target) || e.target === bubble) return;
+  setTimeout(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { bubble.style.display = "none"; return; }
+    const range = sel.getRangeAt(0);
+    if (!blockOf(range.startContainer) && !blocksInRange(range).length) {
+      bubble.style.display = "none"; return;
+    }
+    const text = sel.toString().trim();
+    if (!text) { bubble.style.display = "none"; return; }
+    const els = blocksInRange(range);
+    pending = {range: range.cloneRange(), quote: text, where: describe(els),
+               blocks: els.map(el => el.dataset.blockId)};
+    const rects = range.getClientRects();
+    const r = rects[rects.length - 1] || range.getBoundingClientRect();
+    place(bubble, window.scrollX + r.right - 30, window.scrollY + r.bottom + 6);
+  }, 10);
+});
+
+bubble.onclick = () => {
+  if (!pending) return;
+  bubble.style.display = "none";
+  document.getElementById("ed-quote").textContent = "“" + trunc(pending.quote, 220) + "”";
+  document.getElementById("ed-note").value = "";
+  place(editor, parseFloat(bubble.style.left) || 0, parseFloat(bubble.style.top) || 0);
+  document.getElementById("ed-note").focus();
+};
+
+document.getElementById("ed-cancel").onclick = () => {
+  editor.style.display = "none"; pending = null; syncHeight();
+};
+
+document.getElementById("ed-save").onclick = () => {
+  const note = document.getElementById("ed-note").value.trim();
+  if (!pending || !note) return;
+  const cid = "c" + (++nonce) + "_" + Date.now().toString(36);
+  try { wrapRange(pending.range, cid); } catch (e) {}
+  COMMENTS.push({id: cid, where: pending.where, blocks: pending.blocks,
+                 quote: pending.quote, note: note});
+  editor.style.display = "none";
+  pending = null;
+  window.getSelection().removeAllRanges();
+  renderPanel();
+  emit("save");
+};
+
+function removeComment(cid) {
+  COMMENTS = COMMENTS.filter(c => c.id !== cid);
+  unhighlight(cid);
+  renderPanel();
+  emit("save");
+}
+
+function emit(action) {
+  setValue({action: action, file: FILE, comments: COMMENTS, seq: Date.now()});
+}
+
+// ---------------------------------------------------------------------------
+// Streamlit lifecycle
+// ---------------------------------------------------------------------------
+window.addEventListener("message", (event) => {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  const args = event.data.args || {};
+  const sig = JSON.stringify([args.blocks, args.file]);
+  if (!rendered || sig !== window.__sig) {
+    window.__sig = sig;
+    BLOCKS = args.blocks || [];
+    FILE = args.file || "";
+    COMMENTS = (args.pending || []).slice();
+    rendered = true;
+    renderContent();
+    renderPanel();
+  }
+  syncHeight();
+});
+
+// Announce readiness more than once. The parent only starts sending
+// streamlit:render after it sees componentReady, and a single fire-once call
+// races the parent attaching its listener — losing that race leaves a blank
+// iframe with no error anywhere.
+function ready() { post("streamlit:componentReady", {apiVersion: 1}); }
+ready();
+document.addEventListener("DOMContentLoaded", ready);
+window.addEventListener("load", ready);
+setTimeout(ready, 100);
+setTimeout(ready, 400);
+
+// Last-resort visibility: if no render arrives, say so in the frame instead
+// of showing an empty box that looks like a styling bug.
+setTimeout(() => {
+  if (!rendered) {
+    document.getElementById("content").innerHTML =
+      '<div class="hint">Comment surface loaded, but received no content from ' +
+      'Streamlit (no streamlit:render event).</div>';
+    syncHeight();
+  }
+}, 2500);
+
+setTimeout(syncHeight, 60);
+window.addEventListener("resize", syncHeight);
+</script>
+</body>
+</html>

@@ -54,9 +54,17 @@ _CCE_DIR = _REPO_ROOT / "agents" / "course_content_editor"
 _SCRIPTS_DIR = _CCE_DIR / "skills" / "working-with-google-sheets" / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
+if str(_CCE_DIR) not in sys.path:
+    sys.path.insert(0, str(_CCE_DIR))
 
 import commit_context as cc_context  # noqa: E402  (parse_lo_block, LO_BLOCK_START)
 import commit_workspace as cc_topics  # noqa: E402  (parse_block, BLOCK_START)
+
+# Shared with chat.py so the CLI and this page agree on what the agent's
+# present_files call means — which file a path resolves to, which blocks a
+# request selects. Two independent readings of that would drift.
+import _presentation as pres  # noqa: E402
+import _comment_component as _cmt  # noqa: E402  (see its docstring: exec'd pages can't declare)
 
 from services.activity_tracking_service import track_tool_action  # noqa: E402
 
@@ -157,6 +165,80 @@ st.markdown(
     .cce-diff-text p.cce-diff-changed {
         color: var(--cce-ink);
         margin: 0 0 0.6rem 0;
+    }
+    /* Inline slide art, plain view only — the diff view deliberately keeps
+       the raw ![alt](url) markdown visible, since a changed image URL is an
+       edit you need to be able to see. */
+    /* Capped on BOTH axes. Course art is authored at full slide resolution,
+       so max-width alone still let a tall diagram run past a screen height
+       and push the surrounding prose out of view — which is the opposite of
+       what a review card is for. Thumbnail here, full size one click away
+       (each image is wrapped in a link to its own source). */
+    .cce-plain-img {
+        display: block;
+        max-width: min(100%, 380px);
+        max-height: 240px;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        margin: 0.5rem 0;
+        border: 1px solid var(--cce-rule);
+        border-radius: 4px;
+        /* Many of these diagrams are transparent PNGs drawn in black ink —
+           on the paper-toned card background they'd be hard to read. */
+        background: #fff;
+    }
+    .cce-plain-img-link {
+        display: inline-block;
+        line-height: 0;
+        cursor: zoom-in;
+    }
+    .cce-plain-img-missing {
+        font-size: 0.8rem;
+        color: var(--cce-ink-soft);
+        font-style: italic;
+    }
+    /* Tool activity woven into the turn. Almost every one of these is a
+       shell command or a file path, so it reads as machine text, set apart
+       from the agent's prose rather than competing with it. */
+    .cce-cmd {
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.78rem;
+        line-height: 1.5;
+        color: var(--cce-ink-soft);
+        background: rgba(0, 0, 0, 0.025);
+        border-left: 2px solid var(--cce-rule);
+        padding: 0.18rem 0.55rem;
+        margin: 0.12rem 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border-radius: 0 3px 3px 0;
+    }
+    /* The live "what's happening now" line. A real spinner, because a
+       static caption during a 60-second delegation is indistinguishable
+       from a hung page. */
+    .cce-working {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--cce-ink-soft);
+        padding: 0.25rem 0.1rem;
+    }
+    .cce-spin {
+        width: 0.72rem;
+        height: 0.72rem;
+        flex: none;
+        border: 2px solid var(--cce-rule);
+        border-top-color: var(--cce-accent);
+        border-radius: 50%;
+        animation: cce-spin 0.8s linear infinite;
+    }
+    @keyframes cce-spin { to { transform: rotate(360deg); } }
+    .cce-thread-meta {
+        font-size: 0.78rem;
+        color: var(--cce-ink-soft);
+        margin-bottom: 0.4rem;
     }
     .cce-diff-text p:last-child {
         margin-bottom: 0;
@@ -310,13 +392,24 @@ def get_client() -> anthropic.Anthropic:
 _DEFAULTS = {
     "cce_session_id": None,
     # Each entry is one full turn: {"user": str, "tool_lines": [str], "reply": str,
-    # "error": str | None}. Rendered with the exact same st.status shape whether
-    # it's the turn currently streaming in or a past turn replayed from history —
-    # that's deliberate, see render_turn().
+    # "presentations": [dict], "error": str | None}. Rendered with the exact same
+    # st.status shape whether it's the turn currently streaming in or a past turn
+    # replayed from history — that's deliberate, see render_turn().
+    # Entries here outlive the code that wrote them (session_state survives a hot
+    # reload), so every reader must tolerate older shapes — render_presentation
+    # documents what that costs when it isn't done.
     "cce_transcript": [],
     "cce_files": {},             # "topics/<name>" | "context/<name>" -> {"before", "after", "file_id"}
     "cce_approvals": {},         # card_id -> "accepted" | "rejected"
     "cce_manifest": None,
+    # uid -> list of pending selection comments, handed back to the
+    # component on every rerun because the iframe is rebuilt each time.
+    "cce_comments": {},
+    "cce_comment_seq": {},
+    # Set by the comment component; consumed where chat turns are run, so
+    # the resulting turn lands at the bottom of the conversation instead of
+    # inside the expander the button was clicked in.
+    "cce_pending_feedback": None,
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -522,7 +615,11 @@ def load_session_transcript(session_id: str) -> list[dict]:
     client = get_client()
     try:
         events = list(client.beta.sessions.events.list(
-            session_id, order="asc", types=["user.message", "agent.message", "agent.tool_use"],
+            session_id, order="asc",
+            types=["user.message", "agent.message", "agent.tool_use", "agent.custom_tool_use",
+                   "session.thread_created", "agent.thread_message_sent",
+                   "agent.thread_message_received", "session.thread_status_idle",
+                   "session.thread_status_terminated"],
         ))
     except Exception:
         return []
@@ -536,15 +633,53 @@ def load_session_transcript(session_id: str) -> list[dict]:
             user_text = "".join(
                 block.text for block in event.content if getattr(block, "type", None) == "text"
             )
-            current = {"user": user_text, "tool_lines": [], "reply": "", "error": None}
+            current = {"user": user_text, "tool_lines": [], "reply": "",
+                       "presentations": [], "timeline": [], "threads": {},
+                       "error": None}
         elif current is None:
             continue  # stray event before any user.message — shouldn't happen, skip defensively
         elif event.type == "agent.message":
             for block in event.content:
                 if getattr(block, "type", None) == "text" and block.text.strip():
                     current["reply"] += ("\n\n" if current["reply"] else "") + block.text
+                    current["timeline"].append({"kind": "text", "text": block.text})
         elif event.type == "agent.tool_use":
-            current["tool_lines"].append(_describe_tool_use(event))
+            label = _describe_tool_use(event)
+            current["tool_lines"].append(label)
+            current["timeline"].append({"kind": "tool", "label": label})
+        elif event.type.startswith(("session.thread", "agent.thread")):
+            # Same folding the live path uses, so a resumed conversation shows
+            # its subagent panels instead of collapsing them into one line.
+            if event.type == "session.thread_created":
+                tid = getattr(event, "session_thread_id", None)
+                if tid and tid not in current["threads"]:
+                    current["timeline"].append({"kind": "thread", "id": tid})
+            label = track_thread_event(event, current["threads"])
+            if label:
+                current["tool_lines"].append(label)
+        elif event.type == "agent.custom_tool_use":
+            # Rebuilt without content: the payload carries the path and an
+            # id, and render_presentation resolves before/after from the live
+            # file cache (resume_session repopulates it, originals included).
+            # So a resumed conversation gets its diffs back — and with them
+            # the select-and-comment surface, which is otherwise unreachable
+            # after any restart, since session_state does not survive one.
+            #
+            # The tradeoff, deliberately taken: the diff shown is the file's
+            # current state against the session baseline, not a snapshot of
+            # what that turn displayed at the time. For reading and commenting
+            # on where the file stands now, current is the right answer.
+            for _n, _item in enumerate(pres.normalize_items(getattr(event, "input", None))):
+                _key = pres.resolve_key(st.session_state.cce_files, _item["path"]) or _item["path"]
+                current["tool_lines"].append(f"Presented {_key}")
+                current["timeline"].append(
+                    {"kind": "presentation", "index": len(current["presentations"])})
+                current["presentations"].append({
+                    "path": _key,
+                    "note": _item.get("note", ""),
+                    "uid": f"{event.id}-{_n}",
+                    "missing": False,
+                })
     if current is not None:
         turns.append(current)
     return turns
@@ -622,14 +757,18 @@ def resume_session(session_id: str) -> None:
     reloads its conversation history and re-syncs the file cache so the
     Review tab's diffs reappear, not just the chat."""
     st.session_state.cce_session_id = session_id
-    st.session_state.cce_transcript = load_session_transcript(session_id)
     st.session_state.cce_files = {}
     st.session_state.cce_manifest = None
     st.session_state.cce_approvals = {}
+    # Files first, transcript second — order matters now. Rebuilding a
+    # presentation resolves the agent's path against cce_files, so loading
+    # the transcript against an empty cache would leave every presented file
+    # unresolved and its diff (and comment surface) missing.
     refresh_files(attempts=1, delay=0)
     for store_key, original_content in reconstruct_original_content(session_id).items():
         if store_key in st.session_state.cce_files:
             st.session_state.cce_files[store_key]["before"] = original_content
+    st.session_state.cce_transcript = load_session_transcript(session_id)
     track_tool_action(TOOL_NAME, "session_resumed", run_mode="agent")
 
 
@@ -655,6 +794,10 @@ def _reconcile_after_disconnect(session_id: str, since) -> tuple[list[str], str,
                 "agent.message", "agent.tool_use", "session.status_idle", "session.status_terminated",
                 "session.thread_created", "session.thread_status_terminated",
                 "agent.thread_message_sent", "agent.thread_message_received",
+                # Both halves of the custom-tool round trip: a drop can land
+                # between the call and our answer, and telling those apart
+                # needs the results as well as the calls.
+                "agent.custom_tool_use", "user.custom_tool_result",
             ],
             **kwargs,
         ))
@@ -664,6 +807,22 @@ def _reconcile_after_disconnect(session_id: str, since) -> tuple[list[str], str,
     extra_tool_lines: list[str] = []
     extra_reply = ""
     completed = False
+
+    # A present_files call that went out while our socket was down left the
+    # turn parked at requires_action with nobody to answer it. Answering it
+    # now is what actually resumes the turn — without this, "resync" would
+    # keep reporting the same unfinished turn forever, because nothing on
+    # the server can move until the result lands.
+    answered = {
+        getattr(e, "custom_tool_use_id", None)
+        for e in events if e.type == "user.custom_tool_result"
+    }
+    for event in events:
+        if event.type == "agent.custom_tool_use" and event.id not in answered:
+            if getattr(event, "name", None) == pres.TOOL_NAME:
+                handle_present_files(event)
+                extra_tool_lines.append("Answered a pending present_files call")
+
     for event in events:
         if event.type == "agent.message":
             for block in event.content:
@@ -673,29 +832,53 @@ def _reconcile_after_disconnect(session_id: str, since) -> tuple[list[str], str,
             extra_tool_lines.append(_describe_tool_use(event))
         elif (thread_label := _describe_thread_event(event)) is not None:
             extra_tool_lines.append(thread_label)
-        elif event.type in ("session.status_idle", "session.status_terminated"):
+        elif event.type == "session.status_idle":
+            # An idle carrying requires_action is the opposite of completed —
+            # it means the turn stopped *on us*, waiting for a custom tool
+            # result we never sent because the connection had dropped.
+            # Counting it as completion would report a half-finished turn as
+            # done and leave the session parked indefinitely.
+            stop = getattr(event, "stop_reason", None)
+            if getattr(stop, "type", None) != "requires_action":
+                completed = True
+        elif event.type == "session.status_terminated":
             completed = True
     return extra_tool_lines, extra_reply, completed
 
 
-def _run_turn(text: str, status, text_slot=None, *, log_action: str) -> dict:
-    """Drive one turn against the session, updating `status` (an st.status
-    object) live as tool-use events arrive, and — if `text_slot` (an
-    st.empty()) is given — the agent's reply text live too. Always returns a
-    plain turn dict; the caller is responsible for both showing it live (via
-    status/text_slot, already done by the time this returns) and appending
-    it to cce_transcript so `render_turn` can replay it identically later.
+def _run_turn(text: str, live, progress, *, log_action: str) -> dict:
+    """Drive one turn, rendering into `live` (a container) as events arrive.
 
-    The visible "Syncing changed files…" step matters: refresh_files()
-    blocks for a couple seconds polling the Files API, and folding that wait
-    into the same status box — instead of finishing the box, going silent,
-    and only then rerunning — is what keeps the live and after-the-fact
-    views from looking like two different things separated by a mystery
-    pause.
+    Elements are appended to `live` in the order the events land, which is
+    the same order and the same widgets render_timeline replays afterwards —
+    so the turn does not visibly rearrange itself the moment it finishes.
+    That was the old shape's real cost: commands went into a status box and
+    the prose underneath it, then the rerun re-drew the whole thing woven,
+    and the answer moved on screen just as you started reading it.
+
+    `progress` is an st.empty() below the container, used for transient
+    "still working" text that should NOT survive into the transcript —
+    including the "Syncing changed files…" wait, which is a couple of real
+    seconds of Files API polling and would otherwise look like a hang.
+
+    Always returns a plain turn dict; the caller appends it to
+    cce_transcript, and render_turn replays it into the identical shape.
     """
     client = get_client()
     session_id = ensure_session()
     tool_lines: list[str] = []
+    presentations: list[dict] = []
+    # Ordered record of what happened. It drives both the live render below
+    # and render_timeline's replay, which is what keeps them identical.
+    # tool_lines/reply are still filled in: _reconcile_after_disconnect and
+    # load_session_transcript both produce turns in that older shape, and
+    # render_turn still has to be able to draw one.
+    timeline: list[dict] = []
+    threads: dict[str, dict] = {}
+    # tid -> an st.empty() placed where the delegation happened, so the
+    # panel can be re-rendered in place as that subagent progresses.
+    thread_slots: dict[str, object] = {}
+    pending_seed = False  # see the deferred seed in the event loop below
     reply = ""
     # Seeded to "now", not left None, before we even send — if the
     # connection drops before a single event of this turn arrives,
@@ -713,52 +896,134 @@ def _run_turn(text: str, status, text_slot=None, *, log_action: str) -> dict:
             for event in stream:
                 et = event.type
                 last_event_at = getattr(event, "processed_at", last_event_at)
+                # Deferred baseline seed: a tool_use event fires when the
+                # command *starts*, and prepare_workspace.py takes longer to
+                # pull a sheet than any sane retry window, so seeding on the
+                # event itself finds an empty workspace. The agent acting
+                # again is proof the script returned.
+                if pending_seed and et in ("agent.message", "agent.tool_use"):
+                    refresh_files(attempts=3, delay=2.0)
+                    pending_seed = False
                 if et == "agent.message":
                     for block in event.content:
                         if getattr(block, "type", None) == "text" and block.text.strip():
                             reply += ("\n\n" if reply else "") + block.text
-                            if text_slot is not None:
-                                text_slot.markdown(reply)
+                            timeline.append({"kind": "text", "text": block.text})
+                            set_progress(progress, "working…")
+                            with live:
+                                st.markdown(block.text)
                 elif et == "agent.tool_use":
                     label = _describe_tool_use(event)
                     tool_lines.append(label)
-                    status.write(label)
-                elif (thread_label := _describe_thread_event(event)) is not None:
-                    tool_lines.append(thread_label)
-                    status.write(thread_label)
+                    timeline.append({"kind": "tool", "label": label})
+                    set_progress(progress, label)
+                    with live:
+                        st.markdown(f'<div class="cce-cmd">{html.escape(label)}</div>',
+                                    unsafe_allow_html=True)
+                    # Seed cce_files' "before" the moment the workspace is
+                    # pulled. refresh_files otherwise runs only at the end of
+                    # the turn, and prepare-then-edit routinely happens inside
+                    # one turn — in which case first sighting is already the
+                    # edited file and every diff comes out empty.
+                    _inp = getattr(event, "input", None)
+                    _cmd = _inp.get("command", "") if isinstance(_inp, dict) else ""
+                    if pres.PREPARE_CMD.search(str(_cmd)):
+                        pending_seed = True
+                elif et == "agent.custom_tool_use":
+                    if getattr(event, "name", None) == pres.TOOL_NAME:
+                        set_progress(progress, "Showing you the edited content…")
+                        payloads = handle_present_files(event)
+                        for p in payloads:
+                            # Index into presentations, so the woven view can
+                            # place each diff where the agent actually showed
+                            # it rather than in a pile at the end.
+                            timeline.append({"kind": "presentation", "index": len(presentations)})
+                            presentations.append(p)
+                            tool_lines.append(f"Presented {p['path']}")
+                            with live:
+                                render_presentation(p)
+                        progress.empty()
+                    else:
+                        # Unhandled custom tool still has to be answered, or
+                        # the session stays parked at requires_action forever.
+                        client.beta.sessions.events.send(
+                            session_id=session_id,
+                            events=[{
+                                "type": "user.custom_tool_result",
+                                "custom_tool_use_id": event.id,
+                                "content": [{"type": "text", "text": json.dumps(
+                                    {"status": "failed",
+                                     "reason": f"no client handler for {getattr(event, 'name', '?')}"}
+                                )}],
+                            }],
+                        )
+                elif et.startswith(("session.thread", "agent.thread")):
+                    if et == "session.thread_created":
+                        tid = getattr(event, "session_thread_id", None)
+                        if tid and tid not in threads:
+                            timeline.append({"kind": "thread", "id": tid})
+                            with live:
+                                thread_slots[tid] = st.empty()
+                    thread_label = track_thread_event(event, threads)
+                    if thread_label:
+                        tool_lines.append(thread_label)
+                        set_progress(progress, thread_label)
+                    # Re-draw every subagent panel this event moved, so a
+                    # delegation shows as working and then fills in with its
+                    # report, instead of staying blank until the turn ends.
+                    for _tid, _slot in thread_slots.items():
+                        if _tid in threads:
+                            with _slot.container():
+                                render_thread(threads[_tid])
                 elif et == "session.error":
                     err = f"⚠ session error: {getattr(event, 'message', event)}"
                     tool_lines.append(err)
-                    status.write(err)
-                elif et in ("session.status_idle", "session.status_terminated"):
+                    with live:
+                        st.warning(err)
+                elif et == "session.status_idle":
+                    stop = getattr(event, "stop_reason", None)
+                    if getattr(stop, "type", None) == "requires_action":
+                        # Not the end of the turn: the agent is parked on a
+                        # client-side event (a present_files call, answered
+                        # above) and resumes once the result lands. Breaking
+                        # here would end the turn mid-thought and leave the
+                        # session waiting on a result that never comes.
+                        continue
+                    break
+                elif et == "session.status_terminated":
                     break
     except Exception as exc:  # noqa: BLE001 — the connection dropped; the turn may not have.
-        status.write(f"⚠ connection dropped ({exc}) — checking whether the turn actually finished…")
-        status.update(label="Reconnecting…", state="running", expanded=True)
+        set_progress(progress, f"connection dropped ({exc}) — checking whether the turn finished…")
         extra_tools, extra_reply, completed = _reconcile_after_disconnect(session_id, last_event_at)
         tool_lines.extend(extra_tools)
         for line in extra_tools:
-            status.write(line)
+            timeline.append({"kind": "tool", "label": line})
+            with live:
+                st.markdown(f'<div class="cce-cmd">{html.escape(line)}</div>',
+                            unsafe_allow_html=True)
         if extra_reply:
             reply += ("\n\n" if reply else "") + extra_reply
-            if text_slot is not None:
-                text_slot.markdown(reply)
+            timeline.append({"kind": "text", "text": extra_reply})
+            with live:
+                st.markdown(extra_reply)
 
         if completed:
-            tool_lines.append("Syncing changed files…")
-            status.write("Syncing changed files…")
+            set_progress(progress, "Syncing changed files…")
             refresh_files(attempts=2, delay=2.0)
-            status.update(label="Done (reconnected)", state="complete", expanded=False)
+            progress.empty()
             track_tool_action(TOOL_NAME, log_action, duration_seconds=time.time() - started)
-            return {"user": text, "tool_lines": tool_lines, "reply": reply, "error": None}
+            return {"user": text, "tool_lines": tool_lines, "reply": reply,
+                    "presentations": presentations, "timeline": timeline,
+                    "threads": threads, "error": None}
 
         # Genuinely unresolved — still worth a defensive refresh, since tool
         # calls that ran before the drop may already have written files.
-        status.update(label="Connection lost", state="error", expanded=True)
+        progress.empty()
         refresh_files(attempts=1, delay=0)
         track_tool_action(TOOL_NAME, log_action, error_message=str(exc), duration_seconds=time.time() - started)
         return {
             "user": text, "tool_lines": tool_lines, "reply": reply,
+            "presentations": presentations, "timeline": timeline, "threads": threads,
             "error": (
                 f"Connection lost mid-turn ({exc}), and the session hadn't reached a stopping point yet as of "
                 "the last check. It may still be running server-side — use \"Resync this session\" above to "
@@ -766,17 +1031,18 @@ def _run_turn(text: str, status, text_slot=None, *, log_action: str) -> dict:
             ),
         }
 
-    tool_lines.append("Syncing changed files…")
-    status.write("Syncing changed files…")
+    set_progress(progress, "Syncing changed files…")
     track_tool_action(TOOL_NAME, log_action, duration_seconds=time.time() - started)
     refresh_files(attempts=2, delay=2.0)
-    status.update(label="Done", state="complete", expanded=False)
-    return {"user": text, "tool_lines": tool_lines, "reply": reply, "error": None}
+    progress.empty()
+    return {"user": text, "tool_lines": tool_lines, "reply": reply,
+            "presentations": presentations, "timeline": timeline,
+            "threads": threads, "error": None}
 
 
-def stream_turn(text: str, status, text_slot, *, log_action: str = "turn_sent") -> dict:
+def stream_turn(text: str, live, progress, *, log_action: str = "turn_sent") -> dict:
     """Send one turn from the main chat box, rendering live as events arrive."""
-    return _run_turn(text, status, text_slot, log_action=log_action)
+    return _run_turn(text, live, progress, log_action=log_action)
 
 
 def send_turn_blocking(text: str, *, log_action: str) -> None:
@@ -785,31 +1051,171 @@ def send_turn_blocking(text: str, *, log_action: str) -> None:
     (same shape render_turn uses for history) rather than a plain spinner,
     so these turns look identical to chat-driven ones once the page reruns.
     """
-    status = st.status("Working…", expanded=True)
-    turn = _run_turn(text, status, log_action=log_action)
+    live = st.container()
+    progress = st.empty()
+    turn = _run_turn(text, live, progress, log_action=log_action)
     st.session_state.cce_transcript.append(turn)
 
 
+_TASK_FILE_RE = re.compile(r"^File:\s*(\S+)", re.MULTILINE)
+
+
+def track_thread_event(event, threads: dict[str, dict]) -> str | None:
+    """Fold one delegation event into per-subagent records.
+
+    A subagent's *internal* tool calls never reach this stream — measured
+    against a real delegating session: every `agent.tool_use` there carried
+    `session_thread_id: None`, i.e. they were all the coordinator's own. So
+    there is no way to show "Editor 2 is editing block 5", at any price.
+
+    What the stream does carry, per thread, is the brief the coordinator
+    sent, the status transitions, and the editor's full report — and the
+    report is the valuable part, since it is where an editor states its
+    measured before/after counts. Today that text is thrown away and
+    summarized as "← report received", which is why delegation reads as a
+    black box.
+
+    Returns a short status line for the live status box, or None.
+    """
+    et = event.type
+    if et == "session.thread_created":
+        tid = getattr(event, "session_thread_id", None)
+        if tid:
+            threads.setdefault(tid, {}).update(
+                {"agent": getattr(event, "agent_name", None) or "editor",
+                 "status": "working", "task": "", "file": "", "report": ""}
+            )
+            return f"delegating to {threads[tid]['agent']}…"
+        return None
+
+    if et == "agent.thread_message_sent":
+        tid = getattr(event, "to_session_thread_id", None)
+        if not tid:
+            return None
+        text = "".join(
+            b.text for b in (event.content or []) if getattr(b, "type", None) == "text"
+        )
+        rec = threads.setdefault(tid, {"agent": getattr(event, "to_agent_name", None) or "editor",
+                                       "status": "working", "task": "", "file": "", "report": ""})
+        rec["task"] = text
+        m = _TASK_FILE_RE.search(text)
+        if m:
+            rec["file"] = m.group(1).rsplit("/", 1)[-1]
+        return f"→ {rec['file'] or rec['agent']} handed off"
+
+    if et == "agent.thread_message_received":
+        tid = getattr(event, "from_session_thread_id", None)
+        if not tid:
+            return None
+        text = "".join(
+            b.text for b in (event.content or []) if getattr(b, "type", None) == "text"
+        )
+        rec = threads.setdefault(tid, {"agent": getattr(event, "from_agent_name", None) or "editor",
+                                       "status": "done", "task": "", "file": "", "report": ""})
+        rec["report"] = text
+        rec["status"] = "done"
+        return f"← {rec['file'] or rec['agent']} reported back"
+
+    if et in ("session.thread_status_idle", "session.thread_status_terminated"):
+        # Fires for the coordinator's own thread too, which is not a
+        # delegation — only touch threads we actually created.
+        tid = getattr(event, "session_thread_id", None)
+        if tid in threads and threads[tid].get("status") != "done":
+            threads[tid]["status"] = "finished" if et.endswith("terminated") else "idle"
+    return None
+
+
+def set_progress(slot, text: str) -> None:
+    """Spinner + the current activity, in the placeholder below the turn.
+
+    Transient by contract: this never enters the transcript, so it can say
+    things a replayed turn shouldn't ("Syncing changed files…"). The spinner
+    is the point — the gaps here are long (a delegated sweep runs a minute
+    or more with nothing to print), and a motionless line reads as a frozen
+    page.
+    """
+    slot.markdown(
+        f'<div class="cce-working"><span class="cce-spin"></span>{html.escape(text)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_timeline(turn: dict) -> None:
+    """The woven view: agent prose and tool activity in the order they
+    happened, rather than every command collected into one status box
+    detached from the sentence that explains it.
+
+    Commands are set in mono (`.cce-cmd`) because that is what they are —
+    it keeps them legible as machine output without letting them compete
+    with the agent's own writing.
+    """
+    threads = turn.get("threads") or {}
+    for item in turn.get("timeline") or []:
+        kind = item.get("kind")
+        if kind == "text":
+            st.markdown(item["text"])
+        elif kind == "tool":
+            st.markdown(f'<div class="cce-cmd">{html.escape(item["label"])}</div>',
+                        unsafe_allow_html=True)
+        elif kind == "thread":
+            rec = threads.get(item["id"])
+            if rec:
+                render_thread(rec)
+        elif kind == "presentation":
+            shown = (turn.get("presentations") or [])
+            if item["index"] < len(shown):
+                render_presentation(shown[item["index"]])
+
+
+def render_thread(rec: dict) -> None:
+    """One subagent, its brief and its report, in its own expander."""
+    name = rec.get("file") or rec.get("agent") or "editor"
+    status = rec.get("status") or "working"
+    icon = {"done": "✓", "working": "⋯", "idle": "⋯", "finished": "✓"}.get(status, "⋯")
+    with st.expander(f"{icon} {name} · {rec.get('agent', 'editor')} · {status}", expanded=False):
+        if rec.get("task"):
+            st.markdown('<div class="cce-thread-meta">Brief it was given</div>',
+                        unsafe_allow_html=True)
+            st.markdown(f'<div class="cce-cmd">{html.escape(rec["task"][:1200])}</div>',
+                        unsafe_allow_html=True)
+        if rec.get("report"):
+            st.markdown('<div class="cce-thread-meta">What it reported back</div>',
+                        unsafe_allow_html=True)
+            st.markdown(rec["report"])
+        elif status != "done":
+            st.caption("Still working — its report appears here when it finishes.")
+
+
 def render_turn(turn: dict) -> None:
-    """Replay one completed turn with the exact same visual shape it had
-    live: a chat bubble each for user/assistant, tool activity inside a
-    collapsed st.status, error (if any) as st.error, then the reply text.
-    Used for every turn in history — including the one that was just
-    streaming a moment ago — so nothing changes shape after the fact.
+    """Replay one completed turn.
+
+    Two shapes are supported on purpose. Turns carrying a `timeline` render
+    woven — prose and commands interleaved in the order they happened, with
+    a per-subagent expander where each delegation occurred. Older turns
+    (and those rebuilt by load_session_transcript) have only `tool_lines`
+    and `reply`, and keep the original status-box shape; transcript entries
+    outlive the code that wrote them, so both paths have to work.
     """
     with st.chat_message("user"):
         st.markdown(turn["user"])
     with st.chat_message("assistant"):
-        if turn["tool_lines"]:
-            label = "Failed" if turn["error"] else "Done"
-            state = "error" if turn["error"] else "complete"
-            status = st.status(label, state=state, expanded=False)
-            for line in turn["tool_lines"]:
-                status.write(line)
+        if turn.get("timeline"):
+            render_timeline(turn)
+        else:
+            if turn["tool_lines"]:
+                label = "Failed" if turn["error"] else "Done"
+                state = "error" if turn["error"] else "complete"
+                status = st.status(label, state=state, expanded=False)
+                for line in turn["tool_lines"]:
+                    status.write(line)
+            if turn["reply"]:
+                st.markdown(turn["reply"])
         if turn["error"]:
             st.error(f"Request failed: {turn['error']}")
-        if turn["reply"]:
-            st.markdown(turn["reply"])
+        if not turn.get("timeline"):
+            # Legacy turns: the timeline already placed these inline.
+            for presentation in turn.get("presentations") or []:
+                render_presentation(presentation)
 
 
 def refresh_files(attempts: int = 3, delay: float = 2.0) -> None:
@@ -884,6 +1290,494 @@ def refresh_files(attempts: int = 3, delay: float = 2.0) -> None:
                     pass
         if attempt < attempts - 1:
             time.sleep(delay)
+
+
+# ---------------------------------------------------------------------------
+# present_files — the agent's only sanctioned way to show content
+# ---------------------------------------------------------------------------
+# A custom tool is client-side by definition: Anthropic emits
+# agent.custom_tool_use, parks the session at idle/requires_action, and the
+# turn does not move until a user.custom_tool_result goes back. So the
+# handler's contract is "always answer" — every branch, including failures.
+#
+# The Review tab already renders every changed file on its own. This is not
+# that: it's the agent pointing at specific blocks at the moment it's
+# talking about them, in the chat, which is the difference between a diff
+# the user has to go find and one put in front of them.
+
+
+def handle_present_files(event) -> list[dict]:
+    """Answer one present_files call; return payloads for render_turn.
+
+    Returns plain dicts (paths, block ids, before/after strings) rather than
+    rendered HTML because they get stored on the turn and replayed by
+    render_turn on every rerun — the same reason turns carry tool_lines
+    instead of a finished st.status.
+    """
+    client = get_client()
+    session_id = st.session_state.cce_session_id
+    items = pres.normalize_items(getattr(event, "input", None))
+    payloads: list[dict] = []
+    result_text = None
+
+    try:
+        if not items:
+            result_text = json.dumps({"status": "failed", "reason": "no items in input"})
+        else:
+            # The agent calls this straight after editing, and a just-written
+            # file can lag a beat behind in the Files API — the same lag
+            # refresh_files' retry loop exists for. Refresh before resolving,
+            # and once more if something the agent named isn't there yet.
+            refresh_files(attempts=2, delay=1.5)
+            if any(pres.resolve_key(st.session_state.cce_files, i["path"]) is None for i in items):
+                refresh_files(attempts=2, delay=2.0)
+
+            missing: list[str] = []
+            facts: dict[str, dict] = {}
+            # event.id is unique per tool call, so "<id>-<n>" is a stable
+            # identity for this card across every later rerun — which is what
+            # the view toggle needs for its widget key. A key derived from the
+            # path alone would collide the moment the same file is presented
+            # in two turns.
+            for n, item in enumerate(items):
+                uid = f"{event.id}-{n}"
+                key = pres.resolve_key(st.session_state.cce_files, item["path"])
+                if key is None:
+                    missing.append(item["path"])
+                    payloads.append({"path": item["path"], "note": item["note"],
+                                     "uid": uid, "missing": True})
+                    continue
+                entry = st.session_state.cce_files[key]
+                # Carry the raw before/after, not a pre-computed selection:
+                # the cards are built by the same diff_topic_file /
+                # diff_context_file the Review tab uses, so the two views are
+                # the same view. Storing the text also means render_turn can
+                # rebuild them on every rerun without re-fetching.
+                payloads.append({
+                    "path": key,
+                    "note": item["note"],
+                    "uid": uid,
+                    "kind": entry.get("kind") or "topics",
+                    "before": entry["before"],
+                    "after": entry["after"],
+                    "missing": False,
+                })
+                # Keyed by the path the AGENT used — that's what the result
+                # echoes back to it, not the resolved cache key.
+                facts[item["path"]] = pres.measure(
+                    entry["before"], entry["after"], entry.get("kind") or "topics")
+            result_text = (
+                pres.unresolved_result(items, missing, facts) if missing
+                else pres.ack_result(items, facts)
+            )
+    except Exception as exc:  # noqa: BLE001 — see above: the turn is blocked on us.
+        result_text = json.dumps({"status": "failed", "reason": str(exc)})
+
+    client.beta.sessions.events.send(
+        session_id=session_id,
+        events=[{
+            "type": "user.custom_tool_result",
+            "custom_tool_use_id": event.id,
+            "content": [{"type": "text", "text": result_text}],
+        }],
+    )
+    return payloads
+
+
+def diff_card_html(card: dict) -> tuple[str, str, str, str]:
+    """(label, meta, extra, body) for one diff card.
+
+    The single source of the card's visual content, used by BOTH the Review
+    tab and the present_files cards in chat — the two are the same view of
+    the same edit, so they render from the same code rather than from two
+    copies that agree until someone edits one of them.
+
+    `extra` is the Learning-Objective line for research-notes cards and ""
+    for topic cards. Callers own everything around the content: the Review
+    tab appends its status badge to `label` and its accept / reject /
+    request-changes row after `body`; the chat cards are read-only, since
+    those buttons are keyed to the Review tab's card ids and a second set
+    claiming the same decision would be two widgets fighting over one piece
+    of state.
+    """
+    kind = card["kind"]
+    if kind == "topic_group":
+        before_g, after_g = card["before"], card["after"]
+        before_flat = flatten_topic_group(before_g) if before_g else ""
+        after_flat = flatten_topic_group(after_g) if after_g else ""
+        before_name = before_g["topic"] if before_g else ""
+        after_name = after_g["topic"] if after_g else ""
+        if not before_g:
+            label = f'<ins>{html.escape(after_name)}</ins>'
+            meta = f"New topic · {len(after_g['blocks'])} slides"
+        elif not after_g:
+            label = f'<del>{html.escape(before_name)}</del>'
+            meta = f"Removed topic · {len(before_g['blocks'])} slides"
+        else:
+            label = word_diff_html(before_name, after_name)
+            meta = f"Topic · {len(before_g['blocks'])} → {len(after_g['blocks'])} slides"
+        return label, meta, "", text_diff_html(before_flat, after_flat)
+
+    if kind == "context_row":
+        b, a = card["before"], card["after"]
+        return (
+            html.escape(b["Subtopic"]),
+            f'Research notes · Topic: {b["Topic"]} · Subtopic: {b["Subtopic"]}',
+            f'Learning Objective: {html.escape(b["Learning Objective"])}',
+            paragraph_diff_html(b["Research Notes"], a["Research Notes"]),
+        )
+
+    # context_new
+    a = card["after"]
+    body = "".join(
+        f'<p class="cce-diff-changed"><ins>{html.escape(par)}</ins></p>'
+        for par in _split_paragraphs(a["Research Notes"])
+    )
+    return (
+        html.escape(a["Subtopic"]),
+        f'Research notes · Topic: {html.escape(a["Topic"])} · Subtopic: {html.escape(a["Subtopic"])}',
+        f'Learning Objective: {html.escape(a["Learning Objective"])}',
+        body,
+    )
+
+
+_MD_MEDIA_RE = re.compile(r'(!?)\[([^\]]*)\]\(\s*([^)\s]*)(?:\s+"[^"]*")?\s*\)')
+
+
+_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp", ".tif", ".tiff")
+
+
+def _looks_like_image(url: str) -> bool:
+    """Does this url point at an image file?
+
+    Query strings are the norm on this content's urls (`?strip=all`,
+    `?itok=…`, `?auto=false`), so the extension check runs on the path
+    alone.
+    """
+    return url.split("#", 1)[0].split("?", 1)[0].lower().endswith(_IMAGE_EXT)
+
+
+def _media_html(is_image: bool, alt: str, url: str) -> str:
+    """One markdown image or link as HTML.
+
+    Whether something renders as a picture is decided by the *url*, not by
+    which markdown syntax it was written in. Course content routinely
+    points at a diagram with an ordinary link — `[view full size air gap
+    diagram](…/air-gap-diagram.png)` — and treating that as text just
+    because it lacks a leading `!` shows a reviewer a url where there
+    should be a picture. So: anything ending in an image extension is
+    rendered as an image, and an explicit `![...]` is trusted as an image
+    even when its url carries no extension (CDN urls often don't).
+
+    Everything else becomes a link, which is also where anything that
+    can't be displayed lands — a relative url can't resolve from this app,
+    so it's a link rather than a guaranteed broken-image icon.
+
+    Schemes are an allow-list — http, https, or a site-relative path.
+    `javascript:`, `data:`, and anything else fall through to plain text
+    rather than becoming an attribute, which matters because these urls
+    come from sheet content the agent rewrites.
+    """
+    lower = url.lower()
+    absolute = lower.startswith(("http://", "https://"))
+    relative = url.startswith(("/", "./", "../")) and not lower.startswith("//")
+    href = url if (absolute or relative) else None
+
+    # The content wraps alt text in literal quotes ("three-compartment sink
+    # …"); they're punctuation from the source, not part of the caption.
+    label = (alt or "").strip().strip('"').strip("'")
+
+    if not href:
+        return html.escape(label or url)
+    safe_href = html.escape(href, quote=True)
+    if absolute and (is_image or _looks_like_image(href)):
+        # Wrapped in a link to its own source: the card renders a capped
+        # thumbnail, and the full-resolution original is one click away for
+        # anyone who needs to read the labels inside a diagram.
+        return (f'<a class="cce-plain-img-link" href="{safe_href}" target="_blank" '
+                f'rel="noopener noreferrer">'
+                f'<img class="cce-plain-img" src="{safe_href}" '
+                f'alt="{html.escape(label, quote=True)}" loading="lazy"></a>')
+    return (f'<a href="{safe_href}" target="_blank" rel="noopener noreferrer">'
+            f'{html.escape(label or href)}</a>')
+
+
+def _plain_paragraph_html(text: str) -> str:
+    """Escape a paragraph, rendering markdown images and links as HTML."""
+    out, pos = [], 0
+    for m in _MD_MEDIA_RE.finditer(text):
+        out.append(html.escape(text[pos:m.start()]))
+        pos = m.end()
+        out.append(_media_html(m.group(1) == "!", m.group(2), m.group(3)))
+    out.append(html.escape(text[pos:]))
+    return "".join(out)
+
+
+# NUL-delimited so html.escape() leaves it untouched and _tokenize() keeps it
+# as one word — a placeholder that survived escaping but got split across
+# <del>/<ins> spans would come back as visible garbage.
+_MEDIA_PH = "\x00M{}\x00"
+
+
+def _stash_media(text: str, store: dict[str, str]) -> str:
+    """Swap markdown media out for placeholders before diffing.
+
+    Diffing the raw `![alt](url)` is why images didn't render in the redline:
+    a long url is dozens of word tokens, so an image next to a rewritten
+    sentence gets sliced across <del>/<ins> spans and can't be turned back
+    into an <img> afterwards. Standing in a single token instead lets the
+    word diff align on the prose, and the image is restored intact after.
+
+    Identical media reuses its placeholder, so an untouched image is the
+    *same* token on both sides and the diff correctly calls it unchanged;
+    a swapped url produces a different one and shows up as a real change —
+    old image struck, new image inserted.
+    """
+    def repl(m: re.Match) -> str:
+        frag = _media_html(m.group(1) == "!", m.group(2), m.group(3))
+        for ph, existing in store.items():
+            if existing == frag:
+                return ph
+        ph = _MEDIA_PH.format(len(store))
+        store[ph] = frag
+        return ph
+
+    return _MD_MEDIA_RE.sub(repl, text)
+
+
+def _restore_media(rendered: str, store: dict[str, str]) -> str:
+    for ph, frag in store.items():
+        rendered = rendered.replace(ph, frag)
+    return rendered
+
+
+def card_plain_html(card: dict) -> str:
+    """The card's content as it now reads, with no redline markup.
+
+    The other half of the view toggle. A diff answers "what did you change";
+    this answers "what does the slide say now", which is the question when
+    you're judging whether the new copy is any good — reading prose with
+    struck-through words spliced through it is a different, harder task.
+
+    Renders the *after* state, falling back to *before* for a card whose
+    after side is gone (a removed topic), since showing an empty panel would
+    just look broken.
+    """
+    kind = card["kind"]
+    if kind == "topic_group":
+        group = card["after"] or card["before"]
+        if not group:
+            return '<p class="cce-diff-context">(nothing to show)</p>'
+        out, last_sub = [], None
+        for b in group["blocks"]:
+            sub = b.get("Subtopic", "")
+            if sub != last_sub:
+                out.append(f'<div class="cce-card-meta">{html.escape(sub)}</div>')
+                last_sub = sub
+            title = f"[{b.get('Slide Type', '')}] {b.get('Slide Chunk Title', '')}".strip()
+            out.append(f'<div class="cce-card-label">{html.escape(title)}</div>')
+            out.append(
+                '<div class="cce-diff-text">'
+                + "".join(
+                    f'<p class="cce-diff-context">{_plain_paragraph_html(par)}</p>'
+                    for par in _split_paragraphs(b.get("Slide Chunk", ""))
+                )
+                + "</div>"
+            )
+        return "".join(out)
+
+    row = card["after"] or card["before"]
+    return "".join(
+        f'<p class="cce-diff-context">{_plain_paragraph_html(par)}</p>'
+        for par in _split_paragraphs(row.get("Research Notes", ""))
+    )
+
+
+_COMPONENT_DIR = _CCE_DIR / "components" / "comment_selector"
+
+
+def _comment_component():
+    """The select-and-comment component, or a string saying why it's absent.
+
+    A bidirectional custom component rather than components.v1.html: the
+    page's own markdown strips <script>, so text selection is invisible
+    there, and components.v1.html can run JS but has no channel back to
+    Python. declare_component has both, and needs no npm — index.html
+    implements the three postMessage calls the protocol actually requires.
+
+    The declaration itself lives in _comment_component.py and cannot move
+    here: declare_component asserts on `inspect.getmodule()` of its caller,
+    which is unresolvable for a page Streamlit runs via exec(). See that
+    module's docstring.
+    """
+    if _cmt.comment_selector is None:
+        return _cmt.load_error or "component not declared"
+    return _cmt.comment_selector
+
+
+def _blocks_for_component(before: str, after: str, kind: str) -> list[dict]:
+    """The file's current blocks, prose pre-rendered server-side.
+
+    The HTML is built here with the same _plain_paragraph_html the static
+    plain view uses, so images and links behave identically inside the
+    iframe and the sanitizing rules are not reimplemented in JavaScript.
+    """
+    out = []
+    for b in pres.parse_blocks(after, kind):
+        body = pres.block_body(b, kind)
+        out.append({
+            "id": b["_id"],
+            "label": pres.block_label(b, kind),
+            "subtopic": b.get("Subtopic", ""),
+            "html": "".join(f"<p>{_plain_paragraph_html(par)}</p>"
+                            for par in _split_paragraphs(body)),
+        })
+    return out
+
+
+def compose_feedback_message(path: str, comments: list[dict]) -> str:
+    """Turn selected-text comments into one instruction for the agent.
+
+    Each comment quotes the selection verbatim. That is the same handle the
+    Review tab's Reject flow uses, and for the same reason: the exact text
+    is the only reliable way to point at a passage, since block IDs get
+    renumbered and titles get rewritten. A selection spanning two slides
+    keeps both block labels, so "this transition doesn't lead into the next
+    slide" stays expressible.
+    """
+    lines = [f'Feedback on `{path}`. Each item quotes the exact text I selected.', ""]
+    for i, c in enumerate(comments, 1):
+        where = c.get("where") or ""
+        lines.append(f'{i}. {where}'.rstrip())
+        lines.append(f'   Selected text: """{(c.get("quote") or "").strip()}"""')
+        lines.append(f'   What I want: {(c.get("note") or "").strip()}')
+        lines.append("")
+    lines.append(
+        "Apply exactly these changes and nothing else — leave every other block "
+        "in this file, and every other file, as it is. Then present the file back to me."
+    )
+    return "\n".join(lines)
+
+
+def render_comment_surface(p: dict, before: str, after: str, kind: str, uid: str) -> bool:
+    """Selectable plain view. Returns True if it rendered.
+
+    Comments live in session_state keyed by uid and are handed back to the
+    component on every rerun, because the iframe is re-created each time and
+    would otherwise lose them.
+    """
+    component = _comment_component()
+    if isinstance(component, str):
+        # Surfaced, not swallowed. A silent fallback here is indistinguishable
+        # from the component loading and simply not responding to selection —
+        # which is exactly the confusion it caused the first time out.
+        st.warning(f"Select-to-comment unavailable — {component}")
+        return False
+    blocks = _blocks_for_component(before, after, kind)
+    if not blocks:
+        st.caption("No parseable blocks in this file, so there is nothing to select.")
+        return False
+
+    store = st.session_state.setdefault("cce_comments", {})
+    pending = store.get(uid, [])
+    try:
+        value = component(blocks=blocks, file=p.get("path", ""), pending=pending,
+                          key=f"cmt_{uid}", default=None)
+    except Exception as exc:  # noqa: BLE001 — never take the page down, but never hide it either
+        st.warning(f"Select-to-comment failed to render — {exc}")
+        return False
+
+    if isinstance(value, dict):
+        store[uid] = value.get("comments") or []
+        # Only a "send" click becomes a turn. The component also reports on
+        # every add/delete so the comments survive a rerun, and those must
+        # not each fire a message — hence the seq guard, since Streamlit
+        # replays the last component value on every subsequent rerun too.
+        if value.get("action") == "send" and store[uid]:
+            seen = st.session_state.setdefault("cce_comment_seq", {})
+            if seen.get(uid) != value.get("seq"):
+                seen[uid] = value.get("seq")
+                st.session_state.cce_pending_feedback = compose_feedback_message(
+                    p.get("path", ""), store[uid])
+                store[uid] = []
+                st.rerun()
+    return True
+
+
+def render_presentation(p: dict) -> None:
+    """One presented file, in its own expander.
+
+    Reads the payload defensively. Transcript entries outlive the code that
+    wrote them — st.session_state survives a hot reload, so after any change
+    to what handle_present_files stores, the transcript still holds turns in
+    the previous shape and re-renders them on the very next rerun. (That
+    surfaced as a KeyError: 'before' the first time this payload changed.)
+    Anything missing is re-derived from the live file cache, which is keyed
+    by the same path and is the same content the payload was a snapshot of.
+    """
+    path = p.get("path") or "(unknown file)"
+    name = path.rsplit("/", 1)[-1]
+    if p.get("missing"):
+        with st.expander(f"⚠ {path} — not found in the workspace", expanded=False):
+            st.caption("The agent named a file that isn't in the current workspace.")
+        return
+
+    before, after = p.get("before"), p.get("after")
+    kind = p.get("kind")
+    if before is None or after is None:
+        entry = st.session_state.cce_files.get(path)
+        if entry is None:
+            with st.expander(f"{name} — diff unavailable", expanded=False):
+                st.caption(
+                    "This was presented in an earlier turn and its content is no longer "
+                    "cached. The Review tab has the current diff."
+                )
+            return
+        before, after = entry["before"], entry["after"]
+        kind = kind or entry.get("kind")
+
+    cards = (
+        diff_context_file(before, after)
+        if kind == "context"
+        else diff_topic_file(before, after)
+    )
+    n = len(cards)
+    header = f"{name} — {n} change{'' if n == 1 else 's'}" if n else f"{name} — no changes"
+    with st.expander(header, expanded=False):
+        if p.get("note"):
+            st.caption(p["note"])
+        if not cards:
+            st.caption("Nothing differs from the original in this file.")
+            return
+
+        # Purely a rendering choice — flipping it re-renders from the same
+        # stored before/after and sends nothing to the agent.
+        # `uid` keeps the key stable across reruns and distinct from the same
+        # file presented in another turn; the hash fallback covers transcript
+        # entries written before uid existed.
+        uid = p.get("uid") or f"legacy{abs(hash((path, p.get('note', ''))))}"
+        show_diff = st.toggle(
+            "Show changes", value=True, key=f"presdiff_{uid}",
+            help="On: redline against the original. Off: the content as it reads now.",
+        )
+        if not show_diff and render_comment_surface(p, before, after, kind or "topics", uid):
+            return
+        for i, card in enumerate(cards):
+            label, meta, extra, body = diff_card_html(card)
+            if not show_diff:
+                # Keep the same label/meta so the card doesn't jump around
+                # when toggled — but strip the redline markup out of the
+                # label, which is itself a word diff of the topic name.
+                label = re.sub(r"<[^>]+>", "", label)
+                body = card_plain_html(card)
+            with st.container(border=True):
+                st.markdown(
+                    f'<div class="cce-card-label">{label}</div>'
+                    f'<div class="cce-card-meta">{html.escape(meta)}</div>'
+                    + (f'<div class="cce-card-lo">{extra}</div>' if extra else "")
+                    + f'<div class="cce-diff-text">{body}</div>',
+                    unsafe_allow_html=True,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -1223,8 +2117,9 @@ def paragraph_diff_html(before: str, after: str) -> str:
     paragraph reading as word salad: each side stays legible as continuous
     prose instead of both directions being spliced into one run-on line.
     """
-    before_paras = _split_paragraphs(before)
-    after_paras = _split_paragraphs(after)
+    media: dict[str, str] = {}
+    before_paras = _split_paragraphs(_stash_media(before, media))
+    after_paras = _split_paragraphs(_stash_media(after, media))
     sm = difflib.SequenceMatcher(None, before_paras, after_paras, autojunk=False)
     rows = []
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
@@ -1269,7 +2164,8 @@ def paragraph_diff_html(before: str, after: str) -> str:
         elif tag == "insert":
             for p in after_paras[j1:j2]:
                 rows.append(f'<tr><td></td><td class="cce-diff-new">{html.escape(p)}</td></tr>')
-    return f'<table class="cce-diff-table"><tbody>{"".join(rows)}</tbody></table>'
+    return _restore_media(
+        f'<table class="cce-diff-table"><tbody>{"".join(rows)}</tbody></table>', media)
 
 
 def text_diff_html(before: str, after: str) -> str:
@@ -1281,8 +2177,11 @@ def text_diff_html(before: str, after: str) -> str:
     the slide-chunks checklist diff — so the two views read alike; the
     difference is only that this one uses the page's own cce-diff-* styling
     and the shared word tokenizer."""
-    before_lines = before.splitlines()
-    after_lines = after.splitlines()
+    # Images stand in as single placeholder tokens for the duration of the
+    # diff and come back as real <img> at the end — see _stash_media.
+    media: dict[str, str] = {}
+    before_lines = _stash_media(before, media).splitlines()
+    after_lines = _stash_media(after, media).splitlines()
     sm = difflib.SequenceMatcher(None, before_lines, after_lines, autojunk=False)
     rows = []
 
@@ -1326,7 +2225,8 @@ def text_diff_html(before: str, after: str) -> str:
         elif tag == "insert":
             for line in after_lines[j1:j2]:
                 rows.append(f'<tr><td></td>{cell("cce-diff-new", html.escape(line), line)}</tr>')
-    return f'<table class="cce-diff-table cce-diff-doc"><tbody>{"".join(rows)}</tbody></table>'
+    return _restore_media(
+        f'<table class="cce-diff-table cce-diff-doc"><tbody>{"".join(rows)}</tbody></table>', media)
 
 
 def format_topic_block_for_message(b: dict) -> str:
@@ -1479,12 +2379,12 @@ with tab_review:
                         b, a = card["before"], card["after"]
                         badge = (f'<span class="cce-badge cce-badge-{status}">{status}</span>' if status
                                  else '<span class="cce-badge cce-badge-pending">pending</span>')
+                        label, meta, extra, body = diff_card_html(card)
                         st.markdown(
-                            f'<div class="cce-card-label">{html.escape(b["Subtopic"])}{badge}</div>'
-                            f'<div class="cce-card-meta">Research notes · Topic: {html.escape(b["Topic"])} · '
-                            f'Subtopic: {html.escape(b["Subtopic"])}</div>'
-                            f'<div class="cce-card-lo">Learning Objective: {html.escape(b["Learning Objective"])}</div>'
-                            f'<div class="cce-diff-text">{paragraph_diff_html(b["Research Notes"], a["Research Notes"])}</div>',
+                            f'<div class="cce-card-label">{label}{badge}</div>'
+                            f'<div class="cce-card-meta">{html.escape(meta)}</div>'
+                            f'<div class="cce-card-lo">{extra}</div>'
+                            f'<div class="cce-diff-text">{body}</div>',
                             unsafe_allow_html=True,
                         )
                         c1, c2, c3 = st.columns([1, 1, 2])
@@ -1515,41 +2415,27 @@ with tab_review:
 
                     elif card["kind"] == "context_new":
                         a = card["after"]
-                        new_paras = "".join(
-                            f'<p class="cce-diff-changed"><ins>{html.escape(p)}</ins></p>'
-                            for p in _split_paragraphs(a["Research Notes"])
-                        )
+                        label, meta, extra, body = diff_card_html(card)
                         st.markdown(
-                            f'<div class="cce-card-label">{html.escape(a["Subtopic"])}'
+                            f'<div class="cce-card-label">{label}'
                             f'<span class="cce-badge cce-badge-pending">new row</span></div>'
-                            f'<div class="cce-card-meta">Research notes · Topic: {html.escape(a["Topic"])} · '
-                            f'Subtopic: {html.escape(a["Subtopic"])}</div>'
-                            f'<div class="cce-card-lo">Learning Objective: {html.escape(a["Learning Objective"])}</div>'
-                            f'<div class="cce-diff-text">{new_paras}</div>',
+                            f'<div class="cce-card-meta">{html.escape(meta)}</div>'
+                            f'<div class="cce-card-lo">{extra}</div>'
+                            f'<div class="cce-diff-text">{body}</div>',
                             unsafe_allow_html=True,
                         )
 
                     elif card["kind"] == "topic_group":
                         before_g, after_g = card["before"], card["after"]
-                        before_flat = flatten_topic_group(before_g) if before_g else ""
-                        after_flat = flatten_topic_group(after_g) if after_g else ""
                         before_name = before_g["topic"] if before_g else ""
                         after_name = after_g["topic"] if after_g else ""
                         badge = (f'<span class="cce-badge cce-badge-{status}">{status}</span>' if status
                                  else '<span class="cce-badge cce-badge-pending">pending</span>')
-                        if not before_g:
-                            label = f'<ins>{html.escape(after_name)}</ins>'
-                            meta = f"New topic · {len(after_g['blocks'])} slides"
-                        elif not after_g:
-                            label = f'<del>{html.escape(before_name)}</del>'
-                            meta = f"Removed topic · {len(before_g['blocks'])} slides"
-                        else:
-                            label = word_diff_html(before_name, after_name)
-                            meta = (f"Topic · {len(before_g['blocks'])} → {len(after_g['blocks'])} slides")
+                        label, meta, _extra, body = diff_card_html(card)
                         st.markdown(
                             f'<div class="cce-card-label">{label}{badge}</div>'
                             f'<div class="cce-card-meta">{html.escape(meta)}</div>'
-                            f'<div class="cce-diff-text">{text_diff_html(before_flat, after_flat)}</div>',
+                            f'<div class="cce-diff-text">{body}</div>',
                             unsafe_allow_html=True,
                         )
                         c1, c2, c3 = st.columns([1, 1, 2])
@@ -1609,13 +2495,35 @@ with tab_review:
 # ---------------------------------------------------------------------------
 chat_prompt = st.chat_input("Paste a course Google Sheet URL, or say what to change…")
 
+# Selection comments arrive as a queued message rather than being sent from
+# inside the expander they were written in — a turn started there would
+# render into the middle of an earlier turn.
+if not chat_prompt and st.session_state.cce_pending_feedback:
+    chat_prompt = st.session_state.cce_pending_feedback
+    st.session_state.cce_pending_feedback = None
+
 if chat_prompt:
     with tab_chat:
         with st.chat_message("user"):
             st.markdown(chat_prompt)
         with st.chat_message("assistant"):
-            turn_status = st.status("Working…", expanded=True)
-            reply_slot = st.empty()
-        completed_turn = stream_turn(chat_prompt, turn_status, reply_slot)
+            # The turn renders into `live` in event order — the same shape
+            # render_timeline replays afterwards, so nothing rearranges on
+            # screen when the turn finishes. `progress` sits below it for
+            # transient "still working" text that never enters the transcript.
+            live_area = st.container()
+            progress_slot = st.empty()
+            set_progress(progress_slot, "Working…")
+        completed_turn = stream_turn(chat_prompt, live_area, progress_slot)
         st.session_state.cce_transcript.append(completed_turn)
-    st.rerun()
+    # Deliberately no st.rerun() here. The turn is already on screen in the
+    # exact shape render_turn would replay it in, and it is already in the
+    # transcript, so a rerun would re-render the entire conversation to
+    # produce a pixel-identical result — visible as the app going "Running"
+    # and the page flickering the moment the agent finishes. It only existed
+    # to normalize a live shape that no longer differs from the replayed one.
+    #
+    # The cost: tabs rendered earlier in this script run (the Review tab's
+    # diff cards) still show their pre-turn state until the next interaction.
+    # That is a one-interaction lag on a secondary panel, against a full
+    # re-render on every single turn.

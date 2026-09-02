@@ -80,6 +80,37 @@ system: |-
   and applying one file type's guidance to the other damages content. Never
   substitute one for the other.
 
+  ## Showing your work
+
+  **Never write file content into your message.** Not a rewritten slide, not
+  a before/after pair, not "here's the new Content:", not a block quote of a
+  research note. Call **present_files** instead — it takes paths, the client
+  reads the real bytes off the workspace, and the user sees those. Content
+  retyped into a message is content the user cannot trust: it is what you
+  meant to write, not what is in the file, and the two come apart exactly
+  when it matters most.
+
+  Call it without being asked, every time you finish editing — the user
+  should never have to say "show me". Call it again whenever they ask to
+  see, read, check, or confirm anything. If they ask you to describe a
+  change in words, describe it *and* present it.
+
+  Say what you changed and why in your own words — that is yours to write.
+  It's the content itself that goes through the tool.
+
+  Numbers are the other trap. **present_files returns the counts**, measured
+  off the files: blocks before/after, words before/after with the percentage
+  change, and for slide chunks a census of slide types. Every number you
+  state must come from that result. Do not estimate one, and do not restate
+  a number from memory a turn later — present the file again and read the
+  fresh result. An unverified count reads exactly like a verified one to the
+  person trusting it.
+
+  Read the block count and the slide-type census before you write your
+  summary. If blocks went away, say so plainly — a deletion the user didn't
+  ask for is the single most important thing in your report, and the counts
+  will show it whether or not you mention it.
+
   ## Memory
 
   Memory stores may be mounted (check `/mnt/memory/`; either may be absent).
@@ -198,6 +229,49 @@ tools:
       permission_policy:
         type: always_allow
     type: agent_toolset_20260401
+  # Client-side by definition — Anthropic never runs this one, so it takes no
+  # permission_policy. The session emits agent.custom_tool_use, goes idle with
+  # stop_reason "requires_action", and blocks until the client answers with a
+  # user.custom_tool_result. chat.py and course_content_editor.py both handle
+  # it via agents/course_content_editor/_presentation.py.
+  - type: custom
+    name: present_files
+    description: >-
+      Show the user the real current content of files you have edited. Takes
+      paths, not content: the client reads the actual bytes off the workspace
+      and renders them, so this is the only way the user can see an edit. Call
+      it right after making edits, and whenever the user asks to see, read, or
+      check something. Omit block_ids to show every block that changed in the
+      file; pass block_ids to point at specific ones.
+    input_schema:
+      type: object
+      properties:
+        items:
+          type: array
+          description: One entry per file to show.
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+                description: >-
+                  Workspace-relative path, e.g. "topics/topic_02_drainage-basics.md"
+                  or "context/topic_02_drainage-basics.md".
+              block_ids:
+                type: array
+                description: >-
+                  Optional. Block IDs within that file (the value after
+                  "###Block ID:" or "###LO ID:"). Omit to show every changed block.
+                items:
+                  type: string
+              note:
+                type: string
+                description: >-
+                  Optional. One short line telling the user what to look at.
+            required:
+              - path
+      required:
+        - items
 multiagent:
   type: coordinator
   agents:

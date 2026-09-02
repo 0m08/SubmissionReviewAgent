@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -46,6 +47,13 @@ except ImportError:
     pass
 
 import anthropic
+
+import _presentation as pres
+
+# Each workspace file as this process first saw it. The Files API exposes
+# only current content, so a "before" that isn't captured while it's still
+# current is gone for good — hence seeding rather than reading it back later.
+_BASELINE: dict[str, str] = {}
 
 STATE_PATH = Path(__file__).parent / "deploy_state.json"
 SA_MOUNT_PATH = "/uploads/service_account.json"
@@ -62,14 +70,89 @@ def load_state() -> dict:
     return json.loads(STATE_PATH.read_text(encoding="utf-8"))
 
 
+def handle_present_files(client: anthropic.Anthropic, session_id: str, event) -> None:
+    """Render a `present_files` call, then unblock the turn.
+
+    The turn is *stopped* until the result goes back, so every path out of
+    this function must send one — including the failure paths. A raised
+    exception here would strand the session waiting forever on a client
+    that has moved on, which is worse than showing nothing.
+    """
+    items = pres.normalize_items(getattr(event, "input", None))
+    result_text = None
+    try:
+        if not items:
+            result_text = json.dumps({"status": "failed", "reason": "no items in input"})
+        else:
+            files = pres.fetch_workspace_files(client, session_id)
+            # A file written moments ago can take a beat to appear in the
+            # Files API. One retry, rather than telling the agent a file it
+            # just edited doesn't exist.
+            if any(pres.resolve_key(files, i["path"]) is None for i in items):
+                time.sleep(2.0)
+                files = pres.fetch_workspace_files(client, session_id)
+
+            missing: list[str] = []
+            facts: dict[str, dict] = {}
+            for item in items:
+                key = pres.resolve_key(files, item["path"])
+                if key is None:
+                    missing.append(item["path"])
+                    print(f"\n[present_files: no workspace file matching {item['path']!r}]")
+                    continue
+                entry = files[key]
+                # baseline = the file as prepare_workspace.py first wrote it,
+                # taken from the Files API's own version history rather than
+                # from when this process first looked — see fetch_workspace_files.
+                baseline = _BASELINE.get(key, entry["content"])
+                rows = pres.select(baseline, entry["content"], entry["kind"], item["block_ids"])
+                pres.render_cli(key, item["note"], rows)
+                # Keyed by the path the AGENT used, since that is what the
+                # result echoes back to it — not the resolved cache key.
+                facts[item["path"]] = pres.measure(baseline, entry["content"], entry["kind"])
+
+            result_text = (
+                pres.unresolved_result(items, missing, facts) if missing
+                else pres.ack_result(items, facts)
+            )
+    except Exception as exc:  # noqa: BLE001 — see docstring: always answer.
+        print(f"\n[present_files failed locally: {exc}]")
+        result_text = json.dumps({"status": "failed", "reason": str(exc)})
+
+    client.beta.sessions.events.send(
+        session_id=session_id,
+        events=[{
+            "type": "user.custom_tool_result",
+            "custom_tool_use_id": event.id,
+            "content": [{"type": "text", "text": result_text}],
+        }],
+    )
+
+
 def send_user_text(client: anthropic.Anthropic, session_id: str, text: str) -> None:
     """Stream-first send: open stream, send, drain to idle/terminated."""
+    # Before anything in this turn can edit a file, record what the files
+    # look like now — a diff needs a "before" and the Files API won't hand
+    # one back after the fact.
+    pres.seed_baselines(client, session_id, _BASELINE, attempts=1)
+    # Set when a prepare script is launched, acted on when the agent next
+    # does anything — see the comment at the deferred seed below.
+    pending_seed = False
     with client.beta.sessions.events.stream(session_id=session_id) as stream:
         client.beta.sessions.events.send(
             session_id=session_id,
             events=[{"type": "user.message", "content": [{"type": "text", "text": text}]}],
         )
         for event in stream:
+            # Deferred baseline seed. A tool_use event fires when the command
+            # *starts*, and prepare_workspace.py takes longer to pull a sheet
+            # than any sane retry window — seeding on the event itself found
+            # an empty workspace every time and produced empty diffs. The
+            # agent acting again is proof the script returned.
+            if pending_seed and event.type in ("agent.message", "agent.tool_use"):
+                pres.seed_baselines(client, session_id, _BASELINE)
+                pending_seed = False
+
             if event.type == "agent.message":
                 for block in event.content:
                     if getattr(block, "type", None) == "text":
@@ -78,6 +161,31 @@ def send_user_text(client: anthropic.Anthropic, session_id: str, text: str) -> N
             elif event.type == "agent.tool_use":
                 name = getattr(event, "name", "?")
                 print(f"[tool: {name}]", flush=True)
+                # prepare_workspace.py just laid down the pristine workspace.
+                # This is the only moment its content is still the current
+                # content, so it is the only moment a baseline can be taken —
+                # and prepare + edit routinely happen in one turn.
+                inp = getattr(event, "input", None)
+                cmd = inp.get("command", "") if isinstance(inp, dict) else ""
+                if pres.PREPARE_CMD.search(str(cmd)):
+                    pending_seed = True
+            elif event.type == "agent.custom_tool_use":
+                if getattr(event, "name", None) == pres.TOOL_NAME:
+                    handle_present_files(client, session_id, event)
+                else:
+                    # Unknown custom tool — still has to be answered, or the
+                    # session sits idle-requires_action forever.
+                    client.beta.sessions.events.send(
+                        session_id=session_id,
+                        events=[{
+                            "type": "user.custom_tool_result",
+                            "custom_tool_use_id": event.id,
+                            "content": [{"type": "text", "text": json.dumps(
+                                {"status": "failed",
+                                 "reason": f"no client handler for {getattr(event, 'name', '?')}"}
+                            )}],
+                        }],
+                    )
             elif event.type == "session.error":
                 print(f"[session error: {getattr(event, 'message', event)}]", flush=True)
             elif event.type == "session.status_terminated":
@@ -87,8 +195,11 @@ def send_user_text(client: anthropic.Anthropic, session_id: str, text: str) -> N
                 stop = getattr(event, "stop_reason", None)
                 stop_type = getattr(stop, "type", None) if stop is not None else None
                 if stop_type == "requires_action":
-                    print("[agent is waiting on an external action]")
-                    return
+                    # NOT the end of the turn — the agent is blocked on a
+                    # client-side event (a present_files call, handled above)
+                    # and will carry on once the result lands. Returning here
+                    # would hand the prompt back mid-turn and strand it.
+                    continue
                 return
 
 

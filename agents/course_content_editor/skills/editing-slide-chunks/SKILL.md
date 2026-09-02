@@ -166,17 +166,75 @@ plain component walkthroughs.
 Style governs prose only. It never overrides the format contract above or an
 explicit instruction from the user.
 
+## Verify the direction you were asked to move in
+
+Confirming an edit *landed* is not the same as confirming it *worked*. A
+rewrite can be present in the file, well written, and still be the opposite
+of what was asked.
+
+This is the failure mode to watch, because it is the common one: **rewriting
+in a new voice adds words.** A request that pairs a direction with a rewrite
+— "tighten it up and make it sound like a plumber talking" — pulls in two
+directions at once, and the voice wins unless you measure. Real runs of
+exactly that request grew a course 12%, 21%, and once 36% on a single topic,
+each time reported as "tighter and leaner."
+
+So when the request names a measurable direction — shorter, tighter, cut,
+trim, expand, fewer slides, more slides — measure it:
+
+1. **Before you edit anything**, record the baseline for the file you own:
+
+   ```bash
+   wc -w topics/topic_02_drainage-basics.md
+   grep -c '^###Block ID:' topics/topic_02_drainage-basics.md
+   ```
+
+2. **After you edit**, run the same two commands again.
+
+3. **Compare.** If the number moved against the request, you have not done
+   the job yet. Go back and cut — merge thin blocks, drop the sentence that
+   restates the one before it, delete the throat-clearing that opens a
+   paragraph — then measure again.
+
+`wc -w` counts the block headers too, which is fine: they are constant unless
+you add or remove blocks, so the change between two runs is your prose.
+Checking a slide-type count works the same way when the request is about a
+type of slide:
+
+```bash
+grep -c 'Slide Type: Transition' topics/topic_02_drainage-basics.md
+```
+
+Two things this does **not** mean. It is not licence to strip content to hit
+a number — the goal is the user's goal, and the count is only how you check
+yourself. And a whole-file total can legitimately move against the request in
+one place while obeying it elsewhere: Transition slides default to *expand*
+even in a tightening pass (see the priors table), so a file can grow at three
+transitions while its Content slides shrink.
+
+That is exactly when you report the numbers rather than smoothing over them.
+If you cannot move the total the way the request asked without damaging the
+content, **say so with the measurement** — "content slides down 18%,
+transitions up 60 words as the priors call for, file net +4%" — and let the
+user decide. What you must never do is report a tightening pass as done while
+the file got longer.
+
 ## Every turn
 
 1. Say in one sentence what you're about to change, including before → after
    block count when it changes. For anything sweeping — more than a few blocks,
    or a whole topic — get a yes before you write.
-2. Make the edit.
-3. If you touched more than two blocks or more than one file, re-read each
+2. If the request names a measurable direction, record the baseline counts
+   first (see *Verify the direction you were asked to move in*).
+3. Make the edit.
+4. If you touched more than two blocks or more than one file, re-read each
    edited file and confirm item by item that every change landed. Fix what
    didn't before reporting.
-4. Report: blocks edited, removed, added; anything you chose not to do; anything
-   that had to be dropped and why.
+5. Re-measure. If the direction went the wrong way, fix it before you report —
+   not after the user catches it.
+6. Report: blocks edited, removed, added; the before → after measurement for
+   any direction you were asked to move in; anything you chose not to do;
+   anything that had to be dropped and why.
 
 Keep status updates short — the user is watching a chat, not reading a report.
 
