@@ -9,6 +9,10 @@ window.HFSceneTransition = (function () {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
+  function currentShell() {
+    return document.querySelector('.hf-player-fade-shell');
+  }
+
   function ensureVeil(frame) {
     if (!frame) return null;
     let veil = frame.querySelector('.hf-scene-transition-veil');
@@ -31,13 +35,29 @@ window.HFSceneTransition = (function () {
     shell.style.transition = '';
   }
 
+  function holdShellHidden(shell) {
+    if (!shell) return;
+    shell.classList.add('is-faded', 'hf-gsap-transitioning');
+    shell.style.transition = 'none';
+    if (window.gsap) gsap.set(shell, { autoAlpha: 0 });
+  }
+
+  function revealShell(shell) {
+    if (!shell) return;
+    shell.classList.remove('is-faded');
+    shell.classList.add('hf-gsap-transitioning');
+    shell.style.transition = 'none';
+    if (window.gsap) {
+      gsap.set(shell, { autoAlpha: 1, xPercent: 0, yPercent: 0, clipPath: 'inset(0% 0% 0% 0%)' });
+    }
+  }
+
   function kill() {
     if (activeTl) {
       activeTl.kill();
       activeTl = null;
     }
-    const shell = document.querySelector('.hf-player-fade-shell');
-    resetShell(shell);
+    resetShell(currentShell());
     if (veilEl) {
       gsap.killTweensOf(veilEl);
       gsap.set(veilEl, { autoAlpha: 0 });
@@ -47,22 +67,24 @@ window.HFSceneTransition = (function () {
   function swapAndResume(tl, onSwap, prepareIn) {
     tl.pause();
     onSwap(function () {
-      if (typeof prepareIn === 'function') prepareIn();
+      const liveShell = currentShell();
+      if (typeof prepareIn === 'function') prepareIn(liveShell);
       tl.resume();
     });
   }
 
   function run(opts) {
     const treatment = opts.treatment || 'crossfade';
-    const shell = opts.shell;
+    let shell = opts.shell || currentShell();
     const onSwap = typeof opts.onSwap === 'function' ? opts.onSwap : function (done) { done(); };
 
     return new Promise(function (resolve) {
       kill();
+      shell = currentShell() || shell;
 
       if (!shell || treatment === 'off' || treatment === 'none' || prefersReducedMotion()) {
         onSwap(function () {
-          resetShell(shell);
+          resetShell(currentShell());
           resolve();
         });
         return;
@@ -77,7 +99,7 @@ window.HFSceneTransition = (function () {
       const tl = gsap.timeline({
         defaults: { ease: 'power2.inOut', overwrite: 'auto' },
         onComplete: function () {
-          resetShell(shell);
+          resetShell(currentShell());
           if (veilEl) gsap.set(veilEl, { autoAlpha: 0 });
           activeTl = null;
           resolve();
@@ -85,39 +107,64 @@ window.HFSceneTransition = (function () {
       });
       activeTl = tl;
 
-      switch (treatment) {
-        case 'fade_black': {
-          const veil = ensureVeil(frame);
-          if (!veil) {
-            tl.to(shell, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, 0);
-            tl.add(function () {
-              swapAndResume(tl, onSwap, function () {
-                gsap.set(shell, { autoAlpha: 0 });
-              });
-            });
-            tl.to(shell, { autoAlpha: 1, duration: 0.45, ease: 'power2.out' });
-            break;
-          }
-          gsap.set(veil, { autoAlpha: 0 });
-          tl.to(veil, { autoAlpha: 1, duration: 0.38, ease: 'power2.in' }, 0);
+      // Prefer a frame-level veil for out/swap/in. The veil is outside the React
+      // remounted fade-shell, so forceUpdate cannot flash the next visual.
+      function runVeilCrossfade() {
+        const veil = ensureVeil(frame);
+        if (!veil) {
+          // Fallback: hide shell via CSS class that survives remount.
+          tl.to(shell, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, 0);
           tl.add(function () {
-            swapAndResume(tl, onSwap, function () {
-              gsap.set(shell, { autoAlpha: 1, xPercent: 0, clipPath: 'inset(0% 0% 0% 0%)' });
+            holdShellHidden(currentShell() || shell);
+            swapAndResume(tl, onSwap, function (live) {
+              holdShellHidden(live || currentShell());
             });
           });
-          tl.to(veil, { autoAlpha: 0, duration: 0.42, ease: 'power2.out' });
+          tl.add(function () {
+            const live = currentShell();
+            revealShell(live);
+            if (live) gsap.fromTo(live, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.45, ease: 'power2.out' });
+          });
+          return;
+        }
+        gsap.set(veil, { autoAlpha: 0, visibility: 'visible' });
+        tl.to(veil, { autoAlpha: 1, duration: 0.38, ease: 'power2.in' }, 0);
+        tl.add(function () {
+          // Keep shell visually suppressed under the veil during remount.
+          holdShellHidden(currentShell() || shell);
+          swapAndResume(tl, onSwap, function (live) {
+            revealShell(live || currentShell());
+          });
+        });
+        tl.to(veil, { autoAlpha: 0, duration: 0.42, ease: 'power2.out' });
+      }
+
+      switch (treatment) {
+        case 'fade_black':
+        case 'crossfade':
+        default: {
+          runVeilCrossfade();
           break;
         }
 
         case 'push': {
+          const veil = ensureVeil(frame);
+          if (veil) {
+            runVeilCrossfade();
+            break;
+          }
           tl.to(shell, {
             xPercent: -100,
             duration: 0.4,
             ease: 'power2.in',
           }, 0);
           tl.add(function () {
-            swapAndResume(tl, onSwap, function () {
-              gsap.set(shell, { xPercent: 100, autoAlpha: 1 });
+            holdShellHidden(currentShell() || shell);
+            swapAndResume(tl, onSwap, function (live) {
+              const target = live || currentShell();
+              revealShell(target);
+              if (target) gsap.set(target, { xPercent: 100, autoAlpha: 1 });
+              shell = target || shell;
             });
           });
           tl.to(shell, {
@@ -129,7 +176,11 @@ window.HFSceneTransition = (function () {
         }
 
         case 'wipe': {
-          // Always 4 % values so GSAP can interpolate.
+          const veil = ensureVeil(frame);
+          if (veil) {
+            runVeilCrossfade();
+            break;
+          }
           tl.fromTo(
             shell,
             { clipPath: 'inset(0% 0% 0% 0%)' },
@@ -137,8 +188,12 @@ window.HFSceneTransition = (function () {
             0
           );
           tl.add(function () {
-            swapAndResume(tl, onSwap, function () {
-              gsap.set(shell, { clipPath: 'inset(0% 100% 0% 0%)', autoAlpha: 1 });
+            holdShellHidden(currentShell() || shell);
+            swapAndResume(tl, onSwap, function (live) {
+              const target = live || currentShell();
+              revealShell(target);
+              if (target) gsap.set(target, { clipPath: 'inset(0% 100% 0% 0%)', autoAlpha: 1 });
+              shell = target || shell;
             });
           });
           tl.to(shell, {
@@ -148,18 +203,6 @@ window.HFSceneTransition = (function () {
           });
           break;
         }
-
-        case 'crossfade':
-        default: {
-          tl.to(shell, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, 0);
-          tl.add(function () {
-            swapAndResume(tl, onSwap, function () {
-              gsap.set(shell, { autoAlpha: 0, xPercent: 0, clipPath: 'inset(0% 0% 0% 0%)' });
-            });
-          });
-          tl.to(shell, { autoAlpha: 1, duration: 0.45, ease: 'power2.out' });
-          break;
-        }
       }
     });
   }
@@ -167,5 +210,7 @@ window.HFSceneTransition = (function () {
   return {
     run: run,
     kill: kill,
+    holdShellHidden: holdShellHidden,
+    currentShell: currentShell,
   };
 })();

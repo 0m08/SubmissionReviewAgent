@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="/static/load-config.js?v=31"></script>
+<script src="/static/load-config.js?v=34"></script>
 <script src="/static/review-api.js?v=8"></script>
 <script src="/static/youtube-player.js?v=14"></script>
-<script src="/static/player.js?v=26"></script>
+<script src="/static/player.js?v=28"></script>
 <script src="/static/support.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="/static/animations/hero-stills.js?v=47"></script>
-<script src="/static/animations/split-slant-eligibility.js?v=1"></script>
-<script src="/static/animations/split-comparison.js?v=17"></script>
+<script src="/static/animations/overlay-timing.js?v=1"></script>
+<script src="/static/animations/hero-stills.js?v=59"></script>
+<script src="/static/animations/split-comparison.js?v=20"></script>
 <script src="/static/animations/main-inset.js?v=8"></script>
 <script src="/static/animations/multi-panel-grid.js?v=3"></script>
-<script src="/static/animations/scene-transitions.js?v=1"></script>
-<script src="/static/animations/treatment-rotator.js?v=12"></script>
-<script src="/static/animations/index.js?v=8"></script>
+<script src="/static/animations/scene-transitions.js?v=3"></script>
+<script src="/static/animations/treatment-rotator.js?v=14"></script>
+<script src="/static/animations/index.js?v=9"></script>
 </head>
 <body>
 <x-dc>
@@ -488,7 +488,9 @@
     transition: opacity 0.9s ease;
   }
   .hf-player-fade-shell.is-faded {
-    opacity: 0;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
   }
   .hf-player-fade-shell.hf-gsap-transitioning {
     transition: none !important;
@@ -1091,55 +1093,6 @@
     pointer-events: none;
     transform: scaleY(0);
     transform-origin: 50% 0%;
-  }
-  .hf-player-scene-canvas.is-slant-split {
-    background: #0d0f12;
-  }
-  .hf-player-scene-canvas.is-slant-split .hf-player-scene-slot:first-child {
-    clip-path: var(--hf-slant-left-clip, polygon(0 0, 100% 0, 100% 56%, 84% 100%, 0 100%));
-    z-index: 2;
-  }
-  .hf-player-scene-canvas.is-slant-split .hf-player-scene-slot:last-child {
-    clip-path: var(--hf-slant-right-clip, polygon(16% 0, 100% 0, 100% 100%, 0 100%));
-    z-index: 1;
-  }
-  .hf-player-scene-canvas.is-slant-split::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 7;
-    background: linear-gradient(
-      108deg,
-      transparent 49.6%,
-      rgba(249, 115, 22, 0.55) 49.85%,
-      rgba(249, 115, 22, 0.55) 50.15%,
-      transparent 50.4%
-    );
-  }
-  .hf-player-slot-label-badge--slant {
-    bottom: auto !important;
-    left: auto !important;
-    right: auto !important;
-    margin: 0 !important;
-    max-width: 46%;
-    z-index: 16;
-  }
-  .hf-player-slot-label-badge--slant-left {
-    top: 26%;
-    right: 5%;
-    border-radius: 999px 0 0 999px;
-    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
-    text-align: right;
-    padding-right: 18px !important;
-  }
-  .hf-player-slot-label-badge--slant-right {
-    top: 54%;
-    left: 5%;
-    border-radius: 0 999px 999px 0;
-    clip-path: polygon(12px 0, 100% 0, 100% 100%, 0 100%);
-    text-align: left;
-    padding-left: 18px !important;
   }
   .hf-split-motion-target {
     transform-origin: 50% 50%;
@@ -1912,7 +1865,7 @@
               </sc-if>
               <div class="hf-player-fade-shell">
               <sc-if value="{{ playerUseSceneLayout }}" hint-placeholder-val="{{ true }}">
-                <div class="hf-player-scene-canvas {{ playerSceneCanvasClass }}" data-player-scene="{{ playerSceneKey }}" style="{{ playerCanvasStyle }}">
+                <div class="hf-player-scene-canvas" data-player-scene="{{ playerSceneKey }}">
                   <sc-for list="{{ playerSceneSlots }}" as="slot" hint-placeholder-count="1">
                     <div class="hf-player-scene-slot {{ slot.slotClass }}" style="{{ slot.posStyle }}">{{ slot.innerEl }}</div>
                   </sc-for>
@@ -2315,20 +2268,7 @@ class Component extends DCLogic {
 
   _rebuildTreatmentRotator() {
     if (!window.HFTreatmentRotator || !this._player) return;
-    const self = this;
-    window.HFTreatmentRotator.rebuildFromCues(this._player.cues || [], {
-      resolveImageUrl: function (step) {
-        if (!step) return '';
-        const v = self.visualOf(step);
-        return self.displayImageUrl(v);
-      },
-      onReady: function () {
-        self.forceUpdate();
-        requestAnimationFrame(function () {
-          self._syncPlayerMotion(true);
-        });
-      },
-    });
+    window.HFTreatmentRotator.rebuildFromCues(this._player.cues || []);
   }
 
   _normalizePlayerTemplate(cue) {
@@ -2364,6 +2304,12 @@ class Component extends DCLogic {
       gridTreatment: treatment,
       elapsed: this.playerSnap.cueElapsed || 0,
       forceRestart: !!forceRestart,
+      cueWords: this.playerSnap.cueWords || null,
+      cueLead: this.playerSnap.cueLead || 0,
+      bboxTreatment:
+        window.HFTreatmentRotator && window.HFTreatmentRotator.getBboxTreatment
+          ? window.HFTreatmentRotator.getBboxTreatment(cue)
+          : "bbox_draw",
     });
   }
 
@@ -3082,13 +3028,30 @@ class Component extends DCLogic {
     if (nextCue) this._preloadPlayerSceneImages(nextCue);
 
     const applyContent = (done) => {
+      // Hold the shell hidden across forceUpdate. Remount drops GSAP inline
+      // opacity; CSS is-faded must hide the new visual until fade-in starts.
+      if (needsShellFade) {
+        const shellBefore = document.querySelector('.hf-player-fade-shell');
+        if (shellBefore) {
+          shellBefore.classList.add('is-faded', 'hf-gsap-transitioning');
+          shellBefore.style.transition = 'none';
+        }
+      }
       this.playerSnap = snap;
       const latestSnap = this.playerSnap || snap;
       this._playerIsRendering = true;
       this.forceUpdate();
       requestAnimationFrame(() => {
         const shellNow = document.querySelector('.hf-player-fade-shell');
-        if (shellNow) shellNow.classList.remove('is-faded');
+        if (needsShellFade) {
+          if (shellNow) {
+            shellNow.classList.add('is-faded', 'hf-gsap-transitioning');
+            shellNow.style.transition = 'none';
+            if (window.gsap) window.gsap.set(shellNow, { autoAlpha: 0 });
+          }
+        } else if (shellNow) {
+          shellNow.classList.remove('is-faded');
+        }
         if (window.HFYoutube && window.HFYoutube.reattachAll) window.HFYoutube.reattachAll();
         this._patchPlayerProgress(latestSnap);
         this._patchPlayerPlayButton(latestSnap.playing);
@@ -3358,6 +3321,36 @@ class Component extends DCLogic {
     });
     return this._imgPreloadCache[key];
   }
+  _collectCalloutIconUrls() {
+    const urls = [];
+    const seen = Object.create(null);
+    const add = (raw) => {
+      const key = String(raw || '').trim();
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      urls.push(key);
+    };
+    if (this._player && this._player.cues) {
+      this._player.cues.forEach((cue) => {
+        (cue.calloutCards || []).forEach((callout) => {
+          if (callout.url) add(callout.url);
+        });
+      });
+    }
+    return urls;
+  }
+  _warmCalloutIcons() {
+    if (!window.HFHeroStills || !window.HFHeroStills.warmCalloutIcons) return Promise.resolve();
+    const urls = this._collectCalloutIconUrls();
+    if (!urls.length) return Promise.resolve();
+    return window.HFHeroStills.warmCalloutIcons(urls);
+  }
+  _warmCalloutIconsForCue(cue) {
+    if (!cue || !window.HFHeroStills || !window.HFHeroStills.warmCalloutIcons) return Promise.resolve();
+    const urls = (cue.calloutCards || []).map((callout) => callout.url).filter(Boolean);
+    if (!urls.length) return Promise.resolve();
+    return window.HFHeroStills.warmCalloutIcons(urls);
+  }
   _collectPlayerImageUrls() {
     const urls = [];
     const seen = Object.create(null);
@@ -3392,6 +3385,13 @@ class Component extends DCLogic {
           cue.iconOverlays.forEach((icon) => {
             if (icon.url) {
               add(this.proxyImageUrl(icon.url, 'image'));
+            }
+          });
+        }
+        if (cue.calloutCards && cue.calloutCards.length > 0) {
+          cue.calloutCards.forEach((callout) => {
+            if (callout.url) {
+              add(this.proxyImageUrl(callout.url, 'image'));
             }
           });
         }
@@ -3432,6 +3432,9 @@ class Component extends DCLogic {
     const token = ++this._playerPrepareToken;
     return this._player.prepareAssets((onImgProgress) => this._preloadPlayerImages(onImgProgress)).then(() => {
       if (token !== this._playerPrepareToken) return;
+      return this._warmCalloutIcons();
+    }).then(() => {
+      if (token !== this._playerPrepareToken) return;
       const cue = this._player.cues[this._player.cueIndex];
       if (cue) return this.ensureCueVisualsReady(cue);
     });
@@ -3453,6 +3456,7 @@ class Component extends DCLogic {
     }
     if (!sceneDef) sceneDef = scenes[cue.sceneIdx];
     const jobs = [];
+    jobs.push(this._warmCalloutIconsForCue(cue));
     const videoJob = this._mountPlayerCueVideo(cue);
     if (videoJob) jobs.push(videoJob);
     if (!sceneDef) {
@@ -3606,6 +3610,7 @@ class Component extends DCLogic {
       img.decoding = 'async';
       img.src = url;
     });
+    this._warmCalloutIconsForCue(cue);
   }
   _courseTimelinePct(snap) {
     const cues = (snap && snap.cues) || [];
@@ -3861,7 +3866,12 @@ class Component extends DCLogic {
     };
   }
   buildPlayerSceneSlots(cue, snap) {
-    const empty = { playerUseSceneLayout: false, playerSceneSlots: [], playerFrameStyle: {}, playerFrameClass: 'hf-player-frame--fill' };
+    const empty = {
+      playerUseSceneLayout: false,
+      playerSceneSlots: [],
+      playerFrameStyle: {},
+      playerFrameClass: 'hf-player-frame--fill',
+    };
     if (!cue) return empty;
     const slide = this.slides[cue.slideIdx];
     if (!slide) return empty;
@@ -3896,9 +3906,6 @@ class Component extends DCLogic {
     const isMultiPanel = (normT === 'multi_panel_grid' && (refs.length === 3 || refs.length === 4));
     const useBlurFill = isSingleHero || isSplitComparison || isMainInset || isMultiPanel;
     const motionTreatment = this._playerTreatmentForCue(cue);
-    const isSlantLabelSplit = isSplitComparison
-      && cue.animationType === 'text_label'
-      && motionTreatment === 'label_slant_fade';
     // Focus treatments need both panels visible from the start so inactive can dim
     // in place — progressive reveal leaves a blank half, then a black flash on cue change.
     const splitKeepBothMounted = isSplitComparison && (
@@ -4077,31 +4084,10 @@ class Component extends DCLogic {
             displayLabel = labelTextStr.replace(/\b\w/g, (c) => c.toUpperCase());
           }
 
-          const labelBadgeClass = isSlantLabelSplit
-            ? ('hf-player-slot-label-badge hf-player-slot-label-badge--slant '
-              + (k === 0 ? 'hf-player-slot-label-badge--slant-left' : 'hf-player-slot-label-badge--slant-right'))
-            : 'hf-player-slot-label-badge';
-
           const labelBadge = h('div', {
             key: 'slot-label-badge-' + k,
-            className: labelBadgeClass,
-            'data-slot-idx': k,
-            style: isSlantLabelSplit ? {
-              position: 'absolute',
-              background: tGet('panel_label_bg', '#f05725'),
-              color: tGet('panel_label_text_color', '#ffffff'),
-              padding: tGet('panel_label_padding', '10px 22px'),
-              fontSize: tSize('panel_label_font_size', '18px'),
-              fontWeight: tWeight('panel_label_font_weight', '700'),
-              fontFamily: tFont('panel_label_font', "'Public Sans', 'Open Sans', 'Segoe UI', Arial, sans-serif"),
-              letterSpacing: tGet('panel_label_letter_spacing', '0'),
-              textTransform: transform === 'none' ? 'none' : transform,
-              boxShadow: tGet('panel_label_shadow', '0 4px 12px rgba(0, 0, 0, 0.3)'),
-              zIndex: 15,
-              pointerEvents: 'none',
-              whiteSpace: tGet('panel_label_white_space', 'nowrap'),
-              opacity: 0,
-            } : {
+            className: 'hf-player-slot-label-badge',
+            style: {
               position: 'absolute',
               bottom: tSize('panel_label_bottom', '15px'),
               left: '0',
@@ -4151,22 +4137,10 @@ class Component extends DCLogic {
 
     const captionText = this._captionChunkForSnap(snap);
 
-    let playerCanvasStyle = {};
-    if (isSlantLabelSplit && window.HFSplitSlant && window.HFSplitSlant.computeSlantClipPolygons) {
-      const cfg = window.HFSplitSlant.config ? window.HFSplitSlant.config() : { topXPct: 0.58, bottomXPct: 0.42 };
-      const polys = window.HFSplitSlant.computeSlantClipPolygons(cfg);
-      playerCanvasStyle = {
-        '--hf-slant-left-clip': polys.left,
-        '--hf-slant-right-clip': polys.right,
-      };
-    }
-
     return {
       playerUseSceneLayout: true,
       playerSceneSlots: slots,
       playerSceneKey: cue.slideIdx + ':' + cue.sceneId,
-      playerSceneCanvasClass: isSlantLabelSplit ? 'is-slant-split' : '',
-      playerCanvasStyle: playerCanvasStyle,
       playerFrameClass: 'hf-player-frame--layout',
       playerFrameStyle: {},
       playerCaption: captionText,

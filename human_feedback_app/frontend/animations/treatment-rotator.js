@@ -26,13 +26,16 @@ window.HFTreatmentRotator = (function () {
   ];
 
   const FALLBACK_LABELS = {
-    two_item_split_comparison: ["label_slant_fade", "label_slide", "label_fade"],
+    two_item_split_comparison: ["label_slide", "label_fade"],
     main_plus_supporting_inset: ["label_slide", "label_fade"],
     multi_panel_3: ["label_slide_up", "label_fade"],
     multi_panel_4: ["label_corner_slide", "label_fade"],
   };
 
   const FALLBACK_CALLOUT = ["callout_slide", "callout_fade"];
+  const FALLBACK_BBOX = ["bbox_draw", "bbox_spotlight"];
+
+  let byBbox = Object.create(null);
 
   const CONFIG_KEYS = {
     single_visual_hero: "layout_anims_hero",
@@ -63,9 +66,6 @@ window.HFTreatmentRotator = (function () {
   let byScene = Object.create(null);
   let byCallout = Object.create(null);
   let lastCues = null;
-  let splitLabelReady = true;
-  let onAssignmentsReady = null;
-  let resolveImageUrl = null;
 
   function themeList(key, fallback) {
     if (window.HFPlayerTheme && typeof window.HFPlayerTheme.list === "function") {
@@ -194,6 +194,26 @@ window.HFTreatmentRotator = (function () {
     return themeList("callout_anims", FALLBACK_CALLOUT);
   }
 
+  function bboxList() {
+    return themeList("bbox_anims", FALLBACK_BBOX);
+  }
+
+  function rebuildBboxTreatments(cues) {
+    byBbox = Object.create(null);
+    const anims = bboxList();
+    const animLen = Math.max(anims.length, 1);
+    const seen = Object.create(null);
+    let counter = 0;
+    (cues || []).forEach(function (cue) {
+      if (!cue || (cue.animationType || "none") !== "bbox_highlight") return;
+      const key = sceneKey(cue.slideIdx, cue.sceneId);
+      if (seen[key]) return;
+      seen[key] = true;
+      byBbox[key] = anims[counter % animLen] || "bbox_draw";
+      counter += 1;
+    });
+  }
+
   // Per grid position across the course: cycle callout_anims from config.
   function rebuildCalloutEntrances(cues) {
     byCallout = Object.create(null);
@@ -221,52 +241,12 @@ window.HFTreatmentRotator = (function () {
     });
   }
 
-  function assignSplitLabelTreatmentsAsync(cues) {
-    if (!window.HFSplitSlant || typeof window.HFSplitSlant.assignSplitLabelScenes !== "function") {
-      splitLabelReady = true;
-      return Promise.resolve([]);
-    }
-    splitLabelReady = false;
-    return window.HFSplitSlant.assignSplitLabelScenes(
-      cues,
-      resolveImageUrl,
-      layoutKey,
-      sceneKey
-    ).then(function (assignments) {
-      (assignments || []).forEach(function (entry) {
-        byScene[entry.key] = {
-          layout: "two_item_split_comparison",
-          treatment: entry.treatment,
-          index: entry.index,
-          occurrence: entry.occurrence,
-        };
-      });
-      splitLabelReady = true;
-      if (typeof onAssignmentsReady === "function") {
-        onAssignmentsReady();
-      }
-      return assignments;
-    }).catch(function () {
-      splitLabelReady = true;
-      if (typeof onAssignmentsReady === "function") {
-        onAssignmentsReady();
-      }
-      return [];
-    });
-  }
-
   // Rebuild from player cues in play order. Unique scenes only.
-  function rebuildFromCues(cues, options) {
+  function rebuildFromCues(cues) {
     lastCues = cues || [];
-    options = options || {};
-    if (typeof options.resolveImageUrl === "function") {
-      resolveImageUrl = options.resolveImageUrl;
-    }
-    if (typeof options.onReady === "function") {
-      onAssignmentsReady = options.onReady;
-    }
     byScene = Object.create(null);
     rebuildCalloutEntrances(lastCues);
+    rebuildBboxTreatments(lastCues);
     const lists = resolvedLists();
     const topics = topicList();
     const defaults = defaultsFrom(lists);
@@ -321,21 +301,8 @@ window.HFTreatmentRotator = (function () {
 
       if (
         animType === "text_label" &&
-        layout === "two_item_split_comparison"
-      ) {
-        byScene[key] = {
-          layout: layout,
-          treatment: "label_fade",
-          index: -1,
-          occurrence: -1,
-          pendingSplitLabel: true,
-        };
-        return;
-      }
-
-      if (
-        animType === "text_label" &&
-        (layout === "main_plus_supporting_inset" ||
+        (layout === "two_item_split_comparison" ||
+          layout === "main_plus_supporting_inset" ||
           layout === "multi_panel_grid")
       ) {
         const labelList = labelListFor(layout, cue);
@@ -370,8 +337,6 @@ window.HFTreatmentRotator = (function () {
       };
       counters[layout] += 1;
     });
-
-    assignSplitLabelTreatmentsAsync(lastCues);
   }
 
   function reloadLists() {
@@ -408,6 +373,14 @@ window.HFTreatmentRotator = (function () {
     return resolvedLists()[key].slice();
   }
 
+  function getBboxTreatment(cue) {
+    if (!cue) return "bbox_draw";
+    const key = sceneKey(cue.slideIdx, cue.sceneId);
+    if (byBbox[key]) return byBbox[key];
+    const anims = bboxList();
+    return anims[0] || "bbox_draw";
+  }
+
   function getCalloutEntrance(cue, cardIdx) {
     if (!cue) {
       return { entrance: "callout_fade", position: "center_left", occurrence: 0 };
@@ -423,18 +396,15 @@ window.HFTreatmentRotator = (function () {
     return { entrance: anims[0] || "callout_fade", position: pos, occurrence: 1 };
   }
 
-  function isSplitLabelReady() {
-    return splitLabelReady;
-  }
-
   return {
     rebuildFromCues: rebuildFromCues,
     reloadLists: reloadLists,
-    isSplitLabelReady: isSplitLabelReady,
     getTreatment: getTreatment,
     getLayout: getLayout,
     getEntry: getEntry,
     getCalloutEntrance: getCalloutEntrance,
+    getBboxTreatment: getBboxTreatment,
+    bboxList: bboxList,
     calloutList: calloutList,
     normalizeCalloutPosition: normalizeCalloutPosition,
     treatmentsFor: treatmentsFor,

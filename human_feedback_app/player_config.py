@@ -142,6 +142,7 @@ callout_card_max_width = "42%"
 callout_card_max_width_multi_2 = "34%"
 callout_card_max_width_multi_3 = "32%"
 callout_card_position_inset = "6%"
+callout_card_bounds = "frame"
 callout_card_header_font = "Fira Sans"
 callout_card_header_font_weight = "Semibold"
 callout_card_header_font_size = "32"
@@ -206,31 +207,22 @@ layout_anims_multi_panel = "scale_emphasis, reveal, slide_in"
 layout_anims_topic = "fade_in_right, fade_in_top_right, fade_in_bottom_right, fade_in_only"
 
 # text_label badge animations (split / inset / multi-panel)
-# Split text_label scenes use smart assignment (label_slant_fade, label_slide, label_fade) — not round-robin.
-label_anims_split = "label_slant_fade, label_slide, label_fade"
+label_anims_split = "label_slide, label_fade"
 label_anims_inset = "label_slide, label_fade"
 label_anims_multi_panel_3 = "label_slide_up, label_fade"
 label_anims_multi_panel_4 = "label_corner_slide, label_fade"
 
-# Slant split (two_item_split + text_label) — eligibility thresholds
-split_slant_min_area_fill = "0.48"
-split_slant_min_dim_fill = "0.58"
-split_slant_top_x_pct = "58"
-split_slant_bottom_x_pct = "42"
-split_slant_seam_margin_pct = "8"
-
 # callout card entrance animations (hero; cycled per grid position across the course) (Allowed: callout_slide, callout_fade, callout_none)
 callout_anims = "callout_slide, callout_fade"
 
-#--------------------------------------------------------------------------#
-
-# Hero emphasis_style (subject stays sharp; background recedes)
-emphasis_style_bg_brightness = "0.52"
-emphasis_style_bg_blur = "0"
-emphasis_style_bg_veil_opacity = "0.26"
-emphasis_style_sepia_amount = "0.9"
-emphasis_style_fade_duration = "0.55"
-emphasis_style_fade_delay = "0.12"
-emphasis_style_fade_delay_pct = "0.10"
-
-#--------------------------------------------------------------------------#
+# bbox_highlight styles (hero; cycled per scene): bbox_draw | bbox_spotlight
+bbox_anims = "bbox_draw, bbox_spotlight"
+bbox_spotlight_veil_opacity = "0.75"
+bbox_spotlight_border_color = "#F9E400"
+bbox_spotlight_border_width = "3"
+bbox_spotlight_border_dash = "18 10"
+bbox_spotlight_border_march_cycle = "1.1"
+bbox_spotlight_corner_radius = "28"
+bbox_spotlight_highlight_delay = "0.28"
+bbox_draw_stroke_color = "#f05523"
+bbox_draw_stroke_width = "4.5"

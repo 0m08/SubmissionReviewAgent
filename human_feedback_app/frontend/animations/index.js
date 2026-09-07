@@ -116,6 +116,12 @@ window.HFPlayerMotion = (function () {
           treatment: opts.treatment || 'still',
           elapsed: opts.elapsed || 0,
           forceRestart: !!opts.forceRestart,
+          cueWords: opts.cueWords || null,
+          cueLead: opts.cueLead || 0,
+          bboxTreatment:
+            (window.HFTreatmentRotator && window.HFTreatmentRotator.getBboxTreatment && cue)
+              ? window.HFTreatmentRotator.getBboxTreatment(cue)
+              : "bbox_draw",
         });
       }
       return;

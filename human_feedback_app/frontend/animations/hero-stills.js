@@ -20,6 +20,164 @@ window.HFHeroStills = (function() {
     return treatment === 'still' || treatment === 'off' || treatment === 'none';
   }
 
+  function overlayTimingOpts(opts, cue, duration) {
+    return {
+      cueWords: opts && opts.cueWords,
+      voiceover: cue && cue.voiceover,
+      duration: duration,
+      cueLead: (opts && opts.cueLead) || 0,
+    };
+  }
+
+  function resolveOverlayTime(phrase, timingOpts, fallbackSeconds) {
+    if (window.HFOverlayTiming && window.HFOverlayTiming.resolveSeconds) {
+      return window.HFOverlayTiming.resolveSeconds(phrase, timingOpts, fallbackSeconds);
+    }
+    return Math.max(0, Number(fallbackSeconds) || 0);
+  }
+
+  // Must stay in sync with agent _BBOX_MIN_GAP / size floors (normalized 0–1000 coords).
+  const BBOX_MIN_GAP = 8;
+  const BBOX_MIN_WIDTH = 55;
+  const BBOX_MIN_HEIGHT = 55;
+  const BBOX_MIN_AREA = 6000;
+
+  function bboxPairInterferes(a, b, minGap) {
+    const gap = minGap == null ? BBOX_MIN_GAP : minGap;
+    const aY0 = a[0], aX0 = a[1], aY1 = a[2], aX1 = a[3];
+    const bY0 = b[0], bX0 = b[1], bY1 = b[2], bX1 = b[3];
+    const hGap = Math.max(aX0, bX0) - Math.min(aX1, bX1);
+    const vGap = Math.max(aY0, bY0) - Math.min(aY1, bY1);
+    if (hGap < 0 && vGap < 0) return true; // area overlap
+    if (hGap < 0) return vGap < gap; // vertical neighbors
+    if (vGap < 0) return hGap < gap; // horizontal neighbors
+    return false; // diagonal separation
+  }
+
+  function isBboxTooSmall(box) {
+    if (!box || box.length !== 4) return true;
+    const width = box[3] - box[1];
+    const height = box[2] - box[0];
+    if (!(width > 0) || !(height > 0)) return true;
+    return width < BBOX_MIN_WIDTH || height < BBOX_MIN_HEIGHT || (width * height) < BBOX_MIN_AREA;
+  }
+
+  function filterValidBboxHighlights(cue) {
+    const validHighlights = [];
+    (cue.bboxHighlights || []).forEach(function (highlight) {
+      const box = highlight.box_2d;
+      if (!box || box.length !== 4) return;
+      if (isBboxTooSmall(box)) return;
+      let interferes = false;
+      for (let i = 0; i < validHighlights.length; i++) {
+        if (bboxPairInterferes(box, validHighlights[i].box_2d, BBOX_MIN_GAP)) {
+          interferes = true;
+          break;
+        }
+      }
+      if (!interferes) validHighlights.push(highlight);
+    });
+    return validHighlights;
+  }
+
+  function bboxBoxMetrics(rect, box) {
+    const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
+    return {
+      left: rect.x + (xmin / 1000) * rect.w,
+      top: rect.y + (ymin / 1000) * rect.h,
+      width: ((xmax - xmin) / 1000) * rect.w,
+      height: ((ymax - ymin) / 1000) * rect.h,
+      relLeft: (xmin / 1000) * rect.w,
+      relTop: (ymin / 1000) * rect.h,
+    };
+  }
+
+  function appendSplitBboxPaths(svgEl, highlight, width, height, strokeColor, strokeWidth) {
+    let d1 = '';
+    let d2 = '';
+    if (highlight.shape === 'circle') {
+      const rx = width / 2;
+      const ry = height / 2;
+      d1 = 'M ' + rx + ' 0 A ' + rx + ' ' + ry + ' 0 0 0 ' + rx + ' ' + height;
+      d2 = 'M ' + rx + ' 0 A ' + rx + ' ' + ry + ' 0 0 1 ' + rx + ' ' + height;
+    } else {
+      const halfW = width / 2;
+      d1 = 'M ' + halfW + ' 0 L 0 0 L 0 ' + height + ' L ' + halfW + ' ' + height;
+      d2 = 'M ' + halfW + ' 0 L ' + width + ' 0 L ' + width + ' ' + height + ' L ' + halfW + ' ' + height;
+    }
+    const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path1.setAttribute('d', d1);
+    path1.setAttribute('fill', 'none');
+    path1.setAttribute('stroke', strokeColor);
+    path1.setAttribute('stroke-width', String(strokeWidth));
+    path1.setAttribute('stroke-linecap', 'round');
+    path1.setAttribute('stroke-linejoin', 'round');
+
+    const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path2.setAttribute('d', d2);
+    path2.setAttribute('fill', 'none');
+    path2.setAttribute('stroke', strokeColor);
+    path2.setAttribute('stroke-width', String(strokeWidth));
+    path2.setAttribute('stroke-linecap', 'round');
+    path2.setAttribute('stroke-linejoin', 'round');
+
+    svgEl.appendChild(path1);
+    svgEl.appendChild(path2);
+    return { path1: path1, path2: path2 };
+  }
+
+  function animateSplitBboxDraw(tl, svgEl, paths, width, height, startTime, drawDuration) {
+    const len1 = (typeof paths.path1.getTotalLength === 'function' && paths.path1.getTotalLength() > 0)
+      ? paths.path1.getTotalLength()
+      : (width + height);
+    const len2 = (typeof paths.path2.getTotalLength === 'function' && paths.path2.getTotalLength() > 0)
+      ? paths.path2.getTotalLength()
+      : (width + height);
+    paths.path1.style.strokeDasharray = len1;
+    paths.path1.style.strokeDashoffset = len1;
+    paths.path2.style.strokeDasharray = len2;
+    paths.path2.style.strokeDashoffset = len2;
+    tl.fromTo(svgEl, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: 'power1.out' }, startTime);
+    tl.fromTo(paths.path1, { strokeDashoffset: len1 }, { strokeDashoffset: 0, duration: drawDuration, ease: 'power1.out' }, startTime);
+    tl.fromTo(paths.path2, { strokeDashoffset: len2 }, { strokeDashoffset: 0, duration: drawDuration, ease: 'power1.out' }, startTime);
+  }
+
+  function parseDashPeriod(dashPattern) {
+    const parts = String(dashPattern || '18 10').trim().split(/[\s,]+/).map(parseFloat).filter(function (n) {
+      return Number.isFinite(n) && n > 0;
+    });
+    if (!parts.length) return 28;
+    if (parts.length === 1) return parts[0] * 2;
+    return parts[0] + parts[1];
+  }
+
+  function animateSpotlightBorderMarch(tl, borderShape, startTime, sceneDuration, dashPattern, marchCycleSec) {
+    const period = parseDashPeriod(dashPattern);
+    borderShape.style.strokeDasharray = dashPattern;
+    borderShape.style.strokeDashoffset = '0';
+    const remaining = Math.max(0.1, sceneDuration - startTime);
+    const cycle = Math.max(0.35, marchCycleSec || 1.1);
+    const repeats = Math.max(0, Math.ceil(remaining / cycle) - 1);
+    tl.fromTo(
+      borderShape,
+      { strokeDashoffset: 0 },
+      { strokeDashoffset: -period, duration: cycle, ease: 'none', repeat: repeats },
+      startTime
+    );
+  }
+
+  function themeGetters() {
+    const theme = window.HFPlayerTheme;
+    return {
+      tGet: function (key, fallback) {
+        return theme && theme.get ? (theme.get(key) || fallback) : fallback;
+      },
+      tSize: function (key, fallback) {
+        return theme && theme.fontSizePx ? theme.fontSizePx(key) : fallback;
+      },
+    };
+  }
+
   function isTopicTransition(cue) {
     if (!cue) return false;
     if ((cue.slideType || '').trim().toLowerCase() !== 'transition') return false;
@@ -183,20 +341,38 @@ window.HFHeroStills = (function() {
     return rect;
   }
 
+  // Full motion wrapper / frame — includes blurred letterbox pillars/bars.
+  // Use for callouts so narrow portrait heroes still get readable card width.
+  function placeInFullFrame(el, container) {
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    el.style.position = 'absolute';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    el.style.width = w + 'px';
+    el.style.height = h + 'px';
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+    return { x: 0, y: 0, w: w, h: h };
+  }
+
   // Callout/overlay icons are generated as an orange glyph on a solid white square.
   // The design guide wants the glyph transparent, so knock out near-white pixels.
   // Icons are same-origin via /api/assets/image, so the canvas is not tainted.
-  function knockOutWhiteToTransparent(img) {
-    if (!img || img.dataset.hfKnocked === '1') return;
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
-    if (!w || !h) return;
+  const calloutIconSrcCache = Object.create(null);
+  const calloutIconPending = Object.create(null);
+
+  function knockOutWhiteFromSource(source) {
+    if (!source) return '';
+    const w = source.naturalWidth;
+    const h = source.naturalHeight;
+    if (!w || !h) return '';
     try {
       const canvas = document.createElement('canvas');
       canvas.width = w;
       canvas.height = h;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(source, 0, 0);
       const imageData = ctx.getImageData(0, 0, w, h);
       const d = imageData.data;
       const HARD = 236;
@@ -210,12 +386,57 @@ window.HFHeroStills = (function() {
         }
       }
       ctx.putImageData(imageData, 0, 0);
-      img.dataset.hfKnocked = '1';
-      img.src = canvas.toDataURL('image/png');
+      return canvas.toDataURL('image/png');
     } catch (e) {
-      // Cross-origin taint or unsupported — leave the original icon untouched.
-      img.dataset.hfKnocked = '1';
+      return '';
     }
+  }
+
+  function knockOutWhiteToTransparent(img) {
+    if (!img || img.dataset.hfKnocked === '1') return;
+    const dataUrl = knockOutWhiteFromSource(img);
+    img.dataset.hfKnocked = '1';
+    if (dataUrl) img.src = dataUrl;
+  }
+
+  function ensureCalloutIconReady(url, knockoutWhite) {
+    if (!url) return Promise.resolve('');
+    if (!knockoutWhite) {
+      calloutIconSrcCache[url] = url;
+      return Promise.resolve(url);
+    }
+    if (calloutIconSrcCache[url]) return Promise.resolve(calloutIconSrcCache[url]);
+    if (calloutIconPending[url]) return calloutIconPending[url];
+
+    calloutIconPending[url] = new Promise(function (resolve) {
+      const loader = new Image();
+      loader.crossOrigin = 'anonymous';
+      loader.onload = function () {
+        const knocked = knockOutWhiteFromSource(loader);
+        const finalSrc = knocked || url;
+        calloutIconSrcCache[url] = finalSrc;
+        delete calloutIconPending[url];
+        resolve(finalSrc);
+      };
+      loader.onerror = function () {
+        calloutIconSrcCache[url] = url;
+        delete calloutIconPending[url];
+        resolve(url);
+      };
+      loader.src = url;
+    });
+    return calloutIconPending[url];
+  }
+
+  function warmCalloutIcons(urls, knockoutWhite) {
+    const knockout = knockoutWhite !== false;
+    const jobs = [];
+    (urls || []).forEach(function (raw) {
+      const url = getProxyUrl(raw);
+      if (!url) return;
+      jobs.push(ensureCalloutIconReady(url, knockout));
+    });
+    return jobs.length ? Promise.all(jobs) : Promise.resolve();
   }
 
   function getProxyUrl(url) {
@@ -224,238 +445,6 @@ window.HFHeroStills = (function() {
       return '/api/assets/image?url=' + encodeURIComponent(url);
     }
     return url;
-  }
-
-  // Convert an opaque grayscale mask PNG into an alpha PNG.
-  // invert=true: white subject becomes a hole (for a dark veil over the original).
-  function loadLuminanceMaskAsAlpha(maskUrl, onReady, invert) {
-    if (!maskUrl) {
-      onReady('');
-      return;
-    }
-    const maskImg = new Image();
-    maskImg.crossOrigin = 'anonymous';
-    maskImg.onload = function () {
-      try {
-        const w = maskImg.naturalWidth;
-        const h = maskImg.naturalHeight;
-        if (!w || !h) {
-          onReady('');
-          return;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(maskImg, 0, 0);
-        const imageData = ctx.getImageData(0, 0, w, h);
-        const d = imageData.data;
-        for (let i = 0; i < d.length; i += 4) {
-          const lum = d[i];
-          d[i] = 255;
-          d[i + 1] = 255;
-          d[i + 2] = 255;
-          d[i + 3] = invert ? (255 - lum) : lum;
-        }
-        ctx.putImageData(imageData, 0, 0);
-        onReady(canvas.toDataURL('image/png'));
-      } catch (e) {
-        onReady('');
-      }
-    };
-    maskImg.onerror = function () {
-      onReady('');
-    };
-    maskImg.src = maskUrl;
-  }
-
-  function resolveEmphasisFadeTiming(sceneDuration, tGet) {
-    const fadeDurRaw = parseFloat(tGet('emphasis_style_fade_duration', '0.55'));
-    let fadeDur = Number.isFinite(fadeDurRaw) ? fadeDurRaw : 0.55;
-    const fixedDelayRaw = parseFloat(tGet('emphasis_style_fade_delay', '0.12'));
-    const fixedDelay = Number.isFinite(fixedDelayRaw) ? fixedDelayRaw : 0.12;
-    const pctRaw = parseFloat(tGet('emphasis_style_fade_delay_pct', '0.10'));
-    const tail = 0.05;
-
-    let fadeStart = fixedDelay;
-    if (sceneDuration > 0 && Number.isFinite(pctRaw) && pctRaw >= 0) {
-      let pct = pctRaw;
-      if (pct > 1) pct = pct / 100;
-      fadeStart = sceneDuration * pct;
-    }
-
-    if (sceneDuration > 0) {
-      const maxStart = Math.max(0, sceneDuration - fadeDur - tail);
-      fadeStart = Math.min(fadeStart, maxStart);
-      if (fadeStart + fadeDur > sceneDuration - tail) {
-        fadeDur = Math.max(0.15, sceneDuration - fadeStart - tail);
-      }
-    }
-
-    return { fadeStart: fadeStart, fadeDur: fadeDur };
-  }
-
-  function applyEmphasisStyle(overlayContainer, target, wrap, cue, tl, elapsed, sceneDuration) {
-    const sceneElapsed = Number.isFinite(elapsed) ? elapsed : 0;
-    const duration = Number.isFinite(sceneDuration) ? sceneDuration : 0;
-    const existing = overlayContainer.querySelector('.hf-hero-emphasis-layer');
-    if (existing && existing.dataset.emphasisFadeScheduled === '1') return existing;
-    if (existing) existing.remove();
-
-    const theme = window.HFPlayerTheme;
-    const tGet = (key, fallback) =>
-      theme && theme.get ? (theme.get(key) || fallback) : fallback;
-
-    const mode = String(cue.emphasisMode || 'darken').toLowerCase() === 'sepia' ? 'sepia' : 'darken';
-    const fadeTiming = resolveEmphasisFadeTiming(duration, tGet);
-    const fadeDur = fadeTiming.fadeDur;
-    const fadeStart = fadeTiming.fadeStart;
-    const bgBrightnessRaw = parseFloat(tGet('emphasis_style_bg_brightness', '0.52'));
-    const bgBrightness = Number.isFinite(bgBrightnessRaw) ? bgBrightnessRaw : 0.52;
-    const bgBlurRaw = parseFloat(tGet('emphasis_style_bg_blur', '0'));
-    const bgBlur = Number.isFinite(bgBlurRaw) ? bgBlurRaw : 0;
-    const sepiaAmtRaw = parseFloat(tGet('emphasis_style_sepia_amount', '0.9'));
-    const sepiaAmt = Number.isFinite(sepiaAmtRaw) ? sepiaAmtRaw : 0.9;
-    const veilOpacityRaw = parseFloat(tGet('emphasis_style_bg_veil_opacity', '0.26'));
-    const veilOpacity = Number.isFinite(veilOpacityRaw) ? veilOpacityRaw : 0.26;
-    const bgFilterParts = [];
-    if (mode === 'sepia') {
-      bgFilterParts.push('sepia(' + sepiaAmt + ')');
-    }
-    bgFilterParts.push('brightness(' + bgBrightness + ')');
-    if (bgBlur > 0) {
-      bgFilterParts.push('blur(' + bgBlur + 'px)');
-    }
-    const bgFilter = bgFilterParts.join(' ');
-    const maskSrc = getProxyUrl(cue.emphasisMaskUrl);
-
-    console.info('[emphasis] applying (option A: full-bright then recede bg)', mode, cue.emphasisMaskUrl || '(no mask)');
-
-    // Original still stays at full brightness. Never filter/dim `target`.
-    gsap.set(target, { filter: 'none' });
-
-    const layer = document.createElement('div');
-    layer.className = 'hf-hero-emphasis-layer';
-    layer.style.overflow = 'hidden';
-    layer.style.pointerEvents = 'none';
-    layer.style.zIndex = '20';
-    overlayContainer.appendChild(layer);
-    placeInVisibleImage(layer, wrap, target);
-    requestAnimationFrame(function () {
-      placeInVisibleImage(layer, wrap, target);
-      requestAnimationFrame(function () {
-        placeInVisibleImage(layer, wrap, target);
-      });
-    });
-
-    // Recede-stack sits on top of the original. It is masked to the BACKGROUND
-    // only, so the subject is always the untouched full-bright image underneath.
-    // Opacity stays 0 until that mask is ready — otherwise this would be option B
-    // (dim the whole still, then punch a hole).
-    const recede = document.createElement('div');
-    recede.className = 'hf-hero-emphasis-recede';
-    recede.style.position = 'absolute';
-    recede.style.inset = '0';
-    recede.style.pointerEvents = 'none';
-    layer.appendChild(recede);
-
-    const bgClone = document.createElement('img');
-    bgClone.className = 'hf-hero-emphasis-bg';
-    bgClone.src = target.currentSrc || target.src || '';
-    bgClone.alt = '';
-    bgClone.style.position = 'absolute';
-    bgClone.style.inset = '0';
-    bgClone.style.width = '100%';
-    bgClone.style.height = '100%';
-    bgClone.style.objectFit = 'fill';
-    bgClone.style.pointerEvents = 'none';
-    bgClone.style.filter = bgFilter;
-    recede.appendChild(bgClone);
-
-    const veil = document.createElement('div');
-    veil.className = 'hf-hero-emphasis-veil';
-    veil.style.position = 'absolute';
-    veil.style.inset = '0';
-    veil.style.pointerEvents = 'none';
-    veil.style.background = mode === 'sepia'
-      ? ('rgba(92, 62, 22, ' + veilOpacity + ')')
-      : ('rgba(0, 0, 0, ' + veilOpacity + ')');
-    recede.appendChild(veil);
-
-    const relayout = function () {
-      placeInVisibleImage(layer, wrap, target);
-    };
-    if (!(target.complete && target.naturalWidth > 0)) {
-      target.addEventListener('load', relayout, { once: true });
-    }
-
-    gsap.set(layer, { opacity: 0 });
-
-    function applyBgMask(url) {
-      if (!url) return;
-      const quoted = 'url("' + url + '")';
-      recede.style.maskImage = quoted;
-      recede.style.webkitMaskImage = quoted;
-      recede.style.maskSize = '100% 100%';
-      recede.style.webkitMaskSize = '100% 100%';
-      recede.style.maskRepeat = 'no-repeat';
-      recede.style.webkitMaskRepeat = 'no-repeat';
-      recede.style.maskPosition = 'center';
-      recede.style.webkitMaskPosition = 'center';
-    }
-
-    function fadeBackgroundIn() {
-      layer.dataset.emphasisFadeScheduled = '1';
-      gsap.killTweensOf(layer);
-      const sceneTime = tl ? tl.time() : sceneElapsed;
-
-      if (sceneTime >= fadeStart + fadeDur) {
-        gsap.set(layer, { opacity: 1 });
-        return;
-      }
-      if (sceneTime > fadeStart) {
-        const progress = Math.min(1, (sceneTime - fadeStart) / fadeDur);
-        gsap.set(layer, { opacity: progress });
-        const remaining = fadeDur * (1 - progress);
-        if (remaining > 0.01) {
-          gsap.to(layer, { opacity: 1, duration: remaining, ease: 'power1.out' });
-        }
-        return;
-      }
-
-      if (tl) {
-        tl.fromTo(
-          layer,
-          { opacity: 0 },
-          { opacity: 1, duration: fadeDur, ease: 'power1.out' },
-          fadeStart
-        );
-        return;
-      }
-
-      gsap.fromTo(
-        layer,
-        { opacity: 0 },
-        {
-          opacity: 1,
-          duration: fadeDur,
-          delay: Math.max(0, fadeStart - sceneTime),
-          ease: 'power1.out',
-        }
-      );
-    }
-
-    if (!maskSrc) {
-      return layer;
-    }
-
-    loadLuminanceMaskAsAlpha(maskSrc, function (url) {
-      if (!url) return;
-      applyBgMask(url);
-      fadeBackgroundIn();
-    }, true);
-
-    return layer;
   }
 
   function normalizeCalloutPosition(position) {
@@ -505,6 +494,18 @@ window.HFHeroStills = (function() {
       return { x: 0, y: 24, opacity: 0 };
     }
     return { opacity: 0 };
+  }
+
+  function scheduleCalloutCardEntrance(card, iconReady, entrance, position, tl, startTime) {
+    const launch = function () {
+      const when = Math.max(startTime, tl.time());
+      animateCalloutCardEntrance(card, entrance, position, tl, when);
+    };
+    if (iconReady && typeof iconReady.then === 'function') {
+      iconReady.then(launch);
+      return;
+    }
+    launch();
   }
 
   function animateCalloutCardEntrance(card, entrance, position, tl, startTime) {
@@ -672,6 +673,7 @@ window.HFHeroStills = (function() {
     const headerText = String(callout.header || '').trim();
     const bodyText = String(callout.body || '').trim();
     const iconUrl = callout.url ? getProxyUrl(callout.url) : '';
+    let iconReady = null;
 
     if (headerText || iconUrl) {
       const headerRow = document.createElement('div');
@@ -693,12 +695,17 @@ window.HFHeroStills = (function() {
         img.style.objectFit = 'contain';
         img.style.display = 'block';
         const knockoutWhite = tGet('callout_card_icon_knockout_white', 'true') !== 'false';
-        if (knockoutWhite) {
-          img.addEventListener('load', function () {
-            knockOutWhiteToTransparent(img);
+        if (calloutIconSrcCache[iconUrl]) {
+          img.src = calloutIconSrcCache[iconUrl];
+          img.dataset.hfKnocked = '1';
+        } else if (knockoutWhite) {
+          iconReady = ensureCalloutIconReady(iconUrl, true).then(function (src) {
+            img.src = src;
+            img.dataset.hfKnocked = '1';
           });
+        } else {
+          img.src = iconUrl;
         }
-        img.src = iconUrl;
         iconWrap.appendChild(img);
         headerRow.appendChild(iconWrap);
       }
@@ -776,7 +783,7 @@ window.HFHeroStills = (function() {
     }
 
     card.appendChild(inner);
-    return card;
+    return { card: card, iconReady: iconReady };
   }
 
   function sync(opts) {
@@ -804,17 +811,12 @@ window.HFHeroStills = (function() {
     currentWrap = target.closest('.hf-hero-motion-wrapper') || target.parentElement || target;
 
     const animType = cue.animationType || 'none';
-    const hasEmphasis = !!(
-      (cue.emphasisMaskUrl
-        && !String(cue.emphasisMaskUrl).toUpperCase().startsWith('ERROR'))
-      || animType === 'emphasis_style'
-    );
     let treatment = opts.treatment || 'still';
-    if ((animType !== 'none' || hasEmphasis) && !isTopicTransition(cue)) {
+    if (animType !== 'none' && !isTopicTransition(cue)) {
       treatment = 'still';
     }
 
-    if (duration <= 0 && !hasEmphasis) {
+    if (duration <= 0) {
       if (treatment === 'center_split') {
         const s = queryShutters(currentWrap);
         if (s && !splitDone) {
@@ -842,16 +844,8 @@ window.HFHeroStills = (function() {
       currentWrap.appendChild(overlayContainer);
     }
 
-    if (duration <= 0) {
-      // Wait for cue duration — applying emphasis with duration=0 snaps darken on instantly.
-      return;
-    }
-
     if (activeTween) {
       if (activeTweenDuration === duration) {
-        if (hasEmphasis && !overlayContainer.querySelector('.hf-hero-emphasis-layer[data-emphasis-fade-scheduled="1"]')) {
-          applyEmphasisStyle(overlayContainer, target, currentWrap, cue, activeTween, elapsed, duration);
-        }
         if (playing) {
           activeTween.play();
           if (Math.abs(activeTween.time() - elapsed) > 0.25) activeTween.time(elapsed);
@@ -941,7 +935,7 @@ window.HFHeroStills = (function() {
       wrap.style.boxSizing = 'border-box';
       wrap.style.overflow = 'hidden';
 
-      // Position shell: always right-aligned inside the sharp image bounds.
+      // Position shell: always the right side of the player frame.
       const shell = document.createElement('div');
       shell.className = 'hf-hero-topic-transition-shell';
       shell.style.position = 'absolute';
@@ -952,10 +946,9 @@ window.HFHeroStills = (function() {
       shell.style.marginLeft = 'auto';
 
       function layoutTopicInImage() {
-        const rect = placeInVisibleImage(wrap, currentWrap, target);
+        const rect = placeInFullFrame(wrap, currentWrap);
         const insetPx = resolveInsetPx(insetRaw, rect.w);
         const maxW = Math.max(80, Math.min(cardMaxWidthPx, rect.w - 2 * insetPx));
-        // Force right side every layout — never left/center.
         shell.style.left = 'auto';
         shell.style.right = insetPx + 'px';
         shell.style.maxWidth = maxW + 'px';
@@ -1029,6 +1022,7 @@ window.HFHeroStills = (function() {
       if (!(target.complete && target.naturalWidth > 0)) {
         target.addEventListener('load', layoutTopicInImage, { once: true });
       }
+      requestAnimationFrame(layoutTopicInImage);
 
       // Keep the hero image visible. Fading target 0→1 caused: image flash → blank → image+card.
       gsap.set(target, { opacity: 1 });
@@ -1047,8 +1041,10 @@ window.HFHeroStills = (function() {
       }
     }
     else if (animType === 'text_label') {
+      const timingOpts = overlayTimingOpts(opts, cue, duration);
+      const labelStart = resolveOverlayTime(cue.triggerPhrase, timingOpts, 0.15);
       gsap.set(target, { scale: 1.00, xPercent: 0, yPercent: 0, transformOrigin: '50% 50%' });
-      tl.to(target, { xPercent: -15, scale: 0.85, duration: 0.45, ease: 'power2.out' }, 0);
+      tl.to(target, { xPercent: -15, scale: 0.85, duration: 0.45, ease: 'power2.out' }, labelStart);
 
       const theme = window.HFPlayerTheme;
       const tGet = (key, fallback) =>
@@ -1092,38 +1088,23 @@ window.HFHeroStills = (function() {
       card.style.fontFamily = labelFont;
       overlayContainer.appendChild(card);
 
-      tl.fromTo(card, { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.5, ease: 'back.out(1.4)' }, 0.15);
+      tl.fromTo(card, { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.5, ease: 'back.out(1.4)' }, labelStart + 0.05);
     } 
     else if (animType === 'bbox_highlight' && cue.bboxHighlights && cue.bboxHighlights.length > 0) {
-      const drawBBoxes = () => {
-        const oldBoxes = overlayContainer.querySelectorAll('.hf-hero-bbox');
-        oldBoxes.forEach(b => b.remove());
+      const bboxTimingOpts = overlayTimingOpts(opts, cue, duration);
+      const bboxStyle = String(opts.bboxTreatment || 'bbox_draw').toLowerCase();
+      const themeHelpers = themeGetters();
+      const tGet = themeHelpers.tGet;
+      const drawStrokeColor = tGet('bbox_draw_stroke_color', '#f05523');
+      const drawStrokeWidth = parseFloat(tGet('bbox_draw_stroke_width', '4.5')) || 4.5;
 
-        const rect = getVisibleImageRect(currentWrap, target);
-        const validHighlights = [];
-        
-        cue.bboxHighlights.forEach((highlight) => {
-          const box = highlight.box_2d;
-          if (!box || box.length !== 4) return;
-          const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
-
-          // Check if it overlaps with any previously accepted box to prevent intersection
-          let intersectsExisting = false;
-          for (const val of validHighlights) {
-            const acc = val.box_2d;
-            const [a_ymin, a_xmin, a_ymax, a_xmax] = acc;
-            const hOverlap = xmin < a_xmax && xmax > a_xmin;
-            const vOverlap = ymin < a_ymax && ymax > a_ymin;
-            if (hOverlap && vOverlap) {
-              intersectsExisting = true;
-              break;
-            }
-          }
-          if (!intersectsExisting) {
-            validHighlights.push(highlight);
-          }
+      const drawBboxDrawStyle = function () {
+        overlayContainer.querySelectorAll('.hf-hero-bbox').forEach(function (node) {
+          node.remove();
         });
 
+        const rect = getVisibleImageRect(currentWrap, target);
+        const validHighlights = filterValidBboxHighlights(cue);
         const numBoxes = validHighlights.length;
         if (numBoxes === 0) return;
 
@@ -1132,89 +1113,224 @@ window.HFHeroStills = (function() {
         const safeStagger = Math.max(0, stagger);
         const maxEndTime = duration - 0.8;
 
-        validHighlights.forEach((highlight, idx) => {
-          const box = highlight.box_2d;
-          const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
-
-          const left = rect.x + (xmin / 1000) * rect.w;
-          const top = rect.y + (ymin / 1000) * rect.h;
-          const width = ((xmax - xmin) / 1000) * rect.w;
-          const height = ((ymax - ymin) / 1000) * rect.h;
+        validHighlights.forEach(function (highlight, idx) {
+          const metrics = bboxBoxMetrics(rect, highlight.box_2d);
+          const width = metrics.width;
+          const height = metrics.height;
 
           const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           svgEl.className = 'hf-hero-bbox';
           svgEl.setAttribute('width', width);
           svgEl.setAttribute('height', height);
           svgEl.style.position = 'absolute';
-          svgEl.style.left = left + 'px';
-          svgEl.style.top = top + 'px';
+          svgEl.style.left = metrics.left + 'px';
+          svgEl.style.top = metrics.top + 'px';
           svgEl.style.width = width + 'px';
           svgEl.style.height = height + 'px';
           svgEl.style.pointerEvents = 'none';
           svgEl.style.overflow = 'visible';
           svgEl.style.filter = 'drop-shadow(0px 0px 6px rgba(240, 85, 35, 0.65))';
 
-          let d1 = '', d2 = '';
-          if (highlight.shape === 'circle') {
-            const rx = width / 2;
-            const ry = height / 2;
-            d1 = `M ${rx} 0 A ${rx} ${ry} 0 0 0 ${rx} ${height}`;
-            d2 = `M ${rx} 0 A ${rx} ${ry} 0 0 1 ${rx} ${height}`;
-          } else {
-            const halfW = width / 2;
-            d1 = `M ${halfW} 0 L 0 0 L 0 ${height} L ${halfW} ${height}`;
-            d2 = `M ${halfW} 0 L ${width} 0 L ${width} ${height} L ${halfW} ${height}`;
-          }
-
-          const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path1.setAttribute('d', d1);
-          path1.setAttribute('fill', 'none');
-          path1.setAttribute('stroke', '#f05523');
-          path1.setAttribute('stroke-width', '4.5');
-          path1.setAttribute('stroke-linecap', 'round');
-          path1.setAttribute('stroke-linejoin', 'round');
-
-          const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path2.setAttribute('d', d2);
-          path2.setAttribute('fill', 'none');
-          path2.setAttribute('stroke', '#f05523');
-          path2.setAttribute('stroke-width', '4.5');
-          path2.setAttribute('stroke-linecap', 'round');
-          path2.setAttribute('stroke-linejoin', 'round');
-
-          svgEl.appendChild(path1);
-          svgEl.appendChild(path2);
+          const paths = appendSplitBboxPaths(svgEl, highlight, width, height, drawStrokeColor, drawStrokeWidth);
           overlayContainer.appendChild(svgEl);
-
-          const len1 = (typeof path1.getTotalLength === 'function' && path1.getTotalLength() > 0) 
-            ? path1.getTotalLength() 
-            : (width + height);
-          const len2 = (typeof path2.getTotalLength === 'function' && path2.getTotalLength() > 0) 
-            ? path2.getTotalLength() 
-            : (width + height);
-
-          path1.style.strokeDasharray = len1;
-          path1.style.strokeDashoffset = len1;
-          path2.style.strokeDasharray = len2;
-          path2.style.strokeDashoffset = len2;
 
           const lastBoxStart = startOffset + (numBoxes - 1) * safeStagger;
           const drawDuration = Math.max(0.4, Math.min(1.5, maxEndTime - lastBoxStart));
-          const startTime = startOffset + idx * safeStagger;
-
-          // Fade in the SVG container slightly as drawing begins to avoid sharp edge pop-ins
-          tl.fromTo(svgEl, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: 'power1.out' }, startTime);
-
-          // Animate the two halves of the box/circle drawing outwards and meeting at the bottom
-          tl.fromTo(path1, { strokeDashoffset: len1 }, { strokeDashoffset: 0, duration: drawDuration, ease: 'power1.out' }, startTime);
-          tl.fromTo(path2, { strokeDashoffset: len2 }, { strokeDashoffset: 0, duration: drawDuration, ease: 'power1.out' }, startTime);
+          const startTime = resolveOverlayTime(
+            highlight.triggerPhrase,
+            bboxTimingOpts,
+            startOffset + idx * safeStagger
+          );
+          animateSplitBboxDraw(tl, svgEl, paths, width, height, startTime, drawDuration);
         });
       };
 
+      const drawBboxSpotlightStyle = function () {
+        overlayContainer.querySelectorAll('.hf-hero-bbox-spotlight').forEach(function (node) {
+          node.remove();
+        });
+
+        const validHighlights = filterValidBboxHighlights(cue);
+        if (validHighlights.length === 0) return;
+
+        const veilOpacity = parseFloat(tGet('bbox_spotlight_veil_opacity', '0.75'));
+        const safeVeilOpacity = Number.isFinite(veilOpacity) ? veilOpacity : 0.75;
+        const borderColor = tGet('bbox_spotlight_border_color', '#F9E400');
+        const borderWidth = parseFloat(tGet('bbox_spotlight_border_width', '3')) || 3;
+        const borderDash = tGet('bbox_spotlight_border_dash', '18 10');
+        const marchCycle = parseFloat(tGet('bbox_spotlight_border_march_cycle', '1.1')) || 1.1;
+        const cornerRadius = parseFloat(tGet('bbox_spotlight_corner_radius', '28')) || 28;
+        const highlightDelayRaw = parseFloat(tGet('bbox_spotlight_highlight_delay', '0.28'));
+        const highlightDelay = Number.isFinite(highlightDelayRaw) ? Math.max(0, highlightDelayRaw) : 0.28;
+        const imgSrc = target.currentSrc || target.src;
+
+        const bounds = document.createElement('div');
+        bounds.className = 'hf-hero-bbox-spotlight';
+        bounds.style.pointerEvents = 'none';
+        bounds.style.overflow = 'hidden';
+        bounds.style.boxSizing = 'border-box';
+        overlayContainer.appendChild(bounds);
+
+        const veil = document.createElement('div');
+        veil.className = 'hf-hero-bbox-spotlight-veil';
+        veil.style.position = 'absolute';
+        veil.style.inset = '0';
+        veil.style.pointerEvents = 'none';
+        veil.style.background = 'rgba(0, 0, 0, ' + safeVeilOpacity + ')';
+        veil.style.opacity = '0';
+        bounds.appendChild(veil);
+        const numBoxes = validHighlights.length;
+        const startOffset = 0.2;
+        const stagger = numBoxes > 1 ? Math.min(0.25, (duration - startOffset - 1.5) / (numBoxes - 1)) : 0;
+        const safeStagger = Math.max(0, stagger);
+
+        // Precompute start times so the surrounding dark veil is synced to the trigger phrase
+        const startTimes = validHighlights.map(function (highlight, idx) {
+          return resolveOverlayTime(
+            highlight.triggerPhrase,
+            bboxTimingOpts,
+            startOffset + idx * safeStagger
+          );
+        });
+
+        const veilStartTime = startTimes.length ? Math.min.apply(null, startTimes) : startOffset;
+        const remainingAfterVeil = Math.max(0.2, duration - veilStartTime);
+        const veilDuration = Math.min(0.4, remainingAfterVeil);
+        tl.to(veil, { opacity: 1, duration: veilDuration, ease: 'power2.out' }, veilStartTime);
+
+        const spotlightNodes = [];
+
+        validHighlights.forEach(function (highlight, idx) {
+          const windowWrap = document.createElement('div');
+          windowWrap.className = 'hf-hero-bbox-spotlight-window';
+          windowWrap.style.position = 'absolute';
+          windowWrap.style.overflow = 'hidden';
+          windowWrap.style.opacity = '0';
+          windowWrap.style.pointerEvents = 'none';
+
+          const brightImg = document.createElement('img');
+          brightImg.className = 'hf-hero-bbox-spotlight-bright';
+          brightImg.alt = '';
+          brightImg.draggable = false;
+          brightImg.src = imgSrc;
+          brightImg.style.position = 'absolute';
+          brightImg.style.display = 'block';
+          brightImg.style.maxWidth = 'none';
+          brightImg.style.pointerEvents = 'none';
+          windowWrap.appendChild(brightImg);
+
+          const borderWrap = document.createElement('div');
+          borderWrap.className = 'hf-hero-bbox-spotlight-border';
+          borderWrap.style.position = 'absolute';
+          borderWrap.style.pointerEvents = 'none';
+          borderWrap.style.opacity = '0';
+          borderWrap.style.overflow = 'visible';
+
+          const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          svgEl.style.position = 'absolute';
+          svgEl.style.inset = '0';
+          svgEl.style.overflow = 'visible';
+          svgEl.style.pointerEvents = 'none';
+
+          const borderShape = document.createElementNS('http://www.w3.org/2000/svg', highlight.shape === 'circle' ? 'ellipse' : 'rect');
+          borderShape.setAttribute('fill', 'none');
+          borderShape.setAttribute('stroke', borderColor);
+          borderShape.setAttribute('stroke-width', String(borderWidth));
+          borderShape.setAttribute('stroke-dasharray', borderDash);
+          borderShape.setAttribute('stroke-linecap', 'round');
+          borderShape.setAttribute('stroke-linejoin', 'round');
+          svgEl.appendChild(borderShape);
+          borderWrap.appendChild(svgEl);
+
+          bounds.appendChild(windowWrap);
+          bounds.appendChild(borderWrap);
+
+          const startTime = startTimes[idx];
+          // Darken first, then punch the bright cutout + yellow border after a short beat.
+          const highlightTime = Math.min(Math.max(0, startTime + highlightDelay), Math.max(0, duration - 0.12));
+
+          spotlightNodes.push({
+            highlight: highlight,
+            windowWrap: windowWrap,
+            brightImg: brightImg,
+            borderWrap: borderWrap,
+            svgEl: svgEl,
+            borderShape: borderShape,
+            startTime: startTime,
+          });
+
+          tl.fromTo(windowWrap, { opacity: 0 }, { opacity: 1, duration: 0.22, ease: 'power1.out' }, highlightTime);
+          tl.fromTo(borderWrap, { opacity: 0 }, { opacity: 1, duration: 0.28, ease: 'power1.out' }, highlightTime);
+          animateSpotlightBorderMarch(tl, borderShape, highlightTime, duration, borderDash, marchCycle);
+        });
+
+        function layoutSpotlightWindows() {
+          const rect = placeInVisibleImage(bounds, currentWrap, target);
+          spotlightNodes.forEach(function (node) {
+            const metrics = bboxBoxMetrics(rect, node.highlight.box_2d);
+            const width = metrics.width;
+            const height = metrics.height;
+            const inset = borderWidth / 2;
+
+            node.windowWrap.style.left = metrics.relLeft + 'px';
+            node.windowWrap.style.top = metrics.relTop + 'px';
+            node.windowWrap.style.width = width + 'px';
+            node.windowWrap.style.height = height + 'px';
+
+            node.borderWrap.style.left = metrics.relLeft + 'px';
+            node.borderWrap.style.top = metrics.relTop + 'px';
+            node.borderWrap.style.width = width + 'px';
+            node.borderWrap.style.height = height + 'px';
+
+            node.svgEl.setAttribute('width', width);
+            node.svgEl.setAttribute('height', height);
+            node.svgEl.style.width = width + 'px';
+            node.svgEl.style.height = height + 'px';
+
+            if (node.highlight.shape === 'circle') {
+              node.windowWrap.style.borderRadius = '50%';
+              node.borderShape.setAttribute('cx', String(width / 2));
+              node.borderShape.setAttribute('cy', String(height / 2));
+              node.borderShape.setAttribute('rx', String(Math.max(0, width / 2 - inset)));
+              node.borderShape.setAttribute('ry', String(Math.max(0, height / 2 - inset)));
+            } else {
+              const rx = Math.min(cornerRadius, width / 2, height / 2);
+              node.windowWrap.style.borderRadius = rx + 'px';
+              node.borderShape.setAttribute('x', String(inset));
+              node.borderShape.setAttribute('y', String(inset));
+              node.borderShape.setAttribute('width', String(Math.max(0, width - borderWidth)));
+              node.borderShape.setAttribute('height', String(Math.max(0, height - borderWidth)));
+              node.borderShape.setAttribute('rx', String(rx));
+              node.borderShape.setAttribute('ry', String(rx));
+            }
+
+            node.brightImg.style.width = rect.w + 'px';
+            node.brightImg.style.height = rect.h + 'px';
+            node.brightImg.style.left = (-metrics.relLeft) + 'px';
+            node.brightImg.style.top = (-metrics.relTop) + 'px';
+          });
+        }
+
+        layoutSpotlightWindows();
+        if (!(target.complete && target.naturalWidth > 0)) {
+          target.addEventListener('load', layoutSpotlightWindows, { once: true });
+        }
+        requestAnimationFrame(layoutSpotlightWindows);
+      };
+
+      const renderBboxes = function () {
+        if (bboxStyle === 'bbox_spotlight') {
+          drawBboxSpotlightStyle();
+        } else {
+          drawBboxDrawStyle();
+        }
+      };
+
       if (target.complete && target.naturalWidth > 0) {
-        drawBBoxes();
+        renderBboxes();
       } else {
-        target.onload = drawBBoxes;
+        target.addEventListener('load', renderBboxes, { once: true });
       }
     } 
     else if (animType === 'callout_card' && cue.calloutCards && cue.calloutCards.length > 0) {
@@ -1229,9 +1345,13 @@ window.HFHeroStills = (function() {
         theme && theme.fontStack ? theme.fontStack(key) : fallback;
       const helpers = { tGet: tGet, tSize: tSize, tWeight: tWeight, tFont: tFont };
 
-      const startDelay = 0.5;
-      const inset = tGet('callout_card_position_inset', '6%');
+      const calloutTimingOpts = overlayTimingOpts(opts, cue, duration);
       const cardCount = cue.calloutCards.length;
+      const cardTimes = cue.calloutCards.map(function (callout, idx) {
+        return resolveOverlayTime(callout.triggerPhrase, calloutTimingOpts, 0.5 + idx * 0.12);
+      });
+      const sceneStart = cardTimes.length ? Math.min.apply(null, cardTimes) : 0.5;
+      const inset = tGet('callout_card_position_inset', '6%');
       const gridGap = parseFloat(tGet('callout_card_stack_gap', '16')) || 16;
 
       const bounds = document.createElement('div');
@@ -1270,16 +1390,18 @@ window.HFHeroStills = (function() {
       bounds.appendChild(grid);
 
       gsap.set(target, { filter: 'brightness(1)' });
-      tl.to(target, { filter: 'brightness(0.55)', duration: 0.6, ease: 'power1.out' }, startDelay);
-      tl.to(sceneOverlay, { opacity: 1, duration: 0.6, ease: 'power1.out' }, startDelay);
+      tl.to(target, { filter: 'brightness(0.55)', duration: 0.6, ease: 'power1.out' }, sceneStart);
+      tl.to(sceneOverlay, { opacity: 1, duration: 0.6, ease: 'power1.out' }, sceneStart);
 
       const cells = [];
 
       cue.calloutCards.forEach(function (callout, idx) {
-        const card = buildCalloutCard(callout, helpers);
+        const built = buildCalloutCard(callout, helpers);
+        const card = built.card;
         card.className = (card.className || '') + ' hf-callout-card';
         card.style.pointerEvents = 'auto';
         card.style.maxHeight = '100%';
+        gsap.set(card, { opacity: 0, x: 0, y: 0 });
 
         const resolvedPos = resolveCalloutPosition(callout.position, idx, cardCount);
         const place = calloutGridPlacement(resolvedPos);
@@ -1311,12 +1433,21 @@ window.HFHeroStills = (function() {
           window.HFTreatmentRotator && window.HFTreatmentRotator.getCalloutEntrance
             ? window.HFTreatmentRotator.getCalloutEntrance(cue, idx)
             : { entrance: 'callout_fade', position: resolvedPos, occurrence: 0 };
-        const cardStart = startDelay + 0.15 + idx * 0.12;
-        animateCalloutCardEntrance(card, meta.entrance, resolvedPos, tl, cardStart);
+        const cardStart = cardTimes[idx];
+        scheduleCalloutCardEntrance(card, built.iconReady, meta.entrance, resolvedPos, tl, cardStart);
       });
 
       function layoutCalloutGrid() {
-        placeInVisibleImage(bounds, currentWrap, target);
+        // Default: full frame (sharp image + blur letterbox). Narrow portrait
+        // heroes crush cards if bounds are limited to the contain-rect only.
+        const boundsMode = String(tGet('callout_card_bounds', 'frame') || 'frame')
+          .trim()
+          .toLowerCase();
+        if (boundsMode === 'image' || boundsMode === 'visible' || boundsMode === 'contain') {
+          placeInVisibleImage(bounds, currentWrap, target);
+        } else {
+          placeInFullFrame(bounds, currentWrap);
+        }
         const pad = Math.round(parseCalloutInsetPx(bounds, inset));
         grid.style.top = pad + 'px';
         grid.style.left = pad + 'px';
@@ -1331,9 +1462,13 @@ window.HFHeroStills = (function() {
       requestAnimationFrame(layoutCalloutGrid);
     }
     else if (animType === 'icon_overlay' && cue.iconOverlays && cue.iconOverlays.length > 0) {
-      const startDimDelay = 0.8;
+      const iconTimingOpts = overlayTimingOpts(opts, cue, duration);
+      const iconTimes = cue.iconOverlays.map(function (icon, idx) {
+        return resolveOverlayTime(icon.triggerPhrase, iconTimingOpts, 0.8 + 0.2 + idx * 0.15);
+      });
+      const sceneStart = iconTimes.length ? Math.min.apply(null, iconTimes) : 0.8;
       gsap.set(target, { filter: 'brightness(1)' });
-      tl.to(target, { filter: 'brightness(0.35)', duration: 0.6, ease: 'power1.out' }, startDimDelay);
+      tl.to(target, { filter: 'brightness(0.35)', duration: 0.6, ease: 'power1.out' }, sceneStart);
 
       const flexContainer = document.createElement('div');
       flexContainer.className = 'hf-hero-icons-flex';
@@ -1365,11 +1500,8 @@ window.HFHeroStills = (function() {
 
         flexContainer.appendChild(cardEl);
 
-        tl.fromTo(cardEl, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: 'back.out(1.2)' }, startDimDelay + 0.2 + idx * 0.15);
+        tl.fromTo(cardEl, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: 'back.out(1.2)' }, iconTimes[idx]);
       });
-    }
-    else if (hasEmphasis) {
-      applyEmphasisStyle(overlayContainer, target, currentWrap, cue, tl, elapsed, duration);
     }
 
     if (hasMotion) {
@@ -1411,5 +1543,7 @@ window.HFHeroStills = (function() {
   return {
     sync: sync,
     kill: kill,
+    warmCalloutIcons: warmCalloutIcons,
+    ensureCalloutIconReady: ensureCalloutIconReady,
   };
 })();

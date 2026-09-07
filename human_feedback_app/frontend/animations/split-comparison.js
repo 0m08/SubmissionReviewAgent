@@ -18,6 +18,7 @@ window.HFSplitComparison = (function () {
 
   function normalizeTreatment(treatment) {
     if (treatment === 'dim_desaturate') return 'hold_and_reveal';
+    if (treatment === 'label_slant_fade') return 'label_fade';
     return treatment || 'hold_and_reveal';
   }
 
@@ -29,32 +30,13 @@ window.HFSplitComparison = (function () {
     return document.querySelector('[data-player-scene="' + sceneKeyForCue(cue) + '"]');
   }
 
-  function applySlantLayout(cue, enable) {
-    const canvas = getCanvas(cue);
-    if (!canvas) return;
-    if (!enable) {
-      canvas.classList.remove('is-slant-split');
-      canvas.style.removeProperty('--hf-slant-left-clip');
-      canvas.style.removeProperty('--hf-slant-right-clip');
-      return;
-    }
-    const cfg = window.HFSplitSlant && window.HFSplitSlant.config
-      ? window.HFSplitSlant.config()
-      : null;
-    const polys = window.HFSplitSlant && window.HFSplitSlant.computeSlantClipPolygons
-      ? window.HFSplitSlant.computeSlantClipPolygons(cfg || { topXPct: 0.58, bottomXPct: 0.42 })
-      : null;
-    canvas.classList.add('is-slant-split');
-    if (polys) {
-      canvas.style.setProperty('--hf-slant-left-clip', polys.left);
-      canvas.style.setProperty('--hf-slant-right-clip', polys.right);
-    }
+  function labelBadgeForSlot(slot) {
+    if (!slot) return null;
+    return slot.querySelector('.hf-player-slot-label-badge');
   }
 
   function isLabelTreatment(treatment) {
-    return treatment === 'label_slide'
-      || treatment === 'label_fade'
-      || treatment === 'label_slant_fade';
+    return treatment === 'label_slide' || treatment === 'label_fade';
   }
 
   function getSlots(cue) {
@@ -254,14 +236,6 @@ window.HFSplitComparison = (function () {
       ambientTween.kill();
       ambientTween = null;
     }
-    if (sceneKey) {
-      const canvas = document.querySelector('[data-player-scene="' + sceneKey + '"]');
-      if (canvas) {
-        canvas.classList.remove('is-slant-split');
-        canvas.style.removeProperty('--hf-slant-left-clip');
-        canvas.style.removeProperty('--hf-slant-right-clip');
-      }
-    }
     resetOwnedSlots();
     sceneKey = '';
     lastPartIdx = -1;
@@ -284,14 +258,14 @@ window.HFSplitComparison = (function () {
         case 'label_slide': {
           gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
           gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
-          const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
+          const labelBadge = labelBadgeForSlot(slot);
           if (labelBadge) {
             if (idx <= activeIdx) {
               if (instant) {
                 gsap.set(labelBadge, { autoAlpha: 1, x: 0 });
               } else if (idx === activeIdx && !labelEntranceDone[idx]) {
                 const fromX = (idx === 0) ? -150 : 150;
-                gsap.fromTo(labelBadge, 
+                gsap.fromTo(labelBadge,
                   { autoAlpha: 0, x: fromX },
                   { autoAlpha: 1, x: 0, duration: 0.85, ease: 'back.out(1.25)', overwrite: 'auto' }
                 );
@@ -309,13 +283,13 @@ window.HFSplitComparison = (function () {
         case 'label_fade': {
           gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
           gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
-          const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
+          const labelBadge = labelBadgeForSlot(slot);
           if (labelBadge) {
             if (idx <= activeIdx) {
               if (instant) {
                 gsap.set(labelBadge, { autoAlpha: 1 });
               } else if (idx === activeIdx && !labelEntranceDone[idx]) {
-                gsap.fromTo(labelBadge, 
+                gsap.fromTo(labelBadge,
                   { autoAlpha: 0 },
                   { autoAlpha: 1, duration: 0.75, ease: 'power2.out', overwrite: 'auto' }
                 );
@@ -325,30 +299,6 @@ window.HFSplitComparison = (function () {
               }
             } else {
               gsap.set(labelBadge, { autoAlpha: 0 });
-            }
-          }
-          break;
-        }
-
-        case 'label_slant_fade': {
-          gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
-          gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
-          const slantBadge = slot.querySelector('.hf-player-slot-label-badge');
-          if (slantBadge) {
-            if (idx <= activeIdx) {
-              if (instant) {
-                gsap.set(slantBadge, { autoAlpha: 1 });
-              } else if (idx === activeIdx && !labelEntranceDone[idx]) {
-                gsap.fromTo(slantBadge,
-                  { autoAlpha: 0 },
-                  { autoAlpha: 1, duration: 0.75, ease: 'power2.out', overwrite: 'auto' }
-                );
-                labelEntranceDone[idx] = true;
-              } else {
-                gsap.set(slantBadge, { autoAlpha: 1 });
-              }
-            } else {
-              gsap.set(slantBadge, { autoAlpha: 0 });
             }
           }
           break;
@@ -382,7 +332,7 @@ window.HFSplitComparison = (function () {
       slots.forEach(function (slot, idx) {
         gsap.set(entranceTarget(slot), { autoAlpha: 1, xPercent: 0, yPercent: 0 });
         gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
-        const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
+        const labelBadge = labelBadgeForSlot(slot);
         if (labelBadge) {
           if (idx <= partIdx) {
             gsap.set(labelBadge, { autoAlpha: 1, x: 0 });
@@ -486,8 +436,6 @@ window.HFSplitComparison = (function () {
 
     const slots = getSlots(cue);
     if (slots.length < 2) return;
-
-    applySlantLayout(cue, treatment === 'label_slant_fade');
 
     const key = sceneKeyForCue(cue);
     const partIdx = cue.partIdx != null ? cue.partIdx : 0;

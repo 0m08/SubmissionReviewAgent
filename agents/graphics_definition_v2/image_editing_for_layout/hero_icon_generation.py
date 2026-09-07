@@ -151,6 +151,10 @@ _PLACEMENT_RE = re.compile(
 _HEADER_RE = re.compile(r"<header>\s*(.*?)\s*</header>", re.DOTALL | re.IGNORECASE)
 _BODY_RE = re.compile(r"<body>\s*(.*?)\s*</body>", re.DOTALL | re.IGNORECASE)
 _POSITION_RE = re.compile(r"<position>\s*(.*?)\s*</position>", re.DOTALL | re.IGNORECASE)
+_TRIGGER_PHRASE_RE = re.compile(
+    r"<trigger_phrase>\s*(.*?)\s*</trigger_phrase>",
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 def _extract_tag_inner(block, pattern):
@@ -201,6 +205,7 @@ def parse_icon_overlays_from_plan_block(block_text):
                 "icon_concept": concept,
                 "target_description": _extract_tag_inner(inner, _TARGET_RE),
                 "placement_hint": _extract_tag_inner(inner, _PLACEMENT_RE),
+                "trigger_phrase": _extract_tag_inner(inner, _TRIGGER_PHRASE_RE),
             }
         )
         if len(icons) >= _MAX_ICONS_PER_SCENE:
@@ -233,6 +238,7 @@ def parse_callouts_from_plan_block(block_text):
                 "body": body,
                 "icon_concept": _extract_tag_inner(inner, _ICON_CONCEPT_RE),
                 "position": _extract_tag_inner(inner, _POSITION_RE),
+                "trigger_phrase": _extract_tag_inner(inner, _TRIGGER_PHRASE_RE),
             }
         )
         if len(callouts) >= _MAX_CALLOUTS_PER_SCENE:
@@ -434,6 +440,7 @@ def _format_icons_xml(icon_records):
             f"<icon_concept>{_format_icon_field(record.get('icon_concept'))}</icon_concept>\n"
             f"<target_description>{_format_icon_field(record.get('target_description'))}</target_description>\n"
             f"<placement_hint>{_format_icon_field(record.get('placement_hint'))}</placement_hint>\n"
+            f"<trigger_phrase>{_format_icon_field(record.get('trigger_phrase'))}</trigger_phrase>\n"
             f"<url>{_format_icon_field(record.get('url'))}</url>\n"
             "</icon>"
         )
@@ -456,6 +463,7 @@ def _format_callouts_xml(callout_records):
             f"<body>{_format_icon_field(record.get('body'))}</body>\n"
             f"<icon_concept>{_format_icon_field(record.get('icon_concept'))}</icon_concept>\n"
             f"<position>{_format_icon_field(record.get('position'))}</position>\n"
+            f"<trigger_phrase>{_format_icon_field(record.get('trigger_phrase'))}</trigger_phrase>\n"
             f"<url>{_format_icon_field(record.get('url'))}</url>\n"
             "</callout>"
         )
@@ -498,6 +506,7 @@ def generate_and_upload_hero_icon(scene_id, icon_index, icon_spec, drive, model=
         "icon_concept": concept,
         "target_description": icon_spec.get("target_description") or "",
         "placement_hint": icon_spec.get("placement_hint") or "",
+        "trigger_phrase": icon_spec.get("trigger_phrase") or "",
         "url": url,
     }
 
@@ -524,6 +533,7 @@ def _generate_icon_scene_inner(scene_id, block, drive, model=DEFAULT_GENERATOR_M
                     "icon_concept": spec.get("icon_concept") or "",
                     "target_description": spec.get("target_description") or "",
                     "placement_hint": spec.get("placement_hint") or "",
+                    "trigger_phrase": spec.get("trigger_phrase") or "",
                     "url": f"ERROR: {str(icon_err)}",
                 }
             )
@@ -541,6 +551,7 @@ def _generate_callout_scene_inner(scene_id, block, drive, model=DEFAULT_GENERATO
             "body": spec.get("body") or "",
             "icon_concept": concept,
             "position": spec.get("position") or "",
+            "trigger_phrase": spec.get("trigger_phrase") or "",
             "url": "",
         }
         if _is_na(concept):
@@ -865,6 +876,7 @@ def process_hero_callout_generation_row(index, row, drive, model=DEFAULT_GENERAT
                     "body": spec.get("body") or "",
                     "icon_concept": concept,
                     "position": spec.get("position") or "",
+                    "trigger_phrase": spec.get("trigger_phrase") or "",
                     "url": "",
                 }
                 if _is_na(concept):

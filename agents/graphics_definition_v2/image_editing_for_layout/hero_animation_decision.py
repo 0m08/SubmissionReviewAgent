@@ -35,7 +35,7 @@ hero_animation_decision_prompt = """You are a senior instructional designer spec
 
 Our courses play as narrated slideshows. Each slide is split into one or more **scenes** — short narration spans, each with its own on-screen layout showing the assigned visuals.
 You are planning for a "single_visual_hero" scene: one image fills the slide while its voiceover line plays. There are no side-by-side panels or grids in this layout — just one hero visual and the narration span plays.
-Your job is to decide whether the "video player" should add a short instructional overlay animation on top of that hero image — to help the learner see what the narration span is talking about (name a part, highlight some specific spot(s), show some symbol(s), show a callout card, or isolate one subject with an emphasis effect). These overlays will be drawn as animations at playback time; they will not be baked into the image file.
+Your job is to decide whether the "video player" should add a short instructional overlay animation on top of that hero image — to help the learner see what the narration span is talking about (name a part, highlight some specific spot(s), show some symbol(s), or show a callout card). These overlays will be drawn as animations at playback time; they will not be baked into the image file.
 For most hero scenes, the image alone is enough — in that case you can choose **none**. Only pick an overlay when it clearly helps the learner connect words to what is on screen.
 So your task is to decide, for ONE single-hero scene, whether the learner needs an instructional overlay animation on top of the hero image — and if so, which type to use.
 You are deciding among single-hero overlay options only. Do not invent split, inset, multi-panel, or other layout animations.
@@ -66,7 +66,7 @@ You will also receive a multimodal preview of this assigned asset for this singl
 
 ## Allowed animation types (choose exactly ONE)
 
-Use only these six values for <animation_type>. No aliases. No invented types.
+Use only these five values for <animation_type>. No aliases. No invented types.
 
 1) none
 
@@ -75,7 +75,7 @@ No instructional overlay on the hero image.
 Choose none when:
 - The image already communicates the narration point without annotation.
 - The narration span is general or overview-level and does not call out one specific part, region, symbol, or message that needs an overlay.
-- Adding a label, highlight, icon, callout card, or emphasis effect would clutter the visual or state the obvious.
+- Adding a label, highlight, icon, or callout card would clutter the visual or state the obvious.
 - The slide is a title or transition moment, or a broad conceptual introduction.
 - The target object is not clearly visible in the image.
 
@@ -96,26 +96,30 @@ Do NOT choose text_label when:
 - A symbolic icon would communicate the idea better than text (use icon_overlay).
 - The narration needs a short structured header + body callout (not just a part name) — use callout_card.
 - Only pointing to a location is needed without naming it (use bbox_highlight).
-- The narration needs the whole background to recede so one subject pops visually (use emphasis_style).
 
 3) bbox_highlight
 
 One or more rectangle outlines animate onto the hero image to emphasize specific visible regions.
 
-You may output one highlight, or several, when the narration span clearly points to more than one distinct spot in the same still (e.g. two valves, a leak and the nearby fitting, supply vs return). Prefer as few highlights as will make the point. 
+You may output one highlight, or several, when the narration span clearly points to more than one distinct spot in the same still (e.g. two valves, a leak and the nearby fitting, supply vs return). Prefer as few highlights as will make the point. Typical count is 1. Use 2 only when both regions are clearly separate AND each would fill a readable on-screen box. Do not exceed 3.
+
+CRITICAL readability rule for bbox_highlight:
+- Every highlight must target a region large enough that a learner can clearly see what is inside the box on a normal player.
+- If a secondary detail would only produce a tiny/thin on-screen box, DO NOT create a separate <highlight> for it. Either use one larger meaningful region that is still on-target, or skip that secondary detail and keep the single best readable box.
+- Prefer 1 clear box over 2 boxes when the second would be small or unclear.
 
 Choose bbox_highlight when:
 - The narration span directs attention to one or more locations, details, defects, connection points, sub-regions, etc.
 - Emphasis is enough — no new label text is required.
-- Each target is a reasonably local area that is clearly visible and can be described separately.
+- Each target is a reasonably local area that is clearly visible, can be described separately, and would fill a readable box (not a thin strip).
 
 Do NOT choose bbox_highlight when:
 - The narration span requires naming the part (use text_label).
 - The whole image is the subject and no sub-region matters (use none).
 - A target is not clearly visible or cannot be described precisely enough for a spatial sub-agent to locate it later.
+- The only possible box would be too small or thin to read on screen (use none, text_label, icon_overlay, or callout_card instead).
 - The main point is symbolic meaning such as warning or airflow (use icon_overlay).
 - The narration needs a structured header + body callout card (use callout_card).
-- The learner needs one primary subject to stand out from a busy scene while the rest of the image dims or blurs (use emphasis_style).
 
 4) icon_overlay
 
@@ -133,7 +137,6 @@ Do NOT choose icon_overlay when:
 - The narration span points to a precise sub-region without symbolic meaning (use bbox_highlight).
 - The icon would be decorative or introduce meaning not supported by the narration span.
 - The learner needs a readable header plus a short body line on a card (use callout_card), not a bare symbol.
-- The narration needs one subject isolated from a busy background (use emphasis_style).
 
 5) callout_card
 
@@ -149,27 +152,7 @@ Do NOT choose callout_card when:
 - Only the technical name of a visible part is needed (use text_label).
 - Only pointing at a region is needed (use bbox_highlight).
 - Only a symbolic cue without readable header/body is needed (use icon_overlay).
-- The narration needs one subject to pop from a busy scene without readable card text (use emphasis_style).
 - The image already states the same message clearly, or the narration is general overview (use none).
-
-6) emphasis_style
-
-The hero image keeps one primary visible subject sharp and in full color while the rest of the scene is de-emphasized (darkened, desaturated, and/or blurred). A segmentation sub-agent will later isolate the subject using its real outline — not a rectangle box.
-
-Choose emphasis_style when:
-- The narration span focuses attention on ONE primary object, tool, piece of equipment, body part, action, etc. in an otherwise busy or distracting scene.
-- Reducing visual noise around that subject would help the learner more than adding text, icons, callout cards, etc.
-- The subject has a reasonably clear boundary that could be segmented (e.g. hacksaw and hands, gloves, a valve, a meter, etc.).
-- The teaching goal is "look at this thing while everything else fades back" rather than "name this part" or "point at these spots."
-
-Do NOT choose emphasis_style when:
-- The narration requires readable label text (use text_label).
-- One or multiple separate regions must be pointed out in the same scene using highlight boxes and they will serve a better purpose than emphasizing the subject (use bbox_highlight).
-- A symbolic cue is enough without isolating the subject (use icon_overlay).
-- A structured header + body card is needed (use callout_card).
-- The whole image is already the focus, or the scene is not visually busy (use none).
-- The subject is tiny, heavily occluded, or cannot be described clearly enough for segmentation.
-- More than one unrelated subject must be emphasized at once in the same scene (pick the single most important one, or use bbox_highlight / none instead).
 
 ## Decision rules
 
@@ -188,7 +171,6 @@ Do NOT choose emphasis_style when:
    - Need to POINT to one or more regions without naming → bbox_highlight
    - Need one or more SYMBOLIC cues only (warning, airflow, temperature, etc.) → icon_overlay
    - Need a structured card with header + short body (optional icon) → callout_card
-   - Need ONE subject to pop from a busy scene while the background recedes → emphasis_style
    - Image already sufficient → none
 
 4. Callout card placement
@@ -202,11 +184,15 @@ Do NOT choose emphasis_style when:
    - Never place two cards on the same row of the 9-grid (e.g. top_left + top_center).
    - Prefer empty or less-important sides of the visual. Avoid covering the main subject. Strictly ensure callouts do not obstruct the narration focus.
 
-5. Emphasis style target
-   - When animation_type is emphasis_style, pick exactly ONE compact, solid, cleanly-outlined object the narration is most about (e.g. a motor, a valve, a pipe, a gauge, a tool, a hand, a single person, one appliance, etc.).
-   - The target MUST be a single segmentable object. Do NOT pick: a region or area ("the attic", "the room", "the left side"); diffuse/translucent phenomena ("air flow", "heat", "smoke", "steam"); a union of parts ("... and ... and ...", "all the X"); abstract/negative space ("the gaps", "the space between"); text, labels, arrows, or chart annotations; the whole scene.
-   - If the narration is about a region or diffuse effect, still pick the single most relevant concrete object inside that region — never describe the region itself.
-   - Keep <target_description> to a SINGLE short sentence: the object + a brief location + its color/shape. No compound "and" lists, no "including ...", no exclusions, no enumerations of parts.
+5. Overlay timing (trigger_phrase)
+   - When animation_type is text_label, bbox_highlight, icon_overlay, or callout_card, every overlay item in that scene MUST include a <trigger_phrase>.
+   - The player will show that overlay when the narration reaches this phrase — synced to the voiceover, not at a fixed time.
+   - <trigger_phrase> MUST be an exact excerpt copied from the assigned narration span ({narration_span}). Do not paraphrase. Do not use words that are not in that span.
+   - Length: 1–4 words. Prefer 2–3 words when that makes the moment unambiguous.
+   - Pick the phrase for the moment the learner should first notice that overlay — usually when the narration first names or describes that card, region, icon, or label concept.
+   - Each overlay item gets its own <trigger_phrase>. Never reuse the same full phrase for two items in the same scene.
+   - Overlapping phrases are allowed (e.g. one card at "looking at a fixture" and another at "fixture and knowing exactly") as long as each phrase is a distinct contiguous excerpt and they trigger at different spoken moments.
+   - Put N/A for <trigger_phrase> only when animation_type is none.
 
 ## Output format
 
@@ -220,7 +206,7 @@ Use this section as a structured reasoning and scratchpad space for you before p
 - Slide Understanding: Briefly state in your own words what the slide is about.
 - Scene Understanding: Briefly explain what this narration span is communicating and what the trainee needs to notice on screen.
 - Hero Asset Scan: Briefly describe what is actually visible in the hero image. Do not assume unseen details.
-- Overlay Analysis: Decide and say whether you think an overlay is needed. If yes, name the visible target(s) and which type fits (none, text_label, bbox_highlight, icon_overlay, callout_card, emphasis_style) and why the others do not. If callout_card, also note which rough position(s) keeps the subject clear. If emphasis_style, name the one subject that should remain in full color.
+- Overlay Analysis: Decide and say whether you think an overlay is needed. If yes, name the visible target(s) and which type fits (none, text_label, bbox_highlight, icon_overlay, callout_card) and why the others do not. If callout_card, also note which rough position(s) keeps the subject clear. If text_label, bbox_highlight, icon_overlay, or callout_card, note which exact narration phrase should trigger each overlay.
 - Additional Analysis: Any extra observations needed to justify the final choice.
 
 It is acceptable for this section to be quite long and detailed if needed for correctness.
@@ -231,7 +217,7 @@ It is acceptable for this section to be quite long and detailed if needed for co
 <hero_animation_plan>
 
 <animation_type>
-none | text_label | bbox_highlight | icon_overlay | callout_card | emphasis_style
+none | text_label | bbox_highlight | icon_overlay | callout_card
 </animation_type>
 
 <reason>
@@ -248,17 +234,28 @@ Short, direct, instructional label (typically 1–4 words). Pulled from or faith
 
 </label_text>
 
+<trigger_phrase>
+
+Required only when animation_type is text_label. Put N/A for other animation types.
+Exact 1–4 word excerpt from the narration span when the label card and hero shift should animate in — usually when the named part is first spoken. Must appear verbatim in the narration span.
+
+</trigger_phrase>
+
 <highlight>
 
 Required when animation_type is bbox_highlight. Put N/A in this field for other animation types. Repeat one <highlight>...</highlight> tag per distinct region (1–3 times, never more than 3).
 
 <target_description>
-Describe this one visible target using position in the frame, nearby landmarks, color, shape, size, and distinguishing details. Write 2–4 sentences so a spatial sub-agent can locate this target without other context. Do not combine two regions in one <highlight>.
+Describe this one visible target using position in the frame, nearby landmarks, color, shape, size, and distinguishing details. Write 2–4 sentences so a spatial sub-agent can locate this target without other context. Do not combine two regions in one <highlight>. 
 </target_description>
 
 <highlight_shape>
 box
 </highlight_shape>
+
+<trigger_phrase>
+Exact 1–4 word excerpt from the narration span when this highlight should draw on screen — usually when this region or part is first named or pointed to. Must appear verbatim in the narration span. Required inside every <highlight> block.
+</trigger_phrase>
 
 </highlight>
 
@@ -279,6 +276,10 @@ Describe the exact visible object or region this icon should relate to, using po
 <placement_hint>
 Where this icon should appear relative to the target, e.g. "above the condenser fan grille".
 </placement_hint>
+
+<trigger_phrase>
+Exact 1–4 word excerpt from the narration span when this icon should appear — usually when the symbolic meaning or related concept is first spoken. Must appear verbatim in the narration span. Required inside every <icon> block.
+</trigger_phrase>
 
 </icon>
 
@@ -306,26 +307,13 @@ Exactly one position per card.
 - If this scene has TWO OR MORE callouts: corner positions ONLY — top_left | top_right | bottom_left | bottom_right. Never top_center, bottom_center, center, center_left, or center_right. Each card must use a different corner.
 </position>
 
+<trigger_phrase>
+Exact 1–4 word excerpt from the narration span when this callout card should animate in — usually when this card's header/body concept is first spoken. Must appear verbatim in the narration span. Required inside every <callout> block. Use a different phrase for each card in the same scene.
+</trigger_phrase>
+
 </callout>
 
 (Repeat the above <callout>...</callout> tag for each distinct callout card that needs to be animated.)
-
-<emphasis>
-
-Required when animation_type is emphasis_style. Put N/A in this field for other animation types. Output exactly one <emphasis>...</emphasis> block.
-
-<target_description>
-ONE compact, solid, cleanly-outlined object to segment. A SINGLE short sentence: object + brief location + color/shape.
-</target_description>
-
-<emphasis_mode>
-How the non-subject background should be treated. Use exactly one of these values:
-- darken — default for busy scenes; background dims/blurs while the subject stays in full color (Emphasis Style).
-- sepia — background converts to sepia tone while the subject stays in full color (Selective Color Highlight).
-Choose darken unless the narration clearly benefits from a warm sepia treatment.
-</emphasis_mode>
-
-</emphasis>
 
 </animation_details>
 
@@ -342,7 +330,7 @@ _PLAN_COLUMN = "hero_animation_plan"
 _COORDS_COLUMN = "hero_bbox_coordinates"
 _ICONS_COLUMN = "hero_icon_overlays"
 _CALLOUTS_COLUMN = "hero_callout_overlays"
-_EMPHASIS_COLUMN = "hero_emphasis_overlays"
+_LEGACY_EMPHASIS_COLUMN = "hero_emphasis_overlays"
 
 # Retries for hero decision multimodal calls (503 deadline, rate limits, etc.).
 _HERO_DECISION_MAX_RETRIES = 5
@@ -353,7 +341,6 @@ _VALID_PLAN_ANIMATION_TYPES = frozenset({
     "bbox_highlight",
     "icon_overlay",
     "callout_card",
-    "emphasis_style",
 })
 
 
@@ -755,7 +742,7 @@ def process_hero_animation_decision_row(index, row, course_name, target_audience
 
 def run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm="gemini_3_flash_thinking", max_workers=50, progress=None):
     """
-    Run Phase 2 (bbox spatial) and Phase 3 (icon + callout + emphasis generation) in parallel.
+    Run Phase 2 (bbox spatial) and Phase 3 (icon + callout generation) in parallel.
 
     Scene tasks run in parallel within each row; up to max_workers rows run at once.
     A global API semaphore (30) caps concurrent Gemini/Drive scene workers.
@@ -777,21 +764,13 @@ def run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm="gemini_3_flash
     )
 
     sheet_lock = threading.Lock()
-    from agents.graphics_definition_v2.image_editing_for_layout.hero_segmentation_spatial import (
-        collect_emphasis_scene_tasks,
-        emphasis_cell_needs_processing,
-        worker_emphasis_scene,
-    )
 
     if _CALLOUTS_COLUMN not in df.columns:
         df[_CALLOUTS_COLUMN] = ""
-    if _EMPHASIS_COLUMN not in df.columns:
-        df[_EMPHASIS_COLUMN] = ""
 
     spatial_rows = []
     icon_rows = []
     callout_rows = []
-    emphasis_rows = []
     for index, row in df.iterrows():
         slide_type = str(row.get("Slide Type", "")).strip().lower()
         plan_text = str(row.get(_PLAN_COLUMN, "")).strip()
@@ -829,25 +808,16 @@ def run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm="gemini_3_flash
         ):
             callout_rows.append((index, row))
 
-        existing_emphasis = str(row.get(_EMPHASIS_COLUMN, "")).strip()
-        if slide_type == "transition":
-            if not existing_emphasis or existing_emphasis == "nan" or existing_emphasis.startswith("ERROR:"):
-                df.at[index, _EMPHASIS_COLUMN] = "-"
-        elif emphasis_cell_needs_processing(existing_emphasis) and plan_text and plan_text != "nan":
-            emphasis_rows.append((index, row))
-
     row_jobs = []
     collectors = [
         ("spatial", spatial_rows, lambda i, r: collect_bbox_scene_tasks(i, r, llm)),
         ("icon", icon_rows, lambda i, r: collect_icon_scene_tasks(i, r)),
         ("callout", callout_rows, lambda i, r: collect_callout_scene_tasks(i, r)),
-        ("emphasis", emphasis_rows, lambda i, r: collect_emphasis_scene_tasks(i, r)),
     ]
     column_by_phase = {
         "spatial": _COORDS_COLUMN,
         "icon": _ICONS_COLUMN,
         "callout": _CALLOUTS_COLUMN,
-        "emphasis": _EMPHASIS_COLUMN,
     }
 
     for phase, rows, collect_fn in collectors:
@@ -874,17 +844,16 @@ def run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm="gemini_3_flash
 
     if not row_jobs:
         save_to_sheet(ws, df)
-        print("Phase 2/3: no scene tasks (spatial, icon, callout, or emphasis).")
+        print("Phase 2/3: no scene tasks (spatial, icon, or callout).")
         return
 
     total_scenes = sum(len(job["tasks"]) for job in row_jobs)
     bbox_n = sum(1 for j in row_jobs if j["phase"] == "spatial" for _ in j["tasks"])
     icon_n = sum(1 for j in row_jobs if j["phase"] == "icon" for _ in j["tasks"])
     callout_n = sum(1 for j in row_jobs if j["phase"] == "callout" for _ in j["tasks"])
-    emphasis_n = sum(1 for j in row_jobs if j["phase"] == "emphasis" for _ in j["tasks"])
     print(
         f"Phase 2/3: {total_scenes} scene task(s) in {len(row_jobs)} row job(s) "
-        f"({bbox_n} bbox, {emphasis_n} emphasis, {icon_n} icon, {callout_n} callout)"
+        f"({bbox_n} bbox, {icon_n} icon, {callout_n} callout)"
     )
 
     if progress is not None:
@@ -899,7 +868,6 @@ def run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm="gemini_3_flash
             "spatial": worker_bbox_scene,
             "icon": worker_icon_scene,
             "callout": worker_callout_scene,
-            "emphasis": worker_emphasis_scene,
         },
         scene_block_fn=_scene_block,
         on_row_complete=on_row_complete,
@@ -957,8 +925,6 @@ def run_hero_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking
         df[_ICONS_COLUMN] = ""
     if _CALLOUTS_COLUMN not in df.columns:
         df[_CALLOUTS_COLUMN] = ""
-    if _EMPHASIS_COLUMN not in df.columns:
-        df[_EMPHASIS_COLUMN] = ""
 
     drive = get_drive_instance()
     if not drive:
@@ -973,7 +939,6 @@ def run_hero_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking
                 df.at[index, _COORDS_COLUMN] = "-"
                 df.at[index, _ICONS_COLUMN] = "-"
                 df.at[index, _CALLOUTS_COLUMN] = "-"
-                df.at[index, _EMPHASIS_COLUMN] = "-"
             continue
         manifest = str(row.get("slideshow_manifest", "")).strip()
         if not manifest or manifest == "nan" or manifest.startswith("ERROR:"):
@@ -1050,7 +1015,7 @@ def run_hero_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking
     else:
         print("Phase 1: no rows to process.")
 
-    print("Starting phase 2/3 (bbox, emphasis, icons, callouts)...")
+    print("Starting phase 2/3 (bbox, icons, callouts)...")
     run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm=llm, max_workers=max_workers, progress=progress)
     progress.finish()
     format_worksheet(ws)
@@ -1066,7 +1031,7 @@ def delete_hero_animation_decision_columns(sheet):
     """
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
-    columns_to_delete = [_PLAN_COLUMN, _COORDS_COLUMN, _ICONS_COLUMN, _CALLOUTS_COLUMN, _EMPHASIS_COLUMN]
+    columns_to_delete = [_PLAN_COLUMN, _COORDS_COLUMN, _ICONS_COLUMN, _CALLOUTS_COLUMN, _LEGACY_EMPHASIS_COLUMN]
     existing = [col for col in columns_to_delete if col in df.columns]
     if not existing:
         print(f"No hero animation decision columns to delete on '{worksheet_name}'.")
