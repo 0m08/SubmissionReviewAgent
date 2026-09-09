@@ -5,26 +5,26 @@ description: Edit the slide chunks of a course workspace (topics/*.md) — chang
 
 # Editing Slide Chunks
 
-You edit `topics/*.md` in a workspace produced by the working-with-google-sheets
-skill. Read that skill first if no workspace is prepared yet.
+You edit `/workspace/topics/*.md` in a workspace produced by a prepare script
+(see working-with-google-sheets). If no workspace is open yet, say so rather than guessing at content.
 
-Research notes (`context/*.md`) are a different file type with different rules —
+Research notes (`/workspace/context/*.md`) are a different file type with different rules —
 use the editing-research-notes skill for those. Never apply the priors below to
 research notes.
 
 ## Load the standards before you edit
 
-Before your first edit in a session, read **every** file in **both** memory
-stores — not only the one you expect to matter:
+Before your first edit in a session, read **every** memory file — not only the
+one you expect to matter:
 
 ```
-glob /mnt/memory/*/*.md
+read_file /memories/agent/AGENTS.md
 ```
 
-Enumerate rather than guessing paths. There are two stores: a per-user store
-whose directory name is derived from that person's address (so it differs for
-every user), and a shared store of team-wide editorial standards that apply
-across courses.
+This deployment has one shared memory tree. `/memories/agent/AGENTS.md` holds
+team-wide editorial standards that apply across courses and users, and it is
+loaded into every run — so as the coordinator you already have it. A delegated
+editor should read it anyway rather than assume the brief carried it.
 
 This is not background reading, and skipping it is the most expensive mistake
 available here. Measured on a real run: of three delegated editors working the
@@ -44,6 +44,46 @@ output against it before reporting (see *Verify the direction you were asked to
 move in*). Loading a rule and then breaking it in the same file has already
 happened — that check is what catches it.
 
+## Read the learning objective first
+
+**`/workspace/outline.md`** holds every learning objective in the course, and
+nothing else — one file, grouped by topic and subtopic, each topic naming the
+slide file its objectives scope:
+
+```
+## Topic 03 — Fittings, Valves, and Transitions
+Slides: `topics/topic_03_fittings-valves-and-transitions.md`
+
+### Valves
+Identify fixture stops, ball valves, gate valves, check valves, and
+pressure-control valves by function.
+(Frame each valve around its job in the system. The learner should understand
+where a valve would be found and what control it gives the technician)
+```
+
+The prepare script writes it from the Final Outline tab, reproducing each
+objective as written — **including the parenthetical the instructional designer
+put beside it**. That parenthetical is the scope instruction and is routinely
+more specific than the objective sentence: *"Keep this visual and
+field-based"*, *"This should feel like a layout recognition lesson, not a
+catalog"*. Read it as closely as the objective itself.
+
+Read `outline.md` before your first edit. It is a generated view — nothing
+parses it back, so editing it changes nothing. (The same objectives also appear
+inside `context/*.md` next to their research notes, where they are part of the
+sheet write-back key. Read them from `outline.md` instead: it is the whole
+course, it is a fraction of the bytes, and there is nothing there to break.)
+
+The LO is the boundary of what the learner needs, and it is the one standard
+always in force whether or not the request mentions it. A request to fix the
+transitions in a topic is a request to fix them *within* that topic's
+objectives. Content the LO does not call for is a legitimate cut; content it
+does call for is not yours to remove.
+
+If `outline.md` is absent, or your topic's section reads *"No matching rows in
+the Final Outline tab"*, say so and edit to the request alone rather than
+inventing a scope.
+
 ## Scope of your mandate
 
 The user names a problem; you fix that problem. Do not scan for issues that
@@ -59,16 +99,32 @@ as a task from a coordinating copy of yourself: a brief that names a goal rather
 than specific blocks is asking you to do the reviewing, on the file you were
 given, within the goal you were given.
 
+The learning objective is not a second request you went looking for. It is the
+frame the request is already stated inside, so applying it is not overreach —
+it is the one thing you read that the user did not have to say.
+
 ## Preserve what you were not asked to change
 
-Editing is subtraction only where subtraction was requested. Unless the user
-asked for it:
+Editing is subtraction only where subtraction was requested — with one
+standing exception, the learning objective (see *Read the learning objective
+first*). Content the LO does not call for is always in scope for a cut. These
+rules govern everything else:
 
-- **Never drop an image, diagram, or link.** If a block carrying
-  `![...](...)` is merged or rewritten, the markdown travels with it.
-- **Never remove a component, term, or concept entirely from the topic.**
-  Merging two slides means combining their content, not discarding one side.
-- **Never strip specifications, units, or trade terms** on your own initiative.
+- **Never drop an image, diagram, or link.** No exception, the LO included.
+  If a block carrying `![...](...)` is merged or rewritten, the markdown
+  travels with it; if the block it illustrated is gone, move it to the block
+  that now carries that idea.
+- **Never remove a component, term, or concept the LO asks for.** Merging two
+  slides means combining their content, not discarding one side. Cutting a
+  component the LO does not name is a different act, and it is allowed.
+- **Never strip specifications, units, or trade terms the LO asks for**, and
+  never strip one for style alone. A specification the LO does not call for is
+  trimmed as a modifier where the sentence still reads without it, and dropped
+  outright where it does not.
+- **Never invent to fill the space a cut left.** A slide that got shorter is
+  finished. Do not add a rationale, a mechanism, a field cue, or an example
+  that was not in the source. A plausible sentence you wrote reads exactly
+  like one the SME wrote, and only one of them is true.
 
 If an edit you were asked to make genuinely forces something out, say which
 thing and why, in the same message that reports the edit.
@@ -90,7 +146,7 @@ Content: Every time you open a tap...
 Field order inside `Slide Chunk:` must be `Slide Type:`, `Title:`, `Content:`.
 `Content:` is greedy to the end of the block — every body line must sit under
 it, and a line without that prefix is silently dropped. Full contract:
-`/workspace/skills/working-with-google-sheets/references/parsing-rules.md`.
+the working-with-google-sheets skill.
 
 Blocks may be freely deleted, merged, inserted, and reordered. `Block ID:` is a
 label, not a key — do not renumber. Do not preserve block count out of caution;
@@ -130,11 +186,14 @@ When you merge, write the bridge sentence; don't just concatenate two bodies.
 
 | Slide type | Its job | Typical defect | Default direction |
 |---|---|---|---|
-| Transition / hook | Situate the learner, pose the question | Thin, flat, no curiosity | **Expand** |
+| Transition / hook | Situate the learner, hand off to what follows | Thin and flat, *or* padded with throat-clearing | **Sharpen, not lengthen** |
 | Content | Carry one LO-bearing idea | Over-detailed, over-split | **Restrain** |
 | Summary | Synthesize the takeaway | Re-lists every term covered | **Synthesize, don't itemize** |
 
-"Make this better" on a Transition slide usually means give it *more*.
+"Make this better" on a Transition slide means a sharper hook, not a longer
+one: two or three purposeful sentences that situate the learner and hand off
+to what follows. A flat transition needs a better first sentence, not another
+paragraph. Padding one to reach a length is the defect, not the fix.
 
 **Titles churn.** In one whole-course pass, 1 of 34 titles survived verbatim.
 Reviewers rewrite titles to name the idea the slide carries rather than to be
@@ -142,16 +201,20 @@ catchy. After a merge, expect to write a new title rather than keeping the
 first slide's.
 
 **Filler slides.** A slide with no LO-bearing content of its own is a merge or
-delete candidate — but flag it and let the user decide, since slide count is
-sometimes a hard requirement on their side.
+delete candidate — but slide count is sometimes a hard requirement on their
+side, so always flag it. If you can reach the user, let them decide. If you
+are a delegated editor you cannot, so make the call the LO supports and report
+it as a call you made.
 
 **Only when the user asks for scope work**, these also apply: trailing bonus
-slides (*Maintaining…, Tips, Best Practices, Why It Matters*) are usually cut;
-quantification the learning objective doesn't call for is usually trimmed as a
-modifier rather than by deleting the sentence; and a slide teaching a
-neighboring subtopic's material belongs to that subtopic. Do not act on these
-unprompted — they are reasons a *requested* trim goes one way rather than
-another.
+slides (*Maintaining…, Tips, Best Practices, Why It Matters*) are usually cut,
+and a slide teaching a neighboring subtopic's material belongs to that
+subtopic. Do not act on these unprompted — they are reasons a *requested* trim
+goes one way rather than another.
+
+Quantification the learning objective doesn't call for is the exception: that
+one is always live, because the LO is always live. Trim it as a modifier
+rather than by deleting the sentence that carries it.
 
 ## Writing style
 
@@ -174,14 +237,17 @@ A user may point at a style by naming its course; answer back using the label.
 **Which style applies, in order:**
 
 1. **The user names one** — by label or by source course. This wins outright.
-2. **A `/preferred_style.md` memory** in the per-user memory store, if one is
-   mounted and the user hasn't overridden it this session. You will already
-   have it: both stores are loaded before the first edit (see *Load the
-   standards before you edit*). Style is only one of the things they carry —
-   the shared store's standards govern structure and terminology too.
+2. **A stated default style** in `/memories/agent/AGENTS.md`, if the user hasn't
+   overridden it this session. You will already have it: shared memory is loaded
+   into every run. Note it is *shared* here — it is the team's default, not one
+   person's preference, so treat a conflict with what this user just said as the
+   user winning.
 3. **Otherwise, ask.** Name the labels and ask which to write in, before
    rewriting prose. Inferring silently produces a different answer on different
-   runs of the same sheet, and a wrong guess means rewriting twice.
+   runs of the same sheet, and a wrong guess means rewriting twice. A delegated
+   editor cannot ask — the coordinator settles style before delegating and
+   names the label in the brief. If a brief reaches you without one, say so in
+   your report rather than picking one silently.
 4. **If the user says "you decide":** infer from slides you are *not* editing —
    compare their orthography, voice, and formatting against the guides — then
    say which you picked and why in one sentence. If nothing matches
@@ -198,8 +264,23 @@ Third-person with occasional semicolons → Direct Trade Explainer or Trade
 Mentor; Trade Mentor leans on trade-wisdom asides, Direct Trade Explainer on
 plain component walkthroughs.
 
-Style governs prose only. It never overrides the format contract above or an
-explicit instruction from the user.
+**When a memory standard describes a voice without naming a label**, match it
+to the label it describes, and say which you matched. A described voice and a
+labeled one are the same thing, and working from the description alone throws
+away the guide's worked examples. A voice described as direct second-person
+address in short paragraphs of one or two sentences is **Direct-Address Field
+Guide**.
+
+**A memory standard outranks a style guide wherever they collide.** Each guide
+is an observation of one course, and a formula that was right for that course
+can be something the team has since ruled out — Trade Mentor's fixed
+*"In this topic, you learned..."* summary opening is exactly that case. Where a
+guide says a style "always" does something and a loaded standard names that
+same thing as an anti-pattern, the standard wins, and you note the override in
+your report.
+
+Style governs prose only. It never overrides the format contract above, a
+loaded standard, or an explicit instruction from the user.
 
 ## Verify the direction you were asked to move in
 
@@ -217,35 +298,35 @@ each time reported as "tighter and leaner."
 So when the request names a measurable direction — shorter, tighter, cut,
 trim, expand, fewer slides, more slides — measure it:
 
-1. **Before you edit anything**, record the baseline for the file you own:
+1. **Before you edit anything**, record the baseline for the file you own by
+   running `present.py --measure` on it:
 
-   ```bash
-   wc -w topics/topic_02_drainage-basics.md
-   grep -c '^###Block ID:' topics/topic_02_drainage-basics.md
+   ```
+   python /opt/cce/scripts/present.py --workspace workspace --measure \
+       topics/topic_02_drainage-basics.md
    ```
 
-2. **After you edit**, run the same two commands again.
+   It returns the block count, the word count of the slide prose, and a census
+   of slide types by name.
+
+2. **After you edit**, call it again on the same path.
 
 3. **Compare.** If the number moved against the request, you have not done
    the job yet. Go back and cut — merge thin blocks, drop the sentence that
    restates the one before it, delete the throat-clearing that opens a
    paragraph — then measure again.
 
-`wc -w` counts the block headers too, which is fine: they are constant unless
-you add or remove blocks, so the change between two runs is your prose.
-Checking a slide-type count works the same way when the request is about a
-type of slide:
-
-```bash
-grep -c 'Slide Type: Transition' topics/topic_02_drainage-basics.md
-```
+Use the tool rather than counting by eye or estimating from what you rewrote.
+Every count it returns is parsed from the file, and every number stated
+without it has been wrong when checked. The slide-type census is what answers
+a request aimed at one type of slide — "the transitions are flat", "too many
+knowledge checks" — without a second pass over the file.
 
 Two things this does **not** mean. It is not licence to strip content to hit
 a number — the goal is the user's goal, and the count is only how you check
 yourself. And a whole-file total can legitimately move against the request in
-one place while obeying it elsewhere: Transition slides default to *expand*
-even in a tightening pass (see the priors table), so a file can grow at three
-transitions while its Content slides shrink.
+one place while obeying it elsewhere: a thin Transition that needed a real
+hook may gain a sentence while the Content slides around it shrink.
 
 That is exactly when you report the numbers rather than smoothing over them.
 If you cannot move the total the way the request asked without damaging the
@@ -256,11 +337,19 @@ the file got longer.
 
 ## Every turn
 
-1. Once per session, before the first edit: read every file in both memory
-   stores (see *Load the standards before you edit*).
+1. Once per session, before the first edit: read every memory file
+   (see *Load the standards before you edit*).
 2. Say in one sentence what you're about to change, including before → after
    block count when it changes. For anything sweeping — more than a few blocks,
    or a whole topic — get a yes before you write.
+
+   **This step is the coordinator's, not a delegated editor's.** If you were
+   handed one file by a `task` brief you have no channel to the user, and the
+   brief *is* the yes: a goal-shaped brief on a whole file already authorises
+   the whole file. Do the work the request and the LO call for — merging and
+   deleting blocks included — and report what you did. Never scale an edit down
+   to avoid an approval you have no way to request; that is how a file comes
+   back with every slide thinned and none merged.
 3. If the request names a measurable direction, record the baseline counts
    first (see *Verify the direction you were asked to move in*).
 4. Make the edit.

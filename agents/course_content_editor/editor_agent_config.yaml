@@ -1,7 +1,9 @@
 name: Course Content Editor (Editor)
 model:
-  id: claude-haiku-4-5
+  id: claude-sonnet-5
   speed: standard
+  effort:
+    type: medium
 description: >
   Editorial worker for one course topic file. Give it the exact path of a
   single topics/*.md or context/*.md file, the user's request in the user's

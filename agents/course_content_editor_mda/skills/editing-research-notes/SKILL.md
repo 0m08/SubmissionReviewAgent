@@ -5,25 +5,24 @@ description: Edit the research notes of a course workspace (context/*.md) — re
 
 # Editing Research Notes
 
-You edit `context/*.md` in a workspace produced by the working-with-google-sheets
-skill. Read that skill first if no workspace is prepared yet.
+You edit `/workspace/context/*.md` in a workspace produced by a prepare script
+(see working-with-google-sheets). If no workspace is open yet, say so rather than guessing at content.
 
-Slide chunks (`topics/*.md`) are a different file type with different rules —
+Slide chunks (`/workspace/topics/*.md`) are a different file type with different rules —
 use the editing-slide-chunks skill for those. Writing-style guides do not apply
 here; research notes are working material, not learner-facing prose.
 
 ## Load the standards before you edit
 
-Before your first edit in a session, read **every** file in **both** memory
-stores — not only the one you expect to matter:
+Before your first edit in a session, read **every** memory file — not only the
+one you expect to matter:
 
 ```
-glob /mnt/memory/*/*.md
+read_file /memories/agent/AGENTS.md
 ```
 
-Enumerate rather than guessing paths: the per-user store's directory name is
-derived from that person's address, and the shared store holds team-wide
-standards that apply across courses. Do this whether you are working alone or
+This deployment has one shared memory tree: `/memories/agent/AGENTS.md` holds
+team-wide standards that apply across courses and users. Do this whether you are working alone or
 as a delegated copy that owns one file — a brief passes on the user's request,
 not the team's accumulated standards. Standards you load are binding, and you
 check your output against them before reporting (see *Verify the direction you
@@ -65,7 +64,7 @@ block silently fails to write back — the tool warns, but don't rely on it.
 
 `Research Notes:` is greedy to the end of the block — every body line must sit
 under it. Full contract:
-`/workspace/skills/working-with-google-sheets/references/parsing-rules.md`.
+the working-with-google-sheets skill.
 
 Deleting a whole `###LO ID:` block does **not** blank that row on commit; it
 means "no change requested." To clear a row's notes, keep the block and empty
@@ -133,14 +132,19 @@ this," "it rambles," "cut the scope" all name a measurable direction, and a
 rewrite can be present in the file, well written, and still longer than what
 it replaced — rewriting adds words unless you check.
 
-So for any request that names a direction, measure it. Before you edit:
+So for any request that names a direction, measure it. Before you edit, call
+`present.py --measure` on the file you own:
 
-```bash
-wc -w context/topic_02_drainage-basics.md
+```
+python /opt/cce/scripts/present.py --workspace workspace --measure \
+    context/topic_02_drainage-basics.md
 ```
 
-Then again after. If the number moved against the request, you have not done
-the job yet — cut further and re-measure.
+It returns the block count and the word count of the notes themselves. Call it
+again after editing. If the number moved against the request, you have not
+done the job yet — cut further and re-measure. Use the tool rather than
+estimating from what you rewrote; a rewrite that reads tighter is routinely
+longer than what it replaced.
 
 This is not licence to strip notes to hit a number; the count is only how you
 check yourself. If you cannot move it the way the request asked without
@@ -150,8 +154,8 @@ got longer.
 
 ## Every turn
 
-1. Once per session, before the first edit: read every file in both memory
-   stores (see *Load the standards before you edit*).
+1. Once per session, before the first edit: read every memory file
+   (see *Load the standards before you edit*).
 2. Say in one sentence what you're about to change. For anything sweeping —
    more than a few notes, or a whole file — get a yes before you write.
 3. If the request names a measurable direction, record the baseline count

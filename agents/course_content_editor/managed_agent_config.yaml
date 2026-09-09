@@ -1,7 +1,9 @@
 name: Course Content Editor Agent
 model:
-  id: claude-haiku-4-5
+  id: claude-sonnet-5
   speed: standard
+  effort:
+    type: medium
 description: >
   Conversational editor for a course's slide chunks and research notes in a
   Google Sheet. The user opens a sheet and says what to change in plain
