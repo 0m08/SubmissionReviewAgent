@@ -212,6 +212,38 @@ def ensure_environment(client: anthropic.Anthropic, state: dict) -> str:
     return env.id
 
 
+def preflight(state: dict) -> None:
+    """Refuse to deploy from a state file that would overwrite the wrong agent.
+
+    Both agents run the same model, so nothing but the name distinguishes them
+    in the console, and a crossed id is invisible until sessions stop starting.
+    Two conditions make that possible, and both are cheap to rule out here
+    rather than after the API call has already rewritten a live agent.
+    """
+    coordinator, editor = state.get("agent_id"), state.get("editor_agent_id")
+    if coordinator and editor and coordinator == editor:
+        print(f"ERROR: deploy_state.json points agent_id and editor_agent_id at the "
+              f"same agent ({coordinator}). Deploying would overwrite the "
+              f"coordinator with the editor's config. Fix the state file: the "
+              f"coordinator is the one whose multiagent roster is non-empty.",
+              file=sys.stderr)
+        sys.exit(2)
+
+    # The coordinator rosters *itself* alongside the editor, so the two configs
+    # sharing a name is not a cosmetic clash: callable agents are resolved by
+    # name, and the API rejects the session outright with
+    #   "Failed to resolve callable agents: duplicate callable agent name"
+    coord_name = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))["name"]
+    editor_name = yaml.safe_load(EDITOR_CONFIG_PATH.read_text(encoding="utf-8"))["name"]
+    if coord_name == editor_name:
+        print(f"ERROR: both configs are named {coord_name!r}. The coordinator "
+              f"rosters itself next to the editor, so identical names make every "
+              f"session fail to resolve its callable agents. Give them distinct "
+              f"names in managed_agent_config.yaml / editor_agent_config.yaml.",
+              file=sys.stderr)
+        sys.exit(2)
+
+
 def _upsert_agent(client: anthropic.Anthropic, state: dict, cfg: dict,
                   skill_refs: list[dict], id_key: str, version_key: str,
                   label: str, multiagent: dict | None = None) -> str:
@@ -232,10 +264,37 @@ def _upsert_agent(client: anthropic.Anthropic, state: dict, cfg: dict,
     if state.get(id_key):
         # update() uses optimistic concurrency — it requires the version being
         # updated FROM, not just the new field values.
-        agent = client.beta.agents.update(
-            state[id_key], version=state[version_key], **agent_kwargs
-        )
+        #
+        # A stale version in deploy_state.json is normal and harmless: someone
+        # else deployed since this checkout last did. Retry from the live
+        # version rather than failing, because the manual workaround — editing
+        # the version number in deploy_state.json by hand — puts a human one
+        # typo away from pointing an id_key at the wrong agent, which is
+        # exactly how the coordinator once got overwritten with the editor's
+        # config (both then answered to the same callable name, and every
+        # session creation failed with "duplicate callable agent name").
+        try:
+            agent = client.beta.agents.update(
+                state[id_key], version=state[version_key], **agent_kwargs
+            )
+        except anthropic.APIStatusError as exc:
+            live = client.beta.agents.retrieve(state[id_key])
+            if live.version == state.get(version_key):
+                raise  # not version drift — a real failure
+            print(f"  {label}: state had version {state.get(version_key)}, "
+                  f"live is {live.version} (someone else deployed) — retrying")
+            agent = client.beta.agents.update(
+                state[id_key], version=live.version, **agent_kwargs
+            )
         print(f"  {label}: updated {agent.id} -> version {agent.version}")
+        # The id under this key must be the agent this config describes. If a
+        # bad merge or hand-edit crossed the two ids, the update silently
+        # rewrites the wrong agent — caught here, after the fact, because the
+        # name is the only field that distinguishes them (both are haiku).
+        if agent.name != cfg["name"]:
+            print(f"ERROR: {label} {agent.id} is named {agent.name!r} after an "
+                  f"update that set {cfg['name']!r}.", file=sys.stderr)
+            sys.exit(2)
     else:
         agent = client.beta.agents.create(**agent_kwargs)
         state[id_key] = agent.id
@@ -248,11 +307,19 @@ def ensure_editor_agent(client: anthropic.Anthropic, state: dict,
                         skill_refs: list[dict]) -> str:
     """The editorial worker rostered by the coordinator.
 
-    It has no bash and no write tool, so it cannot run the commit scripts,
-    cannot hand-roll a Python rewrite of a block file, and cannot replace a
-    file wholesale — the three ways a delegated copy has damaged a workspace
-    or written to the sheet unasked. It has no multiagent block either, so it
-    cannot delegate further.
+    Narrowed in two real ways: it gets only the editing skills (no sheets
+    skill, so it has no commit scripts or credentials to reach the Google
+    Sheet with), and it has no multiagent block, so it cannot delegate
+    further. All sheet I/O stays with the coordinator.
+
+    It is NOT tool-restricted, despite what this docstring claimed until
+    2026-09-04. editor_agent_config.yaml has enabled read, edit, glob, grep,
+    bash AND write since the config was first committed (0e23763) — the
+    claim that bash and write were withheld was aspirational and never true,
+    so nothing should be relied on as if it were. A delegated editor can
+    therefore still hand-roll a rewrite or replace a topic file wholesale.
+    Withholding those two members is a one-line change to the toolset
+    `configs` block if that restriction is actually wanted.
     """
     cfg = yaml.safe_load(EDITOR_CONFIG_PATH.read_text(encoding="utf-8"))
     by_name = dict(zip(SKILLS, skill_refs))  # upload_skills builds refs in SKILLS order
@@ -295,6 +362,16 @@ def ensure_agent(client: anthropic.Anthropic, state: dict, skill_refs: list[dict
             print(f"ERROR: editor {editor_agent_id} missing from coordinator roster "
                    f"after update (roster={sorted(rostered)}).", file=sys.stderr)
             sys.exit(2)
+        # Names, as they actually stand on the live agents. preflight() checks
+        # the configs, but a roster member can be renamed out from under this
+        # checkout by anyone else's deploy; this is the check that would have
+        # caught the clobber at deploy time instead of at session creation.
+        names = [client.beta.agents.retrieve(aid).name for aid in sorted(rostered)]
+        if len(set(names)) != len(names):
+            print(f"ERROR: two rostered agents share a callable name ({names}). "
+                  f"Sessions will fail with 'duplicate callable agent name'. One of "
+                  f"these agents was deployed with the wrong config.", file=sys.stderr)
+            sys.exit(2)
         print(f"  roster verified: editor + self ({len(rostered)} agents"
               + (f", advisor={advisors[0]}" if advisors else ", no advisor") + ")")
     return agent_id
@@ -314,6 +391,7 @@ def main() -> None:
 
     client = anthropic.Anthropic()
     state = load_state()
+    preflight(state)
 
     print("Uploading skills...")
     skill_refs = upload_skills(client, state, force_reupload=args.force_reupload_skills)

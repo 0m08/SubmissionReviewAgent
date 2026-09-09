@@ -134,6 +134,22 @@
   .cmt .note { font-size: 0.85rem; }
   .cmt .del { float: right; border: none; background: none; cursor: pointer; color: var(--ink-soft); font-size: 0.95rem; line-height: 1; }
   .hint { font-size: 0.78rem; color: var(--ink-soft); }
+  .lbl {
+    display: block;
+    font-size: 0.76rem;
+    color: var(--ink-soft);
+    margin: 0.5rem 0 0.2rem;
+  }
+  #panel textarea {
+    width: 100%;
+    min-height: 52px;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    resize: vertical;
+  }
 </style>
 </head>
 <body>
@@ -165,7 +181,7 @@ function syncHeight() {
   if (h !== lastH) { lastH = h; post("streamlit:setFrameHeight", {height: h}); }
 }
 
-let BLOCKS = [], COMMENTS = [], FILE = "", nonce = 0, rendered = false;
+let BLOCKS = [], COMMENTS = [], FILE = "", OVERALL = "", nonce = 0, rendered = false;
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -210,9 +226,19 @@ function renderPanel() {
            '<div class="note">' + esc(c.note) + '</div>' +
          '</div>';
   });
+  h += '<label class="lbl" for="overall">Anything else? (scope, priorities, how far this goes)</label>';
+  h += '<textarea id="overall" placeholder="e.g. this applies to every topic, not just this file — ' +
+       'rewrite them fully rather than patching individual blocks"></textarea>';
   h += '<div class="row"><button class="b primary" id="send">Send ' + COMMENTS.length +
        ' comment' + (COMMENTS.length === 1 ? "" : "s") + ' to the agent</button></div>';
   p.innerHTML = h;
+  const ov = document.getElementById("overall");
+  if (ov) {
+    ov.value = OVERALL;
+    // Kept in a variable, not read only at send time: adding or deleting a
+    // comment re-renders this panel, and anything typed here would be lost.
+    ov.addEventListener("input", () => { OVERALL = ov.value; });
+  }
   p.querySelectorAll("[data-del]").forEach(btn => {
     btn.onclick = (e) => { e.stopPropagation(); removeComment(btn.dataset.del); };
   });
@@ -388,7 +414,8 @@ function removeComment(cid) {
 }
 
 function emit(action) {
-  setValue({action: action, file: FILE, comments: COMMENTS, seq: Date.now()});
+  setValue({action: action, file: FILE, comments: COMMENTS,
+            overall: OVERALL, seq: Date.now()});
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +430,7 @@ window.addEventListener("message", (event) => {
     BLOCKS = args.blocks || [];
     FILE = args.file || "";
     COMMENTS = (args.pending || []).slice();
+    OVERALL = args.overall || "";
     rendered = true;
     renderContent();
     renderPanel();

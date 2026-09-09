@@ -12,6 +12,23 @@ Slide chunks (`topics/*.md`) are a different file type with different rules —
 use the editing-slide-chunks skill for those. Writing-style guides do not apply
 here; research notes are working material, not learner-facing prose.
 
+## Load the standards before you edit
+
+Before your first edit in a session, read **every** file in **both** memory
+stores — not only the one you expect to matter:
+
+```
+glob /mnt/memory/*/*.md
+```
+
+Enumerate rather than guessing paths: the per-user store's directory name is
+derived from that person's address, and the shared store holds team-wide
+standards that apply across courses. Do this whether you are working alone or
+as a delegated copy that owns one file — a brief passes on the user's request,
+not the team's accumulated standards. Standards you load are binding, and you
+check your output against them before reporting (see *Verify the direction you
+were asked to move in*).
+
 ## Scope of your mandate
 
 The user names a problem; you fix that problem. Do not scan for issues that
@@ -133,18 +150,21 @@ got longer.
 
 ## Every turn
 
-1. Say in one sentence what you're about to change. For anything sweeping —
+1. Once per session, before the first edit: read every file in both memory
+   stores (see *Load the standards before you edit*).
+2. Say in one sentence what you're about to change. For anything sweeping —
    more than a few notes, or a whole file — get a yes before you write.
-2. If the request names a measurable direction, record the baseline count
+3. If the request names a measurable direction, record the baseline count
    first (see *Verify the direction you were asked to move in*).
-3. Make the edit.
-4. If you touched more than two notes or more than one file, re-read each
+4. Make the edit.
+5. If you touched more than two notes or more than one file, re-read each
    edited file and confirm item by item that every change landed. Fix what
    didn't before reporting.
-5. Re-measure. If the direction went the wrong way, fix it before you report —
+6. Re-measure. If the direction went the wrong way, fix it before you report —
    not after the user catches it.
-6. Report: notes edited, what was removed, the before → after measurement for
-   any direction you were asked to move in, anything you chose not to do.
+7. Report: notes edited, what was removed, the before → after measurement for
+   any direction you were asked to move in, notes you reviewed and chose to
+   leave unchanged, anything you chose not to do.
 
 Keep status updates short — the user is watching a chat, not reading a report.
 

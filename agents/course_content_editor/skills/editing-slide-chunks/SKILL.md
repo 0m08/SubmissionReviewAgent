@@ -12,6 +12,38 @@ Research notes (`context/*.md`) are a different file type with different rules �
 use the editing-research-notes skill for those. Never apply the priors below to
 research notes.
 
+## Load the standards before you edit
+
+Before your first edit in a session, read **every** file in **both** memory
+stores — not only the one you expect to matter:
+
+```
+glob /mnt/memory/*/*.md
+```
+
+Enumerate rather than guessing paths. There are two stores: a per-user store
+whose directory name is derived from that person's address (so it differs for
+every user), and a shared store of team-wide editorial standards that apply
+across courses.
+
+This is not background reading, and skipping it is the most expensive mistake
+available here. Measured on a real run: of three delegated editors working the
+same sheet, one read both stores and two read none. The two that read none
+produced prose contradicting standards the team had already written down — a
+component name the shared store explicitly rules out, and a summary opening it
+names as an anti-pattern. Nobody was told the rules and disagreed with them;
+they were never loaded.
+
+Do this whether you are working alone or as a delegated copy that owns one file.
+A brief is not a substitute: it passes on the user's request, not the team's
+accumulated standards.
+
+What you load is binding. If a standard names a term to prefer, an anti-pattern
+to avoid, or a target to hit, it governs the prose you write, and you check your
+output against it before reporting (see *Verify the direction you were asked to
+move in*). Loading a rule and then breaking it in the same file has already
+happened — that check is what catches it.
+
 ## Scope of your mandate
 
 The user names a problem; you fix that problem. Do not scan for issues that
@@ -143,7 +175,10 @@ A user may point at a style by naming its course; answer back using the label.
 
 1. **The user names one** — by label or by source course. This wins outright.
 2. **A `/preferred_style.md` memory** in the per-user memory store, if one is
-   mounted and the user hasn't overridden it this session.
+   mounted and the user hasn't overridden it this session. You will already
+   have it: both stores are loaded before the first edit (see *Load the
+   standards before you edit*). Style is only one of the things they carry —
+   the shared store's standards govern structure and terminology too.
 3. **Otherwise, ask.** Name the labels and ask which to write in, before
    rewriting prose. Inferring silently produces a different answer on different
    runs of the same sheet, and a wrong guess means rewriting twice.
@@ -221,20 +256,26 @@ the file got longer.
 
 ## Every turn
 
-1. Say in one sentence what you're about to change, including before → after
+1. Once per session, before the first edit: read every file in both memory
+   stores (see *Load the standards before you edit*).
+2. Say in one sentence what you're about to change, including before → after
    block count when it changes. For anything sweeping — more than a few blocks,
    or a whole topic — get a yes before you write.
-2. If the request names a measurable direction, record the baseline counts
+3. If the request names a measurable direction, record the baseline counts
    first (see *Verify the direction you were asked to move in*).
-3. Make the edit.
-4. If you touched more than two blocks or more than one file, re-read each
+4. Make the edit.
+5. If you touched more than two blocks or more than one file, re-read each
    edited file and confirm item by item that every change landed. Fix what
    didn't before reporting.
-5. Re-measure. If the direction went the wrong way, fix it before you report —
+6. Re-measure. If the direction went the wrong way, fix it before you report —
    not after the user catches it.
-6. Report: blocks edited, removed, added; the before → after measurement for
-   any direction you were asked to move in; anything you chose not to do;
-   anything that had to be dropped and why.
+7. Check your output against any standard you loaded that names a term to
+   prefer or an anti-pattern to avoid. Grep your own file for the discouraged
+   form rather than trusting recall.
+8. Report: blocks edited, removed, added; the before → after measurement for
+   any direction you were asked to move in; blocks you reviewed and chose to
+   leave unchanged; anything you chose not to do; anything that had to be
+   dropped and why.
 
 Keep status updates short — the user is watching a chat, not reading a report.
 
