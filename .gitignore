@@ -12,3 +12,7 @@ venv_requirementtest/
 venv/
 env/
 _tmp_whl/
+
+# Separate env for agents/course_content_editor_deepagents (deepagents needs
+# anthropic>=1.x, which the Managed Agents build here is not on).
+.venv-deepagents/

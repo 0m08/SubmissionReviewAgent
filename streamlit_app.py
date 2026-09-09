@@ -353,6 +353,18 @@ PAGE_DESCRIPTIONS = {
         "description": "Generate slide chunks from research notes, including learning objectives and checklist review.",
         "category": "agent",
     },
+    "course_content_editor_page": {
+        "icon": ":material/difference:",
+        "title": "Course Content Editor",
+        "description": "Chat with an agent to edit a course's slide chunks and research notes, and review every change as a diff before it's written back.",
+        "category": "agent",
+    },
+    "course_content_editor_mda_page": {
+        "icon": ":material/robot_2:",
+        "title": "Course Content Editor (MDA)",
+        "description": "The same editor running as a hosted LangChain Managed Deep Agent. Work continues on the server if your session drops, and the thread id lives in the page URL so you can come back to it.",
+        "category": "agent",
+    },
     "graphics_definition_v2_page": {
         "icon": ":material/auto_awesome:",
         "title": "Graphics Definition",
@@ -504,6 +516,18 @@ slide_chunks_page = st.Page(
     title="Slide Chunks",
     icon=":material/topic:",
     # Optional: default=(role == "Requester") or any logic
+)
+
+course_content_editor_page = st.Page(
+    "course_content_editor.py",
+    title="Course Content Editor",
+    icon=":material/difference:",
+)
+
+course_content_editor_mda_page = st.Page(
+    "course_content_editor_mda.py",
+    title="Course Content Editor (MDA)",
+    icon=":material/robot_2:",
 )
 
 # graphics_definition_page = st.Page(
@@ -673,6 +697,8 @@ page_name_to_object = {
     "course_outline_page": course_outline_page,
     "research_notes_page": research_notes_page,
     "slide_chunks_page": slide_chunks_page,
+    "course_content_editor_page": course_content_editor_page,
+    "course_content_editor_mda_page": course_content_editor_mda_page,
     #"graphics_definition_page": graphics_definition_page,
     "graphics_definition_v2_page": graphics_definition_v2_page,
     "assessments_generation_page": assessments_generation_page,
@@ -704,6 +730,8 @@ agent_pages = [
     "course_outline_page",
     "research_notes_page",
     "slide_chunks_page",
+    "course_content_editor_page",
+    "course_content_editor_mda_page",
     #"graphics_definition_page",
     "graphics_definition_v2_page",
     "assessments_generation_page"]

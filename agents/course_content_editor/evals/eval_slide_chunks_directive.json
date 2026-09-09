@@ -1,0 +1,19 @@
+{
+  "skills": ["editing-course-content", "working-with-google-sheets"],
+  "scenario": "slide_chunks_directive_single_topic",
+  "source": "Live quality-test round 2 (course_content_editor), case 'ws_directive', run against the real Course - Plumbing System Fundamentals sheet.",
+  "query": "Here's our course sheet: <SHEET_URL>. For the Water Supply Basics slide chunks, make these specific changes:\n1. \"The Push Side\" (intro slide): no hook, it starts cold — add an opening hook before it gets into the push-side explanation.\n2. \"Understanding Water Pressure\": cut entirely — fold the PSI definition into \"The Push Side\" slide instead of keeping it separate.\n3. \"Tracing the Path\": cut entirely — it's a generalized version of the same path the next few slides already cover in more detail, so it's redundant.\n4. \"Entering the Home\": restructure so the water supply's journey starts at the municipal water main (name it explicitly), then flows into the service line.\n5. \"The Service Line and Curb Stop\": restructure the flow-continuity per the reviewer's rewrite.\n6. \"Main Shut-Off and Meter\": add a transition line, and fix the component order to: municipal water supply, service line, curb stop, water meter, shut-off valve, pressure regulator.\n7. \"Controlling System Pressure\": cut the redundant recap sentence.\n8. \"Distributing the Supply\": cut entirely — throwaway transitional metaphor slide.\n9. \"Cold and Hot Pathways\" and \"Branch Piping Basics\": merge into one slide.\n10. \"The Trunk and Branch Layout\": fix the sequencing — introduce trunk piping before branches, not after.\n11. \"Water Supply Review\": retitle to something like \"From Source to Fixture\" and condense.",
+  "expected_behavior": [
+    "Loads the workspace via prepare_workspace.py (slide-chunk edit).",
+    "States a before → after block count (12 → ~8-9) and gets confirmation before writing, since this touches almost every block in the topic.",
+    "'The Push Side' gains a real opening hook rather than starting with the push-side explanation cold.",
+    "'Understanding Water Pressure' and 'Tracing the Path' are both removed as separate blocks — their content does not survive as standalone slides.",
+    "'Distributing the Supply' is removed as a separate block.",
+    "'Cold and Hot Pathways' and 'Branch Piping Basics' are merged into a single block, not left as two.",
+    "The component order in the Service Entry and Main Controls slides reads: municipal water main, service line, curb stop, water meter, shut-off valve, pressure regulator — matching the order named in the request, not the AI-generated order.",
+    "'The Trunk and Branch Layout' introduces trunk/riser piping before branch piping, reversing the original sequencing error.",
+    "The final block ('Water Supply Review' or its retitled equivalent) reads as a condensed recap, not the original length.",
+    "Resulting block count for this topic lands close to the ground-truth final count of 9 (some variance expected, but not still at or near 12).",
+    "Topic:/Subtopic: fields and overall block structure stay parseable — no dropped ###Block ID: markers or malformed blocks."
+  ]
+}
