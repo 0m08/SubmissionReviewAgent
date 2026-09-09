@@ -1144,6 +1144,18 @@ window.HFPlayer = (function () {
     this.emit();
   };
 
+  Controller.prototype.jumpToCue = function (cueIndex) {
+    if (!this.cues.length) return;
+    const idx = Math.max(0, Math.min(this.cues.length - 1, cueIndex | 0));
+    this.playing = false;
+    this._primedAudio = null;
+    this._pendingSeek = null;
+    this._stopMedia({ destroyVideos: true });
+    this.cueIndex = idx;
+    this._activeCueIndex = idx;
+    this.emit();
+  };
+
   Controller.prototype.getVisualPresentation = function (resolveImageUrl) {
     const cue = this.cues[this.cueIndex];
     if (!cue) return { type: "empty" };

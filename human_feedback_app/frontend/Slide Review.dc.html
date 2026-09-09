@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="/static/load-config.js?v=34"></script>
+<script src="/static/load-config.js?v=35"></script>
 <script src="/static/review-api.js?v=8"></script>
 <script src="/static/youtube-player.js?v=14"></script>
 <script src="/static/player.js?v=28"></script>
 <script src="/static/support.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="/static/animations/overlay-timing.js?v=1"></script>
-<script src="/static/animations/hero-stills.js?v=59"></script>
-<script src="/static/animations/split-comparison.js?v=20"></script>
+<script src="/static/animations/hero-stills.js?v=62"></script>
+<script src="/static/animations/split-comparison.js?v=21"></script>
 <script src="/static/animations/main-inset.js?v=8"></script>
 <script src="/static/animations/multi-panel-grid.js?v=3"></script>
-<script src="/static/animations/scene-transitions.js?v=3"></script>
+<script src="/static/animations/scene-transitions.js?v=4"></script>
 <script src="/static/animations/treatment-rotator.js?v=14"></script>
 <script src="/static/animations/index.js?v=9"></script>
 </head>
@@ -399,7 +399,8 @@
     height: var(--hf-slide-title-height);
     display: inline-flex;
     align-items: stretch;
-    max-width: 46%;
+    width: max-content;
+    max-width: none;
     filter: var(--hf-slide-title-shadow);
     pointer-events: none;
   }
@@ -408,24 +409,27 @@
     background: var(--hf-slide-title-accent);
     flex-shrink: 0;
     border-radius: 0;
+    display: var(--hf-slide-title-chip-display, block);
+  }
+  :root[style*="--hf-slide-title-chip-width: 0px"] .hf-player-title-chip,
+  :root[style*="--hf-slide-title-chip-width: 0;"] .hf-player-title-chip {
+    display: none !important;
   }
   .hf-player-title-text {
-    min-width: 0;
+    flex: 0 0 auto;
     width: max-content;
-    max-width: 100%;
     background: var(--hf-slide-title-bg);
     backdrop-filter: blur(var(--hf-slide-title-blur));
     -webkit-backdrop-filter: blur(var(--hf-slide-title-blur));
-    display: flex;
-    align-items: center;
+    display: block;
+    line-height: var(--hf-slide-title-height);
     padding: var(--hf-slide-title-padding);
     color: var(--hf-slide-title-text-color);
     font-family: var(--hf-slide-title-font);
     font-size: var(--hf-slide-title-font-size);
     font-weight: var(--hf-slide-title-font-weight);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
     box-sizing: border-box;
     border-radius: var(--hf-slide-title-radius);
   }
@@ -1108,6 +1112,1295 @@
     background: transparent !important;
     z-index: 2;
   }
+
+  /* --- Styles Studio styles --- */
+  .hf-primitives-root {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    background: #0b0f17;
+    color: #e2e8f0;
+    font-family: inherit;
+    position: relative;
+    overflow: hidden;
+  }
+  html[data-theme="light"] .hf-primitives-root {
+    background: #f8fafc;
+    color: #1e293b;
+  }
+  .hf-primitives-sidebar {
+    width: 440px;
+    min-width: 420px;
+    max-width: 460px;
+    background: #111827;
+    border-right: 1px solid #1f293d;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  html[data-theme="light"] .hf-primitives-sidebar {
+    background: #ffffff;
+    border-right-color: #e2e8f0;
+  }
+  .hf-primitives-stage-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #070a10;
+    min-width: 0;
+    overflow-y: auto;
+  }
+  html[data-theme="light"] .hf-primitives-stage-wrap {
+    background: #f1f5f9;
+  }
+  .hf-primitives-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid #1f293d;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  html[data-theme="light"] .hf-primitives-header {
+    border-bottom-color: #e2e8f0;
+  }
+  .hf-studio-tabs {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    border-radius: 8px;
+    background: #090d16;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    gap: 2px;
+  }
+  html[data-theme="light"] .hf-studio-tabs {
+    background: #eceef2;
+    border-color: #e2e8f0;
+  }
+  .hf-studio-tab {
+    height: 30px;
+    padding: 0 14px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #94a3b8;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+  }
+  html[data-theme="light"] .hf-studio-tab {
+    color: #64748b;
+  }
+  .hf-studio-tab:hover {
+    color: #f8fafc;
+  }
+  html[data-theme="light"] .hf-studio-tab:hover {
+    color: #0f172a;
+  }
+  .hf-studio-tab.is-active {
+    background: #f05725;
+    color: #ffffff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+  html[data-theme="light"] .hf-studio-tab.is-active {
+    background: #ffffff;
+    color: #f05725;
+    box-shadow: 0 1px 2px rgba(240,87,37,0.12);
+  }
+  .hf-primitives-header-title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #f8fafc;
+  }
+  html[data-theme="light"] .hf-primitives-header-title {
+    color: #0f172a;
+  }
+  .hf-primitives-comp-select-wrap {
+    padding: 12px 18px;
+    border-bottom: 1px solid #1f293d;
+  }
+  html[data-theme="light"] .hf-primitives-comp-select-wrap {
+    border-bottom-color: #e2e8f0;
+  }
+  .hf-primitives-section {
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    margin-bottom: 16px;
+  }
+  html[data-theme="light"] .hf-primitives-section {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+
+  /* Theme-aware Animations Tab Controls */
+  .hf-anim-option-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+    color: #94a3b8;
+    margin-bottom: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+  .hf-anim-option-row.is-checked {
+    background: rgba(79, 70, 229, 0.1);
+    border-color: rgba(79, 70, 229, 0.35);
+    color: #a5b4fc;
+    font-weight: 600;
+  }
+  html[data-theme="light"] .hf-anim-option-row {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+    color: #475569;
+  }
+  html[data-theme="light"] .hf-anim-option-row.is-checked {
+    background: rgba(79, 70, 229, 0.05);
+    border-color: rgba(79, 70, 229, 0.25);
+    color: #4f46e5;
+  }
+
+  .hf-anim-play-btn {
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #94a3b8;
+  }
+  .hf-anim-play-btn:hover {
+    background: #334155;
+    color: #f1f5f9;
+  }
+  .hf-anim-play-btn.is-active-playing {
+    background: #4f46e5;
+    border-color: #4f46e5;
+    color: #ffffff;
+  }
+  html[data-theme="light"] .hf-anim-play-btn {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #475569;
+  }
+  html[data-theme="light"] .hf-anim-play-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+  html[data-theme="light"] .hf-anim-play-btn.is-active-playing {
+    background: #4f46e5;
+    border-color: #4f46e5;
+    color: #ffffff;
+  }
+  .hf-primitives-section-title {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #f1f5f9;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: 0.01em;
+  }
+  html[data-theme="light"] .hf-primitives-section-title {
+    color: #0f172a;
+  }
+  .hf-primitives-section-title svg {
+    color: #f05725;
+    flex-shrink: 0;
+  }
+  html[data-theme="light"] .hf-primitives-section-title svg {
+    color: #4f46e5;
+  }
+  .hf-primitives-topbar {
+    display: flex;
+    align-items: center;
+    padding: 14px 24px;
+    border-bottom: 1px solid #1f293d;
+    background: rgba(0, 0, 0, 0.25);
+    gap: 16px;
+  }
+  html[data-theme="light"] .hf-primitives-topbar {
+    background: #ffffff;
+    border-bottom-color: #e2e8f0;
+  }
+  .hf-primitives-topbar-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f8fafc;
+    white-space: nowrap;
+  }
+  html[data-theme="light"] .hf-primitives-topbar-label {
+    color: #0f172a;
+  }
+  .hf-primitives-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .hf-primitives-label {
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: #cbd5e1;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+  html[data-theme="light"] .hf-primitives-label {
+    color: #1e293b;
+  }
+  .hf-prop-help {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: help;
+  }
+  .hf-prop-help-icon {
+    width: 14px;
+    height: 14px;
+    border-radius: 99px;
+    border: 1px solid #475569;
+    background: rgba(255, 255, 255, 0.05);
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: all 0.15s ease;
+  }
+  html[data-theme="light"] .hf-prop-help-icon {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+    color: #64748b;
+  }
+  .hf-prop-help:hover .hf-prop-help-icon {
+    border-color: #818cf8;
+    background: #6366f1;
+    color: #ffffff;
+  }
+  .hf-prop-tooltip {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 8px);
+    transform: translateY(-50%) translateX(2px);
+    background: #242f3e;
+    color: #ffffff;
+    border: 1px solid #3d4d63;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.45;
+    width: 210px;
+    box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255, 255, 255, 0.15);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 999;
+    text-transform: none;
+    letter-spacing: normal;
+    word-wrap: break-word;
+    white-space: normal;
+  }
+  html[data-theme="light"] .hf-prop-tooltip {
+    background: #334155;
+    color: #ffffff;
+    border-color: #475569;
+    box-shadow: 0 10px 22px -3px rgba(15, 23, 42, 0.25), 0 2px 6px rgba(15, 23, 42, 0.12);
+  }
+  .hf-prop-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 100%;
+    transform: translateY(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent #242f3e transparent transparent;
+  }
+  html[data-theme="light"] .hf-prop-tooltip::after {
+    border-color: transparent #334155 transparent transparent;
+  }
+  .hf-prop-help:hover .hf-prop-tooltip,
+  .hf-prop-help:focus .hf-prop-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(-50%) translateX(0);
+  }
+
+  /* Right column / left-aligned tooltip so it never clips past sidebar edges */
+  .hf-prop-help--left .hf-prop-tooltip,
+  [style*="grid-template-columns"] > div:nth-child(2) .hf-prop-help .hf-prop-tooltip {
+    left: auto;
+    right: calc(100% + 8px);
+    transform: translateY(-50%) translateX(-2px);
+  }
+  .hf-prop-help--left:hover .hf-prop-tooltip,
+  .hf-prop-help--left:focus .hf-prop-tooltip,
+  [style*="grid-template-columns"] > div:nth-child(2) .hf-prop-help:hover .hf-prop-tooltip,
+  [style*="grid-template-columns"] > div:nth-child(2) .hf-prop-help:focus .hf-prop-tooltip {
+    transform: translateY(-50%) translateX(0);
+  }
+  .hf-prop-help--left .hf-prop-tooltip::after,
+  [style*="grid-template-columns"] > div:nth-child(2) .hf-prop-help .hf-prop-tooltip::after {
+    left: 100%;
+    right: auto;
+    border-color: transparent transparent transparent #242f3e;
+  }
+  html[data-theme="light"] .hf-prop-help--left .hf-prop-tooltip::after,
+  html[data-theme="light"] [style*="grid-template-columns"] > div:nth-child(2) .hf-prop-help .hf-prop-tooltip::after {
+    border-color: transparent transparent transparent #334155;
+  }
+  .hf-primitives-input,
+  .hf-primitives-select {
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #f8fafc;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  html[data-theme="light"] .hf-primitives-input,
+  html[data-theme="light"] .hf-primitives-select {
+    border-color: #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+  }
+  .hf-primitives-input:focus,
+  .hf-primitives-select:focus {
+    border-color: #f05725;
+    box-shadow: 0 0 0 2px rgba(240, 87, 37, 0.2);
+  }
+  .hf-primitives-color-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hf-primitives-color-picker {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    cursor: pointer;
+    background: transparent;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .hf-primitives-color-picker::-webkit-color-swatch-wrapper {
+    padding: 2px;
+  }
+  .hf-primitives-color-picker::-webkit-color-swatch {
+    border-radius: 6px;
+    border: none;
+  }
+  .hf-primitives-btn-preset {
+    padding: 7px 12px;
+    border-radius: 7px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  html[data-theme="light"] .hf-primitives-btn-preset {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #334155;
+  }
+  .hf-primitives-btn-preset:hover {
+    border-color: #f05725;
+    background: rgba(240, 87, 37, 0.15);
+    color: #f37d57;
+  }
+  .hf-primitives-btn-preset.is-active {
+    border-color: #f05725;
+    background: #f05725;
+    color: #ffffff;
+  }
+
+  /* --- Animation Preview Styles --- */
+  .hf-anim-preview-box {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #090d16;
+  }
+  .hf-anim-preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.85;
+    animation-duration: 2.5s;
+    animation-iteration-count: 1;
+    animation-timing-function: ease-out;
+    animation-fill-mode: both;
+  }
+
+  /* Simulator Layout Styles */
+  .hf-anim-layout-split-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    gap: 4px;
+    background: #000;
+  }
+  .hf-anim-split-panel {
+    width: 50%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hf-anim-layout-inset-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    background: #ffffff;
+  }
+  /* Match player main_plus_supporting_inset: 1193 / 1808 ≈ 66% main, 615 / 1808 ≈ 34% inset */
+  .hf-anim-inset-main-panel {
+    width: 65.98%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    background: #ffffff;
+    flex-shrink: 0;
+  }
+  .hf-anim-inset-side-panel {
+    width: 34.02%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    background: #ffffff;
+    flex-shrink: 0;
+  }
+  .hf-anim-inset-panel-inner {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    animation-duration: 2.5s;
+    animation-iteration-count: 1;
+    animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+    animation-fill-mode: both;
+  }
+  .hf-anim-inset-blur {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(28px) brightness(0.65);
+    opacity: 0.85;
+    transform: scale(1.08);
+    pointer-events: none;
+    z-index: 1;
+    background: transparent !important;
+  }
+  .hf-anim-inset-fg {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    z-index: 2;
+    background: transparent !important;
+  }
+  /* Legacy PiP box kept unused; player-style side panel is the preview now */
+  .hf-anim-inset-box {
+    display: none;
+  }
+
+  .hf-anim-layout-grid3-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr;
+    gap: 0;
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    overflow: hidden;
+  }
+  .hf-anim-grid3-item {
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+  }
+  .hf-anim-grid3-cell-inner {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    animation-fill-mode: both;
+    animation-iteration-count: 1;
+  }
+  /* Player 3-up slide_in: left / from-top / right */
+  @keyframes hfKeyGrid3SlideL {
+    0% { transform: translate(-105%, 0); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyGrid3SlideT {
+    0% { transform: translate(0, -105%); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyGrid3SlideR {
+    0% { transform: translate(105%, 0); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  .hf-anim-grid3-slide-l,
+  .hf-anim-grid3-slide-t,
+  .hf-anim-grid3-slide-r {
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hf-anim-grid3-slide-l { animation-name: hfKeyGrid3SlideL; }
+  .hf-anim-grid3-slide-t { animation-name: hfKeyGrid3SlideT; }
+  .hf-anim-grid3-slide-r { animation-name: hfKeyGrid3SlideR; }
+
+  /* Scale emphasis: inactive panels stay at 0.92; only the focused panel eases up to 1.06 */
+  @keyframes hfKeyGrid3Scale0 {
+    0% { transform: scale(0.92); }
+    10%, 28% { transform: scale(1.06); }
+    34%, 100% { transform: scale(0.92); }
+  }
+  @keyframes hfKeyGrid3Scale1 {
+    0%, 28% { transform: scale(0.92); }
+    34%, 55% { transform: scale(1.06); }
+    61%, 100% { transform: scale(0.92); }
+  }
+  @keyframes hfKeyGrid3Scale2 {
+    0%, 55% { transform: scale(0.92); }
+    61%, 100% { transform: scale(1.06); }
+  }
+  .hf-anim-grid3-scale-0,
+  .hf-anim-grid3-scale-1,
+  .hf-anim-grid3-scale-2 {
+    animation-duration: 4.2s;
+    animation-timing-function: cubic-bezier(0.42, 0, 0.58, 1);
+    animation-fill-mode: both;
+    transform-origin: 50% 50%;
+  }
+  .hf-anim-grid3-scale-0 { animation-name: hfKeyGrid3Scale0; }
+  .hf-anim-grid3-scale-1 { animation-name: hfKeyGrid3Scale1; }
+  .hf-anim-grid3-scale-2 { animation-name: hfKeyGrid3Scale2; }
+
+  /* Legacy stacked layout classes unused after 3-up column rewrite */
+  .hf-anim-grid3-left,
+  .hf-anim-grid3-right,
+  .hf-anim-grid3-right-item { /* kept for safety if old markup appears */ }
+
+  .hf-anim-layout-grid4-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 0;
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    overflow: hidden;
+  }
+  .hf-anim-grid4-item {
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+  }
+  .hf-anim-grid4-cell-inner {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    animation-fill-mode: both;
+    animation-iteration-count: 1;
+  }
+  /* Player reveal: fade fill-wrapper in */
+  .hf-anim-grid-reveal {
+    animation-name: hfKeyKeepMainReveal;
+    animation-duration: 0.55s;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  /* Player slide_in: each 4-up cell from its corner */
+  @keyframes hfKeyGrid4SlideTL {
+    0% { transform: translate(-105%, -105%); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyGrid4SlideTR {
+    0% { transform: translate(105%, -105%); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyGrid4SlideBL {
+    0% { transform: translate(-105%, 105%); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyGrid4SlideBR {
+    0% { transform: translate(105%, 105%); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  .hf-anim-grid4-slide-tl,
+  .hf-anim-grid4-slide-tr,
+  .hf-anim-grid4-slide-bl,
+  .hf-anim-grid4-slide-br {
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hf-anim-grid4-slide-tl { animation-name: hfKeyGrid4SlideTL; }
+  .hf-anim-grid4-slide-tr { animation-name: hfKeyGrid4SlideTR; }
+  .hf-anim-grid4-slide-bl { animation-name: hfKeyGrid4SlideBL; }
+  .hf-anim-grid4-slide-br { animation-name: hfKeyGrid4SlideBR; }
+
+  /* Scale emphasis: inactive panels stay at 0.92; only the focused panel eases up to 1.06 */
+  @keyframes hfKeyGrid4Scale0 {
+    0% { transform: scale(0.92); }
+    10%, 22% { transform: scale(1.06); }
+    28%, 100% { transform: scale(0.92); }
+  }
+  @keyframes hfKeyGrid4Scale1 {
+    0%, 22% { transform: scale(0.92); }
+    28%, 45% { transform: scale(1.06); }
+    51%, 100% { transform: scale(0.92); }
+  }
+  @keyframes hfKeyGrid4Scale2 {
+    0%, 45% { transform: scale(0.92); }
+    51%, 70% { transform: scale(1.06); }
+    76%, 100% { transform: scale(0.92); }
+  }
+  @keyframes hfKeyGrid4Scale3 {
+    0%, 70% { transform: scale(0.92); }
+    76%, 100% { transform: scale(1.06); }
+  }
+  .hf-anim-grid4-scale-0,
+  .hf-anim-grid4-scale-1,
+  .hf-anim-grid4-scale-2,
+  .hf-anim-grid4-scale-3 {
+    animation-duration: 5.2s;
+    animation-timing-function: cubic-bezier(0.42, 0, 0.58, 1);
+    animation-fill-mode: both;
+    transform-origin: 50% 50%;
+  }
+  .hf-anim-grid4-scale-0 { animation-name: hfKeyGrid4Scale0; }
+  .hf-anim-grid4-scale-1 { animation-name: hfKeyGrid4Scale1; }
+  .hf-anim-grid4-scale-2 { animation-name: hfKeyGrid4Scale2; }
+  .hf-anim-grid4-scale-3 { animation-name: hfKeyGrid4Scale3; }
+
+  .hf-anim-item-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    animation-duration: 2.5s;
+    animation-iteration-count: 1;
+    animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+    animation-fill-mode: both;
+  }
+  
+  @keyframes hfKeyZoomIn {
+    0% { transform: scale(1.0); }
+    100% { transform: scale(1.15); }
+  }
+  .hf-anim-zoom-in {
+    animation-name: hfKeyZoomIn;
+  }
+  
+  .hf-anim-still {
+    transform: scale(1.0);
+  }
+
+  @keyframes hfKeyHoldAndReveal {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .hf-anim-hold-and-reveal {
+    animation-name: hfKeyHoldAndReveal;
+  }
+
+  @keyframes hfKeyCenterThenSplit {
+    0% { transform: translateX(25%) scale(1.0); }
+    100% { transform: translateX(0) scale(1.0); }
+  }
+  .hf-anim-center-then-split {
+    animation-name: hfKeyCenterThenSplit;
+  }
+
+  /* Match player center_then_split: left PANEL starts centered (xPercent 50), then slides to left while right PANEL fades in */
+  .hf-anim-layout-split-container.is-center-then-split {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    gap: 0;
+    background: #ffffff;
+  }
+  .hf-anim-layout-split-container.is-center-then-split .hf-anim-split-panel {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    height: 100%;
+    z-index: 1;
+  }
+  .hf-anim-layout-split-container.is-center-then-split .hf-anim-split-panel.is-cts-left {
+    left: 0;
+    z-index: 3;
+    background: #ffffff !important;
+    animation-name: hfKeyCenterThenSplitLeft;
+    animation-duration: 3.4s;
+    animation-timing-function: cubic-bezier(0.42, 0, 0.58, 1); /* ~power2.inOut */
+    animation-fill-mode: both;
+  }
+  .hf-anim-layout-split-container.is-center-then-split .hf-anim-split-panel.is-cts-right {
+    left: 50%;
+    z-index: 1;
+    background: #ffffff !important;
+    animation-name: hfKeyCenterThenSplitRight;
+    animation-duration: 3.4s;
+    animation-timing-function: cubic-bezier(0.42, 0, 0.58, 1);
+    animation-fill-mode: both;
+  }
+  @keyframes hfKeyCenterThenSplitLeft {
+    /* Hold centered like player after first cue, then split */
+    0%, 48% { transform: translateX(50%); }
+    71%, 100% { transform: translateX(0); }
+  }
+  @keyframes hfKeyCenterThenSplitRight {
+    0%, 49% { opacity: 0; visibility: hidden; }
+    50% { opacity: 0; visibility: visible; }
+    65%, 100% { opacity: 1; visibility: visible; }
+  }
+  /* Keep image classes as no-ops so generic layout class mapping cannot slide both imgs */
+  .hf-anim-center-then-split-left,
+  .hf-anim-center-then-split-right {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  .hf-anim-center-split-wrapper {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .hf-anim-shutter {
+    width: 50%;
+    height: 100%;
+    background: #090d16;
+    animation-duration: 2s;
+    animation-iteration-count: 1;
+    animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+    animation-fill-mode: both;
+  }
+  @keyframes hfKeyShutterLeft {
+    0% { transform: translateX(0); }
+    15% { transform: translateX(0); }
+    85%, 100% { transform: translateX(-100%); }
+  }
+  @keyframes hfKeyShutterRight {
+    0% { transform: translateX(0); }
+    15% { transform: translateX(0); }
+    85%, 100% { transform: translateX(100%); }
+  }
+  .hf-anim-shutter-left {
+    animation-name: hfKeyShutterLeft;
+  }
+  .hf-anim-shutter-right {
+    animation-name: hfKeyShutterRight;
+  }
+
+  @keyframes hfKeySlideIn {
+    0% { transform: translateX(-40px); opacity: 0; }
+    20% { transform: translateX(0); opacity: 1; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes hfKeySlideInFromLeft {
+    0% { transform: translateX(-110%); opacity: 0; }
+    25% { transform: translateX(0); opacity: 1; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes hfKeySlideInFromRight {
+    0% { transform: translateX(110%); opacity: 0; }
+    25% { transform: translateX(0); opacity: 1; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  .hf-anim-slide-in {
+    animation-name: hfKeySlideIn;
+  }
+  .hf-anim-slide-in-from-left {
+    animation-name: hfKeySlideInFromLeft;
+  }
+  .hf-anim-slide-in-from-right {
+    animation-name: hfKeySlideInFromRight;
+  }
+
+  @keyframes hfKeySlideUp {
+    0% { transform: translateY(110%); opacity: 0; }
+    55% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  .hf-anim-slide-up {
+    animation-name: hfKeySlideUp;
+    animation-duration: 3.2s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @keyframes hfKeyWipeReveal {
+    0% { clip-path: inset(0 100% 0 0); }
+    25% { clip-path: inset(0 0 0 0); }
+    100% { clip-path: inset(0 0 0 0); }
+  }
+  @keyframes hfKeyWipeRevealFromLeft {
+    0% { clip-path: inset(0% 100% 0% 0%); }
+    25% { clip-path: inset(0% 0% 0% 0%); }
+    100% { clip-path: inset(0% 0% 0% 0%); }
+  }
+  @keyframes hfKeyWipeRevealFromRight {
+    0% { clip-path: inset(0% 0% 0% 100%); }
+    25% { clip-path: inset(0% 0% 0% 0%); }
+    100% { clip-path: inset(0% 0% 0% 0%); }
+  }
+  .hf-anim-wipe-reveal {
+    animation-name: hfKeyWipeReveal;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .hf-anim-wipe-reveal-from-left {
+    animation-name: hfKeyWipeRevealFromLeft;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .hf-anim-wipe-reveal-from-right {
+    animation-name: hfKeyWipeRevealFromRight;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes hfKeyScaleEmphasis {
+    0% { transform: scale(1); }
+    15% { transform: scale(1.08); }
+    30% { transform: scale(1.02); }
+    100% { transform: scale(1.02); }
+  }
+  .hf-anim-scale-emphasis {
+    animation-name: hfKeyScaleEmphasis;
+  }
+
+  /* Match player hero-stills topic entrance exactly: 0.8s, power2.out, x/y 200|150 */
+  @keyframes hfKeyFadeInRight {
+    0% { transform: translateX(200px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  .hf-anim-fade-in-right {
+    animation-name: hfKeyFadeInRight;
+    animation-duration: 0.8s !important;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1) !important; /* ~power2.out */
+  }
+
+  @keyframes hfKeyFadeInTopRight {
+    0% { transform: translate(150px, -150px); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  .hf-anim-fade-in-top-right {
+    animation-name: hfKeyFadeInTopRight;
+    animation-duration: 0.8s !important;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1) !important;
+  }
+
+  @keyframes hfKeyFadeInBottomRight {
+    0% { transform: translate(150px, 150px); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  .hf-anim-fade-in-bottom-right {
+    animation-name: hfKeyFadeInBottomRight;
+    animation-duration: 0.8s !important;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1) !important;
+  }
+
+  @keyframes hfKeyFadeInOnly {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .hf-anim-fade-in-only {
+    animation-name: hfKeyFadeInOnly;
+    animation-duration: 0.8s !important;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1) !important;
+  }
+
+  /* Topic name card — sized like player (not full-bleed like .hf-anim-preview-img) */
+  .hf-anim-topic-stage {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  .hf-anim-topic-shell {
+    position: absolute;
+    top: 50%;
+    right: 6%;
+    transform: translateY(-50%);
+    max-width: min(520px, 88%);
+    width: fit-content;
+    box-sizing: border-box;
+    z-index: 5;
+    pointer-events: none;
+  }
+  .hf-anim-topic-card {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 24px 32px;
+    border-radius: 22px;
+    background: #000066;
+    border: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    color: #ffffff;
+    font-family: 'Public Sans', system-ui, sans-serif;
+    font-size: 44px;
+    font-weight: 800;
+    line-height: 1.15;
+    text-align: center;
+    letter-spacing: -0.015em;
+    animation-iteration-count: 1;
+    animation-fill-mode: both;
+  }
+
+  @keyframes hfKeyReveal {
+    0% { opacity: 0; }
+    25% { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .hf-anim-reveal {
+    animation-name: hfKeyReveal;
+  }
+
+  /* Fade used for inset main, then inset (keep_main_reveal / sequential cue feel) */
+  @keyframes hfKeyKeepMainReveal {
+    0% { opacity: 0; visibility: hidden; }
+    100% { opacity: 1; visibility: visible; }
+  }
+  .hf-anim-keep-main-reveal {
+    animation-name: hfKeyKeepMainReveal;
+    animation-duration: 0.7s;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1); /* ~power2.out */
+  }
+
+  /* Player inset_slide: right fill-wrapper slides from xPercent 105 */
+  @keyframes hfKeyInsetSlide {
+    0% { transform: translateX(105%); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  .hf-anim-inset-slide {
+    animation-name: hfKeyInsetSlide;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); /* ~power3.out */
+  }
+
+  @keyframes hfKeyLabelCornerSlide1 {
+    0% { transform: translate(-80px, -80px); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyLabelCornerSlide2 {
+    0% { transform: translate(80px, -80px); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyLabelCornerSlide3 {
+    0% { transform: translate(-80px, 80px); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  @keyframes hfKeyLabelCornerSlide4 {
+    0% { transform: translate(80px, 80px); opacity: 0; }
+    100% { transform: translate(0, 0); opacity: 1; }
+  }
+  .hf-anim-label-corner-slide-1 {
+    animation-name: hfKeyLabelCornerSlide1;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .hf-anim-label-corner-slide-2 {
+    animation-name: hfKeyLabelCornerSlide2;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .hf-anim-label-corner-slide-3 {
+    animation-name: hfKeyLabelCornerSlide3;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .hf-anim-label-corner-slide-4 {
+    animation-name: hfKeyLabelCornerSlide4;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Label badges — match player .hf-player-slot-label-badge / panel_label theme tokens */
+  .hf-anim-preview-label {
+    position: absolute;
+    left: 0;
+    right: 0;
+    margin-left: auto;
+    margin-right: auto;
+    width: fit-content;
+    bottom: var(--hf-panel-label-bottom, 15px);
+    background: var(--hf-panel-label-bg, #f05725);
+    color: var(--hf-panel-label-text-color, #ffffff);
+    padding: var(--hf-panel-label-padding, 10px 22px);
+    border-radius: var(--hf-panel-label-radius, 10px);
+    font-size: var(--hf-panel-label-font-size, 18px);
+    font-weight: var(--hf-panel-label-font-weight, 700);
+    font-family: var(--hf-panel-label-font, 'Public Sans', 'Open Sans', 'Segoe UI', Arial, sans-serif);
+    letter-spacing: var(--hf-panel-label-letter-spacing, 0);
+    text-transform: var(--hf-panel-label-text-transform, none);
+    text-align: var(--hf-panel-label-text-align, center);
+    white-space: var(--hf-panel-label-white-space, nowrap);
+    box-shadow: var(--hf-panel-label-shadow, 0 4px 12px rgba(0, 0, 0, 0.3));
+    box-sizing: border-box;
+    z-index: 15;
+    pointer-events: none;
+    animation-duration: 0.85s;
+    animation-iteration-count: 1;
+    animation-timing-function: cubic-bezier(0.34, 1.3, 0.64, 1); /* ~back.out feel for slide */
+    animation-fill-mode: both;
+  }
+  @keyframes hfKeyLabelSlide {
+    0% { transform: translateY(60px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  .hf-anim-label-slide {
+    animation-name: hfKeyLabelSlide;
+  }
+  .hf-anim-label-slide-up {
+    animation-name: hfKeyLabelSlide;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); /* player back.out(1.25) */
+  }
+  /* Player split/inset label_slide: idx0 from -150px, idx1 from +150px */
+  @keyframes hfKeyLabelSlideFromLeft {
+    0% { transform: translateX(-150px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes hfKeyLabelSlideFromRight {
+    0% { transform: translateX(150px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  .hf-anim-label-slide-from-left {
+    animation-name: hfKeyLabelSlideFromLeft;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); /* ~back.out(1.25) */
+  }
+  .hf-anim-label-slide-from-right {
+    animation-name: hfKeyLabelSlideFromRight;
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes hfKeyLabelFade {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .hf-anim-label-fade {
+    animation-name: hfKeyLabelFade;
+    animation-duration: 0.75s;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1); /* ~power2.out */
+  }
+
+  /* Callout Card — match player theme tokens + entrance timing */
+  .hf-anim-preview-callout {
+    position: absolute;
+    left: 6%;
+    top: 6%;
+    max-width: 42%;
+    width: max-content;
+    z-index: 15;
+    box-sizing: border-box;
+    pointer-events: none;
+    animation-iteration-count: 1;
+    animation-fill-mode: both;
+  }
+  @keyframes hfKeyCalloutSlide {
+    0% { transform: translateX(-36px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  .hf-anim-callout-slide {
+    animation-name: hfKeyCalloutSlide;
+    animation-duration: 0.6s;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1); /* ~power2.out */
+  }
+  @keyframes hfKeyCalloutFade {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .hf-anim-callout-fade {
+    animation-name: hfKeyCalloutFade;
+    animation-duration: 0.55s;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  /* Bounding Box Highlights — match player hero-stills bbox_spotlight / bbox_draw */
+  .hf-anim-bbox-stage {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .hf-style-bbox-hero {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+  }
+  .hf-anim-bbox-spotlight-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.75);
+  }
+  .hf-anim-bbox-spotlight-veil.is-playing {
+    animation: hfKeySpotlightVeil 0.4s cubic-bezier(0.33, 1, 0.68, 1) both;
+  }
+  @keyframes hfKeySpotlightVeil {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .hf-anim-bbox-spotlight-window {
+    position: absolute;
+    left: 28%;
+    top: 26%;
+    width: 44%;
+    height: 38%;
+    overflow: hidden;
+    z-index: 13;
+    pointer-events: none;
+    border-radius: 28px;
+  }
+  .hf-anim-bbox-spotlight-window.is-playing,
+  .hf-anim-bbox-spotlight-svg.is-playing {
+    animation: hfKeySpotlightCutout 0.22s cubic-bezier(0.33, 1, 0.68, 1) both;
+    animation-delay: 0.28s;
+  }
+  @keyframes hfKeySpotlightCutout {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .hf-anim-bbox-spotlight-bright {
+    position: absolute;
+    left: -63.636%;
+    top: -68.421%;
+    width: 227.273%;
+    height: 263.158%;
+    object-fit: cover;
+    display: block;
+    max-width: none;
+    pointer-events: none;
+  }
+  .hf-anim-bbox-spotlight-svg {
+    position: absolute;
+    left: 28%;
+    top: 26%;
+    width: 44%;
+    height: 38%;
+    overflow: visible;
+    z-index: 14;
+    pointer-events: none;
+  }
+  .hf-anim-bbox-spotlight-dash {
+    fill: none;
+    stroke: #F9E400;
+    stroke-width: 3;
+    stroke-dasharray: 18 10;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .hf-anim-bbox-spotlight-dash.is-marching {
+    animation: hfKeySpotlightMarch var(--hf-bbox-march-cycle, 1.1s) linear infinite;
+  }
+  @keyframes hfKeySpotlightMarch {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: var(--hf-bbox-dash-period, -28); }
+  }
+
+  .hf-anim-bbox-draw-svg {
+    position: absolute;
+    left: 28%;
+    top: 26%;
+    width: 44%;
+    height: 38%;
+    overflow: visible;
+    z-index: 13;
+    pointer-events: none;
+    filter: drop-shadow(0px 0px 6px rgba(240, 85, 35, 0.65));
+  }
+  .hf-anim-bbox-draw-path {
+    fill: none;
+    stroke: #f05523;
+    stroke-width: 4.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 680;
+    stroke-dashoffset: 0;
+  }
+  .hf-anim-bbox-draw-path.is-playing {
+    animation: hfKeyBboxDrawStroke 1.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes hfKeyBboxDrawStroke {
+    0% { stroke-dashoffset: 680; }
+    100% { stroke-dashoffset: 0; }
+  }
 </style>
 </helmet>
 
@@ -1130,6 +2423,10 @@
       <button onClick="{{ onViewPlayer }}" class="{{ playerTabClass }}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         Player
+      </button>
+      <button onClick="{{ onViewPrimitives }}" class="{{ primitivesTabClass }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+        Styles
       </button>
     </div>
 
@@ -1975,6 +3272,396 @@
     </div>
   </sc-if>
 
+  <sc-if value="{{ isPrimitivesView }}" hint-placeholder-val="{{ false }}">
+    <div class="hf-primitives-root">
+      <!-- Left Panel: Styles or Animations Config Form -->
+      <aside class="hf-primitives-sidebar">
+        <!-- Sidebar Header / Tabs Toggle -->
+        <div class="hf-primitives-header" style="padding: 12px 18px; border-bottom: 1px solid #1f293d; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+          <div class="hf-studio-tabs">
+            <button onClick="{{ onSelectStylesSubView }}" class="{{ stylesTabClass }}">
+              <span style="font-size: 14px; line-height: 1;">🎨</span>
+              Styles
+            </button>
+            <button onClick="{{ onSelectAnimsSubView }}" class="{{ animsTabClass }}">
+              <span style="font-size: 14px; line-height: 1;">🎬</span>
+              Animations
+            </button>
+          </div>
+          <button class="hf-primitives-btn-preset" onClick="{{ onResetPrimitiveDraft }}" title="Revert all changes to defaults">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+            Reset
+          </button>
+        </div>
+
+        <sc-if value="{{ isStylesSubActive }}" hint-placeholder-val="{{ true }}">
+          <!-- Component Selector Dropdown -->
+          <div class="hf-primitives-comp-select-wrap">
+            <div class="hf-primitives-label" style="margin-bottom: 6px;">
+              Component
+              <span class="hf-prop-help" tabindex="0">
+                <span class="hf-prop-help-icon">?</span>
+                <span class="hf-prop-tooltip">Select which element you want to customize and preview.</span>
+              </span>
+            </div>
+            {{ componentSelectEl }}
+          </div>
+
+          <!-- Scrollable Forms Container (Dynamically rendered from player_styles.yaml) -->
+          <div style="padding: 16px 18px; flex: 1; overflow-y: auto;">
+            <sc-for list="{{ activeSections }}" as="sec">
+              {{ sec.el }}
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isAnimsSubActive }}" hint-placeholder-val="{{ false }}">
+          <!-- Scrollable Animations Container -->
+          <div style="padding: 16px 18px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 18px;">
+            <sc-for list="{{ animCategories }}" as="cat">
+              {{ cat.el }}
+            </sc-for>
+          </div>
+        </sc-if>
+      </aside>
+
+      <!-- Right Panel: Live Canvas Preview -->
+      <main class="hf-primitives-stage-wrap">
+        <!-- Top Canvas Controls Bar -->
+        <sc-if value="{{ showPrimitiveSampleBar }}" hint-placeholder-val="{{ true }}">
+          <div class="hf-primitives-topbar">
+            <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
+              <span class="hf-primitives-topbar-label">{{ sampleLabel }}</span>
+              <input type="text" value="{{ primitiveSampleText }}" onChange="{{ onPrimitiveSampleTextChange }}" class="hf-primitives-input" style="max-width: 440px;" placeholder="Type sample text..." />
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- 16:9 Live Canvas Screen -->
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; min-height: 0;">
+          <div style="width: 100%; max-width: 960px; aspect-ratio: 16/9; position: relative; border-radius: 12px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.1); background: radial-gradient(circle at 50% 30%, #1e293b 0%, #0f172a 70%, #020617 100%);">
+            <!-- 1. LIVE PRIMITIVE: Slide Title Box -->
+            <sc-if value="{{ isCompSlideTitle }}" hint-placeholder-val="{{ true }}">
+              <div class="hf-player-title-badge" style="{{ previewBadgeStyle }}">
+                <span class="hf-player-title-chip" style="{{ previewChipStyle }}"></span>
+                <span class="hf-player-title-text" style="{{ previewTextStyle }}">{{ primitiveSampleText }}</span>
+              </div>
+            </sc-if>
+
+            <!-- 2. LIVE PRIMITIVE: Subtitles / Captions -->
+            <sc-if value="{{ isCompCaption }}" hint-placeholder-val="{{ false }}">
+              <div style="{{ previewCaptionStyle }}">{{ primitiveSampleText }}</div>
+            </sc-if>
+
+            <!-- 3. LIVE PRIMITIVE: Topic Name Card -->
+            <sc-if value="{{ isCompTopicCard }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 35; pointer-events: none;">
+                <div style="{{ previewTopicCardStyle }}">
+                  <div style="{{ previewTopicCardTextStyle }}">{{ primitiveSampleText }}</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- 4. LIVE PRIMITIVE: Hero Text Label -->
+            <sc-if value="{{ isCompHeroLabel }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 35; pointer-events: none;">
+                <div style="{{ previewHeroLabelStyle }}">{{ primitiveSampleText }}</div>
+              </div>
+            </sc-if>
+
+            <!-- 5. LIVE PRIMITIVE: Panel Label Badge -->
+            <sc-if value="{{ isCompPanelLabel }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; inset: 0; pointer-events: none; z-index: 35;">
+                <div style="{{ previewPanelLabelStyle }}">{{ primitiveSampleText }}</div>
+              </div>
+            </sc-if>
+
+            <!-- 6. LIVE PRIMITIVE: Callout Card -->
+            <sc-if value="{{ isCompCalloutCard }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; left: 40px; top: 60px; width: 440px; max-width: 50%; z-index: 35; pointer-events: none;">
+                <div style="{{ previewCalloutCardStyle }}">
+                  <div style="{{ previewCalloutHeaderStyle }}">{{ primitiveSampleText }}</div>
+                  <div style="{{ previewCalloutDividerStyle }}"></div>
+                  <div style="{{ previewCalloutBodyStyle }}">Pressurizes the refrigerant vapor</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- 7. LIVE PRIMITIVE: Bounding Box Highlight -->
+            <sc-if value="{{ isCompBbox }}" hint-placeholder-val="{{ false }}">
+              <img src="{{ imgHero }}" alt="" class="hf-style-bbox-hero" />
+              <div class="hf-anim-bbox-stage">
+                <sc-if value="{{ isBboxSpotlight }}" hint-placeholder-val="{{ true }}">
+                  <div class="hf-anim-bbox-spotlight-veil" style="{{ bboxVeilStyle }}"></div>
+                  <div class="hf-anim-bbox-spotlight-window" style="{{ bboxWindowStyle }}">
+                    <img src="{{ imgHero }}" alt="" class="hf-anim-bbox-spotlight-bright" />
+                  </div>
+                  <svg class="hf-anim-bbox-spotlight-svg" viewBox="0 0 400 280" preserveAspectRatio="none">
+                    <rect class="hf-anim-bbox-spotlight-dash {{ styleBboxDashClass }}" x="1.5" y="1.5" width="397" height="277" rx="{{ bboxCornerRadius }}" ry="{{ bboxCornerRadius }}" style="{{ bboxDashStyle }}"></rect>
+                  </svg>
+                </sc-if>
+                <sc-if value="{{ isBboxDraw }}" hint-placeholder-val="{{ false }}">
+                  <svg class="hf-anim-bbox-draw-svg" viewBox="0 0 400 280" preserveAspectRatio="none">
+                    <path class="hf-anim-bbox-draw-path" d="M 200 0 L 0 0 L 0 280 L 200 280" style="{{ bboxDrawStrokeStyle }}"></path>
+                    <path class="hf-anim-bbox-draw-path" d="M 200 0 L 400 0 L 400 280 L 200 280" style="{{ bboxDrawStrokeStyle }}"></path>
+                  </svg>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <!-- 8. LIVE PRIMITIVE: Generic Dynamic Box for custom/future primitives -->
+            <sc-if value="{{ isGenericComp }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 35; pointer-events: none;">
+                <div style="{{ previewGenericStyle }}">{{ primitiveSampleText }}</div>
+              </div>
+            </sc-if>
+
+            <!-- 9. LIVE ANIMATION PREVIEW -->
+            <sc-if value="{{ isAnimsSubActive }}" hint-placeholder-val="{{ false }}">
+              <div class="hf-anim-preview-box">
+                
+                <!-- 9.1 HERO LAYOUT PREVIEW -->
+                <sc-if value="{{ isAnimLayoutHero }}" hint-placeholder-val="{{ true }}">
+                  <img src="{{ imgHero }}" alt="Hero Image" class="hf-anim-preview-img {{ activeAnimImgClass }}" key="{{ animPreviewKey }}" />
+                </sc-if>
+
+                <!-- 9.2 SPLIT SCREEN LAYOUT PREVIEW -->
+                <sc-if value="{{ isAnimLayoutSplit }}" hint-placeholder-val="{{ false }}">
+                  <div class="{{ splitContainerClass }}" key="{{ animPreviewKey }}-split-container">
+                    <div class="{{ splitLeftPanelClass }}" style="{{ splitLeftPanelStyle }}" key="{{ animPreviewKey }}-split-left">
+                      <sc-if value="{{ isPlaying }}">
+                        <img src="{{ imgInsetMain }}" alt="Split Left" class="hf-anim-item-img {{ activeAnimImgClassLeft }}" style="animation-delay: 0s;" key="{{ animPreviewKey }}-left" />
+                      </sc-if>
+                      <sc-if value="{{ !isPlaying }}">
+                        <img src="{{ imgInsetMain }}" alt="Split Left" class="hf-anim-item-img hf-anim-still" key="{{ animPreviewKey }}-left-static" />
+                      </sc-if>
+                      <sc-if value="{{ showLabelAnims }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClassLeft }}" style="animation-delay: 0.3s;" key="{{ animPreviewKey }}-label-left">
+                          Heat Exchanger
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div class="{{ splitRightPanelClass }}" style="{{ splitRightPanelStyle }}" key="{{ animPreviewKey }}-split-right">
+                      <sc-if value="{{ isPlaying }}">
+                        <img src="{{ imgInsetSupport }}" alt="Split Right" class="hf-anim-item-img {{ activeAnimImgClassRight }}" style="{{ splitRightImgStyle }}" key="{{ animPreviewKey }}-right" />
+                      </sc-if>
+                      <sc-if value="{{ showSplitFinalFrame }}">
+                        <img src="{{ imgInsetSupport }}" alt="Split Right" class="hf-anim-item-img hf-anim-still" key="{{ animPreviewKey }}-right-final" />
+                      </sc-if>
+                      <sc-if value="{{ showSplitIdleRight }}">
+                        <!-- When not playing, Split Right is a white screen -->
+                        <div style="width: 100%; height: 100%; background: #ffffff;" key="{{ animPreviewKey }}-right-white"></div>
+                      </sc-if>
+                      <sc-if value="{{ showLabelAnims }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClassRight }}" style="animation-delay: 2.3s;" key="{{ animPreviewKey }}-label-right">
+                          Compressor
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <!-- 9.3 INSET LAYOUT PREVIEW — match player main_plus_supporting_inset (left main + right inset panel) -->
+                <sc-if value="{{ isAnimLayoutInset }}" hint-placeholder-val="{{ false }}">
+                  <div class="hf-anim-layout-inset-container" key="{{ animPreviewKey }}-inset-container">
+                    <div class="hf-anim-inset-main-panel" key="{{ animPreviewKey }}-inset-main">
+                      <sc-if value="{{ isPlaying }}">
+                        <div class="hf-anim-inset-panel-inner {{ insetMainAnimClass }}" style="{{ insetMainAnimStyle }}" key="{{ animPreviewKey }}-inset-main-play">
+                          <img src="{{ imgInsetMain }}" alt="" class="hf-anim-inset-blur" />
+                          <img src="{{ imgInsetMain }}" alt="Inset Main" class="hf-anim-inset-fg" />
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ !isPlaying }}">
+                        <div class="hf-anim-inset-panel-inner" key="{{ animPreviewKey }}-inset-main-static">
+                          <img src="{{ imgInsetMain }}" alt="" class="hf-anim-inset-blur" />
+                          <img src="{{ imgInsetMain }}" alt="Inset Main" class="hf-anim-inset-fg" />
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClassLeft }}" style="animation-delay: 0.3s;" key="{{ animPreviewKey }}-label-inset-main">
+                          Main Visual
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div class="hf-anim-inset-side-panel" key="{{ animPreviewKey }}-inset-side">
+                      <sc-if value="{{ isPlaying }}">
+                        <div class="hf-anim-inset-panel-inner {{ activeAnimImgClass }}" style="{{ insetRightAnimStyle }}" key="{{ animPreviewKey }}-inset-side-play">
+                          <img src="{{ imgInsetSupport }}" alt="" class="hf-anim-inset-blur" />
+                          <img src="{{ imgInsetSupport }}" alt="Inset Support" class="hf-anim-inset-fg" />
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ showInsetFinalFrame }}">
+                        <div class="hf-anim-inset-panel-inner" key="{{ animPreviewKey }}-inset-side-final">
+                          <img src="{{ imgInsetSupport }}" alt="" class="hf-anim-inset-blur" />
+                          <img src="{{ imgInsetSupport }}" alt="Inset Support" class="hf-anim-inset-fg" />
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ showInsetIdleRight }}">
+                        <div style="width: 100%; height: 100%; background: #ffffff;" key="{{ animPreviewKey }}-inset-side-white"></div>
+                      </sc-if>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClassRight }}" style="animation-delay: 1.6s;" key="{{ animPreviewKey }}-label-inset-side">
+                          Supporting
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <!-- 9.4 THREE PANEL GRID LAYOUT PREVIEW — match player multi_panel_grid_3 (3 equal columns) -->
+                <sc-if value="{{ isAnimLayoutGrid3 }}" hint-placeholder-val="{{ false }}">
+                  <div class="hf-anim-layout-grid3-container" key="{{ animPreviewKey }}-grid3">
+                    <div class="hf-anim-grid3-item">
+                      <div class="hf-anim-grid3-cell-inner {{ grid3InnerClass1 }}" style="{{ grid3InnerStyle1 }}" key="{{ animPreviewKey }}-grid3-1">
+                        <img src="{{ imgGrid3_1 }}" alt="" class="hf-anim-inset-blur" />
+                        <img src="{{ imgGrid3_1 }}" alt="Grid 1" class="hf-anim-inset-fg {{ grid3FgClass1 }}" />
+                      </div>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClass }}" style="animation-delay: 0.3s;" key="{{ animPreviewKey }}-label-grid3-1">
+                          Condenser
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div class="hf-anim-grid3-item">
+                      <div class="hf-anim-grid3-cell-inner {{ grid3InnerClass2 }}" style="{{ grid3InnerStyle2 }}" key="{{ animPreviewKey }}-grid3-2">
+                        <img src="{{ imgGrid3_2 }}" alt="" class="hf-anim-inset-blur" />
+                        <img src="{{ imgGrid3_2 }}" alt="Grid 2" class="hf-anim-inset-fg {{ grid3FgClass2 }}" />
+                      </div>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClass }}" style="animation-delay: 1.5s;" key="{{ animPreviewKey }}-label-grid3-2">
+                          Expansion
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div class="hf-anim-grid3-item">
+                      <div class="hf-anim-grid3-cell-inner {{ grid3InnerClass3 }}" style="{{ grid3InnerStyle3 }}" key="{{ animPreviewKey }}-grid3-3">
+                        <img src="{{ imgGrid3_3 }}" alt="" class="hf-anim-inset-blur" />
+                        <img src="{{ imgGrid3_3 }}" alt="Grid 3" class="hf-anim-inset-fg {{ grid3FgClass3 }}" />
+                      </div>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClass }}" style="animation-delay: 2.7s;" key="{{ animPreviewKey }}-label-grid3-3">
+                          Flow Rate
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <!-- 9.5 FOUR PANEL GRID LAYOUT PREVIEW — match player multi_panel_grid_4 -->
+                <sc-if value="{{ isAnimLayoutGrid4 }}" hint-placeholder-val="{{ false }}">
+                  <div class="hf-anim-layout-grid4-container" key="{{ animPreviewKey }}-grid4">
+                    <div class="hf-anim-grid4-item">
+                      <div class="hf-anim-grid4-cell-inner {{ grid4InnerClass1 }}" style="{{ grid4InnerStyle1 }}" key="{{ animPreviewKey }}-grid4-1">
+                        <img src="{{ imgGrid4_1 }}" alt="" class="hf-anim-inset-blur" />
+                        <img src="{{ imgGrid4_1 }}" alt="Grid 1" class="hf-anim-inset-fg {{ grid4FgClass1 }}" />
+                      </div>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClass1 }}" style="animation-delay: 0.3s;" key="{{ animPreviewKey }}-label-grid4-1">
+                          Evaporator
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div class="hf-anim-grid4-item">
+                      <div class="hf-anim-grid4-cell-inner {{ grid4InnerClass2 }}" style="{{ grid4InnerStyle2 }}" key="{{ animPreviewKey }}-grid4-2">
+                        <img src="{{ imgGrid4_2 }}" alt="" class="hf-anim-inset-blur" />
+                        <img src="{{ imgGrid4_2 }}" alt="Grid 2" class="hf-anim-inset-fg {{ grid4FgClass2 }}" />
+                      </div>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClass2 }}" style="animation-delay: 1.4s;" key="{{ animPreviewKey }}-label-grid4-2">
+                          Compressor
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div class="hf-anim-grid4-item">
+                      <div class="hf-anim-grid4-cell-inner {{ grid4InnerClass3 }}" style="{{ grid4InnerStyle3 }}" key="{{ animPreviewKey }}-grid4-3">
+                        <img src="{{ imgGrid4_3 }}" alt="" class="hf-anim-inset-blur" />
+                        <img src="{{ imgGrid4_3 }}" alt="Grid 3" class="hf-anim-inset-fg {{ grid4FgClass3 }}" />
+                      </div>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClass3 }}" style="animation-delay: 2.5s;" key="{{ animPreviewKey }}-label-grid4-3">
+                          Condenser
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div class="hf-anim-grid4-item">
+                      <div class="hf-anim-grid4-cell-inner {{ grid4InnerClass4 }}" style="{{ grid4InnerStyle4 }}" key="{{ animPreviewKey }}-grid4-4">
+                        <img src="{{ imgGrid4_4 }}" alt="" class="hf-anim-inset-blur" />
+                        <img src="{{ imgGrid4_4 }}" alt="Grid 4" class="hf-anim-inset-fg {{ grid4FgClass4 }}" />
+                      </div>
+                      <sc-if value="{{ showLabelAnims }}" hint-placeholder-val="{{ false }}">
+                        <div class="hf-anim-preview-label {{ activeAnimLabelClass4 }}" style="animation-delay: 3.6s;" key="{{ animPreviewKey }}-label-grid4-4">
+                          Expansion
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <!-- 9.6 TOPIC NAME CARD ENTRANCE — match player topic card over hero -->
+                <sc-if value="{{ isAnimLayoutTopic }}" hint-placeholder-val="{{ false }}">
+                  <div class="hf-anim-topic-stage" key="{{ animPreviewKey }}-topic-stage">
+                    <img src="{{ imgHero }}" alt="Hero Background" class="hf-anim-preview-img" style="opacity: 0.85; animation: none;" />
+                    <div class="hf-anim-topic-shell">
+                      <div class="hf-anim-topic-card {{ activeAnimImgClass }}" style="{{ isPlaying ? '' : 'animation: none;' }}" key="{{ animPreviewKey }}-topic">
+                        Being Service Ready
+                      </div>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <!-- 9.7 CALLOUT CARD PREVIEW — match player callout_card styling -->
+                <sc-if value="{{ isAnimLayoutCallout }}" hint-placeholder-val="{{ false }}">
+                  <img src="{{ imgHero }}" alt="Hero Background for Callout" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85;" />
+                  <div class="hf-anim-preview-callout {{ activeAnimCalloutClass }}" style="{{ animCalloutCardStyle }}" key="{{ animPreviewKey }}-callout">
+                    <div style="{{ animCalloutHeaderStyle }}">Technical Info</div>
+                    <div style="{{ animCalloutDividerStyle }}"></div>
+                    <div style="{{ animCalloutBodyStyle }}">{{ animCalloutBodyText }}</div>
+                  </div>
+                </sc-if>
+
+                <!-- 9.8 BOUNDING BOX PREVIEW — match player spotlight (dashed march + veil) and split-stroke draw -->
+                <sc-if value="{{ isAnimLayoutBbox }}" hint-placeholder-val="{{ false }}">
+                  <div class="hf-anim-bbox-stage" key="{{ animPreviewKey }}-bbox-stage">
+                    <img src="{{ imgHero }}" alt="Hero Background for Bbox" class="hf-anim-preview-img" style="animation: none; opacity: 1;" />
+                    <sc-if value="{{ showBboxSpotlightAnims }}" hint-placeholder-val="{{ true }}">
+                      <div class="hf-anim-bbox-spotlight-veil {{ bboxVeilPlayClass }}" style="{{ bboxVeilStyle }}"></div>
+                      <div class="hf-anim-bbox-spotlight-window {{ bboxCutoutPlayClass }}" style="{{ bboxWindowStyle }}">
+                        <img src="{{ imgHero }}" alt="" class="hf-anim-bbox-spotlight-bright" />
+                      </div>
+                      <svg class="hf-anim-bbox-spotlight-svg {{ bboxCutoutPlayClass }}" viewBox="0 0 400 280" preserveAspectRatio="none">
+                        <rect class="hf-anim-bbox-spotlight-dash {{ bboxDashClass }}" x="1.5" y="1.5" width="397" height="277" rx="{{ bboxCornerRadius }}" ry="{{ bboxCornerRadius }}" style="{{ bboxDashStyle }}"></rect>
+                      </svg>
+                    </sc-if>
+                    <sc-if value="{{ showBboxDrawAnims }}" hint-placeholder-val="{{ false }}">
+                      <svg class="hf-anim-bbox-draw-svg" viewBox="0 0 400 280" preserveAspectRatio="none">
+                        <path class="hf-anim-bbox-draw-path {{ bboxDrawPlayClass }}" d="M 200 0 L 0 0 L 0 280 L 200 280" style="{{ bboxDrawStrokeStyle }}"></path>
+                        <path class="hf-anim-bbox-draw-path {{ bboxDrawPlayClass }}" d="M 200 0 L 400 0 L 400 280 L 200 280" style="{{ bboxDrawStrokeStyle }}"></path>
+                      </svg>
+                    </sc-if>
+                  </div>
+                </sc-if>
+
+                <!-- Center Split Shutter Elements (Overlay overlayed on appropriate layouts) -->
+                <sc-if value="{{ showShutterAnims }}" hint-placeholder-val="{{ false }}">
+                  <div class="hf-anim-center-split-wrapper" key="{{ animPreviewKey }}-shutters">
+                    <div class="hf-anim-shutter hf-anim-shutter-left"></div>
+                    <div class="hf-anim-shutter hf-anim-shutter-right"></div>
+                  </div>
+                </sc-if>
+
+                <!-- Overlay describing what animation is playing -->
+                <div style="position: absolute; bottom: 12px; right: 12px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 700; color: #f05725; z-index: 20; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px; text-transform: uppercase; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                  <span style="width: 6px; height: 6px; border-radius: 99px; background: #f05725; display: inline-block; animation: gdpulse 1s infinite;"></span>
+                  Previewing: {{ activePlayingAnimLabel }}
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </main>
+    </div>
+  </sc-if>
+
   </div>
 
   <div style="position: fixed; right: 22px; bottom: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 50; align-items: flex-end;">
@@ -2077,6 +3764,7 @@ class Component extends DCLogic {
   slides = [];
   moduleLabel = 'Loading...';
   _pendingJobs = {};
+  _pendingPoolSelects = {};
   _segFeedbackDraft = {};
   _segSelectedVoParts = {};
   _segRevisionsDone = {};
@@ -2090,6 +3778,10 @@ class Component extends DCLogic {
   _layoutApproved = {};
   _ytMountSeq = 0;
   appView = 'review';
+  primitiveDraft = null;
+  primitiveActive = 'slide_title';
+  primitiveSampleText = 'Overview of the Refrigeration Cycle';
+  primitiveBgTheme = 'dark';
   playerSnap = { hasCues: false, cues: [], playing: false, ccOn: true, pauseForReview: false, speed: 1, cueElapsed: 0, cueDuration: 0, assetsReady: false, preloadProgress: 0, preloading: false };
   _player = null;
   _playerSpeeds = [
@@ -2615,10 +4307,35 @@ class Component extends DCLogic {
             step.status = 'revising';
             if (!step.before) step.before = this.visualFromStep(st, st.beforeUrl || st.assetUrl);
           }
+          this._applyPendingPoolSelectToStep(step);
           return step;
         }),
       })),
     }));
+  }
+
+  _applyPendingPoolSelectToStep(st) {
+    if (!this._pendingPoolSelects) return;
+    const key = this._stepKey(st);
+    const pending = this._pendingPoolSelects[key];
+    if (!pending) return;
+    st.assetUrl = pending.assetUrl;
+    st.url = pending.assetUrl;
+    st.type = pending.type;
+    st.source = pending.source;
+    st.label = pending.label;
+    st.duration = pending.duration;
+    st.status = 'approved';
+    st.after = null;
+    st.showAlts = false;
+    st.editing = false;
+    if (pending.alternatives) st.alternatives = pending.alternatives;
+  }
+
+  _syncPlayerSlides() {
+    if (!this._player) return;
+    this._player.setSlides(this.slides);
+    this._playerPrepareToken += 1;
   }
 
   isVideoUrl(url) {
@@ -2921,6 +4638,7 @@ class Component extends DCLogic {
       if (savedLayout === 'false') this.showLayoutPanel = false;
     } catch (_) {}
     this.applyTheme();
+    this._loadStylesSchema();
     this.reloadSlides().catch(() => { window.location.href = '/setup'; });
     this._startJobPolling();
     this._startManifestSyncPolling();
@@ -2929,6 +4647,8 @@ class Component extends DCLogic {
     window.removeEventListener('keydown', this._onKey);
     if (this._pollTimer) clearInterval(this._pollTimer);
     if (this._manifestSyncTimer) clearInterval(this._manifestSyncTimer);
+    if (this._animPreviewTimer) clearInterval(this._animPreviewTimer);
+    if (this._animPreviewEndTimer) clearTimeout(this._animPreviewEndTimer);
     if (this._player) this._player.stop();
     if (window.HFPlayerMotion) {
       window.HFPlayerMotion.kill();
@@ -3684,6 +5404,13 @@ class Component extends DCLogic {
   setAppView(view) {
     if (view === 'player') {
       if (window.HFYoutube) window.HFYoutube.destroyAll();
+      // Clear leftover fade/motion state from a previous Player visit (e.g. after Styles).
+      if (window.HFPlayerMotion) window.HFPlayerMotion.kill();
+      if (window.HFSceneTransition) window.HFSceneTransition.kill();
+      this._playerVisualFadePromise = Promise.resolve();
+      this._setCaptionHold(false);
+      this._playerLastCue = -1;
+      this._playerPrevCue = null;
       this._ensurePlayer();
       this.appView = 'player';
       if (this._player && this._player.cues.length) {
@@ -3692,7 +5419,15 @@ class Component extends DCLogic {
         const cue = this._player.cues[this._player.cueIndex];
         if (cue) this._preloadPlayerSceneImages(cue);
         this.forceUpdate();
-        requestAnimationFrame(() => this._syncPlayerMotion(true));
+        requestAnimationFrame(() => {
+          const shell = document.querySelector('.hf-player-fade-shell');
+          if (shell) {
+            shell.classList.remove('is-faded', 'hf-gsap-transitioning');
+            shell.style.transition = '';
+            if (window.gsap) window.gsap.set(shell, { clearProps: 'opacity,visibility,transform,clipPath,filter' });
+          }
+          this._syncPlayerMotion(true);
+        });
         this.preparePlayerPlayback().then(() => {
           if (this._player && this._player.cues.length) {
             const cue = this._player.cues[this._player.cueIndex];
@@ -3705,15 +5440,1222 @@ class Component extends DCLogic {
       return;
     }
     if (this._player) this._player.stop();
+    if (window.HFPlayerMotion) window.HFPlayerMotion.kill();
     if (window.HFSceneTransition) window.HFSceneTransition.kill();
+    this._playerVisualFadePromise = Promise.resolve();
+    this._setCaptionHold(false);
     this._closePlayerSpeedMenu();
-    this.appView = 'review';
+    this.appView = view || 'review';
+    if (this.appView === 'primitives') {
+      this._initPrimitivesState();
+    }
     this.forceUpdate();
   }
+
+  _getStylesSchema() {
+    if (this._stylesSchema && this._stylesSchema.primitives) {
+      return this._stylesSchema;
+    }
+    if (window.HFPlayerTheme && window.HFPlayerTheme.getSchema) {
+      const s = window.HFPlayerTheme.getSchema();
+      if (s && s.primitives) {
+        this._stylesSchema = s;
+        return s;
+      }
+    }
+    if (window.HFStylesSchema && window.HFStylesSchema.primitives) {
+      return window.HFStylesSchema;
+    }
+    return { primitives: {} };
+  }
+
+  _loadStylesSchema() {
+    if (this._stylesSchemaLoading) return;
+    this._stylesSchemaLoading = true;
+    fetch('/api/styles-schema?v=' + Date.now())
+      .then((res) => {
+        if (!res.ok) throw new Error('styles schema fetch failed');
+        return res.json();
+      })
+      .then((schema) => {
+        if (schema && schema.primitives) {
+          this._stylesSchema = schema;
+          window.HFStylesSchema = schema;
+          this._syncDraftWithSchema();
+          this.forceUpdate();
+        }
+      })
+      .catch((err) => {
+        console.warn('[StylesStudio] using default schema:', err);
+      });
+  }
+
+  _initPrimitivesState() {
+    if (!this.primitiveActive) {
+      this.primitiveActive = 'slide_title';
+    }
+    if (!this.primitiveDraft) {
+      this._resetPrimitiveDraft();
+    }
+    this._loadStylesSchema();
+  }
+
+  _syncDraftWithSchema() {
+    if (!this.primitiveDraft) {
+      this._resetPrimitiveDraft();
+      return;
+    }
+    const schema = this._getStylesSchema();
+    const theme = window.HFPlayerTheme;
+    Object.keys(schema.primitives || {}).forEach((pKey) => {
+      const p = schema.primitives[pKey];
+      Object.keys(p.sections || {}).forEach((sKey) => {
+        const s = p.sections[sKey];
+        Object.keys(s.properties || {}).forEach((propKey) => {
+          if (this.primitiveDraft[propKey] === undefined) {
+            const prop = s.properties[propKey];
+            const fb = prop && prop.default != null ? String(prop.default) : '';
+            this.primitiveDraft[propKey] = (theme && theme.get ? theme.get(propKey) : '') || fb;
+          }
+        });
+      });
+    });
+    Object.keys(schema.animations || {}).forEach((animKey) => {
+      if (this.primitiveDraft[animKey] === undefined) {
+        const animDef = schema.animations[animKey];
+        const fb = animDef && animDef.default != null ? String(animDef.default) : '';
+        this.primitiveDraft[animKey] = (theme && theme.get ? theme.get(animKey) : '') || fb;
+      }
+    });
+  }
+
+  _resetPrimitiveDraft() {
+    const schema = this._getStylesSchema();
+    const theme = window.HFPlayerTheme;
+    const draft = {};
+
+    Object.keys(schema.primitives || {}).forEach((pKey) => {
+      const p = schema.primitives[pKey];
+      Object.keys(p.sections || {}).forEach((sKey) => {
+        const s = p.sections[sKey];
+        Object.keys(s.properties || {}).forEach((propKey) => {
+          const prop = s.properties[propKey];
+          const fb = prop && prop.default != null ? String(prop.default) : '';
+          draft[propKey] = (theme && theme.get ? theme.get(propKey) : '') || fb;
+        });
+      });
+    });
+
+    Object.keys(schema.animations || {}).forEach((animKey) => {
+      const animDef = schema.animations[animKey];
+      const fb = animDef && animDef.default != null ? String(animDef.default) : '';
+      draft[animKey] = (theme && theme.get ? theme.get(animKey) : '') || fb;
+    });
+
+    this.primitiveDraft = draft;
+  }
+
+  onPrimitivePropertyChange(key, val) {
+    this._initPrimitivesState();
+    const strVal = val != null ? String(val) : '';
+    this.primitiveDraft[key] = strVal;
+    if (window.HFPlayerTheme) {
+      if (window.HFPlayerTheme.set) window.HFPlayerTheme.set(key, strVal);
+      if (window.HFPlayerTheme.apply) window.HFPlayerTheme.apply();
+      if (key.indexOf('_font') !== -1 && window.HFPlayerTheme.ensureGoogleFontLoaded) {
+        window.HFPlayerTheme.ensureGoogleFontLoaded(strVal);
+      }
+    }
+    this.forceUpdate();
+  }
+
+  _clearAnimPreviewEndTimer() {
+    if (this._animPreviewEndTimer) {
+      clearTimeout(this._animPreviewEndTimer);
+      this._animPreviewEndTimer = null;
+    }
+  }
+
+  _animPreviewDurationMs(animValue, animKey) {
+    const key = String(animKey || '');
+    const anim = String(animValue || '');
+    // Base CSS animation lengths used in the simulator (~2–2.5s), plus staggered delays.
+    if (key.indexOf('multi_panel_4') !== -1) {
+      if (anim === 'scale_emphasis') return 5400;
+      return 5200;
+    }
+    if (key.indexOf('multi_panel_3') !== -1) {
+      if (anim === 'scale_emphasis') return 4500;
+      return 4200;
+    }
+    if (key.indexOf('layout_anims_split') !== -1 || key.indexOf('label_anims_split') !== -1) {
+      if (anim === 'hold_and_reveal') return 4800;
+      if (anim === 'slide_up') return 5600;
+      if (anim === 'center_then_split') return 3600;
+      return 4200;
+    }
+    if (key.indexOf('layout_anims_inset') !== -1) return 4200;
+    if (key.indexOf('label_anims') !== -1) {
+      if (key.indexOf('multi_panel_4') !== -1) return 4200;
+      if (key.indexOf('multi_panel_3') !== -1) return 3600;
+      return 3000; // split + inset two badges
+    }
+    if (anim === 'center_split') return 2200;
+    if (key === 'callout_anims') return 1600;
+    if (key === 'bbox_anims') {
+      if (anim === 'bbox_draw') return 1900;
+      return 4000;
+    }
+    if (anim === 'still') return 800;
+    return 2800;
+  }
+
+  _playAnimPreview(animValue, animKey) {
+    this._clearAnimPreviewEndTimer();
+    this.activePreviewAnim = animValue;
+    this.activePreviewAnimKey = animKey;
+    this.animPreviewPlaying = true;
+    this.animPreviewKey = 'anim-' + Date.now();
+    this.forceUpdate();
+
+    const durationMs = this._animPreviewDurationMs(animValue, animKey);
+    this._animPreviewEndTimer = setTimeout(() => {
+      // Keep the final frame visible, but return the button to "Play"
+      if (this.activePreviewAnim === animValue && this.activePreviewAnimKey === animKey) {
+        this.animPreviewPlaying = false;
+        // Bump key so the next Play remounts cleanly (CSS animations restart).
+        this.animPreviewKey = 'anim-' + Date.now() + '-done';
+        this.forceUpdate();
+      }
+      this._animPreviewEndTimer = null;
+    }, durationMs);
+  }
+
+  _stopAnimPreview() {
+    this._clearAnimPreviewEndTimer();
+    this.animPreviewPlaying = false;
+    this.activePreviewAnim = 'none';
+    this.animPreviewKey = 'anim-' + Date.now();
+    this.forceUpdate();
+  }
+
+  buildPrimitivesRenderData() {
+    this._initPrimitivesState();
+    const h = React.createElement;
+    const schema = this._getStylesSchema();
+    const draft = this.primitiveDraft || {};
+    let active = this.primitiveActive || 'slide_title';
+
+    if (!this.studioSubView) {
+      this.studioSubView = 'styles';
+    }
+    if (!this.activePreviewAnim) {
+      this.activePreviewAnim = 'none';
+    }
+    if (this.animPreviewPlaying == null) {
+      this.animPreviewPlaying = false;
+    }
+    if (!this.activePreviewAnimKey) {
+      this.activePreviewAnimKey = 'layout_anims_hero';
+    }
+    if (!this.animPreviewKey) {
+      this.animPreviewKey = 'anim-key-0';
+    }
+
+    const isStylesSubActive = this.studioSubView === 'styles';
+    const isAnimsSubActive = this.studioSubView === 'animations';
+
+    if (!schema.primitives || !schema.primitives[active]) {
+      const firstKey = Object.keys(schema.primitives || {})[0];
+      if (firstKey) active = firstKey;
+    }
+
+    const toHexColor = (val, fb) => {
+      const v = String(val || '').trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+      if (/^#[0-9a-fA-F]{3}$/.test(v)) return '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+      // rgb/rgba(...) — use RGB channels for the native color picker swatch
+      const rgb = v.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+      if (rgb) {
+        const hex = (n) => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0');
+        return '#' + hex(rgb[1]) + hex(rgb[2]) + hex(rgb[3]);
+      }
+      // Gradients / complex values — first #hex inside the string
+      const embedded = v.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/);
+      if (embedded) {
+        const h = embedded[0];
+        if (h.length === 4) return '#' + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+        return h;
+      }
+      return fb;
+    };
+
+    const getWeight = (val, fb) => {
+      const s = String(val || fb || '700').toLowerCase().replace(/[\s_-]+/g, '');
+      const wMap = { regular: '400', normal: '400', medium: '500', semibold: '600', bold: '700', extrabold: '800', black: '900' };
+      return wMap[s] || (/^\d{3}$/.test(s) ? s : (fb || '700'));
+    };
+
+    const activeCompDef = (schema.primitives && schema.primitives[active]) || {};
+
+    // 1. Component Selector Element (Dynamic options from YAML schema)
+    const compOptions = Object.keys(schema.primitives || {}).map((pKey) => {
+      const p = schema.primitives[pKey];
+      return h('option', { value: pKey, key: pKey }, p.name || pKey);
+    });
+
+    const componentSelectEl = h('select', {
+      className: 'hf-primitives-select',
+      style: { fontWeight: '700' },
+      value: active,
+      onChange: (e) => {
+        const val = e.target.value;
+        this.primitiveActive = val;
+        const targetComp = (schema.primitives && schema.primitives[val]) || {};
+        if (targetComp.sample_text) {
+          this.primitiveSampleText = targetComp.sample_text;
+        }
+        this.forceUpdate();
+      },
+    }, compOptions);
+
+    // 2. Field Group Builder
+    const createFieldGroup = (propKey, propDef, currentVal, onPropChange) => {
+      const type = propDef.type || 'text';
+      const label = propDef.label || propKey;
+      const help = propDef.help;
+      const placeholder = propDef.placeholder || '';
+      const val = currentVal != null ? currentVal : (propDef.default != null ? String(propDef.default) : '');
+
+      let controlEl = null;
+
+      if (type === 'select') {
+        const rawOptions = propDef.options || [];
+        const options = rawOptions.map((opt) => {
+          if (typeof opt === 'object' && opt !== null) return opt;
+          return { value: String(opt), label: String(opt) };
+        });
+        const hasVal = options.some((o) => String(o.value) === String(val));
+        const finalOptions = hasVal ? options : options.concat([{ value: String(val), label: String(val) + ' (Custom)' }]);
+
+        controlEl = h('select', {
+          className: 'hf-primitives-select',
+          value: String(val),
+          onChange: (e) => onPropChange(propKey, e.target.value),
+        }, finalOptions.map((opt) => h('option', { value: String(opt.value), key: String(opt.value) }, opt.label)));
+      } else if (type === 'color') {
+        const hexVal = toHexColor(val, '#f05725');
+        controlEl = h('div', { className: 'hf-primitives-color-row' },
+          h('input', {
+            type: 'color',
+            className: 'hf-primitives-color-picker',
+            value: hexVal,
+            onChange: (e) => onPropChange(propKey, e.target.value),
+          }),
+          h('input', {
+            type: 'text',
+            className: 'hf-primitives-input',
+            value: val,
+            onChange: (e) => onPropChange(propKey, e.target.value),
+            placeholder: placeholder || '#ffffff',
+          })
+        );
+      } else if (type === 'slider' || type === 'range') {
+        const min = propDef.min != null ? propDef.min : 0;
+        const max = propDef.max != null ? propDef.max : 100;
+        const step = propDef.step != null ? propDef.step : 1;
+        controlEl = h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+          h('input', {
+            type: 'range',
+            min: String(min),
+            max: String(max),
+            step: String(step),
+            value: String(val),
+            onChange: (e) => onPropChange(propKey, e.target.value),
+            style: { flex: '1', accentColor: '#f05725' },
+          }),
+          h('span', { style: { fontSize: '12px', fontWeight: '700', minWidth: '42px', textAlign: 'right', color: '#94a3b8' } }, String(val))
+        );
+      } else {
+        controlEl = h('input', {
+          type: 'text',
+          className: 'hf-primitives-input',
+          value: val,
+          onChange: (e) => onPropChange(propKey, e.target.value),
+          placeholder: placeholder,
+        });
+      }
+
+      const labelEl = h('label', { className: 'hf-primitives-label' },
+        label,
+        help ? h('span', { className: 'hf-prop-help', tabIndex: 0 },
+          h('span', { className: 'hf-prop-help-icon' }, '?'),
+          h('span', { className: 'hf-prop-tooltip' }, help)
+        ) : null
+      );
+
+      return h('div', { className: 'hf-primitives-form-group', key: propKey, style: { marginBottom: '0' } },
+        labelEl,
+        controlEl
+      );
+    };
+
+    // 3. Section Builder (Pairing col: 2 into 2-column grid rows)
+    const buildSectionFields = (properties, draftVals, onPropChange) => {
+      const propKeys = Object.keys(properties || {});
+      const rowElements = [];
+      let i = 0;
+
+      while (i < propKeys.length) {
+        const key1 = propKeys[i];
+        const def1 = properties[key1];
+
+        if (def1.col === 2 && i + 1 < propKeys.length && properties[propKeys[i + 1]].col === 2) {
+          const key2 = propKeys[i + 1];
+          const def2 = properties[key2];
+
+          const f1 = createFieldGroup(key1, def1, draftVals[key1], onPropChange);
+          const f2 = createFieldGroup(key2, def2, draftVals[key2], onPropChange);
+
+          rowElements.push(
+            h('div', {
+              key: 'row-' + key1 + '-' + key2,
+              style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' },
+            }, f1, f2)
+          );
+          i += 2;
+        } else {
+          const f1 = createFieldGroup(key1, def1, draftVals[key1], onPropChange);
+          rowElements.push(
+            h('div', {
+              key: 'row-' + key1,
+              style: { marginBottom: '12px' },
+            }, f1)
+          );
+          i += 1;
+        }
+      }
+
+      return rowElements;
+    };
+
+    // 4. Generate activeSections list (honor section.when so only matching groups show)
+    const activeSections = Object.keys(activeCompDef.sections || {}).filter((sKey) => {
+      const sDef = activeCompDef.sections[sKey] || {};
+      const when = sDef.when;
+      if (!when || typeof when !== 'object') return true;
+      return Object.keys(when).every((k) => {
+        const expected = String(when[k]);
+        const current = (draft[k] != null && String(draft[k]) !== '')
+          ? String(draft[k])
+          : (k === 'bbox_treatment' ? 'bbox_spotlight' : '');
+        return current === expected;
+      });
+    }).map((sKey) => {
+      const sDef = activeCompDef.sections[sKey];
+      const rows = buildSectionFields(sDef.properties || {}, draft, (k, v) => this.onPrimitivePropertyChange(k, v));
+
+      const sectionEl = h('div', { className: 'hf-primitives-section', key: sKey },
+        h('div', { className: 'hf-primitives-section-title' },
+          h('svg', { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.4 },
+            h('rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }),
+            h('path', { d: 'M3 9h18' }),
+            h('path', { d: 'M9 21V9' })
+          ),
+          sDef.title || sKey
+        ),
+        rows
+      );
+
+      return {
+        key: sKey,
+        title: sDef.title || sKey,
+        el: sectionEl,
+      };
+    });
+
+    // 5. Sample text & label
+    const sampleLabel = activeCompDef.sample_label || 'Sample Text:';
+    if (this.primitiveSampleText == null) {
+      this.primitiveSampleText = activeCompDef.sample_text || 'Sample Preview Text';
+    }
+
+    // 6. Live preview flags & calculated styles
+    const isCompSlideTitle = isStylesSubActive && active === 'slide_title';
+    const isCompCaption = isStylesSubActive && active === 'caption';
+    const isCompTopicCard = isStylesSubActive && active === 'topic_card';
+    const isCompHeroLabel = isStylesSubActive && active === 'hero_label';
+    const isCompPanelLabel = isStylesSubActive && active === 'panel_label';
+    const isCompCalloutCard = isStylesSubActive && active === 'callout_card';
+    const isCompBbox = isStylesSubActive && active === 'bbox';
+    const isBboxSpotlight = (draft.bbox_treatment || 'bbox_spotlight') === 'bbox_spotlight';
+    const isBboxDraw = String(draft.bbox_treatment || '') === 'bbox_draw';
+    const isGenericComp = isStylesSubActive && !isCompSlideTitle && !isCompCaption && !isCompTopicCard && !isCompHeroLabel && !isCompPanelLabel && !isCompCalloutCard && !isCompBbox;
+    const showPrimitiveSampleBar = !(isStylesSubActive && isCompBbox);
+
+    // Slide title styles
+    const radVal = draft.slide_title_radius || '0';
+    const shadow = draft.slide_title_shadow || 'none';
+    const filterShadow = (shadow === 'none' || !shadow)
+      ? 'none'
+      : (shadow.includes('drop-shadow') ? shadow : 'drop-shadow(' + shadow + ')');
+    const heightRaw = draft.slide_title_height || '32';
+    const heightVal = heightRaw === 'auto' ? 'auto' : (/^\d+(\.\d+)?$/.test(heightRaw) ? (heightRaw + 'px') : heightRaw);
+    const chipW = draft.slide_title_chip_width || '0';
+    const chipWVal = /^\d+(\.\d+)?$/.test(chipW) ? (chipW + 'px') : chipW;
+    const isChipHidden = chipWVal === '0' || chipWVal === '0px';
+
+    const previewBadgeStyle = {
+      position: 'absolute',
+      top: '18px',
+      left: '0',
+      height: heightVal,
+      display: 'inline-flex',
+      alignItems: 'stretch',
+      width: 'max-content',
+      maxWidth: 'none',
+      filter: filterShadow,
+      pointerEvents: 'none',
+      zIndex: 35,
+      boxSizing: 'border-box',
+    };
+
+    const previewChipStyle = {
+      width: chipWVal,
+      background: draft.slide_title_accent || '#ff5a17',
+      flexShrink: '0',
+      borderRadius: '0',
+      display: isChipHidden ? 'none' : 'block',
+    };
+
+    const blurRaw = draft.slide_title_blur || '0';
+    const blurVal = /^\d+(\.\d+)?$/.test(blurRaw) ? (blurRaw + 'px') : blurRaw;
+    const fSizeRaw = draft.slide_title_font_size || '20';
+    const fSizeVal = /^\d+(\.\d+)?$/.test(fSizeRaw) ? (fSizeRaw + 'px') : fSizeRaw;
+    const radEffective = /^\d+(\.\d+)?$/.test(radVal) ? (radVal + 'px') : radVal;
+
+    const previewTextStyle = {
+      flex: '0 0 auto',
+      width: 'max-content',
+      background: draft.slide_title_bg || 'rgba(255, 255, 255, 0.8)',
+      backdropFilter: 'blur(' + blurVal + ')',
+      WebkitBackdropFilter: 'blur(' + blurVal + ')',
+      display: 'block',
+      lineHeight: heightVal,
+      padding: draft.slide_title_padding || '0 12px 0 10px',
+      color: draft.slide_title_text_color || '#f35a1f',
+      fontFamily: "'" + (draft.slide_title_font || 'Fira Sans') + "', system-ui, sans-serif",
+      fontSize: fSizeVal,
+      fontWeight: getWeight(draft.slide_title_font_weight, '700'),
+      whiteSpace: 'nowrap',
+      overflow: 'visible',
+      boxSizing: 'border-box',
+      borderRadius: radEffective,
+    };
+
+    // Caption styles
+    const radCaption = /^\d+(\.\d+)?$/.test(draft.caption_radius || '4') ? ((draft.caption_radius || '4') + 'px') : (draft.caption_radius || '4');
+    const fSizeCaption = /^\d+(\.\d+)?$/.test(draft.caption_font_size || '13') ? ((draft.caption_font_size || '13') + 'px') : (draft.caption_font_size || '13');
+    const previewCaptionStyle = {
+      position: 'absolute',
+      left: '50%',
+      bottom: '24px',
+      transform: 'translateX(-50%)',
+      width: 'auto',
+      maxWidth: draft.caption_max_width || '60%',
+      padding: draft.caption_padding || '10px',
+      borderRadius: radCaption,
+      background: draft.caption_bg || '#31373a',
+      color: draft.caption_text_color || '#FFFFFF',
+      textAlign: 'center',
+      fontFamily: "'" + (draft.caption_font || 'Open Sans') + "', system-ui, sans-serif",
+      fontSize: fSizeCaption,
+      fontWeight: getWeight(draft.caption_font_weight, '400'),
+      lineHeight: draft.caption_line_height || '1.5',
+      textShadow: draft.caption_text_shadow || 'none',
+      boxSizing: 'border-box',
+      zIndex: 35,
+      pointerEvents: 'none',
+    };
+
+    // Topic card styles
+    const radTopic = /^\d+(\.\d+)?$/.test(draft.topic_card_radius || '22') ? ((draft.topic_card_radius || '22') + 'px') : (draft.topic_card_radius || '22');
+    const fSizeTopic = /^\d+(\.\d+)?$/.test(draft.topic_card_font_size || '44') ? ((draft.topic_card_font_size || '44') + 'px') : (draft.topic_card_font_size || '44');
+    const previewTopicCardStyle = {
+      maxWidth: draft.topic_card_max_width || '520px',
+      width: 'auto',
+      padding: draft.topic_card_padding || '24px 32px',
+      borderRadius: radTopic,
+      background: draft.topic_card_bg || '#000066',
+      border: draft.topic_card_border || 'none',
+      boxShadow: draft.topic_card_shadow || '0 10px 30px rgba(0, 0, 0, 0.4)',
+      boxSizing: 'border-box',
+    };
+    const previewTopicCardTextStyle = {
+      color: draft.topic_card_text_color || '#FFFFFF',
+      fontFamily: "'" + (draft.topic_card_font || 'Public Sans') + "', system-ui, sans-serif",
+      fontSize: fSizeTopic,
+      fontWeight: getWeight(draft.topic_card_font_weight, '800'),
+      textAlign: draft.topic_card_text_align || 'center',
+      textTransform: draft.topic_card_text_transform || 'none',
+      lineHeight: draft.topic_card_line_height || '1.15',
+    };
+
+    // Hero label styles
+    const radHero = /^\d+(\.\d+)?$/.test(draft.hero_label_radius || '24') ? ((draft.hero_label_radius || '24') + 'px') : (draft.hero_label_radius || '24');
+    const fSizeHero = /^\d+(\.\d+)?$/.test(draft.hero_label_font_size || '26') ? ((draft.hero_label_font_size || '26') + 'px') : (draft.hero_label_font_size || '26');
+    const previewHeroLabelStyle = {
+      maxWidth: draft.hero_label_max_width || '90%',
+      padding: draft.hero_label_padding || '18px 36px',
+      borderRadius: radHero,
+      background: draft.hero_label_bg || '#f05725',
+      boxShadow: draft.hero_label_shadow || '0 8px 24px rgba(0, 0, 0, 0.28)',
+      color: draft.hero_label_text_color || '#FFFFFF',
+      fontFamily: "'" + (draft.hero_label_font || 'Public Sans') + "', system-ui, sans-serif",
+      fontSize: fSizeHero,
+      fontWeight: getWeight(draft.hero_label_font_weight, '700'),
+      textAlign: draft.hero_label_text_align || 'center',
+      lineHeight: draft.hero_label_line_height || '1.25',
+      boxSizing: 'border-box',
+    };
+
+    // Panel label styles
+    const radPanel = /^\d+(\.\d+)?$/.test(draft.panel_label_radius || '10') ? ((draft.panel_label_radius || '10') + 'px') : (draft.panel_label_radius || '10');
+    const fSizePanel = /^\d+(\.\d+)?$/.test(draft.panel_label_font_size || '18') ? ((draft.panel_label_font_size || '18') + 'px') : (draft.panel_label_font_size || '18');
+    const bottomPanel = /^\d+(\.\d+)?$/.test(draft.panel_label_bottom || '15') ? ((draft.panel_label_bottom || '15') + 'px') : (draft.panel_label_bottom || '15');
+    const previewPanelLabelStyle = {
+      position: 'absolute',
+      left: '50%',
+      bottom: bottomPanel,
+      transform: 'translateX(-50%)',
+      padding: draft.panel_label_padding || '10px 22px',
+      borderRadius: radPanel,
+      background: draft.panel_label_bg || '#f05725',
+      boxShadow: draft.panel_label_shadow || '0 4px 12px rgba(0, 0, 0, 0.3)',
+      color: draft.panel_label_text_color || '#FFFFFF',
+      fontFamily: "'" + (draft.panel_label_font || 'Public Sans') + "', system-ui, sans-serif",
+      fontSize: fSizePanel,
+      fontWeight: getWeight(draft.panel_label_font_weight, '700'),
+      textTransform: draft.panel_label_text_transform || 'none',
+      letterSpacing: draft.panel_label_letter_spacing || '0',
+      textAlign: 'center',
+      whiteSpace: 'nowrap',
+      boxSizing: 'border-box',
+    };
+
+    // Callout card styles
+    const radCallout = /^\d+(\.\d+)?$/.test(draft.callout_card_radius || '30') ? ((draft.callout_card_radius || '30') + 'px') : (draft.callout_card_radius || '30');
+    const bWidthCallout = /^\d+(\.\d+)?$/.test(draft.callout_card_border_width || '4') ? ((draft.callout_card_border_width || '4') + 'px') : (draft.callout_card_border_width || '4');
+    const previewCalloutCardStyle = {
+      padding: draft.callout_card_padding || '18px 22px 28px',
+      borderRadius: radCallout,
+      background: draft.callout_card_bg || 'linear-gradient(90deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.12) 100%)',
+      border: bWidthCallout + ' solid #FF5C26',
+      boxShadow: draft.callout_card_shadow || '0 8px 24px rgba(0, 0, 0, 0.35)',
+      boxSizing: 'border-box',
+    };
+    const fSizeCalloutH = /^\d+(\.\d+)?$/.test(draft.callout_card_header_font_size || '32') ? ((draft.callout_card_header_font_size || '32') + 'px') : (draft.callout_card_header_font_size || '32');
+    const previewCalloutHeaderStyle = {
+      fontFamily: "'" + (draft.callout_card_header_font || 'Fira Sans') + "', system-ui, sans-serif",
+      fontSize: fSizeCalloutH,
+      fontWeight: getWeight(draft.callout_card_header_font_weight, '700'),
+      color: draft.callout_card_header_text_color || '#FF5C26',
+      textTransform: draft.callout_card_header_text_transform || 'uppercase',
+      lineHeight: '1.2',
+    };
+    const divThick = /^\d+(\.\d+)?$/.test(draft.callout_card_divider_thickness || '2') ? ((draft.callout_card_divider_thickness || '2') + 'px') : (draft.callout_card_divider_thickness || '2');
+    const previewCalloutDividerStyle = {
+      height: divThick,
+      background: draft.callout_card_divider || 'linear-gradient(90deg, #FF5C26 0%, rgba(255, 92, 38, 0.35) 70%, rgba(255, 92, 38, 0) 100%)',
+      margin: '12px 0 14px 0',
+      display: divThick === '0px' || divThick === '0' ? 'none' : 'block',
+    };
+    const fSizeCalloutB = /^\d+(\.\d+)?$/.test(draft.callout_card_body_font_size || '36') ? ((draft.callout_card_body_font_size || '36') + 'px') : (draft.callout_card_body_font_size || '36');
+    const previewCalloutBodyStyle = {
+      fontFamily: "'" + (draft.callout_card_body_font || 'Fira Sans') + "', system-ui, sans-serif",
+      fontSize: fSizeCalloutB,
+      fontWeight: getWeight(draft.callout_card_body_font_weight, '600'),
+      color: draft.callout_card_body_text_color || '#FFFFFF',
+      lineHeight: '1.25',
+    };
+
+    // Bounding box highlight styles
+    const bWidthBbox = /^\d+(\.\d+)?$/.test(draft.bbox_spotlight_border_width || '3') ? ((draft.bbox_spotlight_border_width || '3') + 'px') : (draft.bbox_spotlight_border_width || '3');
+    const radBbox = /^\d+(\.\d+)?$/.test(draft.bbox_spotlight_corner_radius || '28') ? ((draft.bbox_spotlight_corner_radius || '28') + 'px') : (draft.bbox_spotlight_corner_radius || '28');
+    const previewBboxSpotlightStyle = {
+      position: 'absolute',
+      left: '30%',
+      top: '30%',
+      width: '40%',
+      height: '40%',
+      borderRadius: radBbox,
+      border: bWidthBbox + ' solid ' + (draft.bbox_spotlight_border_color || '#F9E400'),
+      boxShadow: '0 0 0 9999px rgba(0, 0, 0, ' + (draft.bbox_spotlight_veil_opacity || '0.75') + ')',
+      pointerEvents: 'none',
+      zIndex: 35,
+    };
+    const bDrawWidth = /^\d+(\.\d+)?$/.test(draft.bbox_draw_stroke_width || '4.5') ? ((draft.bbox_draw_stroke_width || '4.5') + 'px') : (draft.bbox_draw_stroke_width || '4.5');
+    const previewBboxDrawStyle = {
+      width: '42%',
+      height: '42%',
+      borderRadius: '8px',
+      border: bDrawWidth + ' solid ' + (draft.bbox_draw_stroke_color || '#f05523'),
+      position: 'relative',
+    };
+
+    // Generic fallback preview for any future primitive
+    const previewGenericStyle = {
+      padding: '20px 32px',
+      borderRadius: '16px',
+      background: draft[active + '_bg'] || '#f05725',
+      color: draft[active + '_text_color'] || '#FFFFFF',
+      fontFamily: "'" + (draft[active + '_font'] || 'Public Sans') + "', system-ui, sans-serif",
+      fontSize: (draft[active + '_font_size'] || '24') + 'px',
+      fontWeight: '700',
+      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)',
+      textAlign: 'center',
+    };
+
+    // Build animCategories dynamically from schema.animations
+    const animCategories = Object.keys(schema.animations || {}).map((animKey) => {
+      const animDef = schema.animations[animKey];
+      const title = animDef.name || animKey;
+      const help = animDef.help;
+      // Hide disabled/unused options (e.g. callout_none is not in the enabled set)
+      const options = (animDef.options || []).filter((opt) => {
+        if (!opt || opt.value == null) return false;
+        const v = String(opt.value);
+        if (v === 'callout_none' || (animKey === 'callout_anims' && v === 'none')) return false;
+        return true;
+      });
+
+      // Current value is a comma-separated string, e.g. "zoom_in, still, center_split"
+      const currentValStr = draft[animKey] || animDef.default || '';
+      const currentVals = currentValStr.split(',').map(s => s.trim()).filter(Boolean);
+
+      // Render check list for each option
+      const checkBoxes = options.map((opt) => {
+        const isChecked = currentVals.includes(opt.value);
+        
+        // Handle checkbox toggling
+        const handleToggle = (e) => {
+          let nextVals = [...currentVals];
+          if (e.target.checked) {
+            if (!nextVals.includes(opt.value)) {
+              nextVals.push(opt.value);
+            }
+          } else {
+            // Prevent unselecting the last remaining option
+            if (nextVals.length <= 1) {
+              alert('You must keep at least one animation enabled for ' + title + '!');
+              return;
+            }
+            nextVals = nextVals.filter(v => v !== opt.value);
+          }
+          const nextValStr = nextVals.join(', ');
+          this.onPrimitivePropertyChange(animKey, nextValStr);
+        };
+
+        // Render option row
+        return h('label', {
+          key: opt.value,
+          className: isChecked ? 'hf-anim-option-row is-checked' : 'hf-anim-option-row'
+        },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+            h('input', {
+              type: 'checkbox',
+              checked: isChecked,
+              onChange: handleToggle,
+              style: { accentColor: '#4f46e5', width: '15px', height: '15px', cursor: 'pointer' },
+            }),
+            h('span', null, opt.label)
+          ),
+          h('button', {
+            onClick: (e) => {
+              if (e && e.stopPropagation) e.stopPropagation();
+              const isThisPlaying = this.animPreviewPlaying && this.activePreviewAnim === opt.value && this.activePreviewAnimKey === animKey;
+              if (isThisPlaying) {
+                this._stopAnimPreview();
+              } else {
+                this._playAnimPreview(opt.value, animKey);
+              }
+            },
+            title: 'Preview Animation',
+            className: (this.animPreviewPlaying && this.activePreviewAnim === opt.value && this.activePreviewAnimKey === animKey) ? 'hf-anim-play-btn is-active-playing' : 'hf-anim-play-btn',
+          }, (this.animPreviewPlaying && this.activePreviewAnim === opt.value && this.activePreviewAnimKey === animKey) ? 'Playing 🎬' : 'Play ▶')
+        );
+      });
+
+      const sectionEl = h('div', { className: 'hf-primitives-section', key: animKey },
+        h('div', { className: 'hf-primitives-section-title' },
+          h('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5 },
+            h('polygon', { points: '23 7 16 12 23 17 23 7' }),
+            h('rect', { x: 1, y: 5, width: 15, height: 14, rx: 2, ry: 2 })
+          ),
+          h('span', { style: { marginLeft: '6px' } }, title),
+          help ? h('span', { className: 'hf-prop-help', tabIndex: 0 },
+            h('span', { className: 'hf-prop-help-icon' }, '?'),
+            h('span', { className: 'hf-prop-tooltip' }, help)
+          ) : null
+        ),
+        h('div', { style: { display: 'flex', flexDirection: 'column' } }, checkBoxes)
+      );
+
+      return {
+        key: animKey,
+        title: title,
+        el: sectionEl,
+      };
+    });
+
+    const stylesSubViewTabColor = isStylesSubActive ? '#ffffff' : '#94a3b8';
+    const animsSubViewTabColor = isAnimsSubActive ? '#ffffff' : '#94a3b8';
+
+    const stylesSubViewDotDisplay = isStylesSubActive ? 'inline-block' : 'none';
+    const animsSubViewDotDisplay = isAnimsSubActive ? 'inline-block' : 'none';
+
+    const animPreviewKey = this.animPreviewKey || 'anim-key-0';
+    const activeAnim = this.activePreviewAnim || 'none';
+    const activeAnimKey = this.activePreviewAnimKey || 'layout_anims_hero';
+
+    // hasActivePreview: anim selected / last played (keeps final frame content visible)
+    // isPlaying: Play is actively running (CSS motion classes applied / restartable)
+    const hasActivePreview = activeAnim !== 'none';
+    const isPlaying = !!this.animPreviewPlaying && hasActivePreview;
+
+    // Figure out which elements to show in the simulator
+    const showShutterAnims = isPlaying && activeAnim === 'center_split';
+    const showLabelAnims = isPlaying && activeAnimKey.indexOf('label_anims') !== -1;
+    const showCalloutAnims = isPlaying && activeAnimKey === 'callout_anims';
+    let showBboxSpotlightAnims = false;
+    let showBboxDrawAnims = false;
+
+    // Set classes
+    let activeAnimImgClass = 'hf-anim-still';
+    let activeAnimImgClassLeft = 'hf-anim-still';
+    let activeAnimImgClassRight = 'hf-anim-still';
+    const isAnimCenterThenSplit = isPlaying && activeAnim === 'center_then_split' && activeAnimKey === 'layout_anims_split';
+    const splitContainerClass = isAnimCenterThenSplit
+      ? 'hf-anim-layout-split-container is-center-then-split'
+      : 'hf-anim-layout-split-container';
+    const splitLeftPanelClass = isAnimCenterThenSplit
+      ? 'hf-anim-split-panel is-cts-left'
+      : 'hf-anim-split-panel';
+    const splitRightPanelClass = isAnimCenterThenSplit
+      ? 'hf-anim-split-panel is-cts-right'
+      : 'hf-anim-split-panel';
+    const splitLeftPanelStyle = isAnimCenterThenSplit ? 'background: #ffffff;' : 'background: #000;';
+    const splitRightPanelStyle = 'background: #ffffff;';
+    const splitRightImgStyle = isAnimCenterThenSplit ? 'animation-delay: 0s;' : 'animation-delay: 2.0s;';
+    // After Play ends, keep both split images visible (final frame) instead of collapsing to white right.
+    const showSplitFinalFrame = !isPlaying && hasActivePreview && (activeAnimKey === 'layout_anims_split' || activeAnimKey === 'label_anims_split');
+    const showSplitIdleRight = !isPlaying && !showSplitFinalFrame;
+    const showInsetFinalFrame = !isPlaying && (
+      (hasActivePreview && (activeAnimKey === 'layout_anims_inset' || activeAnimKey === 'label_anims_inset'))
+      || activeAnimKey === 'label_anims_inset'
+    );
+    const showInsetIdleRight = !isPlaying && !showInsetFinalFrame;
+    // Layout motion only for layout_anims_inset — not while previewing label badge entrances
+    const isInsetLayoutMotion = isPlaying && activeAnimKey === 'layout_anims_inset';
+    const insetMainAnimClass = isInsetLayoutMotion ? 'hf-anim-keep-main-reveal' : '';
+    const insetMainAnimStyle = isInsetLayoutMotion ? 'animation-delay: 0s;' : 'animation: none;';
+    const insetRightAnimStyle = isInsetLayoutMotion ? 'animation-delay: 1.35s;' : 'animation: none;';
+
+    // Four-panel grid: match HFMultiPanelGrid (scale focus / sequential reveal / corner slide_in)
+    let grid4InnerClass1 = '';
+    let grid4InnerClass2 = '';
+    let grid4InnerClass3 = '';
+    let grid4InnerClass4 = '';
+    let grid4InnerStyle1 = '';
+    let grid4InnerStyle2 = '';
+    let grid4InnerStyle3 = '';
+    let grid4InnerStyle4 = '';
+    let grid4FgClass1 = '';
+    let grid4FgClass2 = '';
+    let grid4FgClass3 = '';
+    let grid4FgClass4 = '';
+    const isGrid4LayoutPlaying = isPlaying && (activeAnimKey === 'layout_anims_multi_panel_4');
+    if (isGrid4LayoutPlaying) {
+      if (activeAnim === 'scale_emphasis') {
+        grid4FgClass1 = 'hf-anim-grid4-scale-0';
+        grid4FgClass2 = 'hf-anim-grid4-scale-1';
+        grid4FgClass3 = 'hf-anim-grid4-scale-2';
+        grid4FgClass4 = 'hf-anim-grid4-scale-3';
+      } else if (activeAnim === 'reveal') {
+        grid4InnerClass1 = 'hf-anim-grid-reveal';
+        grid4InnerClass2 = 'hf-anim-grid-reveal';
+        grid4InnerClass3 = 'hf-anim-grid-reveal';
+        grid4InnerClass4 = 'hf-anim-grid-reveal';
+        grid4InnerStyle1 = 'animation-delay: 0s;';
+        grid4InnerStyle2 = 'animation-delay: 1.2s;';
+        grid4InnerStyle3 = 'animation-delay: 2.4s;';
+        grid4InnerStyle4 = 'animation-delay: 3.6s;';
+      } else if (activeAnim === 'slide_in') {
+        grid4InnerClass1 = 'hf-anim-grid4-slide-tl';
+        grid4InnerClass2 = 'hf-anim-grid4-slide-tr';
+        grid4InnerClass3 = 'hf-anim-grid4-slide-bl';
+        grid4InnerClass4 = 'hf-anim-grid4-slide-br';
+        grid4InnerStyle1 = 'animation-delay: 0s;';
+        grid4InnerStyle2 = 'animation-delay: 1.2s;';
+        grid4InnerStyle3 = 'animation-delay: 2.4s;';
+        grid4InnerStyle4 = 'animation-delay: 3.6s;';
+      }
+    }
+
+    // Three-panel grid: match player multi_panel_grid_3 (equal columns; L/top/R slide)
+    let grid3InnerClass1 = '';
+    let grid3InnerClass2 = '';
+    let grid3InnerClass3 = '';
+    let grid3InnerStyle1 = '';
+    let grid3InnerStyle2 = '';
+    let grid3InnerStyle3 = '';
+    let grid3FgClass1 = '';
+    let grid3FgClass2 = '';
+    let grid3FgClass3 = '';
+    const isGrid3LayoutPlaying = isPlaying && (activeAnimKey === 'layout_anims_multi_panel_3');
+    if (isGrid3LayoutPlaying) {
+      if (activeAnim === 'scale_emphasis') {
+        grid3FgClass1 = 'hf-anim-grid3-scale-0';
+        grid3FgClass2 = 'hf-anim-grid3-scale-1';
+        grid3FgClass3 = 'hf-anim-grid3-scale-2';
+      } else if (activeAnim === 'reveal') {
+        grid3InnerClass1 = 'hf-anim-grid-reveal';
+        grid3InnerClass2 = 'hf-anim-grid-reveal';
+        grid3InnerClass3 = 'hf-anim-grid-reveal';
+        grid3InnerStyle1 = 'animation-delay: 0s;';
+        grid3InnerStyle2 = 'animation-delay: 1.2s;';
+        grid3InnerStyle3 = 'animation-delay: 2.4s;';
+      } else if (activeAnim === 'slide_in') {
+        grid3InnerClass1 = 'hf-anim-grid3-slide-l';
+        grid3InnerClass2 = 'hf-anim-grid3-slide-t';
+        grid3InnerClass3 = 'hf-anim-grid3-slide-r';
+        grid3InnerStyle1 = 'animation-delay: 0s;';
+        grid3InnerStyle2 = 'animation-delay: 1.2s;';
+        grid3InnerStyle3 = 'animation-delay: 2.4s;';
+      }
+    }
+
+    if (isPlaying && activeAnimKey.indexOf('layout_anims') !== -1 && activeAnim !== 'center_split') {
+      activeAnimImgClass = 'hf-anim-' + activeAnim.replace(/_/g, '-');
+      // Match player split behavior: left enters from left, right enters from right.
+      if ((activeAnim === 'slide_in' || activeAnim === 'wipe_reveal') && (activeAnimKey === 'layout_anims_split' || activeAnimKey === 'label_anims_split')) {
+        if (activeAnim === 'slide_in') {
+          activeAnimImgClassLeft = 'hf-anim-slide-in-from-left';
+          activeAnimImgClassRight = 'hf-anim-slide-in-from-right';
+        } else {
+          activeAnimImgClassLeft = 'hf-anim-wipe-reveal-from-left';
+          activeAnimImgClassRight = 'hf-anim-wipe-reveal-from-right';
+        }
+      } else if (isAnimCenterThenSplit) {
+        // Panel motion is handled by .is-cts-left / .is-cts-right; keep images still.
+        activeAnimImgClassLeft = 'hf-anim-still';
+        activeAnimImgClassRight = 'hf-anim-still';
+      } else {
+        activeAnimImgClassLeft = activeAnimImgClass;
+        activeAnimImgClassRight = activeAnimImgClass;
+      }
+    }
+
+    let activeAnimLabelClass = '';
+    let activeAnimLabelClassLeft = '';
+    let activeAnimLabelClassRight = '';
+    let activeAnimLabelClass1 = '';
+    let activeAnimLabelClass2 = '';
+    let activeAnimLabelClass3 = '';
+    let activeAnimLabelClass4 = '';
+    if (isPlaying && showLabelAnims) {
+      activeAnimLabelClass = 'hf-anim-' + activeAnim.replace(/_/g, '-');
+      // Inset + two-item split: same player motion (main/left from -150, support/right from +150)
+      if (activeAnim === 'label_slide' && (activeAnimKey === 'label_anims_split' || activeAnimKey === 'label_anims_inset')) {
+        activeAnimLabelClassLeft = 'hf-anim-label-slide-from-left';
+        activeAnimLabelClassRight = 'hf-anim-label-slide-from-right';
+        activeAnimLabelClass = activeAnimLabelClassLeft;
+        activeAnimLabelClass1 = activeAnimLabelClassLeft;
+        activeAnimLabelClass2 = activeAnimLabelClassRight;
+        activeAnimLabelClass3 = activeAnimLabelClass;
+        activeAnimLabelClass4 = activeAnimLabelClass;
+      } else if (activeAnim === 'label_corner_slide') {
+        activeAnimLabelClass1 = 'hf-anim-label-corner-slide-1';
+        activeAnimLabelClass2 = 'hf-anim-label-corner-slide-2';
+        activeAnimLabelClass3 = 'hf-anim-label-corner-slide-3';
+        activeAnimLabelClass4 = 'hf-anim-label-corner-slide-4';
+        activeAnimLabelClassLeft = activeAnimLabelClass;
+        activeAnimLabelClassRight = activeAnimLabelClass;
+      } else if (activeAnim === 'label_slide_up') {
+        // 3-panel: all badges slide up from y:60 (player)
+        activeAnimLabelClass = 'hf-anim-label-slide-up';
+        activeAnimLabelClassLeft = activeAnimLabelClass;
+        activeAnimLabelClassRight = activeAnimLabelClass;
+        activeAnimLabelClass1 = activeAnimLabelClass;
+        activeAnimLabelClass2 = activeAnimLabelClass;
+        activeAnimLabelClass3 = activeAnimLabelClass;
+        activeAnimLabelClass4 = activeAnimLabelClass;
+      } else {
+        activeAnimLabelClassLeft = activeAnimLabelClass;
+        activeAnimLabelClassRight = activeAnimLabelClass;
+        activeAnimLabelClass1 = activeAnimLabelClass;
+        activeAnimLabelClass2 = activeAnimLabelClass;
+        activeAnimLabelClass3 = activeAnimLabelClass;
+        activeAnimLabelClass4 = activeAnimLabelClass;
+      }
+    }
+
+    let activeAnimCalloutClass = '';
+    if (isPlaying && showCalloutAnims) {
+      activeAnimCalloutClass = 'hf-anim-' + activeAnim.replace(/_/g, '-');
+    }
+
+    // Callout anim preview: exact player/styles tokens + longer body (wraps ~3–5 lines at 42% width)
+    const animCalloutCardStyle = Object.assign({}, previewCalloutCardStyle);
+    if (!(isPlaying && showCalloutAnims)) {
+      animCalloutCardStyle.animation = 'none';
+    }
+    const animCalloutHeaderStyle = Object.assign({}, previewCalloutHeaderStyle);
+    const animCalloutDividerStyle = Object.assign({}, previewCalloutDividerStyle);
+    const animCalloutBodyStyle = Object.assign({}, previewCalloutBodyStyle, {
+      // Keep player font size, but prevent the card from reading as a single huge paragraph block
+      maxWidth: '100%',
+    });
+    const animCalloutBodyText = 'Circulates refrigerant vapor';
+
+    // Proxy the Google Drive images so they resolve properly
+    const imgHero = this.proxyImageUrl('https://drive.google.com/file/d/1M6KmQNIDDGkpYt6Is7dLuCkLN1B3yFuy/view', 'image');
+    
+    const imgGrid4_1 = this.proxyImageUrl('https://drive.google.com/file/d/1zw296McbqQ0c_YUV02K4duNv4E6XLbAO/view', 'image');
+    const imgGrid4_2 = this.proxyImageUrl('https://drive.google.com/file/d/1enuzReDacnf0rFEXU7ReV7LixaaA7EKH/view', 'image');
+    const imgGrid4_3 = this.proxyImageUrl('https://drive.google.com/file/d/1quJstYN5s8rZWWQBHU0m7ASqkviuoLYh/view', 'image');
+    const imgGrid4_4 = this.proxyImageUrl('https://drive.google.com/file/d/1EcfLpOYk1oF67lfZabbLhtMSTU-GXZCc/view', 'image');
+
+    const imgGrid3_1 = this.proxyImageUrl('https://drive.google.com/file/d/1Fhtag4t8SxFFUVXu_JpjqKOUQKBCMwTd/view', 'image');
+    const imgGrid3_2 = this.proxyImageUrl('https://drive.google.com/file/d/1cGzTmSnlvmj31Di2oCo3Crein1bwCMqv/view', 'image');
+    const imgGrid3_3 = this.proxyImageUrl('https://drive.google.com/file/d/10pMMsyL6Cd83B-ZZ4ccExfNSc_rluaGV/view', 'image');
+
+    const imgInsetMain = this.proxyImageUrl('https://drive.google.com/file/d/117FZ6xFwsTKCdYuE7ZvW8X45kQynJUHX/view', 'image');
+    const imgInsetSupport = this.proxyImageUrl('https://drive.google.com/file/d/1dmVmsmFHDlpqmHwUQ9IxgiPgWj9ks9oy/view', 'image');
+
+    const isAnimLayoutHero = activeAnimKey === 'layout_anims_hero';
+    const isAnimLayoutSplit = activeAnimKey === 'layout_anims_split' || activeAnimKey === 'label_anims_split';
+    const isAnimLayoutInset = activeAnimKey === 'layout_anims_inset' || activeAnimKey === 'label_anims_inset';
+    const isAnimLayoutGrid3 = activeAnimKey === 'layout_anims_multi_panel_3' || activeAnimKey === 'label_anims_multi_panel_3';
+    const isAnimLayoutGrid4 = activeAnimKey === 'layout_anims_multi_panel_4' || activeAnimKey === 'label_anims_multi_panel_4';
+    const isAnimLayoutTopic = activeAnimKey === 'layout_anims_topic';
+    const isAnimLayoutBbox = activeAnimKey === 'bbox_anims';
+    const isAnimLayoutCallout = activeAnimKey === 'callout_anims';
+    showBboxSpotlightAnims = isPlaying && isAnimLayoutBbox && activeAnim === 'bbox_spotlight';
+    showBboxDrawAnims = isPlaying && isAnimLayoutBbox && activeAnim === 'bbox_draw';
+
+    const bboxVeilOpacity = parseFloat(draft.bbox_spotlight_veil_opacity || '0.75');
+    const bboxSafeVeil = Number.isFinite(bboxVeilOpacity) ? bboxVeilOpacity : 0.75;
+    const bboxBorderColor = draft.bbox_spotlight_border_color || '#F9E400';
+    const bboxBorderWidth = draft.bbox_spotlight_border_width || '3';
+    const bboxCornerRadius = draft.bbox_spotlight_corner_radius || '28';
+    const bboxDash = String(draft.bbox_spotlight_border_dash || '18 10');
+    const bboxDashNone = bboxDash === 'none' || bboxDash === 'solid';
+    const bboxMarchCycle = parseFloat(draft.bbox_spotlight_border_march_cycle || '1.1') || 1.1;
+    const bboxDashParts = bboxDash.split(/[\s,]+/).map(parseFloat).filter((n) => Number.isFinite(n) && n > 0);
+    const bboxDashPeriod = bboxDashNone ? 0 : (bboxDashParts.length >= 2 ? bboxDashParts[0] + bboxDashParts[1] : (bboxDashParts[0] || 28) * 2);
+    const bboxVeilStyle = 'background: rgba(0, 0, 0, ' + bboxSafeVeil + ');';
+    const bboxWindowStyle = 'border-radius: ' + bboxCornerRadius + 'px;';
+    const bboxVeilPlayClass = showBboxSpotlightAnims ? 'is-playing' : '';
+    const bboxCutoutPlayClass = showBboxSpotlightAnims ? 'is-playing' : '';
+    const bboxDashClass = (!bboxDashNone && showBboxSpotlightAnims) ? 'is-marching' : '';
+    const styleBboxDashClass = (!bboxDashNone && isCompBbox && isBboxSpotlight) ? 'is-marching' : '';
+    const bboxDashStyle = 'stroke: ' + bboxBorderColor + '; stroke-width: ' + bboxBorderWidth
+      + (bboxDashNone ? '; stroke-dasharray: none' : '; stroke-dasharray: ' + bboxDash)
+      + '; --hf-bbox-dash-period: -' + bboxDashPeriod + '; --hf-bbox-march-cycle: ' + bboxMarchCycle + 's;';
+    const bboxDrawPlayClass = showBboxDrawAnims ? 'is-playing' : '';
+    const bboxDrawStrokeStyle = 'stroke: ' + (draft.bbox_draw_stroke_color || '#f05523') + '; stroke-width: ' + (draft.bbox_draw_stroke_width || '4.5') + ';';
+
+    // Friendly label to show in the indicator (prefer YAML option label over raw value)
+    let activePlayingAnimLabel = 'NONE (STATIC)';
+    if (isPlaying) {
+      const animDef = (schema.animations || {})[activeAnimKey] || {};
+      const optMatch = (animDef.options || []).find((o) => o && o.value === activeAnim);
+      activePlayingAnimLabel = (optMatch && optMatch.label)
+        ? String(optMatch.label).toUpperCase()
+        : activeAnim.replace(/_/g, ' ').toUpperCase();
+    }
+
+    const stylesTabClass = isStylesSubActive ? 'hf-studio-tab is-active' : 'hf-studio-tab';
+    const animsTabClass = isAnimsSubActive ? 'hf-studio-tab is-active' : 'hf-studio-tab';
+
+    return {
+      imgHero,
+      imgGrid4_1,
+      imgGrid4_2,
+      imgGrid4_3,
+      imgGrid4_4,
+      imgGrid3_1,
+      imgGrid3_2,
+      imgGrid3_3,
+      imgInsetMain,
+      imgInsetSupport,
+      isAnimLayoutHero,
+      isAnimLayoutSplit,
+      isAnimLayoutInset,
+      isAnimLayoutGrid3,
+      isAnimLayoutGrid4,
+      isAnimLayoutTopic,
+      isAnimLayoutBbox,
+      isAnimLayoutCallout,
+      splitContainerClass,
+      splitLeftPanelClass,
+      splitRightPanelClass,
+      splitLeftPanelStyle,
+      splitRightPanelStyle,
+      splitRightImgStyle,
+      showSplitFinalFrame,
+      showSplitIdleRight,
+      showInsetFinalFrame,
+      showInsetIdleRight,
+      insetMainAnimClass,
+      insetMainAnimStyle,
+      insetRightAnimStyle,
+      grid4InnerClass1,
+      grid4InnerClass2,
+      grid4InnerClass3,
+      grid4InnerClass4,
+      grid4InnerStyle1,
+      grid4InnerStyle2,
+      grid4InnerStyle3,
+      grid4InnerStyle4,
+      grid4FgClass1,
+      grid4FgClass2,
+      grid4FgClass3,
+      grid4FgClass4,
+      grid3InnerClass1,
+      grid3InnerClass2,
+      grid3InnerClass3,
+      grid3InnerStyle1,
+      grid3InnerStyle2,
+      grid3InnerStyle3,
+      grid3FgClass1,
+      grid3FgClass2,
+      grid3FgClass3,
+      stylesTabClass,
+      animsTabClass,
+      isPlaying,
+      animCategories,
+      isStylesSubActive,
+      isAnimsSubActive,
+      stylesSubViewTabColor,
+      animsSubViewTabColor,
+      stylesSubViewDotDisplay,
+      animsSubViewDotDisplay,
+      animPreviewKey,
+      activeAnimImgClass,
+      activeAnimImgClassLeft,
+      activeAnimImgClassRight,
+      showShutterAnims,
+      showLabelAnims,
+      showCalloutAnims,
+      showBboxSpotlightAnims,
+      showBboxDrawAnims,
+      bboxVeilStyle,
+      bboxWindowStyle,
+      bboxVeilPlayClass,
+      bboxCutoutPlayClass,
+      bboxDashClass,
+      styleBboxDashClass,
+      bboxDashStyle,
+      bboxCornerRadius,
+      bboxDrawPlayClass,
+      bboxDrawStrokeStyle,
+      activeAnimLabelClass,
+      activeAnimLabelClassLeft,
+      activeAnimLabelClassRight,
+      activeAnimLabelClass1,
+      activeAnimLabelClass2,
+      activeAnimLabelClass3,
+      activeAnimLabelClass4,
+      activeAnimCalloutClass,
+      activePlayingAnimLabel,
+      onSelectStylesSubView: () => {
+        this.studioSubView = 'styles';
+        this.forceUpdate();
+      },
+      onSelectAnimsSubView: () => {
+        this.studioSubView = 'animations';
+        this.forceUpdate();
+      },
+
+      selectedComponent: active,
+      componentSelectEl,
+      activeSections,
+      sampleLabel,
+      primitiveSampleText: this.primitiveSampleText,
+
+      isCompSlideTitle,
+      isCompCaption,
+      isCompTopicCard,
+      isCompHeroLabel,
+      isCompPanelLabel,
+      isCompCalloutCard,
+      isCompBbox,
+      isBboxSpotlight,
+      isBboxDraw,
+      isGenericComp,
+      showPrimitiveSampleBar,
+
+      previewBadgeStyle,
+      previewChipStyle,
+      previewTextStyle,
+      previewCaptionStyle,
+      previewTopicCardStyle,
+      previewTopicCardTextStyle,
+      previewHeroLabelStyle,
+      previewPanelLabelStyle,
+      previewCalloutCardStyle,
+      previewCalloutHeaderStyle,
+      previewCalloutDividerStyle,
+      previewCalloutBodyStyle,
+      animCalloutCardStyle,
+      animCalloutHeaderStyle,
+      animCalloutDividerStyle,
+      animCalloutBodyStyle,
+      animCalloutBodyText,
+      previewBboxSpotlightStyle,
+      previewBboxDrawStyle,
+      previewGenericStyle,
+
+      onResetPrimitiveDraft: () => {
+        const curSchema = this._getStylesSchema();
+        const pActive = this.primitiveActive || 'slide_title';
+        const curComp = curSchema && curSchema.primitives && curSchema.primitives[pActive];
+        if (curComp && curComp.sections) {
+          Object.keys(curComp.sections).forEach((sKey) => {
+            const s = curComp.sections[sKey];
+            if (s && s.properties) {
+              Object.keys(s.properties).forEach((propKey) => {
+                const prop = s.properties[propKey];
+                const defVal = prop && prop.default != null ? String(prop.default) : '';
+                this.primitiveDraft[propKey] = defVal;
+                if (window.HFPlayerTheme) {
+                  window.HFPlayerTheme.set(propKey, defVal);
+                }
+              });
+            }
+          });
+          if (window.HFPlayerTheme && window.HFPlayerTheme.apply) {
+            window.HFPlayerTheme.apply();
+          }
+        }
+        this.forceUpdate();
+      },
+      onPrimitiveSampleTextChange: (e) => {
+        this.primitiveSampleText = e.target.value;
+        this.forceUpdate();
+      },
+    };
+  }
+
   exitPlayerAdjustVisual() {
     const cue = this.playerSnap && this.playerSnap.cue;
     if (this._player) this._player.stop();
+    if (window.HFPlayerMotion) window.HFPlayerMotion.kill();
     if (window.HFSceneTransition) window.HFSceneTransition.kill();
+    this._playerVisualFadePromise = Promise.resolve();
+    this._setCaptionHold(false);
     this.appView = 'review';
     if (!cue) { this.forceUpdate(); return; }
     this._sceneCollapsed[this.sceneKey(cue.rowIndex, cue.sceneId)] = false;
@@ -5018,9 +7960,74 @@ class Component extends DCLogic {
   }
   async useAlt(i, j, k, alt) {
     const st = this.slides[i].segments[j].steps[k];
-    const raw = alt.assetUrl || alt.url || '';
+    const raw = (alt.assetUrl || alt.url || '').trim();
     if (!raw) return;
-    const slideIndex = i;
+    const key = this._stepKey(st);
+    if (!this._pendingPoolSelects) this._pendingPoolSelects = {};
+    if (this._pendingPoolSelects[key]) return;
+
+    const nextType = alt.type || (this.isVideoUrl(raw) ? 'video' : 'image');
+    const nextSource = alt.source || this.assetSource({ type: nextType, assetUrl: raw });
+    const nextLabel = alt.label || alt.title || st.label;
+    const nextDuration = alt.duration || '';
+    const nextAlts = (st.alternatives || []).filter((a) => {
+      const u = String(a.url || a.assetUrl || '').trim();
+      return u && u !== raw;
+    });
+
+    const snapshot = {
+      assetUrl: st.assetUrl,
+      url: st.url,
+      type: st.type,
+      source: st.source,
+      label: st.label,
+      duration: st.duration,
+      status: st.status,
+      showAlts: st.showAlts,
+      editing: st.editing,
+      after: st.after,
+      userCollapsed: st.userCollapsed,
+      alternatives: st.alternatives,
+      sceneCollapsed: { ...(this._sceneCollapsed || {}) },
+    };
+
+    this._pendingPoolSelects[key] = {
+      assetUrl: raw,
+      type: nextType,
+      source: nextSource,
+      label: nextLabel,
+      duration: nextDuration,
+      alternatives: nextAlts,
+    };
+
+    // 1. Immediately apply to in-memory step
+    st.assetUrl = raw;
+    st.url = raw;
+    st.type = nextType;
+    st.source = nextSource;
+    st.label = nextLabel;
+    st.duration = nextDuration;
+    st.status = 'approved';
+    st.after = null;
+    st.showAlts = false;
+    st.editing = false;
+    st.alternatives = nextAlts;
+
+    // 2. Collapse scene layout panel if all visuals on this slide/scene are approved
+    this._maybeCollapseSceneForStep(i, st);
+    if (this.slideStatus(this.slides[i]) === 'approved') {
+      this.slides[i].segments.forEach((seg) => {
+        seg.steps.forEach((s) => {
+          s.userCollapsed = undefined;
+        });
+      });
+    }
+
+    // 3. Immediately sync player and re-render the UI
+    this._syncPlayerSlides();
+    this.forceUpdate();
+
+    // 4. Persist to backend and Google Sheet in the background
     try {
       await window.HFApi.selectPool({
         row_index: st.rowIndex,
@@ -5030,10 +8037,29 @@ class Component extends DCLogic {
         vo: st.voiceover,
         asset_url: raw,
       });
-      await this.reloadSlides();
-      this.maybeAdvance(slideIndex);
+      delete this._pendingPoolSelects[key];
+      this.maybeAdvance(i);
     } catch (err) {
-      alert('Failed to use alternative: ' + (err.message || err));
+      delete this._pendingPoolSelects[key];
+      // Revert step to prior snapshot on failure
+      st.assetUrl = snapshot.assetUrl;
+      st.url = snapshot.url;
+      st.type = snapshot.type;
+      st.source = snapshot.source;
+      st.label = snapshot.label;
+      st.duration = snapshot.duration;
+      st.status = snapshot.status;
+      st.showAlts = snapshot.showAlts;
+      st.editing = snapshot.editing;
+      st.after = snapshot.after;
+      st.userCollapsed = snapshot.userCollapsed;
+      st.alternatives = snapshot.alternatives;
+      if (snapshot.sceneCollapsed) {
+        this._sceneCollapsed = snapshot.sceneCollapsed;
+      }
+      this._syncPlayerSlides();
+      this.forceUpdate();
+      alert('Failed to save alternative: ' + (err.message || err));
     }
   }
   toggleAlts(i, j, k) { const st = this.slides[i].segments[j].steps[k]; st.showAlts = !st.showAlts; this.forceUpdate(); }
@@ -5754,13 +8780,17 @@ class Component extends DCLogic {
       onStartDownloadVideos: () => this.onStartDownloadVideos(),
       courseName: this.courseName || 'Course',
       appView: this.appView,
-      appShellClass: this.appView === 'player' ? 'hf-app-shell hf-app-shell--player' : 'hf-app-shell',
+      appShellClass: this.appView === 'player' ? 'hf-app-shell hf-app-shell--player' : (this.appView === 'primitives' ? 'hf-app-shell hf-app-shell--primitives' : 'hf-app-shell'),
       isReviewView: this.appView === 'review',
       isPlayerView: this.appView === 'player',
+      isPrimitivesView: this.appView === 'primitives',
       reviewTabClass: this.appView === 'review' ? 'is-active' : '',
       playerTabClass: this.appView === 'player' ? 'is-active' : '',
+      primitivesTabClass: this.appView === 'primitives' ? 'is-active' : '',
       onViewReview: () => this.setAppView('review'),
       onViewPlayer: () => this.setAppView('player'),
+      onViewPrimitives: () => this.setAppView('primitives'),
+      ...this.buildPrimitivesRenderData(),
       ...this.buildPlayerRenderData(this.playerSnap, total),
       ...this.buildPlayerSceneSlots(this.playerSnap.cue, this.playerSnap),
       playerSceneEnterClass: this.appView === 'player' ? this._playerSceneEnterClass(this.playerSnap.cue) : '',

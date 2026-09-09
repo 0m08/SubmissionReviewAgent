@@ -74,7 +74,8 @@
     layout_anims_split:
       "hold_and_reveal, scale_emphasis, slide_in, wipe_reveal, slide_up, center_then_split",
     layout_anims_inset: "keep_main_reveal, inset_slide",
-    layout_anims_multi_panel: "scale_emphasis, reveal, slide_in",
+    layout_anims_multi_panel_3: "scale_emphasis, reveal, slide_in",
+    layout_anims_multi_panel_4: "scale_emphasis, reveal, slide_in",
     layout_anims_topic:
       "fade_in_right, fade_in_top_right, fade_in_bottom_right, fade_in_only",
     label_anims_split: "label_slide, label_fade",
@@ -247,6 +248,18 @@
   }
 
   function apply() {
+    const root = document.documentElement;
+    if (!root) return;
+
+    // Apply generic CSS variables for every key in values dictionary
+    Object.keys(values).forEach(function (k) {
+      const cssProp = "--hf-" + k.replace(/_/g, "-");
+      root.style.setProperty(cssProp, values[k]);
+      if (k.indexOf("font") !== -1 && k.indexOf("weight") === -1 && k.indexOf("size") === -1) {
+        ensureGoogleFontLoaded(values[k]);
+      }
+    });
+
     ensureGoogleFontLoaded(get("slide_title_font"));
     ensureGoogleFontLoaded(get("caption_font"));
     ensureGoogleFontLoaded(get("topic_card_font"));
@@ -255,11 +268,9 @@
     ensureGoogleFontLoaded(get("callout_card_header_font"));
     ensureGoogleFontLoaded(get("callout_card_body_font"));
 
-    const root = document.documentElement;
-    if (!root) return;
-
     const blur = cssValue("slide_title_blur", "0");
     const shadow = get("slide_title_shadow") || "none";
+    const chipW = cssValue("slide_title_chip_width", "0");
 
     root.style.setProperty("--hf-slide-title-font", fontStack("slide_title_font"));
     root.style.setProperty("--hf-slide-title-font-weight", fontWeight("slide_title_font_weight"));
@@ -267,13 +278,14 @@
     root.style.setProperty("--hf-slide-title-text-color", get("slide_title_text_color"));
     root.style.setProperty("--hf-slide-title-bg", get("slide_title_bg"));
     root.style.setProperty("--hf-slide-title-accent", get("slide_title_accent"));
-    root.style.setProperty("--hf-slide-title-chip-width", cssValue("slide_title_chip_width", "0"));
+    root.style.setProperty("--hf-slide-title-chip-width", chipW);
+    root.style.setProperty("--hf-slide-title-chip-display", chipW === "0px" || chipW === "0" ? "none" : "block");
     root.style.setProperty("--hf-slide-title-height", cssValue("slide_title_height", "auto"));
     root.style.setProperty("--hf-slide-title-radius", cssValue("slide_title_radius", "0"));
     root.style.setProperty("--hf-slide-title-padding", get("slide_title_padding") || "0 12px 0 10px");
     root.style.setProperty(
       "--hf-slide-title-shadow",
-      shadow === "none" ? "none" : "drop-shadow(" + shadow + ")"
+      shadow === "none" || !shadow ? "none" : (shadow.indexOf("drop-shadow") !== -1 ? shadow : "drop-shadow(" + shadow + ")")
     );
     root.style.setProperty("--hf-slide-title-blur", blur === "0px" || blur === "0" ? "0px" : blur);
 
@@ -427,6 +439,22 @@
     });
   }
 
+  var stylesSchema = null;
+
+  fetch("/api/styles-schema?v=1")
+    .then(function (res) {
+      if (!res.ok) throw new Error("styles schema load failed");
+      return res.json();
+    })
+    .then(function (schema) {
+      stylesSchema = schema;
+      window.HFStylesSchema = schema;
+      if (window.HFPlayerTheme && typeof window.HFPlayerTheme.onSchemaLoaded === "function") {
+        window.HFPlayerTheme.onSchemaLoaded(schema);
+      }
+    })
+    .catch(function () {});
+
   fetch("/api/player-theme?v=1")
     .then(function (res) {
       if (!res.ok) throw new Error("player theme load failed");
@@ -452,5 +480,29 @@
     fontWeight: fontWeight,
     fontSizePx: fontSizePx,
     apply: apply,
+    ensureGoogleFontLoaded: ensureGoogleFontLoaded,
+    getAll: function () {
+      return Object.assign({}, values);
+    },
+    getDefaults: function () {
+      return Object.assign({}, defaults);
+    },
+    getSchema: function () {
+      return stylesSchema;
+    },
+    set: function (k, v) {
+      if (k == null) return;
+      var key = String(k).toLowerCase();
+      var strVal = v != null ? String(v) : "";
+      values[key] = strVal;
+      var root = document.documentElement;
+      if (root) {
+        root.style.setProperty("--hf-" + key.replace(/_/g, "-"), strVal);
+      }
+      if (key.indexOf("font") !== -1 && key.indexOf("weight") === -1 && key.indexOf("size") === -1) {
+        ensureGoogleFontLoaded(strVal);
+      }
+    },
+    merge: mergeConfig,
   };
 })();

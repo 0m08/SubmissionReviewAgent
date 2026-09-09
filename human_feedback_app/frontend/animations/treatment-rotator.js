@@ -317,7 +317,15 @@ window.HFTreatmentRotator = (function () {
         return;
       }
 
-      const list = lists[layout];
+      let list = lists[layout];
+      if (layout === "multi_panel_grid") {
+        const slotCount = (cue && cue.partCount) || 3;
+        if (slotCount === 4) {
+          list = themeList("layout_anims_multi_panel_4", ["scale_emphasis", "reveal", "slide_in"]);
+        } else {
+          list = themeList("layout_anims_multi_panel_3", ["scale_emphasis", "reveal", "slide_in"]);
+        }
+      }
       if (!list || !list.length) {
         byScene[key] = {
           layout: layout,

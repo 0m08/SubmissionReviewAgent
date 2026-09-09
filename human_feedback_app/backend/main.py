@@ -113,10 +113,18 @@ def session_dep(request: Request) -> UserSession:
 
 @api_router.get("/player-theme")
 def api_player_theme() -> Dict[str, str]:
-    """Course player style variables from human_feedback_app/player_config.py."""
+    """Course player style variables from human_feedback_app/player_styles.yaml."""
     from human_feedback_app.player_config_loader import load_player_theme
 
     return load_player_theme()
+
+
+@api_router.get("/styles-schema")
+def api_styles_schema() -> Dict[str, Any]:
+    """Course player styles schema and groupings from human_feedback_app/player_styles.yaml."""
+    from human_feedback_app.player_config_loader import load_styles_schema
+
+    return load_styles_schema()
 
 
 @api_router.get("/me")
@@ -547,7 +555,18 @@ def create_app() -> FastAPI:
         path = FRONTEND_DIR / "Slide Review.dc.html"
         if not path.exists():
             raise HTTPException(status_code=404, detail="Review UI not found")
-        return FileResponse(path)
+
+        mtime = str(int(path.stat().st_mtime))
+        if request.query_params.get("v") != mtime:
+            return RedirectResponse("/review?v=" + mtime, status_code=302)
+        return FileResponse(
+            path,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     brand_dir = BRAND_ASSETS_DIR if BRAND_ASSETS_DIR.exists() else BRAND_FALLBACK_DIR
     if brand_dir.exists():

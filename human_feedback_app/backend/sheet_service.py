@@ -2144,6 +2144,7 @@ def select_pool_alternative(
         raise ValueError("asset_url is required")
 
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
@@ -2152,6 +2153,8 @@ def select_pool_alternative(
             raise ValueError(f"Missing column: {final_col}")
         if tracking_col not in df.columns:
             df[tracking_col] = ""
+        if actions_col not in df.columns:
+            df[actions_col] = ""
 
         raw_def = safe_str(df.at[row_index, final_col])
         segments = parse_graphics_definition(raw_def)
@@ -2195,20 +2198,30 @@ def select_pool_alternative(
             force_regenerate=False,
         )
 
-    # The mutate runs inside the global write lock against the freshest sheet and
-    # touches only this visual's (segment, step) slice + its tracking key, so it
-    # is safe to run alongside an in-flight revision of a DIFFERENT visual on the
-    # same slide.
-    mutate_row_cells(session, row_index, mutate)
+        raw_actions = safe_str(df.at[row_index, actions_col])
+        try:
+            payload = json.loads(raw_actions) if raw_actions else {}
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        actions_map = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
+        segment_modes = payload.get("segment_modes") if isinstance(payload.get("segment_modes"), dict) else {}
 
-    approve_visual(
-        session,
-        row_index=row_index,
-        segment_index=segment_index,
-        step_index=step_index,
-        visual_id=visual_id,
-        vo=vo,
-    )
+        actions_map[visual_id] = {
+            "action": ACTION_APPROVE,
+            "feedback": "",
+            "vo": vo,
+            "segment": segment_index,
+        }
+        payload = {"actions": actions_map, "segment_modes": segment_modes, "round": ROUND_INDEX}
+        df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+
+    # The mutate runs inside the global write lock against the freshest sheet and
+    # touches only this visual's (segment, step) slice + its tracking key and approval action,
+    # so it is safe to run alongside an in-flight revision of a DIFFERENT visual on the
+    # same slide and commits everything in a single sheet transaction.
+    mutate_row_cells(session, row_index, mutate)
 
 
 def extract_first_url(text: str) -> Optional[str]:
@@ -2254,6 +2267,7 @@ def replace_visual_with_url(
     safe_str = helpers["safe_str"]
 
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+    actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
@@ -2262,6 +2276,8 @@ def replace_visual_with_url(
             raise ValueError(f"Missing column: {final_col}")
         if tracking_col not in df.columns:
             df[tracking_col] = ""
+        if actions_col not in df.columns:
+            df[actions_col] = ""
 
         raw_def = safe_str(df.at[row_index, final_col])
         segments = parse_graphics_definition(raw_def)
@@ -2305,17 +2321,26 @@ def replace_visual_with_url(
             force_regenerate=False,
         )
 
-    mutate_row_cells(session, row_index, mutate)
+        raw_actions = safe_str(df.at[row_index, actions_col])
+        try:
+            payload = json.loads(raw_actions) if raw_actions else {}
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        actions_map = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
+        segment_modes = payload.get("segment_modes") if isinstance(payload.get("segment_modes"), dict) else {}
 
-    approve_visual(
-        session,
-        row_index=row_index,
-        segment_index=segment_index,
-        step_index=step_index,
-        visual_id=visual_id,
-        vo=vo,
-    )
-    
+        actions_map[visual_id] = {
+            "action": ACTION_APPROVE,
+            "feedback": "",
+            "vo": vo,
+            "segment": segment_index,
+        }
+        payload = {"actions": actions_map, "segment_modes": segment_modes, "round": ROUND_INDEX}
+        df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+
+    mutate_row_cells(session, row_index, mutate)
     return url
 
 

@@ -4,6 +4,7 @@
 window.HFSceneTransition = (function () {
   let activeTl = null;
   let veilEl = null;
+  let pendingResolve = null;
 
   function prefersReducedMotion() {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -62,6 +63,13 @@ window.HFSceneTransition = (function () {
       gsap.killTweensOf(veilEl);
       gsap.set(veilEl, { autoAlpha: 0 });
     }
+    // If a crossfade was interrupted (e.g. user left Player for Styles),
+    // resolve so cue playback does not wait on a hung promise.
+    if (pendingResolve) {
+      const resolve = pendingResolve;
+      pendingResolve = null;
+      try { resolve(); } catch (_) {}
+    }
   }
 
   function swapAndResume(tl, onSwap, prepareIn) {
@@ -80,12 +88,18 @@ window.HFSceneTransition = (function () {
 
     return new Promise(function (resolve) {
       kill();
+      pendingResolve = resolve;
       shell = currentShell() || shell;
+
+      function finish() {
+        if (pendingResolve === resolve) pendingResolve = null;
+        resolve();
+      }
 
       if (!shell || treatment === 'off' || treatment === 'none' || prefersReducedMotion()) {
         onSwap(function () {
           resetShell(currentShell());
-          resolve();
+          finish();
         });
         return;
       }
@@ -102,7 +116,7 @@ window.HFSceneTransition = (function () {
           resetShell(currentShell());
           if (veilEl) gsap.set(veilEl, { autoAlpha: 0 });
           activeTl = null;
-          resolve();
+          finish();
         },
       });
       activeTl = tl;

@@ -413,6 +413,7 @@ window.HFSplitComparison = (function () {
     const duration = opts.duration || 0;
     const elapsed = opts.elapsed || 0;
     const playing = !!opts.playing;
+    const forceRestart = !!opts.forceRestart;
 
     if (!cue) {
       kill();
@@ -442,7 +443,7 @@ window.HFSplitComparison = (function () {
     const treatmentChanged = lastTreatment && lastTreatment !== treatment;
 
     if (!playing) {
-      if (key !== sceneKey || treatmentChanged) {
+      if (key !== sceneKey || treatmentChanged || forceRestart) {
         if (key !== sceneKey) kill();
         else {
           slots.forEach(resetSlot);
@@ -470,7 +471,7 @@ window.HFSplitComparison = (function () {
       return;
     }
 
-    if (treatmentChanged) {
+    if (treatmentChanged || forceRestart) {
       slots.forEach(resetSlot);
       if (ambientTween) {
         ambientTween.kill();
