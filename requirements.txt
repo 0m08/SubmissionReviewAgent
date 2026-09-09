@@ -337,3 +337,6 @@ exa-py==1.8.8
 extra-streamlit-components==0.1.81
 ftfy==6.3.1
 pymediainfo==7.0.1
+# Client for the Course Content Editor (MDA) page, which drives the hosted
+# Managed Deep Agent over the Agent Server API.
+langgraph-sdk==0.3.3
