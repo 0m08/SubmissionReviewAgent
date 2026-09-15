@@ -1596,11 +1596,47 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
             return ""
         return text
 
+    def clean_icon_label(raw: str, concept: str = "") -> str:
+        text = (raw or "").strip()
+        if not text or text.upper() == "N/A":
+            text = (concept or "").strip()
+        if not text or text.upper() == "N/A":
+            return ""
+        text = re.split(r"\s+for\s+|\s+[—–-]\s+|,\s*", text, maxsplit=1, flags=re.IGNORECASE)[0]
+        # Only strip art-direction words when falling back from a long concept.
+        if concept and text.lower() == (concept or "").strip().lower():
+            text = re.sub(
+                r"\b(icon|symbol|glyph|sign|illustration|triangle|arrows?|mark)\b",
+                " ",
+                text,
+                flags=re.IGNORECASE,
+            )
+            text = re.sub(r"\s+", " ", text).strip()
+        words = [w for w in text.split(" ") if w][:2]
+        if not words:
+            return ""
+        return " ".join(w[:1].upper() + w[1:].lower() for w in words)
+
     def merge_trigger_phrases(items, plan_triggers):
         for i, item in enumerate(items):
             from_block = clean_trigger_phrase(item.get("triggerPhrase", ""))
             from_plan = plan_triggers[i] if i < len(plan_triggers) else ""
             item["triggerPhrase"] = from_block or from_plan or ""
+        return items
+
+    def merge_icon_labels(items, plan_labels):
+        for i, item in enumerate(items):
+            # Prefer explicit sheet/plan labels over concept fallback ("dollar sign" → Dollar).
+            raw_label = (item.get("label") or "").strip()
+            if raw_label.upper() == "N/A":
+                raw_label = ""
+            from_block = clean_icon_label(raw_label, "") if raw_label else ""
+            from_plan = plan_labels[i] if i < len(plan_labels) else ""
+            item["label"] = (
+                from_block
+                or from_plan
+                or clean_icon_label("", item.get("concept", ""))
+            )
         return items
 
     for sid in scene_ids:
@@ -1615,6 +1651,7 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
 
         plan_highlight_triggers: List[str] = []
         plan_icon_triggers: List[str] = []
+        plan_icon_labels: List[str] = []
         plan_callout_triggers: List[str] = []
 
         # 1. Parse plan
@@ -1639,8 +1676,12 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
                     clean_trigger_phrase(extract_tag(hb, "trigger_phrase"))
                 )
             for ib in extract_tags(p_block, "icon"):
+                concept = extract_tag(ib, "icon_concept")
                 plan_icon_triggers.append(
                     clean_trigger_phrase(extract_tag(ib, "trigger_phrase"))
+                )
+                plan_icon_labels.append(
+                    clean_icon_label(extract_tag(ib, "icon_label"), concept)
                 )
             for cb in extract_tags(p_block, "callout"):
                 plan_callout_triggers.append(
@@ -1700,12 +1741,15 @@ def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
                 if concept and concept.upper() != "N/A":
                     icons_list.append({
                         "concept": concept,
+                        # Keep raw label; merge_icon_labels prefers plan over concept fallback.
+                        "label": extract_tag(ib, "icon_label"),
                         "targetDescription": target,
                         "placementHint": placement,
                         "url": url if url.upper() != "N/A" else "",
                         "triggerPhrase": clean_trigger_phrase(extract_tag(ib, "trigger_phrase")),
                     })
             merge_trigger_phrases(icons_list, plan_icon_triggers)
+            merge_icon_labels(icons_list, plan_icon_labels)
             scene_data["iconOverlays"] = icons_list
 
         # 4. Parse callout cards (enriched overlays with optional icon URLs)

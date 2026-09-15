@@ -392,6 +392,80 @@ window.HFHeroStills = (function() {
     }
   }
 
+  function knockOutBackdropFromSource(source) {
+    if (!source) return '';
+    const w = source.naturalWidth;
+    const h = source.naturalHeight;
+    if (!w || !h) return '';
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(source, 0, 0);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const d = imageData.data;
+      // Keep orange glyph only — strips dark plates and fake transparency checkerboards.
+      let minX = w;
+      let minY = h;
+      let maxX = -1;
+      let maxY = -1;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i];
+        const g = d[i + 1];
+        const b = d[i + 2];
+        const a = d[i + 3];
+        if (!a) continue;
+        const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+        const isOrange = r >= 150 && r >= g + 15 && r > b + 25 && (r - b) >= 35 && chroma >= 35;
+        const isSoftOrange = r >= 110 && r >= g && r > b + 12 && chroma >= 28 && (r - Math.min(g, b)) >= 22;
+        if (!(isOrange || isSoftOrange)) {
+          d[i + 3] = 0;
+          continue;
+        }
+        const px = (i / 4) % w;
+        const py = Math.floor((i / 4) / w);
+        if (px < minX) minX = px;
+        if (py < minY) minY = py;
+        if (px > maxX) maxX = px;
+        if (py > maxY) maxY = py;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      if (maxX < minX || maxY < minY) {
+        return canvas.toDataURL('image/png');
+      }
+      const contentW = maxX - minX + 1;
+      const contentH = maxY - minY + 1;
+      const pad = Math.max(2, Math.round(Math.max(contentW, contentH) * 0.06));
+      const left = Math.max(0, minX - pad);
+      const top = Math.max(0, minY - pad);
+      const right = Math.min(w, maxX + 1 + pad);
+      const bottom = Math.min(h, maxY + 1 + pad);
+      const cropW = right - left;
+      const cropH = bottom - top;
+      const side = Math.max(cropW, cropH);
+      const out = document.createElement('canvas');
+      out.width = side;
+      out.height = side;
+      const outCtx = out.getContext('2d');
+      outCtx.clearRect(0, 0, side, side);
+      outCtx.drawImage(
+        canvas,
+        left,
+        top,
+        cropW,
+        cropH,
+        Math.floor((side - cropW) / 2),
+        Math.floor((side - cropH) / 2),
+        cropW,
+        cropH
+      );
+      return out.toDataURL('image/png');
+    } catch (e) {
+      return '';
+    }
+  }
+
   function knockOutWhiteToTransparent(img) {
     if (!img || img.dataset.hfKnocked === '1') return;
     const dataUrl = knockOutWhiteFromSource(img);
@@ -399,37 +473,45 @@ window.HFHeroStills = (function() {
     if (dataUrl) img.src = dataUrl;
   }
 
-  function ensureCalloutIconReady(url, knockoutWhite) {
+  function ensureCalloutIconReady(url, knockoutMode) {
     if (!url) return Promise.resolve('');
-    if (!knockoutWhite) {
-      calloutIconSrcCache[url] = url;
+    // true / 'white' = knock near-white (callout cards)
+    // 'backdrop' = knock near-white + near-black plates (icon overlay glyphs)
+    let mode = knockoutMode;
+    if (mode === true) mode = 'white';
+    if (mode === false || mode == null) mode = 'none';
+    const cacheKey = mode + '::' + url;
+    if (mode === 'none') {
+      calloutIconSrcCache[cacheKey] = url;
       return Promise.resolve(url);
     }
-    if (calloutIconSrcCache[url]) return Promise.resolve(calloutIconSrcCache[url]);
-    if (calloutIconPending[url]) return calloutIconPending[url];
+    if (calloutIconSrcCache[cacheKey]) return Promise.resolve(calloutIconSrcCache[cacheKey]);
+    if (calloutIconPending[cacheKey]) return calloutIconPending[cacheKey];
 
-    calloutIconPending[url] = new Promise(function (resolve) {
+    calloutIconPending[cacheKey] = new Promise(function (resolve) {
       const loader = new Image();
       loader.crossOrigin = 'anonymous';
       loader.onload = function () {
-        const knocked = knockOutWhiteFromSource(loader);
+        const knocked = (mode === 'backdrop' || mode === 'glyph')
+          ? knockOutBackdropFromSource(loader)
+          : knockOutWhiteFromSource(loader);
         const finalSrc = knocked || url;
-        calloutIconSrcCache[url] = finalSrc;
-        delete calloutIconPending[url];
+        calloutIconSrcCache[cacheKey] = finalSrc;
+        delete calloutIconPending[cacheKey];
         resolve(finalSrc);
       };
       loader.onerror = function () {
-        calloutIconSrcCache[url] = url;
-        delete calloutIconPending[url];
+        calloutIconSrcCache[cacheKey] = url;
+        delete calloutIconPending[cacheKey];
         resolve(url);
       };
       loader.src = url;
     });
-    return calloutIconPending[url];
+    return calloutIconPending[cacheKey];
   }
 
   function warmCalloutIcons(urls, knockoutWhite) {
-    const knockout = knockoutWhite !== false;
+    const knockout = knockoutWhite === false ? false : true;
     const jobs = [];
     (urls || []).forEach(function (raw) {
       const url = getProxyUrl(raw);
@@ -695,8 +777,9 @@ window.HFHeroStills = (function() {
         img.style.objectFit = 'contain';
         img.style.display = 'block';
         const knockoutWhite = tGet('callout_card_icon_knockout_white', 'true') !== 'false';
-        if (calloutIconSrcCache[iconUrl]) {
-          img.src = calloutIconSrcCache[iconUrl];
+        const calloutCacheKey = (knockoutWhite ? 'white::' : 'none::') + iconUrl;
+        if (calloutIconSrcCache[calloutCacheKey]) {
+          img.src = calloutIconSrcCache[calloutCacheKey];
           img.dataset.hfKnocked = '1';
         } else if (knockoutWhite) {
           iconReady = ensureCalloutIconReady(iconUrl, true).then(function (src) {
@@ -1477,26 +1560,123 @@ window.HFHeroStills = (function() {
       flexContainer.style.display = 'flex';
       flexContainer.style.alignItems = 'center';
       flexContainer.style.justifyContent = 'center';
-      flexContainer.style.gap = '20px';
+      flexContainer.style.gap = '28px';
       flexContainer.style.pointerEvents = 'none';
       overlayContainer.appendChild(flexContainer);
+
+      const iconLabelFromConcept = function (icon) {
+        const explicit = String((icon && (icon.label || icon.iconLabel)) || '').trim();
+        const concept = String((icon && (icon.concept || icon.iconConcept)) || '').trim();
+        let raw = explicit && explicit.toUpperCase() !== 'N/A' ? explicit : concept;
+        if (!raw || raw.toUpperCase() === 'N/A') return '';
+        let text = raw.split(/\s+for\s+|\s+[—–-]\s+|,\s*/i)[0].trim();
+        // Strip art-direction words only when falling back from icon_concept.
+        if (!explicit || explicit.toUpperCase() === 'N/A') {
+          text = text.replace(/\b(icon|symbol|glyph|sign|illustration|triangle|arrows?|mark)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+        }
+        const words = text.split(/\s+/).filter(Boolean).slice(0, 2);
+        if (!words.length) return '';
+        return words.map(function (w) {
+          return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+        }).join(' ');
+      };
 
       cue.iconOverlays.forEach((icon, idx) => {
         const cardEl = document.createElement('div');
         cardEl.className = 'hf-hero-icon-card';
+        cardEl.style.position = 'relative';
         cardEl.style.display = 'flex';
+        cardEl.style.flexDirection = 'column';
         cardEl.style.alignItems = 'center';
-        cardEl.style.justifyContent = 'center';
-        cardEl.style.background = 'rgba(25, 29, 38, 0.95)';
-        cardEl.style.border = '1px solid rgba(240, 85, 35, 0.25)';
-        cardEl.style.borderRadius = '12px';
-        cardEl.style.padding = '12px';
-        cardEl.style.boxShadow = '0 10px 25px rgba(0,0,0,0.35)';
+        cardEl.style.justifyContent = 'flex-start';
+        cardEl.style.width = '112px';
+        cardEl.style.padding = '0 0 15px 0';
+        cardEl.style.gap = '0';
+        cardEl.style.background = 'transparent';
+        cardEl.style.border = 'none';
+        cardEl.style.boxShadow = 'none';
         cardEl.style.boxSizing = 'border-box';
         cardEl.style.pointerEvents = 'auto';
 
+        const tileEl = document.createElement('div');
+        tileEl.className = 'hf-hero-icon-tile';
+        tileEl.style.position = 'relative';
+        tileEl.style.display = 'flex';
+        tileEl.style.alignItems = 'center';
+        tileEl.style.justifyContent = 'center';
+        tileEl.style.width = '112px';
+        tileEl.style.height = '112px';
+        tileEl.style.background = 'rgba(18, 20, 26, 0.72)';
+        tileEl.style.backdropFilter = 'blur(3px)';
+        tileEl.style.webkitBackdropFilter = 'blur(3px)';
+        tileEl.style.border = '1.5px solid #f05523';
+        tileEl.style.borderRadius = '18px';
+        tileEl.style.padding = '8px 8px 18px 8px';
+        tileEl.style.boxShadow = '0 10px 25px rgba(0,0,0,0.35)';
+        tileEl.style.boxSizing = 'border-box';
+
+        const img = document.createElement('img');
+        img.alt = iconLabelFromConcept(icon) || 'icon';
+        img.style.width = '86px';
+        img.style.height = '74px';
+        img.style.borderRadius = '0';
+        img.style.objectFit = 'contain';
+        img.style.background = 'transparent';
+        img.style.border = 'none';
+        img.style.display = 'block';
+        img.style.marginTop = '-2px';
+        // Slight optical thickening for skinny generated strokes.
+        img.style.filter = 'drop-shadow(0 0 0.65px #f05523) drop-shadow(0 0 0.65px #f05523)';
+
         const imgUrl = getProxyUrl(icon.url);
-        cardEl.innerHTML = `<img src="${imgUrl}" alt="icon" style="width: 80px; height: 80px; border-radius: 6px; object-fit: contain; background: #ffffff; border: 1.5px solid #f05523; display: block;" />`;
+        const overlayCacheKey = imgUrl ? ('glyph::' + imgUrl) : '';
+        if (imgUrl) {
+          if (calloutIconSrcCache[overlayCacheKey]) {
+            img.src = calloutIconSrcCache[overlayCacheKey];
+            img.dataset.hfKnocked = '1';
+          } else {
+            ensureCalloutIconReady(imgUrl, 'glyph').then(function (src) {
+              img.src = src || imgUrl;
+              img.dataset.hfKnocked = '1';
+            });
+            img.src = imgUrl;
+          }
+        }
+        tileEl.appendChild(img);
+        cardEl.appendChild(tileEl);
+
+        const labelText = iconLabelFromConcept(icon);
+        if (labelText) {
+          const labelEl = document.createElement('div');
+          labelEl.className = 'hf-hero-icon-label';
+          labelEl.textContent = labelText;
+          labelEl.style.position = 'absolute';
+          labelEl.style.left = '50%';
+          labelEl.style.bottom = '0';
+          labelEl.style.transform = 'translateX(-50%)';
+          labelEl.style.zIndex = '2';
+          labelEl.style.display = 'inline-flex';
+          labelEl.style.alignItems = 'center';
+          labelEl.style.justifyContent = 'center';
+          labelEl.style.width = '98px';
+          labelEl.style.maxWidth = '98px';
+          labelEl.style.padding = '7px 10px';
+          labelEl.style.borderRadius = '999px';
+          labelEl.style.background = '#f05523';
+          labelEl.style.color = '#ffffff';
+          labelEl.style.fontFamily = "'Fira Sans', Arial, sans-serif";
+          labelEl.style.fontWeight = '700';
+          labelEl.style.fontSize = '14px';
+          labelEl.style.lineHeight = '1.1';
+          labelEl.style.letterSpacing = '0.01em';
+          labelEl.style.textAlign = 'center';
+          labelEl.style.whiteSpace = 'nowrap';
+          labelEl.style.overflow = 'hidden';
+          labelEl.style.textOverflow = 'ellipsis';
+          labelEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.28)';
+          labelEl.style.boxSizing = 'border-box';
+          cardEl.appendChild(labelEl);
+        }
 
         flexContainer.appendChild(cardEl);
 

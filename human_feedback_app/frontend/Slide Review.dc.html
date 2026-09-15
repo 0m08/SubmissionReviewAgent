@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/static/load-config.js?v=35"></script>
 <script src="/static/review-api.js?v=8"></script>
-<script src="/static/youtube-player.js?v=14"></script>
-<script src="/static/player.js?v=28"></script>
+<script src="/static/youtube-player.js?v=18"></script>
+<script src="/static/player.js?v=34"></script>
 <script src="/static/support.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="/static/animations/overlay-timing.js?v=1"></script>
-<script src="/static/animations/hero-stills.js?v=62"></script>
+<script src="/static/animations/hero-stills.js?v=67"></script>
 <script src="/static/animations/split-comparison.js?v=21"></script>
 <script src="/static/animations/main-inset.js?v=8"></script>
 <script src="/static/animations/multi-panel-grid.js?v=3"></script>
 <script src="/static/animations/scene-transitions.js?v=4"></script>
-<script src="/static/animations/treatment-rotator.js?v=14"></script>
+<script src="/static/animations/treatment-rotator.js?v=15"></script>
 <script src="/static/animations/index.js?v=9"></script>
 </head>
 <body>
@@ -468,6 +468,9 @@
     outline: none;
     box-shadow: none;
   }
+  .hf-player-scene-slot.is-video-scene {
+    transition: none !important;
+  }
   .hf-player-scene-slot.is-awaiting-visual {
     box-shadow: none !important;
   }
@@ -551,6 +554,50 @@
   .hf-player-frame > .hf-player-yt-mount {
     position: absolute;
     inset: 0;
+  }
+  .hf-player-video-shell {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0d0f12;
+  }
+  .hf-player-video-poster-blur {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    filter: blur(24px) brightness(0.58);
+    transform: scale(1.08);
+    opacity: 0.9;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .hf-player-drive-video {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: transparent;
+    pointer-events: none;
+  }
+  .hf-player-drive-video--cover {
+    object-fit: cover;
+  }
+  .hf-player-drive-video--contain {
+    object-fit: contain;
+  }
+  .hf-player-video-shell video::-webkit-media-controls,
+  .hf-player-video-shell video::-webkit-media-controls-enclosure,
+  .hf-player-video-shell video::-webkit-media-controls-panel,
+  .hf-player-video-shell video::-webkit-media-controls-play-button,
+  .hf-player-video-shell video::-webkit-media-controls-timeline {
+    display: none !important;
+    opacity: 0 !important;
   }
   .hf-player-overlay {
     position: absolute;
@@ -3153,7 +3200,7 @@
               <sc-if value="{{ playerShowLoading }}" hint-placeholder-val="{{ false }}">
                 <div class="hf-player-loading">
                   <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.02em;">{{ playerLoadingLabel }}</div>
-                  <div style="font-size: 13px; color: #9aa3b2; max-width: 360px; line-height: 1.5;">Caching voiceovers and visuals so playback stays in sync.</div>
+                  <div style="font-size: 13px; color: #9aa3b2; max-width: 520px; line-height: 1.5;">{{ playerLoadingDetail }}</div>
                   <div class="hf-player-loading-bar">
                     <div class="hf-player-loading-fill" style="width: {{ playerLoadProgress }}%;"></div>
                   </div>
@@ -3180,7 +3227,10 @@
                 <div id="hf-player-yt-active" class="hf-player-yt-mount"></div>
               </sc-if>
               <sc-if value="{{ playerShowDriveVideo }}" hint-placeholder-val="{{ false }}">
-                <video id="{{ playerDriveVideoId }}" src="{{ playerDriveVideoUrl }}" poster="{{ playerDriveVideoPoster }}" muted playsinline preload="auto" style="width: 100%; height: 100%; object-fit: contain; background: #000000;"></video>
+                <div class="hf-player-video-shell hf-player-video-shell--hero">
+                  <div class="hf-player-video-poster-blur" style="{{ playerDriveVideoPosterStyle }}"></div>
+                  <video id="{{ playerDriveVideoId }}" class="hf-player-drive-video hf-player-drive-video--cover" src="{{ playerDriveVideoUrl }}" poster="{{ playerDriveVideoPoster }}" muted playsinline preload="auto" controlsList="nodownload noplaybackrate noremoteplayback nofullscreen" disablePictureInPicture></video>
+                </div>
               </sc-if>
               <sc-if value="{{ playerShowPlaceholder }}" hint-placeholder-val="{{ false }}">
                 <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(145deg, #1a2233 0%, #243352 55%, #1a2233 100%);">
@@ -3782,7 +3832,7 @@ class Component extends DCLogic {
   primitiveActive = 'slide_title';
   primitiveSampleText = 'Overview of the Refrigeration Cycle';
   primitiveBgTheme = 'dark';
-  playerSnap = { hasCues: false, cues: [], playing: false, ccOn: true, pauseForReview: false, speed: 1, cueElapsed: 0, cueDuration: 0, assetsReady: false, preloadProgress: 0, preloading: false };
+  playerSnap = { hasCues: false, cues: [], playing: false, ccOn: true, pauseForReview: false, speed: 1, cueElapsed: 0, cueDuration: 0, assetsReady: false, assetsError: '', preloadProgress: 0, preloading: false };
   _player = null;
   _playerSpeeds = [
     { value: 1.5, label: '1.5x' },
@@ -3826,6 +3876,9 @@ class Component extends DCLogic {
     }
   })();
   _imgPreloadCache = Object.create(null);
+  _videoPreloadCache = Object.create(null);
+  _videoObjectUrls = Object.create(null);
+  _ytVideoPreloadCache = Object.create(null);
   _playerPrepareToken = 0;
   _playerVideoSyncToken = 0;
   _playerCaptionHold = false;
@@ -3985,6 +4038,10 @@ class Component extends DCLogic {
   _syncPlayerMotion(forceRestart) {
     if (!window.HFPlayerMotion || !this.playerSnap || !this.playerSnap.cue) return;
     const cue = this.playerSnap.cue;
+    if (this._cueSceneHasVideo(cue)) {
+      window.HFPlayerMotion.kill();
+      return;
+    }
     const treatment = this._playerTreatmentForCue(cue);
     window.HFPlayerMotion.syncHeroStill({
       cue: cue,
@@ -4345,13 +4402,40 @@ class Component extends DCLogic {
   }
 
   isDriveVideoUrl(url) {
-    const u = String(url || '');
-    return u.toLowerCase().includes('drive.google.com') && /\(start=\d+(?:&end=\d+)?\)/.test(u);
+    const u = this.normalizeVideoUrlText(url);
+    const lower = u.toLowerCase();
+    return (lower.includes('drive.google.com') || lower.includes('docs.google.com')) && /\(start=\d+(?:&end=\d+)?\)/.test(u);
+  }
+
+  normalizeVideoUrlText(raw) {
+    return String(raw || '')
+      .trim()
+      .replace(/&amp;/gi, '&')
+      .replace(/%26/gi, '&')
+      .replace(/%3D/gi, '=');
   }
 
   proxyVideoUrl(raw) {
     if (!raw) return raw;
     return '/api/assets/video?url=' + encodeURIComponent(raw);
+  }
+
+  playerVideoUrl(raw) {
+    const key = String(raw || '').trim();
+    if (!key) return raw;
+    if (this.isDriveVideoUrl(key)) return this.proxyVideoUrl(key);
+    return this._videoObjectUrls[key] || this.proxyVideoUrl(key);
+  }
+
+  playerVideoPosterUrl(raw) {
+    if (!raw) return '';
+    if (this.isDriveVideoUrl(raw)) return this.proxyImageUrlThumb(raw, 'image');
+    return '';
+  }
+
+  isYoutubeVideoUrl(raw) {
+    const u = String(raw || '').toLowerCase();
+    return u.includes('youtube.com') || u.includes('youtu.be');
   }
 
   visualFromStep(st, url, extraOpts) {
@@ -4417,6 +4501,7 @@ class Component extends DCLogic {
 
   async reloadSlides() {
     if (window.HFYoutube) window.HFYoutube.destroyAll();
+    this._ytVideoPreloadCache = Object.create(null);
     const drafts = this._collectLocalDrafts();
     const data = await window.HFApi.loadSlides();
     this.slides = this.hydrateSlides(data.slides);
@@ -4650,6 +4735,7 @@ class Component extends DCLogic {
     if (this._animPreviewTimer) clearInterval(this._animPreviewTimer);
     if (this._animPreviewEndTimer) clearTimeout(this._animPreviewEndTimer);
     if (this._player) this._player.stop();
+    this._clearPlayerVideoPreloads();
     if (window.HFPlayerMotion) {
       window.HFPlayerMotion.kill();
     }
@@ -4669,6 +4755,7 @@ class Component extends DCLogic {
       getYtMountId: (cue) => self.ytMountIdForCue(cue),
       getDriveVideoId: (cue) => self.driveVideoIdForCue(cue),
       getYtMountHeight: (cue) => self._playerSlotHeightForCue(cue),
+      getVideoFit: (cue) => self._playerVideoFitForCue(cue),
       onBeforeCuePlay: (cue) => self.ensureCueVisualsReady(cue),
       onState: (snap) => {
         const cueChanged = self._playerLastCue !== snap.cueIndex;
@@ -4679,6 +4766,7 @@ class Component extends DCLogic {
         const volumeChanged = self.playerSnap.volume !== snap.volume || self.playerSnap.muted !== snap.muted;
         const preloadChanged = self.playerSnap.preloading !== snap.preloading
           || self.playerSnap.assetsReady !== snap.assetsReady
+          || self.playerSnap.assetsError !== snap.assetsError
           || self.playerSnap.preloadProgress !== snap.preloadProgress;
         const prevCue = self.playerSnap && self.playerSnap.cue ? self.playerSnap.cue : self._playerPrevCue;
         if (!cueChanged) {
@@ -4728,6 +4816,7 @@ class Component extends DCLogic {
   }
   _playerCueNeedsShellFade(prevCue, nextCue) {
     if (!nextCue) return false;
+    if (this._cueSceneHasVideo(nextCue)) return false;
     if (!prevCue) return true;
     if (prevCue.slideIdx !== nextCue.slideIdx) return true;
     if (String(prevCue.sceneId) !== String(nextCue.sceneId)) return true;
@@ -5005,6 +5094,56 @@ class Component extends DCLogic {
     if (!cue.partCount || cue.partCount <= 1) return 'hf-player-drivevid-active';
     return 'hf-player-drivevid-' + cue.slideIdx + '-' + cue.sceneId + '-' + (cue.partIdx != null ? cue.partIdx : 0);
   }
+  _currentPlayerVisualForStep(st) {
+    if (!st) return null;
+    if (st.status === 'revised') {
+      return st.after || this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
+    }
+    return this.visualOf(st);
+  }
+  _playerSceneForCue(cue) {
+    if (!cue || !this.slides) return null;
+    const slide = this.slides[cue.slideIdx];
+    if (!slide) return null;
+    const scenes = slide.scenes || [];
+    let sceneDef = null;
+    for (let si = 0; si < scenes.length; si++) {
+      const sc = scenes[si];
+      const sid = sc.id != null ? String(sc.id) : String(si + 1);
+      if (sid === cue.sceneId) { sceneDef = sc; break; }
+    }
+    return sceneDef || scenes[cue.sceneIdx] || null;
+  }
+  _stepMapForSlide(slide) {
+    const map = {};
+    if (!slide) return map;
+    (slide.segments || []).forEach((seg) => {
+      (seg.steps || []).forEach((st) => {
+        if (st.visualId) map[st.visualId] = st;
+      });
+    });
+    return map;
+  }
+  _cueSceneHasVideo(cue) {
+    if (!cue || !this.slides) return false;
+    const slide = this.slides[cue.slideIdx];
+    const sceneDef = this._playerSceneForCue(cue);
+    if (!slide || !sceneDef) return !!(cue.step && cue.step.type === 'video');
+    const stepByVisualId = this._stepMapForSlide(slide);
+    return (sceneDef.visualIds || []).some((vid) => {
+      const st = stepByVisualId[vid];
+      const v = this._currentPlayerVisualForStep(st);
+      const raw = (v && (v.assetUrl || v.url)) || (st && this.rawAssetUrl(st)) || '';
+      return !!(v && v.type === 'video' && (this.isYoutubeVideoUrl(raw) || this.isDriveVideoUrl(raw)));
+    });
+  }
+  _playerVideoFitForCue(cue) {
+    const sceneDef = this._playerSceneForCue(cue);
+    if (!sceneDef) return (!cue || !cue.partCount || cue.partCount <= 1) ? 'cover' : 'contain';
+    const norm = this.SCENE_TEMPLATE_ALIASES[sceneDef.template || ''] || sceneDef.template || '';
+    const count = sceneDef.slotCount || (sceneDef.visualIds || []).length || cue.partCount || 1;
+    return (norm === 'single_visual_hero' || count <= 1) ? 'cover' : 'contain';
+  }
   _playerSlotHeightForCue(cue) {
     if (!cue || !this.slides) return 480;
     const slide = this.slides[cue.slideIdx];
@@ -5055,6 +5194,9 @@ class Component extends DCLogic {
         (cue.calloutCards || []).forEach((callout) => {
           if (callout.url) add(callout.url);
         });
+        (cue.iconOverlays || []).forEach((icon) => {
+          if (icon.url) add(icon.url);
+        });
       });
     }
     return urls;
@@ -5067,9 +5209,23 @@ class Component extends DCLogic {
   }
   _warmCalloutIconsForCue(cue) {
     if (!cue || !window.HFHeroStills || !window.HFHeroStills.warmCalloutIcons) return Promise.resolve();
-    const urls = (cue.calloutCards || []).map((callout) => callout.url).filter(Boolean);
+    const urls = [];
+    (cue.calloutCards || []).forEach((callout) => {
+      if (callout.url) urls.push(callout.url);
+    });
+    (cue.iconOverlays || []).forEach((icon) => {
+      if (icon.url) urls.push(icon.url);
+    });
     if (!urls.length) return Promise.resolve();
     return window.HFHeroStills.warmCalloutIcons(urls);
+  }
+  _clearPlayerVideoPreloads() {
+    Object.keys(this._videoObjectUrls || {}).forEach((key) => {
+      try { URL.revokeObjectURL(this._videoObjectUrls[key]); } catch (_) {}
+      delete this._videoObjectUrls[key];
+    });
+    this._videoPreloadCache = Object.create(null);
+    this._ytVideoPreloadCache = Object.create(null);
   }
   _collectPlayerImageUrls() {
     const urls = [];
@@ -5090,11 +5246,12 @@ class Component extends DCLogic {
         });
         (scene.visualIds || []).forEach((vid) => {
           const st = stepByVisualId[vid];
-          if (!st || st.type === 'video') return;
-          let v = this.visualOf(st);
-          if (st.status === 'revised') v = st.after || this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
+          if (!st) return;
+          let v = this._currentPlayerVisualForStep(st) || this.visualOf(st);
+          if (!v) return;
+          if (v.type === 'video') return;
           const imgUrl = this.displayImageUrl(v);
-          if (this.canShowImage(imgUrl, st.type)) add(imgUrl);
+          if (this.canShowImage(imgUrl, v.type)) add(imgUrl);
         });
       });
     });
@@ -5134,7 +5291,7 @@ class Component extends DCLogic {
     };
     const concurrency = 6;
     let cursor = 0;
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const pump = () => {
         if (cursor >= urls.length) {
           resolve();
@@ -5147,10 +5304,201 @@ class Component extends DCLogic {
       pump();
     });
   }
+  _collectPlayerVideoRefs() {
+    const refs = [];
+    const seen = Object.create(null);
+    if (!this._player || !this._player.cues) return refs;
+    this._player.cues.forEach((cue) => {
+      if (!cue || !cue.step) return;
+      const st = cue.step;
+      const v = this._currentPlayerVisualForStep(st) || this.visualOf(st);
+      if (!v || v.type !== 'video') return;
+      const raw = String((v.assetUrl || v.url) || this.rawAssetUrl(st) || '').trim();
+      if (!raw || seen[raw] || !this.isYoutubeVideoUrl(raw)) return;
+      seen[raw] = true;
+      refs.push({
+        raw,
+        heightPx: this._playerSlotHeightForCue(cue) || 480,
+      });
+    });
+    return refs;
+  }
+  _videoDecodeReady(src, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      if (!src) { reject(new Error('The prepared video URL is missing.')); return; }
+      let done = false;
+      const video = document.createElement('video');
+      const finish = (error) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+          if (video.parentNode) video.parentNode.removeChild(video);
+        } catch (_) {}
+        if (error) reject(error);
+        else resolve();
+      };
+      const timer = setTimeout(() => finish(new Error('The prepared video could not be decoded in time.')), timeoutMs || 15000);
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.style.position = 'fixed';
+      video.style.left = '-10000px';
+      video.style.top = '-10000px';
+      video.style.width = '1px';
+      video.style.height = '1px';
+      video.style.opacity = '0.01';
+      video.style.pointerEvents = 'none';
+      const ready = () => {
+        if (!video.videoWidth || !video.videoHeight) {
+          finish(new Error('The prepared video has no decodable picture.'));
+          return;
+        }
+        finish();
+      };
+      video.addEventListener('loadeddata', ready);
+      video.addEventListener('canplay', ready);
+      video.addEventListener('error', () => finish(new Error('The browser could not decode the prepared video.')));
+      document.body.appendChild(video);
+      video.src = src;
+      try { video.load(); } catch (_) { finish(new Error('The browser could not load the prepared video.')); }
+    });
+  }
+  _preloadNativeVideoUrl(raw) {
+    const key = String(raw || '').trim();
+    if (!key) return Promise.reject(new Error('A Player video URL is missing.'));
+    if (this._videoPreloadCache[key]) return this._videoPreloadCache[key];
+    const src = this.proxyVideoUrl(key);
+    const preloadTimeoutMs = 180000;
+    const decodeTimeoutMs = 15000;
+    const preloadPromise = new Promise((resolve, reject) => {
+      let settled = false;
+      let controller = null;
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error || 'Video preparation failed.')));
+      };
+      const succeed = (objectUrl) => {
+        if (settled) return;
+        this._videoDecodeReady(objectUrl, decodeTimeoutMs).then(() => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(objectUrl);
+        }).catch(fail);
+      };
+      if (window.AbortController) {
+        try { controller = new AbortController(); } catch (_) { controller = null; }
+      }
+      const timer = setTimeout(() => {
+        try { if (controller) controller.abort(); } catch (_) {}
+        fail(new Error('Video preparation timed out.'));
+      }, preloadTimeoutMs);
+      fetch(src, {
+        credentials: 'same-origin',
+        signal: controller ? controller.signal : undefined,
+      }).then((res) => {
+        if (!res.ok) {
+          return res.text().then((body) => {
+            let detail = '';
+            try { detail = (JSON.parse(body) || {}).detail || ''; } catch (_) { detail = body || ''; }
+            throw new Error(detail || ('Video preparation failed with HTTP ' + res.status + '.'));
+          });
+        }
+        return res.blob();
+      }).then((blob) => {
+        if (!blob || !blob.size || !window.URL || !URL.createObjectURL) {
+          throw new Error('The server returned an empty prepared video.');
+        }
+        if (this._videoObjectUrls[key]) {
+          try { URL.revokeObjectURL(this._videoObjectUrls[key]); } catch (_) {}
+        }
+        this._videoObjectUrls[key] = URL.createObjectURL(blob);
+        succeed(this._videoObjectUrls[key]);
+      }).catch(fail);
+    });
+    this._videoPreloadCache[key] = preloadPromise.catch((error) => {
+      const objectUrl = this._videoObjectUrls[key];
+      if (objectUrl) {
+        try { URL.revokeObjectURL(objectUrl); } catch (_) {}
+        delete this._videoObjectUrls[key];
+      }
+      delete this._videoPreloadCache[key];
+      throw error;
+    });
+    return this._videoPreloadCache[key];
+  }
+  _preloadPlayerVideos(onProgress) {
+    const refs = this._collectPlayerVideoRefs();
+    if (!refs.length || !window.HFYoutube || !window.HFYoutube.preloadClip) {
+      if (typeof onProgress === 'function') onProgress(100);
+      return Promise.resolve();
+    }
+    let done = 0;
+    let cursor = 0;
+    const concurrency = 2;
+    const tick = () => {
+      done += 1;
+      if (typeof onProgress === 'function') onProgress(Math.round((done / refs.length) * 100));
+    };
+    return new Promise((resolve) => {
+      const worker = () => {
+        const index = cursor++;
+        if (index >= refs.length) return Promise.resolve();
+        const ref = refs[index];
+        return window.HFYoutube.preloadClip(ref.raw, ref.heightPx, { timeoutMs: 15000 })
+          .then(tick)
+          .then(worker);
+      };
+      const workers = [];
+      const count = Math.min(concurrency, refs.length);
+      for (let index = 0; index < count; index += 1) workers.push(worker());
+      Promise.all(workers).then(resolve).catch(reject);
+    });
+  }
+  _preloadPlayerMedia(onProgress) {
+    let imagePct = 0;
+    let videoPct = 0;
+    const videoRefs = this._collectPlayerVideoRefs();
+    const imageWeight = 1;
+    const videoWeight = videoRefs.length ? 2 : 0;
+    const totalWeight = imageWeight + videoWeight;
+    const report = () => {
+      const pct = ((imagePct * imageWeight) + (videoPct * videoWeight)) / totalWeight;
+      if (typeof onProgress === 'function') onProgress(Math.round(pct));
+    };
+    const imagePromise = this._preloadPlayerImages((pct) => {
+      imagePct = pct || 0;
+      report();
+    }).then(() => {
+      imagePct = 100;
+      report();
+    });
+    const videoPromise = videoRefs.length
+      ? this._preloadPlayerVideos((pct) => {
+        videoPct = pct || 0;
+        report();
+      }).then(() => {
+        videoPct = 100;
+        report();
+      })
+      : Promise.resolve().then(() => {
+        videoPct = 100;
+        report();
+      });
+    return Promise.all([imagePromise, videoPromise]).then(() => {
+      if (typeof onProgress === 'function') onProgress(100);
+    });
+  }
   preparePlayerPlayback() {
     if (!this._player || !this._player.cues.length) return Promise.resolve();
     const token = ++this._playerPrepareToken;
-    return this._player.prepareAssets((onImgProgress) => this._preloadPlayerImages(onImgProgress)).then(() => {
+    return this._player.prepareAssets((onMediaProgress) => this._preloadPlayerMedia(onMediaProgress)).then(() => {
       if (token !== this._playerPrepareToken) return;
       return this._warmCalloutIcons();
     }).then(() => {
@@ -5181,12 +5529,12 @@ class Component extends DCLogic {
     if (videoJob) jobs.push(videoJob);
     if (!sceneDef) {
       const st = cue.step;
-      if (!st || st.type === 'video') {
+      const v = st ? (this._currentPlayerVisualForStep(st) || this.visualOf(st)) : null;
+      if (!st || !v || v.type === 'video') {
         return jobs.length ? Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, 2500))]) : Promise.resolve();
       }
-      const v = this.visualOf(st);
       const imgUrl = this.displayImageUrl(v);
-      if (this.canShowImage(imgUrl, st.type)) jobs.push(this._preloadImageUrl(imgUrl, 3000));
+      if (this.canShowImage(imgUrl, v.type)) jobs.push(this._preloadImageUrl(imgUrl, 3000));
       if (!jobs.length) return Promise.resolve();
       return Promise.race([
         Promise.all(jobs),
@@ -5204,11 +5552,12 @@ class Component extends DCLogic {
     visualIds.forEach((vid, k) => {
       if (k > activePartIdx) return;
       const st = stepByVisualId[vid];
-      if (!st || st.type === 'video') return;
-      let v = this.visualOf(st);
-      if (st.status === 'revised') v = st.after || this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
+      if (!st) return;
+      let v = this._currentPlayerVisualForStep(st) || this.visualOf(st);
+      if (!v) return;
+      if (v.type === 'video') return;
       const imgUrl = this.displayImageUrl(v);
-      if (this.canShowImage(imgUrl, st.type)) jobs.push(this._preloadImageUrl(imgUrl, 3000));
+      if (this.canShowImage(imgUrl, v.type)) jobs.push(this._preloadImageUrl(imgUrl, 3000));
     });
     this._syncPlayerSceneVideos(cue);
     if (!jobs.length) return Promise.resolve();
@@ -5218,17 +5567,7 @@ class Component extends DCLogic {
     ]);
   }
   _mountPlayerCueVideo(cue) {
-    if (!cue || !window.HFYoutube || !window.HFYoutube.mountPausedAtStartAsync) return null;
-    const st = cue.step;
-    if (!st || st.type !== 'video') return null;
-    const raw = st.assetUrl || st.url || this.rawAssetUrl(st);
-    if (!window.HFYoutube.isYoutubeUrl(raw)) return null;
-    const mountId = this.ytMountIdForCue(cue);
-    const heightPx = this._playerSlotHeightForCue(cue) || 480;
-    return window.HFYoutube.mountPausedAtStartAsync(mountId, raw, heightPx, {
-      cover: true,
-      timeoutMs: 4500,
-    }).catch(() => {});
+    return this._legacyMountPlayerCueVideo(cue);
   }
   _playerSceneKey(cue) {
     if (!cue) return '';
@@ -5245,6 +5584,30 @@ class Component extends DCLogic {
     return Math.max(80, Math.round(w * (this.CANVAS_H / this.CANVAS_W) * slotHeightRatio));
   }
   _schedulePlayerSceneVideoSync(cue) {
+    return this._legacySchedulePlayerSceneVideoSync(cue);
+  }
+  _syncPlayerSceneVideos(cue) {
+    return this._legacySyncPlayerSceneVideos(cue);
+  }
+  _legacyMountPlayerCueVideo(cue) {
+    if (!cue || !window.HFYoutube || !window.HFYoutube.mountPausedAtStartAsync) return null;
+    const st = cue.step;
+    if (!st) return null;
+    const v = this._currentPlayerVisualForStep(st) || this.visualOf(st);
+    if (!v || v.type !== 'video') return null;
+    const raw = (v && (v.assetUrl || v.url)) || this.rawAssetUrl(st);
+    if (!window.HFYoutube.isYoutubeUrl(raw)) return null;
+    const mountId = this.ytMountIdForCue(cue);
+    const heightPx = this._playerSlotHeightForCue(cue) || 480;
+    const fit = this._playerVideoFitForCue(cue);
+    return window.HFYoutube.mountPausedAtStartAsync(mountId, raw, heightPx, {
+      cover: fit !== 'contain',
+      fit,
+      primePlayback: true,
+      timeoutMs: 9000,
+    }).catch(() => {});
+  }
+  _legacySchedulePlayerSceneVideoSync(cue) {
     if (!cue || !window.HFYoutube) return;
     const token = ++this._playerVideoSyncToken;
     const run = () => {
@@ -5255,7 +5618,7 @@ class Component extends DCLogic {
     setTimeout(run, 120);
     setTimeout(run, 400);
   }
-  _syncPlayerSceneVideos(cue) {
+  _legacySyncPlayerSceneVideos(cue) {
     if (!cue || !this.slides || !window.HFYoutube) return;
     const slide = this.slides[cue.slideIdx];
     if (!slide) return;
@@ -5281,8 +5644,10 @@ class Component extends DCLogic {
     (sceneDef.visualIds || []).forEach((vid, k) => {
       if (k > activePartIdx + 1) return;
       const st = stepByVisualId[vid];
-      if (!st || st.type !== 'video') return;
-      const raw = st.assetUrl || st.url || this.rawAssetUrl(st);
+      if (!st) return;
+      const v = this._currentPlayerVisualForStep(st) || this.visualOf(st);
+      if (!v || v.type !== 'video') return;
+      const raw = (v && (v.assetUrl || v.url)) || this.rawAssetUrl(st);
       if (!window.HFYoutube.isYoutubeUrl(raw)) return;
       const mountId = this.ytMountIdForCue({
         slideIdx: cue.slideIdx,
@@ -5293,11 +5658,17 @@ class Component extends DCLogic {
       if (!document.getElementById(mountId)) return;
       const r = rects[k] || [0, 0, this.CANVAS_W, this.CANVAS_H];
       const heightPx = this._estimatePlayerSlotHeight(cue, r[3] / this.CANVAS_H);
+      const fit = this._playerVideoFitForCue({
+        slideIdx: cue.slideIdx,
+        sceneId: cue.sceneId,
+        partIdx: k,
+        partCount: (sceneDef.visualIds || []).length,
+      });
       if (k < activePartIdx && window.HFYoutube.mountFrozenAtEndAsync) {
-        window.HFYoutube.mountFrozenAtEndAsync(mountId, raw, heightPx, { cover: true }).catch(() => {});
+        window.HFYoutube.mountFrozenAtEndAsync(mountId, raw, heightPx, { cover: fit !== 'contain', fit }).catch(() => {});
       } else if (k === activePartIdx + 1 && window.HFYoutube.mountPausedAtStartAsync) {
         // Prefetch next panel only — never touch the active playing panel here.
-        window.HFYoutube.mountPausedAtStartAsync(mountId, raw, heightPx, { cover: true }).catch(() => {});
+        window.HFYoutube.mountPausedAtStartAsync(mountId, raw, heightPx, { cover: fit !== 'contain', fit, primePlayback: true }).catch(() => {});
       }
     });
   }
@@ -5322,10 +5693,12 @@ class Component extends DCLogic {
     });
     (sceneDef.visualIds || []).forEach((vid) => {
       const st = stepByVisualId[vid];
-      if (!st || st.type === 'video') return;
-      const v = this.visualOf(st);
+      if (!st) return;
+      const v = this._currentPlayerVisualForStep(st) || this.visualOf(st);
+      if (!v) return;
+      if (v.type === 'video') return;
       const url = this.displayImageUrl(v);
-      if (!this.canShowImage(url, st.type)) return;
+      if (!this.canShowImage(url, v.type)) return;
       const img = new Image();
       img.decoding = 'async';
       img.src = url;
@@ -5404,6 +5777,7 @@ class Component extends DCLogic {
   setAppView(view) {
     if (view === 'player') {
       if (window.HFYoutube) window.HFYoutube.destroyAll();
+      this._ytVideoPreloadCache = Object.create(null);
       // Clear leftover fade/motion state from a previous Player visit (e.g. after Styles).
       if (window.HFPlayerMotion) window.HFPlayerMotion.kill();
       if (window.HFSceneTransition) window.HFSceneTransition.kill();
@@ -6684,22 +7058,21 @@ class Component extends DCLogic {
     let driveVideoPoster = '';
     if (cue && cue.step) {
       const st = cue.step;
-      const raw = self.rawAssetUrl(st);
-      visualLabel = st.label || '';
-      if (st.type === 'video' && window.HFYoutube && window.HFYoutube.isYoutubeUrl(raw)) {
+      const v = self._currentPlayerVisualForStep(st) || self.visualOf(st);
+      const raw = (v && (v.assetUrl || v.url)) || self.rawAssetUrl(st);
+      visualLabel = (v && v.label) || st.label || '';
+      if (v && v.type === 'video' && self.isYoutubeVideoUrl(raw)) {
         visualType = 'video';
         showYtMount = true;
-      } else if (st.type === 'video' && self.isDriveVideoUrl(raw)) {
-        // Native looping clip: the proxy serves a pre-trimmed start->end segment.
+      } else if (v && v.type === 'video' && self.isDriveVideoUrl(raw)) {
         visualType = 'drivevideo';
         showDriveVideo = true;
-        driveVideoUrl = self.proxyVideoUrl(raw);
-        driveVideoPoster = self.proxyImageUrlThumb(raw, 'image');
+        driveVideoUrl = self.playerVideoUrl(raw);
+        driveVideoPoster = self.playerVideoPosterUrl(raw);
       } else {
         visualType = 'image';
-        const v = self.visualOf(st);
         visualUrl = self.displayImageUrl(v);
-        if (!self.canShowImage(visualUrl, st.type)) visualUrl = '';
+        if (!self.canShowImage(visualUrl, v && v.type)) visualUrl = '';
       }
     }
     const sceneCues = snap.sceneCues || [];
@@ -6728,7 +7101,12 @@ class Component extends DCLogic {
       playerEmpty: !snap.hasCues,
       playerShowLoading: !!snap.preloading || (!snap.assetsReady && snap.hasCues),
       playerLoadProgress: snap.preloadProgress || 0,
-      playerLoadingLabel: snap.preloading ? 'Preparing playback...' : 'Loading assets...',
+      playerLoadingLabel: snap.assetsError
+        ? 'Playback assets unavailable'
+        : (snap.preloading ? 'Preparing playback...' : 'Loading assets...'),
+      playerLoadingDetail: snap.assetsError
+        ? (snap.assetsError + ' Press Play to retry preparation.')
+        : 'Warming every voiceover, image, and YouTube clip before enabling playback.',
       playerSlideNum: cue ? cue.slideIdx + 1 : 1,
       playerSlideTotal: total,
       playerCoursePct: self._courseTimelinePct(snap).toFixed(2),
@@ -6742,6 +7120,7 @@ class Component extends DCLogic {
       playerDriveVideoId: cue ? self.driveVideoIdForCue(cue) : 'hf-player-drivevid-active',
       playerDriveVideoUrl: driveVideoUrl,
       playerDriveVideoPoster: driveVideoPoster,
+      playerDriveVideoPosterStyle: driveVideoPoster ? ('background-image: url("' + driveVideoPoster + '");') : 'display: none;',
       playerShowPlaceholder: (visualType === 'image' && !visualUrl) || (visualType === 'video' && !showYtMount) || (visualType === 'drivevideo' && !driveVideoUrl),
       playerVisualUrl: visualUrl,
       playerVisualLabel: visualLabel,
@@ -6847,10 +7226,15 @@ class Component extends DCLogic {
     const isMainInset = (normT === 'main_plus_supporting_inset' && refs.length === 2);
     const isMultiPanel = (normT === 'multi_panel_grid' && (refs.length === 3 || refs.length === 4));
     const useBlurFill = isSingleHero || isSplitComparison || isMainInset || isMultiPanel;
-    const motionTreatment = this._playerTreatmentForCue(cue);
+    const sceneHasVideo = refs.some((ref) => {
+      const v = this._currentPlayerVisualForStep(ref.st);
+      const raw = (v && (v.assetUrl || v.url)) || this.rawAssetUrl(ref.st);
+      return !!(v && v.type === 'video' && (this.isYoutubeVideoUrl(raw) || this.isDriveVideoUrl(raw)));
+    });
+    const motionTreatment = sceneHasVideo ? 'none' : this._playerTreatmentForCue(cue);
     // Focus treatments need both panels visible from the start so inactive can dim
     // in place — progressive reveal leaves a blank half, then a black flash on cue change.
-    const splitKeepBothMounted = isSplitComparison && (
+    const splitKeepBothMounted = !sceneHasVideo && isSplitComparison && (
       motionTreatment === 'dim_desaturate'
       || motionTreatment === 'hold_and_reveal'
       || motionTreatment === 'scale_emphasis'
@@ -6860,22 +7244,26 @@ class Component extends DCLogic {
       || motionTreatment === 'center_then_split'
     );
     // Mount both so GSAP (not CSS is-revealed) can hide/dim the inset until its cue.
-    const insetKeepBothMounted = isMainInset && motionTreatment !== 'off' && motionTreatment !== 'none';
-    const gridKeepAllMounted = isMultiPanel && motionTreatment !== 'off' && motionTreatment !== 'none';
+    const insetKeepBothMounted = !sceneHasVideo && isMainInset && motionTreatment !== 'off' && motionTreatment !== 'none';
+    const gridKeepAllMounted = !sceneHasVideo && isMultiPanel && motionTreatment !== 'off' && motionTreatment !== 'none';
     const activePartIdx = cue.partIdx != null
       ? cue.partIdx
       : Math.max(0, refs.findIndex((ref) => ref.st.visualId === cue.visualId));
 
     const slots = refs.map((ref, k) => {
       const st = ref.st;
-      const isRevealed = (cue.animationType === 'text_label' && (isSplitComparison || isMainInset || isMultiPanel)) || splitKeepBothMounted || insetKeepBothMounted || gridKeepAllMounted || k <= activePartIdx;
+      const isRevealed = sceneHasVideo
+        ? k <= activePartIdx
+        : ((cue.animationType === 'text_label' && (isSplitComparison || isMainInset || isMultiPanel)) || splitKeepBothMounted || insetKeepBothMounted || gridKeepAllMounted || k <= activePartIdx);
       const isActive = k === activePartIdx;
       const r = rects[k] || [0, 0, this.CANVAS_W, this.CANVAS_H];
       const x = r[0], y = r[1], w = r[2], ht = r[3];
-      let v = this.visualOf(st);
-      if (st.status === 'revised') v = st.after || this.visualFromStep(st, st.afterUrl || st.assetUrl, { revisionMode: st.mode });
+      let v = this._currentPlayerVisualForStep(st) || this.visualOf(st);
       const raw = v.assetUrl || v.url || this.rawAssetUrl(st);
-      const isVideo = v.type === 'video' && window.HFYoutube && window.HFYoutube.isYoutubeUrl(raw);
+      const isYoutubeVideo = v.type === 'video' && this.isYoutubeVideoUrl(raw);
+      const isDriveVideo = v.type === 'video' && this.isDriveVideoUrl(raw);
+      const videoFit = isSingleHero ? 'cover' : 'contain';
+      const videoPoster = isDriveVideo ? this.playerVideoPosterUrl(raw) : '';
       const slotMountId = this.ytMountIdForCue({
         slideIdx: cue.slideIdx,
         sceneId: cue.sceneId,
@@ -6883,22 +7271,27 @@ class Component extends DCLogic {
         partCount: refs.length,
       });
       let inner = null;
-      if (isVideo) {
+      if (isYoutubeVideo) {
         inner = h('div', { className: 'hf-player-scene-slot-inner hf-split-motion-target', key: 'slot-inner-' + k },
           h('div', { id: slotMountId, className: 'hf-player-yt-mount', style: { width: '100%', height: '100%' } })
         );
-      } else if (v.type === 'video' && this.isDriveVideoUrl(raw)) {
-        // Native clip (pre-trimmed start->end) for Drive videos in scene layout. No autoplay/loop: the HFPlayer controller drives play/pause/freeze in sync with narration via the deterministic per-slot id below.
-        inner = h('div', { className: 'hf-player-scene-slot-inner hf-split-motion-target', key: 'slot-inner-' + k },
+      } else if (isDriveVideo) {
+        inner = h('div', { className: 'hf-player-scene-slot-inner hf-player-video-shell hf-player-video-shell--' + videoFit, key: 'slot-inner-' + k },
+          videoPoster ? h('div', {
+            className: 'hf-player-video-poster-blur',
+            style: { backgroundImage: 'url("' + videoPoster + '")' },
+          }) : null,
           h('video', {
             id: this.driveVideoIdForCue({ slideIdx: cue.slideIdx, sceneId: cue.sceneId, partIdx: k, partCount: refs.length }),
-            src: this.proxyVideoUrl(raw),
-            poster: this.proxyImageUrlThumb(raw, 'image'),
+            className: 'hf-player-drive-video hf-player-drive-video--' + videoFit,
+            src: this.playerVideoUrl(raw),
+            poster: videoPoster || undefined,
             muted: true,
             playsInline: true,
             preload: 'auto',
+            controlsList: 'nodownload noplaybackrate noremoteplayback nofullscreen',
+            disablePictureInPicture: true,
             ref: (el) => { if (el) el.muted = true; },
-            style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000' },
           })
         );
       } else {
@@ -6966,7 +7359,7 @@ class Component extends DCLogic {
           }, this.iconFor(v.type, 22));
         }
       }
-      const slotClass = (isRevealed ? 'is-revealed ' : '') + (isActive ? 'is-active' : '');
+      const slotClass = (isRevealed ? 'is-revealed ' : '') + (isActive ? 'is-active ' : '') + (sceneHasVideo ? 'is-video-scene' : '');
       const flushJoin = isSplitComparison || isMainInset || isMultiPanel;
       const n = refs.length;
       const posStyle = {

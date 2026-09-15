@@ -186,12 +186,14 @@ Do NOT choose callout_card when:
 
 5. Overlay timing (trigger_phrase)
    - When animation_type is text_label, bbox_highlight, icon_overlay, or callout_card, every overlay item in that scene MUST include a <trigger_phrase>.
+   - When animation_type is icon_overlay, every <icon> MUST also include an <icon_label> of exactly 1 or 2 words for the Player caption pill.
    - The player will show that overlay when the narration reaches this phrase — synced to the voiceover, not at a fixed time.
-   - <trigger_phrase> MUST be an exact excerpt copied from the assigned narration span ({narration_span}). Do not paraphrase. Do not use words that are not in that span.
+   - <trigger_phrase> MUST be an exact contiguous excerpt copied from the assigned narration span ({narration_span}). The words MUST appear next to each other in that order in the narration — a consecutive substring, not scattered words gathered from different places in the sentence.
+   - Do not paraphrase. Do not rearrange words. Do not skip words in the middle. Do not use words that are not in that span.
    - Length: 1–4 words. Prefer 2–3 words when that makes the moment unambiguous.
    - Pick the phrase for the moment the learner should first notice that overlay — usually when the narration first names or describes that card, region, icon, or label concept.
    - Each overlay item gets its own <trigger_phrase>. Never reuse the same full phrase for two items in the same scene.
-   - Overlapping phrases are allowed (e.g. one card at "looking at a fixture" and another at "fixture and knowing exactly") as long as each phrase is a distinct contiguous excerpt and they trigger at different spoken moments.
+   - Overlapping phrases are allowed (e.g. one card at "looking at a fixture" and another at "fixture and knowing exactly") as long as each phrase is a distinct contiguous excerpt of neighboring words and they trigger at different spoken moments.
    - Put N/A for <trigger_phrase> only when animation_type is none.
 
 ## Output format
@@ -237,7 +239,7 @@ Short, direct, instructional label (typically 1–4 words). Pulled from or faith
 <trigger_phrase>
 
 Required only when animation_type is text_label. Put N/A for other animation types.
-Exact 1–4 word excerpt from the narration span when the label card and hero shift should animate in — usually when the named part is first spoken. Must appear verbatim in the narration span.
+Exact 1–3 word excerpt from the narration span when the label card and hero shift should animate in — usually when the named part is first spoken. Must be a contiguous substring of neighboring words that appear next to each other, verbatim, in the narration span.
 
 </trigger_phrase>
 
@@ -254,7 +256,7 @@ box
 </highlight_shape>
 
 <trigger_phrase>
-Exact 1–4 word excerpt from the narration span when this highlight should draw on screen — usually when this region or part is first named or pointed to. Must appear verbatim in the narration span. Required inside every <highlight> block.
+Exact 1–3 word excerpt from the narration span when this highlight should draw on screen — usually when this region or part is first named or pointed to. Must be a contiguous substring of neighboring words that appear next to each other, verbatim, in the narration span. Required inside every <highlight> block.
 </trigger_phrase>
 
 </highlight>
@@ -266,8 +268,12 @@ Exact 1–4 word excerpt from the narration span when this highlight should draw
 Required when animation_type is icon_overlay. Put N/A in this field for other animation types. Repeat one <icon>...</icon> tag per distinct icon (1–3 times, never more than 3). 
 
 <icon_concept>
-Plain-language icon meaning, e.g. "warning triangle", "airflow arrows", "water droplet", "check mark for correct installation".
+Plain-language icon meaning used to GENERATE the glyph image, e.g. "warning triangle", "airflow arrows", "water droplet", "lightning bolt for electricity". Do not put the short UI caption here.
 </icon_concept>
+
+<icon_label>
+Exact 1 or 2 word caption shown under the icon in the Player (orange pill). Examples: "Warning", "Airflow", "Moisture", "Electrical", "Correct". Title Case. No punctuation. Never more than 2 words. Required inside every <icon> block.
+</icon_label>
 
 <target_description>
 Describe the exact visible object or region this icon should relate to, using position in the frame, nearby landmarks, and distinguishing details. Do not combine two icons in one <icon>.
@@ -278,7 +284,7 @@ Where this icon should appear relative to the target, e.g. "above the condenser 
 </placement_hint>
 
 <trigger_phrase>
-Exact 1–4 word excerpt from the narration span when this icon should appear — usually when the symbolic meaning or related concept is first spoken. Must appear verbatim in the narration span. Required inside every <icon> block.
+Exact 1–3 word excerpt from the narration span when this icon should appear — usually when the symbolic meaning or related concept is first spoken. Must be a contiguous substring of neighboring words that appear next to each other, verbatim, in the narration span. Required inside every <icon> block.
 </trigger_phrase>
 
 </icon>
@@ -308,7 +314,7 @@ Exactly one position per card.
 </position>
 
 <trigger_phrase>
-Exact 1–4 word excerpt from the narration span when this callout card should animate in — usually when this card's header/body concept is first spoken. Must appear verbatim in the narration span. Required inside every <callout> block. Use a different phrase for each card in the same scene.
+Exact 1–3 word excerpt from the narration span when this callout card should animate in — usually when this card's header/body concept is first spoken. Must be a contiguous substring of neighboring words that appear next to each other, verbatim, in the narration span. Required inside every <callout> block. Use a different phrase for each card in the same scene.
 </trigger_phrase>
 
 </callout>
@@ -791,7 +797,11 @@ def run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm="gemini_3_flash
             if not existing_icons or existing_icons == "nan" or existing_icons.startswith("ERROR:"):
                 df.at[index, _ICONS_COLUMN] = "-"
         elif (
-            (not existing_icons or existing_icons == "nan" or existing_icons.startswith("ERROR:"))
+            (
+                not existing_icons
+                or existing_icons == "nan"
+                or existing_icons.startswith("ERROR:")
+            )
             and plan_text
             and plan_text != "nan"
         ):
@@ -943,7 +953,11 @@ def run_hero_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking
         manifest = str(row.get("slideshow_manifest", "")).strip()
         if not manifest or manifest == "nan" or manifest.startswith("ERROR:"):
             continue
-        if existing_plan and existing_plan != "nan" and not plan_cell_needs_processing(existing_plan):
+        if (
+            existing_plan
+            and existing_plan != "nan"
+            and not plan_cell_needs_processing(existing_plan)
+        ):
             continue
         rows_to_process.append((index, row))
 

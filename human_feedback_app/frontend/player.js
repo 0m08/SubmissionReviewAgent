@@ -19,6 +19,10 @@ window.HFPlayer = (function () {
       if (!scenes.length) return;
       scenes.forEach(function (scene, sceneIdx) {
         const visualIds = scene.visualIds || [];
+        const sceneHasVideo = visualIds.some(function (vid) {
+          const st = findStep(slide, vid);
+          return !!(st && st.type === "video");
+        });
         visualIds.forEach(function (vid, partIdx) {
           const step = findStep(slide, vid);
           if (!step) return;
@@ -42,6 +46,7 @@ window.HFPlayer = (function () {
             bboxHighlights: scene.bboxHighlights || [],
             iconOverlays: scene.iconOverlays || [],
             calloutCards: scene.calloutCards || [],
+            sceneHasVideo: sceneHasVideo,
             slideType: slide.slideType || "",
             slideChunk: slide.slideChunk || "",
             topic: slide.topic || "",
@@ -57,6 +62,11 @@ window.HFPlayer = (function () {
     if (u.indexOf("drive.google.com") === -1 && u.indexOf("docs.google.com") === -1) return false;
     // Drive *video* clips carry a trailing "(start=..)" / "(start=..&end=..)" suffix, which is what distinguishes them from Drive *image* URLs.
     return /\(start=\d+(?:&end=\d+)?\)/.test(String(url || ""));
+  }
+
+  function isYoutubeVideoUrl(url) {
+    const u = String(url || "").toLowerCase();
+    return u.indexOf("youtube.com") !== -1 || u.indexOf("youtu.be") !== -1;
   }
 
   function afterPaint(fn) {
@@ -83,6 +93,7 @@ window.HFPlayer = (function () {
     this.resolveImageUrl = options.resolveImageUrl || function () { return ""; };
     this.getYtMountId = options.getYtMountId || function () { return "hf-player-yt-mount"; };
     this.getYtMountHeight = options.getYtMountHeight || function () { return 480; };
+    this.getVideoFit = options.getVideoFit || function () { return "cover"; };
     this.getDriveVideoId = options.getDriveVideoId || function () { return "hf-player-drivevid-active"; };
     this.onBeforeCuePlay = options.onBeforeCuePlay || null;
     this.onState = options.onState || function () {};
@@ -97,6 +108,7 @@ window.HFPlayer = (function () {
     this.assetsReady = false;
     this.preloadProgress = 0;
     this._preloading = false;
+    this._preloadVisualsFn = null;
     this._audio = null;
     this._token = 0;
     this._ttsCache = Object.create(null);
@@ -120,6 +132,7 @@ window.HFPlayer = (function () {
     this.cues = buildCues(this.slides);
     if (this.cueIndex >= this.cues.length) this.cueIndex = Math.max(0, this.cues.length - 1);
     this.assetsReady = false;
+    this.preloadProgress = 0;
     this.prefetchAll();
     this.emit();
   };
@@ -224,6 +237,7 @@ window.HFPlayer = (function () {
     if (!el) return false;
     try {
       el.muted = true;
+      try { el.playbackRate = this.speed || 1; } catch (_) {}
       if (fromStart) {
         try { el.currentTime = 0; } catch (_) {}
       }
@@ -346,7 +360,23 @@ window.HFPlayer = (function () {
     const rawUrl = step.assetUrl || step.url || "";
     const isVideo = step.type === "video" && window.HFYoutube.isYoutubeUrl(rawUrl);
     if (!isVideo) return;
-    window.HFYoutube.freezePlayerAtEnd(this._ytMountIdForCue(cue), rawUrl);
+    if (window.HFYoutube.freezeCurrentFrame) {
+      window.HFYoutube.freezeCurrentFrame(this._ytMountIdForCue(cue));
+    } else {
+      window.HFYoutube.pausePlayer(this._ytMountIdForCue(cue));
+    }
+  };
+
+  Controller.prototype._pauseCueVideo = function (cue) {
+    if (!cue || !cue.step) return;
+    if (this._isDriveVideoCue(cue)) {
+      this._pauseDriveVideo(cue);
+      return;
+    }
+    const step = cue.step;
+    const rawUrl = step.assetUrl || step.url || "";
+    if (step.type !== "video" || !window.HFYoutube || !window.HFYoutube.isYoutubeUrl(rawUrl)) return;
+    window.HFYoutube.pausePlayer(this._ytMountIdForCue(cue));
   };
 
   Controller.prototype._freezePrevCueVideo = function (prevIdx, newIdx) {
@@ -583,7 +613,8 @@ window.HFPlayer = (function () {
     const self = this;
     const step = cue.step;
     const rawUrl = step.assetUrl || step.url || "";
-    const isVideo = step.type === "video" && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl);
+    const isNativeVideo = self._isDriveVideoCue(cue);
+    const isVideo = step.type === "video" && !isNativeVideo && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl);
     if (!isVideo || !window.HFYoutube) {
       return Promise.resolve(token === self._token);
     }
@@ -596,11 +627,14 @@ window.HFPlayer = (function () {
     const mountFn = window.HFYoutube.mountPausedAtStartAsync
       || window.HFYoutube.scheduleControlledMountAsync;
     if (!mountFn) return Promise.resolve(token === self._token);
+    const fit = self.getVideoFit(cue) || "cover";
     return mountFn.call(window.HFYoutube, mountId, rawUrl, height, {
       autoplay: false,
       loop: false,
-      cover: true,
-      timeoutMs: 4500,
+      cover: fit !== "contain",
+      fit: fit,
+      primePlayback: true,
+      timeoutMs: 9000,
     }).then(function () {
       return token === self._token;
     }).catch(function () {
@@ -617,12 +651,16 @@ window.HFPlayer = (function () {
       const cue = self.cues[i];
       if (!cue || !cue.step || cue.step.type !== "video") continue;
       const rawUrl = cue.step.assetUrl || cue.step.url || "";
+      if (self._isDriveVideoCue(cue)) continue;
       if (!window.HFYoutube.isYoutubeUrl(rawUrl)) continue;
       const mountId = self._ytMountIdForCue(cue);
       if (!document.getElementById(mountId)) continue;
       const height = self.getYtMountHeight(cue) || 480;
+      const fit = self.getVideoFit(cue) || "cover";
       window.HFYoutube.mountPausedAtStartAsync(mountId, rawUrl, height, {
-        cover: true,
+        cover: fit !== "contain",
+        fit: fit,
+        primePlayback: true,
         timeoutMs: 8000,
       }).catch(function () {});
     }
@@ -646,6 +684,7 @@ window.HFPlayer = (function () {
     const nextCue = self.cues[idx + 1];
     const tightHandoff = sameSceneParts(prevCue, cue);
     const tightToNext = sameSceneParts(cue, nextCue);
+    if (prevCue && !tightHandoff) self._pauseCueVideo(prevCue);
     self.prefetchVoiceovers(idx + 1, 8);
     self._stopMedia({ destroyVideos: false, resetDuration: true });
     const token = self._token;
@@ -653,8 +692,8 @@ window.HFPlayer = (function () {
 
     const step = cue.step;
     const rawUrl = step.assetUrl || step.url || "";
-    const isVideo = step.type === "video" && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl);
     const isDriveVideo = self._isDriveVideoCue(cue);
+    const isVideo = step.type === "video" && !isDriveVideo && window.HFYoutube && window.HFYoutube.isYoutubeUrl(rawUrl);
     const mountId = self._ytMountIdForCue(cue);
     const voKey = String(cue.voiceover || "").trim();
 
@@ -679,12 +718,13 @@ window.HFPlayer = (function () {
         return self._fetchTtsUrl(cue.voiceover);
       });
 
+    const cueStartTimeoutMs = isVideo ? 14000 : (tightHandoff ? 2500 : 8000);
     return withTimeout(Promise.all([
       ttsPromise,
       mountPromise,
     ]).then(function (results) {
       return results[0];
-    }), tightHandoff ? 2500 : 8000, primed && primed.url ? primed.url : null).then(function (audioUrl) {
+    }), cueStartTimeoutMs, primed && primed.url ? primed.url : null).then(function (audioUrl) {
       if (token !== self._token || audioUrl == null) return;
       return new Promise(function (resolve) {
         const audio = (primed && primed.audio && primed.url === audioUrl)
@@ -696,13 +736,15 @@ window.HFPlayer = (function () {
 
         let started = false;
         let finished = false;
+        let youtubePlaybackConfirmed = false;
 
         function onDone() {
           if (token !== self._token || finished) return;
           finished = true;
           self._clearTick();
           if (isVideo && window.HFYoutube) {
-            window.HFYoutube.freezePlayerAtEnd(mountId, rawUrl);
+            if (window.HFYoutube.freezeCurrentFrame) window.HFYoutube.freezeCurrentFrame(mountId);
+            else window.HFYoutube.pausePlayer(mountId);
           }
           if (isDriveVideo) self._pauseDriveVideo(cue);
           self._cueElapsed = self._cueDuration;
@@ -713,10 +755,12 @@ window.HFPlayer = (function () {
         function startPlayback() {
           if (started || token !== self._token) return;
           started = true;
-          if (isVideo && window.HFYoutube) {
+          if (isVideo && window.HFYoutube && !youtubePlaybackConfirmed) {
+            if (window.HFYoutube.setPlaybackRate) window.HFYoutube.setPlaybackRate(mountId, self.speed || 1);
             if (!window.HFYoutube.playPlayer(mountId, rawUrl)) {
               self._mountVideoAsync(cue, token).then(function () {
                 if (token !== self._token) return;
+                if (window.HFYoutube.setPlaybackRate) window.HFYoutube.setPlaybackRate(mountId, self.speed || 1);
                 window.HFYoutube.playPlayer(mountId, rawUrl);
               });
             }
@@ -746,6 +790,17 @@ window.HFPlayer = (function () {
           self._primeNextAudio(idx);
         }
 
+        function stopForYoutubeStartFailure() {
+          if (token !== self._token || started || finished) return;
+          finished = true;
+          self.playing = false;
+          self.assetsReady = false;
+          self.assetsError = "The YouTube clip did not start. Press Play to retry.";
+          self._clearTick();
+          self.emit();
+          resolve();
+        }
+
         function onMetaReady() {
           if (token !== self._token || started) return;
           self._cueDuration = audio.duration || 0;
@@ -771,7 +826,28 @@ window.HFPlayer = (function () {
             afterPaint(function () {
               if (token !== self._token || started) return;
               self._mountVideoAsync(cue, token).then(function () {
-                afterPaint(startPlayback);
+                if (token !== self._token || started) return;
+                afterPaint(function () {
+                  if (token !== self._token || started) return;
+                  const yt = window.HFYoutube;
+                  if (yt && yt.setPlaybackRate) yt.setPlaybackRate(mountId, self.speed || 1);
+                  const confirmed = yt && yt.playPlayerAsync
+                    ? yt.playPlayerAsync(mountId, rawUrl, {
+                        timeoutMs: 10000,
+                        retryMs: 250,
+                        shouldCancel: function () { return token !== self._token; },
+                      })
+                    : Promise.resolve(!!(yt && yt.playPlayer(mountId, rawUrl)));
+                  confirmed.then(function (playing) {
+                    if (token !== self._token || started) return;
+                    if (!playing) {
+                      stopForYoutubeStartFailure();
+                      return;
+                    }
+                    youtubePlaybackConfirmed = true;
+                    startPlayback();
+                  }).catch(stopForYoutubeStartFailure);
+                });
               });
             });
           } else if (isDriveVideo) {
@@ -869,41 +945,55 @@ window.HFPlayer = (function () {
     });
   };
 
-  Controller.prototype.prepareAssets = function (preloadImagesFn, onProgress) {
+  Controller.prototype.prepareAssets = function (preloadVisualsFn, onProgress) {
     const self = this;
     if (self._preloading) return self._preloadPromise || Promise.resolve();
+    if (typeof preloadVisualsFn === "function") self._preloadVisualsFn = preloadVisualsFn;
     self._preloading = true;
     self.assetsReady = false;
     self.preloadProgress = 0;
     self.emit();
 
-    const imageProgress = function (pct) {
-      self.preloadProgress = Math.round(pct);
+    const visualPreloader = self._preloadVisualsFn;
+    const hasVisualPreload = typeof visualPreloader === "function";
+    let ttsProgress = 0;
+    let visualProgress = hasVisualPreload ? 0 : 100;
+    const ttsWeight = hasVisualPreload ? 45 : 100;
+    const visualWeight = hasVisualPreload ? 55 : 0;
+    const reportProgress = function () {
+      const pct = ((ttsProgress * ttsWeight) + (visualProgress * visualWeight)) / 100;
+      self.preloadProgress = Math.round(Math.max(0, Math.min(100, pct)));
       if (typeof onProgress === "function") onProgress(self.preloadProgress);
       self.emit();
     };
 
-    self._preloadPromise = self.prefetchAllAsync(function (ttsPct) {
-      const blended = Math.round(ttsPct * 0.55);
-      self.preloadProgress = blended;
-      if (typeof onProgress === "function") onProgress(blended);
+    const ttsPromise = self.prefetchAllAsync(function (ttsPct) {
+      ttsProgress = ttsPct || 0;
+      reportProgress();
     }).then(function () {
+      ttsProgress = 100;
+      reportProgress();
+    });
+
+    const visualPromise = hasVisualPreload
+      ? visualPreloader(function (visualPct) {
+        visualProgress = visualPct || 0;
+        reportProgress();
+      }).then(function () {
+        visualProgress = 100;
+        reportProgress();
+      })
+      : Promise.resolve();
+
+    self._preloadPromise = Promise.all([ttsPromise, visualPromise]).then(function () {
       self.assetsReady = true;
-      self.preloadProgress = Math.max(self.preloadProgress, 55);
       self._preloading = false;
-      self.emit();
-      if (typeof preloadImagesFn !== "function") return;
-      return preloadImagesFn(function (imgPct) {
-        const blended = Math.round(55 + imgPct * 0.45);
-        imageProgress(blended);
-      });
-    }).then(function () {
       self.preloadProgress = 100;
       self.emit();
     }).catch(function () {
       self.assetsReady = true;
-      self.preloadProgress = 100;
       self._preloading = false;
+      self.preloadProgress = 100;
       self.emit();
     });
 
@@ -963,7 +1053,7 @@ window.HFPlayer = (function () {
         try { this._audio.pause(); } catch (_) {}
       }
       const cue = this.cues[this.cueIndex];
-      if (window.HFYoutube && cue) window.HFYoutube.pausePlayer(this._ytMountIdForCue(cue));
+      if (window.HFYoutube && cue && !this._isDriveVideoCue(cue)) window.HFYoutube.pausePlayer(this._ytMountIdForCue(cue));
       if (cue) this._pauseDriveVideo(cue);
       this._clearTick();
       this.emit();
@@ -975,10 +1065,13 @@ window.HFPlayer = (function () {
       const playPromise = this._audio.play();
       if (playPromise && playPromise.catch) playPromise.catch(function () {});
       const cue = this.cues[this.cueIndex];
-      if (window.HFYoutube && cue) {
+      if (window.HFYoutube && cue && !this._isDriveVideoCue(cue)) {
         const step = cue.step;
         const rawUrl = step.assetUrl || step.url || "";
-        window.HFYoutube.playPlayer(this._ytMountIdForCue(cue), rawUrl);
+        if (window.HFYoutube.setPlaybackRate) window.HFYoutube.setPlaybackRate(this._ytMountIdForCue(cue), this.speed || 1);
+        if (!window.HFYoutube.resumePlayer || !window.HFYoutube.resumePlayer(this._ytMountIdForCue(cue))) {
+          window.HFYoutube.playPlayer(this._ytMountIdForCue(cue), rawUrl);
+        }
       }
       // Resume the Drive clip from where it froze (do not restart from 0).
       if (cue) this._playDriveVideo(cue, false);
@@ -998,8 +1091,8 @@ window.HFPlayer = (function () {
     if (!this.cues.length) return;
     const wasPlaying = this.playing;
     this.playing = false;
-    // Halt the current native Drive clip before stepping back (YouTube is handled by _stopMedia + reattach; native <video> persists per slot, so pause it).
-    this._pauseDriveVideo(this.cues[this.cueIndex]);
+    // Halt any active cue video before stepping back.
+    this._pauseCueVideo(this.cues[this.cueIndex]);
     this._primedAudio = null;
     this._stopMedia({ destroyVideos: false });
     this.cueIndex = Math.max(0, this.cueIndex - 1);
@@ -1030,6 +1123,14 @@ window.HFPlayer = (function () {
   Controller.prototype.setSpeed = function (speed) {
     this.speed = speed;
     if (this._audio) this._audio.playbackRate = speed;
+    const cue = this.cues[this.cueIndex];
+    const driveEl = this._driveVidElForCue(cue);
+    if (driveEl) {
+      try { driveEl.playbackRate = speed; } catch (_) {}
+    }
+    if (cue && !this._isDriveVideoCue(cue) && window.HFYoutube && window.HFYoutube.setPlaybackRate) {
+      window.HFYoutube.setPlaybackRate(this._ytMountIdForCue(cue), speed);
+    }
     this.emit();
   };
 
@@ -1099,7 +1200,7 @@ window.HFPlayer = (function () {
     const wasPlaying = this.playing;
     this.playing = false;
     this._primedAudio = null;
-    this._pauseDriveVideo(this.cues[this.cueIndex]);
+    this._pauseCueVideo(this.cues[this.cueIndex]);
     this._stopMedia({ destroyVideos: false });
     this.cueIndex = idx;
     this._activeCueIndex = -1;
@@ -1116,7 +1217,7 @@ window.HFPlayer = (function () {
     if (!this.cues.length) return;
     this.playing = false;
     this._primedAudio = null;
-    this._pauseDriveVideo(this.cues[this.cueIndex]);
+    this._pauseCueVideo(this.cues[this.cueIndex]);
     this._stopMedia({ destroyVideos: false });
     this._activeCueIndex = -1;
     this.play();

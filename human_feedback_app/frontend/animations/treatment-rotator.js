@@ -288,6 +288,16 @@ window.HFTreatmentRotator = (function () {
       const layout = layoutKey(cue.sceneTemplate || "");
       if (!layout) return;
 
+      if (cue.sceneHasVideo) {
+        byScene[key] = {
+          layout: layout,
+          treatment: "off",
+          index: -1,
+          occurrence: -1,
+        };
+        return;
+      }
+
       const animType = cue.animationType || "none";
       if (layout === "single_visual_hero" && animType !== "none") {
         byScene[key] = {
