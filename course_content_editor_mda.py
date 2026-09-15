@@ -51,6 +51,7 @@ import streamlit as st
 from dotenv import dotenv_values
 
 from services.activity_tracking_service import track_tool_action
+from services.agent_identity import run_context, run_metadata
 from services.cce_diff import (
     PAGE_CSS,
     counts_line,
@@ -420,7 +421,13 @@ def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
     The live shape is the same shape `render_turn` replays afterwards, which is
     what lets this page skip a rerun when the turn ends — see the note at the
     bottom of the file.
+
+    The signed-in email is read here rather than passed in, because it is read
+    twice for two destinations that must not be confused: an opaque id goes to
+    the agent as run context, the email goes to the LangSmith trace. See
+    `services/agent_identity.py` for why that split exists.
     """
+    email = st.session_state.get("user_email")
     timeline: list[dict] = []
     presentations: list[dict] = []
     threads: dict[str, dict] = {}
@@ -479,6 +486,14 @@ def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
         thread_id,
         ASSISTANT,
         input={"messages": [{"role": "user", "content": text}]},
+        # Who this run is for. `context` reaches the agent — an opaque editor
+        # id and nothing else, because it names a path in memory that every
+        # caller of the deployment can read. `metadata` reaches the LangSmith
+        # trace, which is workspace-private and is where the email belongs.
+        # Both are empty for a session with no signed-in user, and the agent
+        # then works from team memory alone.
+        context=run_context(email),
+        metadata=run_metadata(email),
         # "custom" is how present.py content reaches this page without going
         # through the agent's context. Without it the review cards never arrive.
         stream_mode=["updates", "custom"],

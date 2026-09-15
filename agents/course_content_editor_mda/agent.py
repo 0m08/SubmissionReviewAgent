@@ -36,21 +36,42 @@ Deliberately not here, and each for a reason:
 - **the commit-guard `middleware`** — it checked for a manifest before allowing
   a commit. A script can check its own preconditions, and does.
 
-One middleware *is* declared. `present_to_client` restores a property the move
+Two middleware *are* declared. `present_to_client` restores a property the move
 to scripts lost by accident: `present.py` output is meant for the user's screen,
 but a script's stdout is the tool result, so the agent was being handed every
 file it displayed. The middleware routes the content to the client's custom
 stream and gives the model counts and an acknowledgement instead. See
 `middleware/present_bridge.py` for why that split matters.
+
+`editor_identity` names the signed-in person for the run, so the agent can read
+that person's own memory file out of the shared tree. MDA has no private
+per-caller memory yet (`define_memory(scope="user")` raises), so this is an
+honour system: the id is a label the agent is trusted to respect, not an access
+boundary. See `middleware/editor_identity.py` and the Memory section of
+`instructions.md` for what that does and does not buy.
 """
 
 from __future__ import annotations
 
 import os
+from typing import NotRequired, TypedDict
 
 from managed_deepagents import define_deep_agent
 
-from middleware import present_to_client
+from middleware import editor_identity, present_to_client
+
+
+class EditorContext(TypedDict):
+    """Per-run context the front end sets from the signed-in session.
+
+    `editor_id` is an opaque, stable id minted in `services/agent_identity.py`
+    — never an email, because it names a path inside memory that every caller
+    of this deployment can read. Absent for anonymous or direct API runs, which
+    is why it is optional: a missing identity must fall back to team memory
+    only, never to somebody else's slice.
+    """
+
+    editor_id: NotRequired[str]
 
 # Change the model by setting CCE_MODEL in `.env` — no code edit, and `mda`
 # forwards it as a deployment secret. Tested on Gemini 3.8 Flash and GPT-5.6
@@ -146,6 +167,10 @@ agent = define_deep_agent(
     name="course-content-editor-mda",
     model=MODEL,
     subagents=[EDITOR],
-    middleware=[present_to_client],
+    # `editor_identity` first: it shapes the system message for the run, and
+    # everything after it should see the request the model will actually get.
+    # The two do not interact — one wraps model calls, the other tool calls.
+    middleware=[editor_identity, present_to_client],
+    context_schema=EditorContext,
     metadata={"build": "mda", "product": "course-content-editor"},
 )
