@@ -39,7 +39,8 @@ from pathlib import Path
 import pandas as pd
 
 from _common import (OUTLINE_COL_ALIASES, OUTLINE_FILENAME, build_context_for_topic,
-                     build_outline, eprint, open_sheet, slugify, snapshot_baseline)
+                     build_outline, eprint, open_sheet, refuse_if_edited, slugify,
+                     snapshot_baseline)
 
 
 DEFAULT_OUTLINE_TAB = "Final Outline"
@@ -53,9 +54,14 @@ def main() -> int:
     parser.add_argument("--outline-tab", default=DEFAULT_OUTLINE_TAB)
     parser.add_argument("--outline-target-tab", default=DEFAULT_OUTLINE_TARGET_TAB,
                         help="Tab name commit_context.py will write research notes to")
+    parser.add_argument("--discard-local", action="store_true",
+                        help="Overwrite a workspace that has uncommitted edits.")
     args = parser.parse_args()
 
     workspace = Path(args.workspace)
+    refused = refuse_if_edited(workspace, args.discard_local)
+    if refused is not None:
+        return refused
     (workspace / "context").mkdir(parents=True, exist_ok=True)
 
     sheet = open_sheet(args.sheet_url)

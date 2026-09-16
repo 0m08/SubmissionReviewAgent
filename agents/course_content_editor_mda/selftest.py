@@ -173,6 +173,15 @@ def test_scripts() -> None:
             ok, detail = False, str(e)
         check(f"{name} parses", ok, detail)
 
+    # The Deep Agents build is a sibling working copy, not a dependency: it is
+    # untracked on this branch and may simply not be checked out. Absence is not
+    # a failure — there is nothing to disagree with. A file that is missing while
+    # the build around it is present still is, because that is a real drift.
+    if not DEEPAGENTS.exists():
+        check("script parity with the Deep Agents copy", True,
+              "skipped — no sibling build checked out")
+        return
+
     for name, other_dir in sorted(SHARED_WITH_DEEPAGENTS.items()):
         other = other_dir / name
         mine = SCRIPTS / name
@@ -186,11 +195,15 @@ def test_scripts() -> None:
 def test_project_shape() -> None:
     section("project shape")
     check("tools/ removed", not (ROOT / "tools").exists())
-    # middleware/ came back for exactly one thing — see present_bridge.py. The
-    # assertion is that it holds only that, not that it is empty.
+    # middleware/ came back for two things, each argued for in agent.py's module
+    # docstring: present_bridge.py routes present.py output to the user's screen,
+    # editor_identity.py names the signed-in person for the run. The assertion is
+    # that it holds those and nothing else — middleware is where this build grows
+    # accidental machinery, so a third file should have to justify itself here.
     middleware_files = sorted(p.name for p in (ROOT / "middleware").glob("*.py"))
-    check("middleware/ holds only the present bridge",
-          middleware_files == ["__init__.py", "present_bridge.py"], str(middleware_files))
+    check("middleware/ holds only the two declared middleware",
+          middleware_files == ["__init__.py", "editor_identity.py", "present_bridge.py"],
+          str(middleware_files))
     for needed in ("instructions.md", "memory.py", "identity.py", "sandbox/__init__.py"):
         check(f"{needed} present", (ROOT / needed).exists())
 

@@ -16,3 +16,11 @@ _tmp_whl/
 # Separate env for agents/course_content_editor_deepagents (deepagents needs
 # anthropic>=1.x, which the Managed Agents build here is not on).
 .venv-deepagents/
+
+# Local scratch and working notes — kept on disk, out of source control
+scratch_data.pkl
+scratchpad_placeholder
+mda-skill-script-secrets.md
+
+# Runtime telemetry log — 71MB, rewritten on every app run
+logging.csv

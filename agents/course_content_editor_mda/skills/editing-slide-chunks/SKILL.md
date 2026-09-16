@@ -1,6 +1,6 @@
 ---
 name: editing-slide-chunks
-description: Edit the slide chunks of a course workspace (topics/*.md) — change, fix, trim, expand, merge, split, reorder, retitle, or delete slides, and rewrite slide prose in a named course writing style. Use for any request about slides, decks, or topics, even when the user doesn't say "edit".
+description: Edit the slide chunks of a course workspace (topics/*.md) — change, fix, trim, expand, merge, split, reorder, retitle, or delete slides, and rewrite slide prose in a course writing style. Use when you are about to change a slide-chunk file, or to inspect one you are about to change, even when the user doesn't say "edit". Not for general discussion about slides, teaching, or writing where no file will be touched — answer those from the standards you already carry.
 ---
 
 # Editing Slide Chunks
@@ -237,17 +237,22 @@ A user may point at a style by naming its course; answer back using the label.
 **Which style applies, in order:**
 
 1. **The user names one** — by label or by source course. This wins outright.
-2. **A stated default style** in `/memories/agent/AGENTS.md`, if the user hasn't
-   overridden it this session. You will already have it: shared memory is loaded
-   into every run. Note it is *shared* here — it is the team's default, not one
-   person's preference, so treat a conflict with what this user just said as the
+2. **The voice in `/memories/agent/AGENTS.md` is this deployment's default**, and
+   it is the normal case. You already have it: shared memory is loaded into every
+   run. It describes the house voice directly rather than naming one of the
+   labels below, and that is deliberate — it is the most evolved statement of how
+   this team writes, and the labelled guides have fallen behind it. Do not go
+   looking for a label to match it to, and do not ask which style to use when the
+   user has not raised the question. Note it is *shared* — the team's default, not
+   one person's preference — so a conflict with what this user just said is the
    user winning.
-3. **Otherwise, ask.** Name the labels and ask which to write in, before
-   rewriting prose. Inferring silently produces a different answer on different
-   runs of the same sheet, and a wrong guess means rewriting twice. A delegated
-   editor cannot ask — the coordinator settles style before delegating and
-   names the label in the brief. If a brief reaches you without one, say so in
-   your report rather than picking one silently.
+3. **Ask only when `AGENTS.md` does not cover what was asked for.** A request for
+   a voice the house default does not describe — a different register, a named
+   course's feel, something the user calls "not our usual" — is the case for
+   naming the labels below and asking which. Inferring silently *there* produces a
+   different answer on different runs of the same sheet. A delegated editor cannot
+   ask, so the coordinator settles this before delegating and names the choice in
+   the brief; a brief that names none means the house default.
 4. **If the user says "you decide":** infer from slides you are *not* editing —
    compare their orthography, voice, and formatting against the guides — then
    say which you picked and why in one sentence. If nothing matches
@@ -306,8 +311,15 @@ trim, expand, fewer slides, more slides — measure it:
        topics/topic_02_drainage-basics.md
    ```
 
-   It returns the block count, the word count of the slide prose, and a census
-   of slide types by name.
+   It returns the block count, the word count of the slide prose, a census of
+   slide types by name, and `per_block` — one entry per block with its id,
+   title and word count.
+
+   `per_block` is the one to read when the request or a preference sets a
+   length per slide rather than for the file. It names the blocks that break
+   the limit, so you can fix those and leave the rest alone. Counting the
+   words yourself, in your head or in a script you write, produces a number
+   nobody can check; this one is parsed from the file.
 
 2. **After you edit**, call it again on the same path.
 

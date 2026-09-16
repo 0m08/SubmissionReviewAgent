@@ -1,0 +1,1393 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How the MDA Editor Works</title>
+<link rel="stylesheet" href="tokens.css">
+
+<style>
+  /* ------------------------------------------------------------------
+     Page layer for the SkillCat design system.
+     No literal colours: everything resolves to --sc-* tokens from
+     tokens.css. Type sizes come from the DTCG type scale (12/14/16/24/40)
+     and are declared here as tokens because the compiled CSS layer ships
+     colour and space only.
+     ------------------------------------------------------------------ */
+  :root {
+    --brief-fs-eyebrow: 12px;
+    --brief-fs-caption: 13px;
+    --brief-fs-body: 16px;
+    --brief-fs-lede: 18px;
+    --brief-fs-h3: 16px;
+    --brief-fs-h2: 24px;
+    --brief-fs-h1: 40px;
+    --brief-fs-svg: 12px;
+    --brief-fs-svg-sm: 11px;
+    --brief-fs-data: 14px;
+    --brief-fs-note: 15px;
+
+    /* derived from --sc-primary, so a brand change carries through */
+    --brief-primary-bg: color-mix(in srgb, var(--sc-primary) 14%, transparent);
+    --brief-primary-ring: color-mix(in srgb, var(--sc-primary) 40%, transparent);
+
+    --brief-measure: 68ch;
+    --brief-wide: 1080px;
+  }
+
+  body {
+    background: var(--sc-surface-0);
+    background-image: var(--sc-glow);
+    background-repeat: no-repeat;
+    color: var(--sc-text-body);
+    font-family: var(--sc-font-display);
+    font-size: var(--brief-fs-body);
+    line-height: 1.6;
+  }
+
+  .page {
+    max-width: var(--brief-wide);
+    margin: 0 auto;
+    padding: var(--sc-space-8) var(--sc-space-6) var(--sc-space-10);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sc-space-10);
+  }
+
+  .col { max-width: var(--brief-measure); }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: var(--sc-space-5); }
+
+  .eyebrow {
+    font-family: var(--sc-font-display);
+    font-weight: 900;
+    font-size: var(--brief-fs-eyebrow);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sc-text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sc-space-2) var(--sc-space-3);
+    align-items: center;
+  }
+  .eyebrow .sep { color: var(--sc-primary); }
+  .eyebrow .plain { color: var(--sc-text-muted); }
+
+  h1 {
+    font-family: var(--sc-font-display);
+    font-weight: 700;
+    font-size: clamp(32px, 5vw, var(--brief-fs-h1));
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+    color: var(--sc-text-strong);
+    text-wrap: balance;
+    max-width: 20ch;
+  }
+
+  .standfirst {
+    font-size: var(--brief-fs-lede);
+    line-height: 1.5;
+    color: var(--sc-text-muted);
+    max-width: 60ch;
+    text-wrap: pretty;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: var(--sc-space-2); align-items: center; }
+
+  .chip {
+    font-family: var(--sc-font-mono);
+    font-size: var(--brief-fs-eyebrow);
+    padding: var(--sc-space-1) var(--sc-space-3);
+    border: 1px solid var(--sc-border-hairline);
+    border-radius: var(--sc-radius-pill);
+    background: var(--sc-surface-1);
+    color: var(--sc-text-muted);
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sc-space-2);
+  }
+  .chip strong { color: var(--sc-text-strong); font-weight: 600; }
+  .chip.live {
+    background: var(--sc-success-bg);
+    color: var(--sc-success);
+    border-color: transparent;
+  }
+  .chip.live strong { color: var(--sc-success); }
+  .chip .dot { width: var(--sc-space-1); height: var(--sc-space-1); border-radius: var(--sc-radius-pill); background: currentColor; flex: none; }
+
+  .theme-toggle {
+    margin-left: auto;
+    font-family: var(--sc-font-display);
+    font-weight: 700;
+    font-size: var(--brief-fs-eyebrow);
+    letter-spacing: 0.04em;
+    padding: var(--sc-space-2) var(--sc-space-4);
+    border-radius: var(--sc-radius-sm);
+    border: 1px solid var(--sc-border-hairline);
+    background: var(--sc-surface-2);
+    color: var(--sc-text-body);
+    cursor: pointer;
+    transition: background var(--sc-dur) var(--sc-ease);
+  }
+  .theme-toggle:hover { background: var(--sc-border-subtle); }
+
+  .rule { height: 1px; background: var(--sc-border-hairline); border: 0; }
+
+  /* ---------- sections ---------- */
+
+  section { display: flex; flex-direction: column; gap: var(--sc-space-5); }
+
+  .sec-head { display: flex; flex-direction: column; gap: var(--sc-space-2); }
+
+  .sec-num {
+    font-family: var(--sc-font-mono);
+    font-size: var(--brief-fs-eyebrow);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--sc-primary);
+  }
+
+  h2 {
+    font-family: var(--sc-font-display);
+    font-weight: 700;
+    font-size: clamp(20px, 3vw, var(--brief-fs-h2));
+    line-height: 1.2;
+    color: var(--sc-text-strong);
+    text-wrap: balance;
+    max-width: 26ch;
+  }
+
+  h3 {
+    font-family: var(--sc-font-display);
+    font-weight: 700;
+    font-size: var(--brief-fs-h3);
+    color: var(--sc-text-strong);
+  }
+
+  p { max-width: var(--brief-measure); text-wrap: pretty; }
+  p + p { margin-top: var(--sc-space-3); }
+
+  .lede { font-size: var(--brief-fs-lede); color: var(--sc-text-body); }
+
+  strong { font-weight: 600; color: var(--sc-text-strong); }
+  em { font-style: italic; }
+
+  code, .mono {
+    font-family: var(--sc-font-mono);
+    font-size: 0.88em;
+    background: var(--sc-surface-2);
+    border: 1px solid var(--sc-border-subtle);
+    padding: 1px var(--sc-space-1);
+    border-radius: var(--sc-radius-xs);
+    word-break: break-word;
+    color: var(--sc-text-body);
+  }
+
+  a { color: var(--sc-primary); text-underline-offset: 2px; }
+
+  :focus-visible { outline: 2px solid var(--brief-primary-ring); outline-offset: 2px; }
+
+  /* ---------- figures ---------- */
+
+  figure {
+    background: var(--sc-surface-1);
+    border: 1px solid var(--sc-border-hairline);
+    border-radius: var(--sc-radius-lg);
+    padding: var(--sc-space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sc-space-4);
+    overflow-x: auto;
+  }
+
+  figure svg {
+    display: block;
+    width: 100%;
+    min-width: 460px;
+    height: auto;
+    color: var(--sc-text-body);
+  }
+
+  figcaption {
+    font-family: var(--sc-font-display);
+    font-size: var(--brief-fs-caption);
+    line-height: 1.55;
+    color: var(--sc-text-muted);
+    max-width: 80ch;
+    border-top: 1px solid var(--sc-border-subtle);
+    padding-top: var(--sc-space-3);
+  }
+  figcaption b { color: var(--sc-text-strong); font-weight: 600; }
+
+  /* svg semantics — structure in tokens, meaning in primary / warning */
+  .s-box { fill: var(--sc-surface-2); stroke: var(--sc-border-hairline); stroke-width: 1; }
+  .s-box-plain { fill: none; stroke: var(--sc-border-hairline); stroke-width: 1; }
+  .s-box-accent { fill: var(--brief-primary-bg); stroke: var(--sc-primary); stroke-width: 1.5; }
+  .s-box-gate { fill: var(--sc-warning-bg); stroke: var(--sc-warning); stroke-width: 1.5; }
+  .s-band { fill: none; stroke: var(--sc-border-hairline); stroke-width: 1; stroke-dasharray: 4 4; }
+  .s-line { stroke: var(--sc-text-muted); stroke-width: 1.4; fill: none; }
+  .s-line-accent { stroke: var(--sc-primary); stroke-width: 2; fill: none; }
+  .s-line-dead { stroke: var(--sc-text-disabled); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+  .s-t { font-family: var(--sc-font-display); font-size: var(--brief-fs-svg); font-weight: 500; fill: var(--sc-text-strong); }
+  .s-t-sm { font-family: var(--sc-font-display); font-size: var(--brief-fs-svg-sm); fill: var(--sc-text-muted); }
+  .s-t-lab { font-family: var(--sc-font-display); font-size: var(--brief-fs-svg-sm); fill: var(--sc-text-muted); }
+  .s-t-accent { font-family: var(--sc-font-display); font-size: var(--brief-fs-svg-sm); fill: var(--sc-primary); font-weight: 600; }
+  .s-t-gate { font-family: var(--sc-font-display); font-size: var(--brief-fs-svg-sm); fill: var(--sc-warning); font-weight: 600; }
+  .s-t-head {
+    font-family: var(--sc-font-display);
+    font-weight: 900;
+    font-size: var(--brief-fs-svg-sm);
+    fill: var(--sc-text-muted);
+    letter-spacing: 0.12em;
+  }
+  .s-code { font-family: var(--sc-font-mono); font-weight: 400; }
+  .s-fill-accent { fill: var(--sc-primary); }
+  .s-fill-line { fill: var(--sc-text-muted); }
+  .s-strike { stroke: var(--sc-text-disabled); stroke-width: 1.4; }
+
+  /* dfd notation */
+  .d-ext { fill: var(--sc-surface-2); stroke: var(--sc-text-muted); stroke-width: 1.3; }
+  .d-proc { fill: var(--brief-primary-bg); stroke: var(--sc-primary); stroke-width: 1.4; }
+  .d-store { fill: none; stroke: var(--sc-text-muted); stroke-width: 1.2; }
+  .d-flow { stroke: var(--sc-text-muted); stroke-width: 1.4; fill: none; }
+  .d-flow-key { stroke: var(--sc-primary); stroke-width: 2; fill: none; }
+  .d-flow-gate { stroke: var(--sc-warning); stroke-width: 2; fill: none; }
+  .d-num { font-family: var(--sc-font-mono); font-size: var(--brief-fs-svg-sm); font-weight: 600; fill: var(--sc-primary); }
+  .d-num-store { font-family: var(--sc-font-mono); font-size: var(--brief-fs-svg-sm); font-weight: 600; fill: var(--sc-text-muted); }
+  .d-t-gate { font-family: var(--sc-font-display); font-size: var(--brief-fs-svg-sm); fill: var(--sc-warning); font-weight: 600; }
+
+  .fig-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(430px, 1fr));
+    gap: var(--sc-space-5);
+  }
+  .fig-grid figure svg { min-width: 380px; }
+
+  /* ---------- spec table ---------- */
+
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--sc-border-hairline);
+    border-radius: var(--sc-radius-lg);
+    background: var(--sc-surface-1);
+  }
+  table { border-collapse: collapse; width: 100%; font-family: var(--sc-font-mono); font-size: var(--brief-fs-data); }
+  th, td { text-align: left; padding: var(--sc-space-3) var(--sc-space-4); border-bottom: 1px solid var(--sc-border-subtle); vertical-align: top; }
+  th {
+    font-family: var(--sc-font-display);
+    font-weight: 900;
+    font-size: var(--brief-fs-eyebrow);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sc-text-muted);
+    background: var(--sc-surface-2);
+  }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { color: var(--sc-text-muted); white-space: nowrap; }
+  td b { font-weight: 600; color: var(--sc-text-strong); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- demo script ---------- */
+
+  .demo { list-style: none; display: flex; flex-direction: column; counter-reset: beat; }
+  .demo li {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: var(--sc-space-4);
+    padding: var(--sc-space-4) 0;
+    border-bottom: 1px solid var(--sc-border-subtle);
+    align-items: start;
+  }
+  .demo li:first-child { border-top: 1px solid var(--sc-border-hairline); }
+  .demo li::before {
+    counter-increment: beat;
+    content: counter(beat, decimal-leading-zero);
+    font-family: var(--sc-font-mono);
+    font-size: var(--brief-fs-data);
+    font-weight: 600;
+    color: var(--sc-primary);
+    padding-top: 2px;
+  }
+  .demo h3 { margin-bottom: var(--sc-space-1); }
+  .demo p { font-size: var(--brief-fs-note); color: var(--sc-text-muted); }
+  .demo .say { color: var(--sc-text-body); }
+
+  /* ---------- status ---------- */
+
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sc-space-5); }
+  .status > div {
+    background: var(--sc-surface-1);
+    border: 1px solid var(--sc-border-hairline);
+    border-left: 3px solid var(--sc-success);
+    border-radius: var(--sc-radius-md);
+    padding: var(--sc-space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sc-space-2);
+  }
+  .status .open { border-left-color: var(--sc-warning); }
+  .status p { font-size: var(--brief-fs-note); color: var(--sc-text-muted); }
+  .status ul { padding-left: var(--sc-space-5); font-size: var(--brief-fs-note); color: var(--sc-text-muted); display: flex; flex-direction: column; gap: var(--sc-space-2); }
+
+  footer {
+    font-family: var(--sc-font-mono);
+    font-size: var(--brief-fs-eyebrow);
+    color: var(--sc-text-muted);
+    border-top: 1px solid var(--sc-border-hairline);
+    padding-top: var(--sc-space-4);
+    max-width: var(--brief-measure);
+  }
+
+  /* ---------- step-through ---------- */
+
+  figure[data-stepper] { position: relative; }
+
+  .stepbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sc-space-2);
+    border-top: 1px solid var(--sc-border-subtle);
+    padding-top: var(--sc-space-3);
+    flex-wrap: wrap;
+  }
+  .stepbar .spacer { flex: 1; }
+  /* buttons are the system's own .sc-btn / .sc-btn-ghost; only the
+     disabled state needs adding, as ink fill rather than an opacity trick */
+  .stepbar .sc-btn { height: 34px; font-size: var(--brief-fs-caption); }
+  .stepbar .sc-btn:disabled {
+    background: var(--sc-surface-sunken);
+    color: var(--sc-text-disabled);
+    box-shadow: none;
+    cursor: default;
+    filter: none;
+  }
+  .stepcount {
+    font-family: var(--sc-font-mono);
+    font-size: var(--brief-fs-eyebrow);
+    color: var(--sc-text-muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 11ch;
+  }
+  .stephint {
+    font-family: var(--sc-font-display);
+    font-size: var(--brief-fs-eyebrow);
+    color: var(--sc-text-muted);
+  }
+  figure[data-stepper] g[data-step] { transition: opacity var(--sc-dur) var(--sc-ease); }
+  figure.stepping g[data-step] { opacity: 0; visibility: hidden; }
+  figure.stepping g[data-step].is-past { opacity: 0.4; visibility: visible; }
+  figure.stepping g[data-step].is-now { opacity: 1; visibility: visible; }
+  figure.stepping svg { cursor: pointer; }
+
+  @media (prefers-reduced-motion: reduce) {
+    figure[data-stepper] g[data-step] { transition: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  @media (max-width: 620px) {
+    .demo li { grid-template-columns: 32px 1fr; gap: var(--sc-space-3); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>SkillCat · Content Generation</span>
+      <span class="sep">/</span>
+      <span class="plain">Architecture brief</span>
+      <span class="sep">/</span>
+      <span class="plain">10 Sep 2026</span>
+    </div>
+    <h1>How the MDA Editor Works</h1>
+    <p class="standfirst">An agent that edits a course the way an instructional designer does — one topic at a time, against the learning objective, with every change shown as a diff before anything is written back. It runs on LangSmith's hosted harness, and the two things it refuses to do are as deliberate as the things it does.</p>
+    <div class="chips">
+      <span class="chip live"><span class="dot"></span><strong>Deployed</strong> · verified end to end</span>
+      <span class="chip">Access: <strong>Admin, Managers, Instructional Designers</strong></span>
+      <span class="chip">Page: <strong>Course Content Editor (MDA)</strong></span>
+      <span class="chip">Engine: <strong>LangGraph Agent Server</strong></span>
+      <button type="button" class="theme-toggle" id="themeToggle" aria-live="polite">Light</button>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2>The round trip</h2>
+    </div>
+    <div class="col">
+      <p class="lede">A course lives in a Google Sheet. The agent never edits that sheet in place. It pulls the course into a working copy, edits the working copy, shows you the diffs, and — only when you ask — writes the result to a <strong>new tab</strong>. The tab you started from is still there, untouched, when the meeting goes badly.</p>
+    </div>
+
+    <figure data-stepper="5">
+      <svg viewBox="0 0 1060 300" role="img" aria-label="The editing round trip: a sheet tab is prepared into a workspace, edited, presented as diffs, then committed to a new tab, leaving the source tab unmodified.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" class="s-fill-line"></path>
+          </marker>
+          <marker id="ar-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" class="s-fill-accent"></path>
+          </marker>
+        </defs>
+
+        <text x="20" y="28" class="s-t-head">SOURCE OF TRUTH</text>
+        <text x="440" y="28" class="s-t-head">INSIDE THE SANDBOX</text>
+        <text x="860" y="28" class="s-t-head">RESULT</text>
+
+        <g data-step="1">
+          <rect x="20" y="110" width="160" height="80" rx="2" class="s-box"></rect>
+          <text x="100" y="143" class="s-t" text-anchor="middle">Google Sheet</text>
+          <text x="100" y="162" class="s-t-sm" text-anchor="middle">source tab</text>
+        </g>
+
+        <g data-step="2">
+          <rect x="230" y="110" width="160" height="80" rx="2" class="s-box"></rect>
+          <text x="310" y="137" class="s-t s-code" text-anchor="middle">/workspace</text>
+          <text x="310" y="155" class="s-t-sm s-code" text-anchor="middle">topics/ · context/</text>
+          <text x="310" y="171" class="s-t-sm s-code" text-anchor="middle">outline.md</text>
+        </g>
+
+        <g data-step="3">
+          <rect x="440" y="110" width="160" height="80" rx="2" class="s-box-accent"></rect>
+          <text x="520" y="143" class="s-t" text-anchor="middle">edited files</text>
+          <text x="520" y="162" class="s-t-sm" text-anchor="middle">one editor per topic</text>
+        </g>
+
+        <g data-step="4">
+          <rect x="650" y="110" width="160" height="80" rx="2" class="s-box-gate"></rect>
+          <text x="730" y="137" class="s-t" text-anchor="middle">Review tab</text>
+          <text x="730" y="155" class="s-t-sm" text-anchor="middle">before / after</text>
+          <text x="730" y="171" class="s-t-gate" text-anchor="middle">you approve here</text>
+        </g>
+
+        <g data-step="5">
+          <rect x="860" y="110" width="160" height="80" rx="2" class="s-box"></rect>
+          <text x="940" y="143" class="s-t" text-anchor="middle">new tab</text>
+          <text x="940" y="162" class="s-t-sm" text-anchor="middle">all columns intact</text>
+        </g>
+
+        <g data-step="1">
+          <line x1="180" y1="150" x2="228" y2="150" class="s-line" marker-end="url(#ar)"></line>
+          <text x="204" y="140" class="s-t-lab" text-anchor="middle">prepare</text>
+        </g>
+
+        <g data-step="2">
+          <line x1="390" y1="150" x2="438" y2="150" class="s-line" marker-end="url(#ar)"></line>
+          <text x="414" y="140" class="s-t-lab" text-anchor="middle">edit</text>
+        </g>
+
+        <g data-step="3">
+          <line x1="600" y1="150" x2="648" y2="150" class="s-line-accent" marker-end="url(#ar-a)"></line>
+          <text x="624" y="140" class="s-t-accent" text-anchor="middle">present</text>
+        </g>
+
+        <g data-step="4">
+          <line x1="810" y1="150" x2="858" y2="150" class="s-line" marker-end="url(#ar)"></line>
+          <text x="834" y="140" class="s-t-lab" text-anchor="middle">commit</text>
+        </g>
+
+        <g data-step="5">
+          <path d="M 100 190 L 100 250 L 940 250 L 940 194" class="s-line-dead" marker-end="url(#ar)"></path>
+          <rect x="420" y="236" width="220" height="28" rx="2" fill="var(--surface)"></rect>
+          <text x="530" y="254" class="s-t-lab" text-anchor="middle">source tab is never modified</text>
+        </g>
+      </svg>
+      <figcaption><b>One direction only.</b> <code>prepare_workspace.py</code> reads the sheet; <code>commit_workspace.py</code> writes a new tab. No script has a path that edits the tab it read from — which is why an unwanted commit costs you a tab to delete, not a course to restore.</figcaption>
+    </figure>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2>The three layers</h2>
+    </div>
+    <div class="col">
+      <p>The map first — what exists and where it runs. The next section walks a session through it in order. Three layers, each doing one job. The Streamlit page is a thin client — it holds no state worth losing. The <strong>deployment</strong> holds the conversation, the workspace and the files. The <strong>sandbox</strong> is a real Linux box, one per conversation, where the sheet scripts actually run.</p>
+      <p>The coordinator reads the request and hands each topic to an <strong>editor subagent</strong> that gets exactly one file, the user's words, and the course learning objectives. It runs in isolated context: it cannot see the other topics, cannot reach the sheet, and cannot write back. That is the mechanism that keeps a fifty-topic course from collapsing into one enormous prompt.</p>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 1060 560" role="img" aria-label="Three layers: the browser page, the LangGraph deployment holding the coordinator and editor subagents, and a per-thread sandbox running the sheet scripts, which reaches Google Sheets through an authenticating proxy.">
+        <rect x="14" y="24" width="1032" height="108" rx="3" class="s-band"></rect>
+        <text x="30" y="48" class="s-t-head">BROWSER · STREAMLIT</text>
+        <rect x="30" y="58" width="230" height="58" rx="2" class="s-box"></rect>
+        <text x="145" y="82" class="s-t" text-anchor="middle">Chat</text>
+        <text x="145" y="100" class="s-t-sm" text-anchor="middle">what you ask for</text>
+        <rect x="280" y="58" width="230" height="58" rx="2" class="s-box-gate"></rect>
+        <text x="395" y="82" class="s-t" text-anchor="middle">Review</text>
+        <text x="395" y="100" class="s-t-sm" text-anchor="middle">diff cards, approve / reject</text>
+        <rect x="700" y="58" width="330" height="58" rx="2" class="s-box-plain"></rect>
+        <text x="865" y="82" class="s-t" text-anchor="middle">?thread=… in the page URL</text>
+        <text x="865" y="100" class="s-t-sm" text-anchor="middle">close the tab, come back, work is still there</text>
+
+        <rect x="14" y="188" width="1032" height="158" rx="3" class="s-band"></rect>
+        <text x="30" y="212" class="s-t-head">LANGGRAPH AGENT SERVER · HOSTED DEPLOYMENT</text>
+        <rect x="30" y="224" width="250" height="98" rx="2" class="s-box-accent"></rect>
+        <text x="155" y="252" class="s-t" text-anchor="middle">Coordinator</text>
+        <text x="155" y="271" class="s-t-sm" text-anchor="middle">plans the sweep,</text>
+        <text x="155" y="287" class="s-t-sm" text-anchor="middle">delegates per topic,</text>
+        <text x="155" y="303" class="s-t-sm" text-anchor="middle">holds the approval gate</text>
+
+        <rect x="308" y="224" width="250" height="98" rx="2" class="s-box"></rect>
+        <text x="433" y="252" class="s-t" text-anchor="middle">editor subagent × N</text>
+        <text x="433" y="271" class="s-t-sm" text-anchor="middle">one topic file each,</text>
+        <text x="433" y="287" class="s-t-sm" text-anchor="middle">isolated context,</text>
+        <text x="433" y="303" class="s-t-sm" text-anchor="middle">no sheet access</text>
+
+        <rect x="586" y="224" width="220" height="98" rx="2" class="s-box"></rect>
+        <text x="696" y="252" class="s-t" text-anchor="middle">skills</text>
+        <text x="696" y="271" class="s-t-sm" text-anchor="middle">editing rules,</text>
+        <text x="696" y="287" class="s-t-sm" text-anchor="middle">6 writing styles,</text>
+        <text x="696" y="303" class="s-t-sm" text-anchor="middle">sheet workflow</text>
+
+        <rect x="834" y="224" width="196" height="98" rx="2" class="s-box-accent"></rect>
+        <text x="932" y="252" class="s-t s-code" text-anchor="middle">present_bridge</text>
+        <text x="932" y="271" class="s-t-sm" text-anchor="middle">routes file bytes</text>
+        <text x="932" y="287" class="s-t-sm" text-anchor="middle">to the screen,</text>
+        <text x="932" y="303" class="s-t-sm" text-anchor="middle">not to the model</text>
+
+        <rect x="14" y="402" width="800" height="140" rx="3" class="s-band"></rect>
+        <text x="30" y="426" class="s-t-head">SANDBOX · ONE PER CONVERSATION, REAPED AFTER 10 IDLE MINUTES</text>
+        <rect x="30" y="438" width="250" height="86" rx="2" class="s-box"></rect>
+        <text x="155" y="466" class="s-t s-code" text-anchor="middle">/opt/cce/scripts</text>
+        <text x="155" y="485" class="s-t-sm s-code" text-anchor="middle">prepare · present ·</text>
+        <text x="155" y="501" class="s-t-sm s-code" text-anchor="middle">measure · commit</text>
+
+        <rect x="308" y="438" width="250" height="86" rx="2" class="s-box"></rect>
+        <text x="433" y="466" class="s-t s-code" text-anchor="middle">/workspace</text>
+        <text x="433" y="485" class="s-t-sm" text-anchor="middle">the course, as files</text>
+        <text x="433" y="501" class="s-t-sm" text-anchor="middle">+ outline.md</text>
+
+        <rect x="586" y="438" width="200" height="86" rx="2" class="s-box-plain"></rect>
+        <text x="686" y="472" class="s-t" text-anchor="middle">no credentials</text>
+        <text x="686" y="491" class="s-t-sm" text-anchor="middle">anywhere on this disk</text>
+
+        <rect x="862" y="438" width="168" height="86" rx="2" class="s-box"></rect>
+        <text x="946" y="472" class="s-t" text-anchor="middle">Google Sheets</text>
+        <text x="946" y="491" class="s-t-sm" text-anchor="middle">the course</text>
+
+        <line x1="145" y1="120" x2="145" y2="220" class="s-line" marker-end="url(#ar)"></line>
+        <text x="152" y="160" class="s-t-lab">your message</text>
+
+        <line x1="932" y1="220" x2="420" y2="120" class="s-line-accent" marker-end="url(#ar-a)"></line>
+        <text x="600" y="168" class="s-t-accent" text-anchor="middle">custom stream · file bytes, never re-typed by a model</text>
+
+        <line x1="155" y1="326" x2="155" y2="434" class="s-line" marker-end="url(#ar)"></line>
+        <text x="163" y="372" class="s-t-lab">run a script</text>
+
+        <line x1="786" y1="481" x2="858" y2="481" class="s-line-accent" marker-end="url(#ar-a)"></line>
+        <text x="822" y="466" class="s-t-accent" text-anchor="middle">via proxy</text>
+      </svg>
+      <figcaption><b>The two accent paths are the design.</b> File bytes travel sandbox → screen on LangGraph's custom stream, bypassing the model entirely. Sheet traffic leaves the sandbox unauthenticated and is signed on the way out. Figures 3 and 4 show each one up close.</figcaption>
+    </figure>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2>A session, start to finish</h2>
+    </div>
+    <div class="col">
+      <p class="lede">One real sweep, in the order it happens. Time runs down the page; each column is something that can act. Two moments are worth watching for: the approval gate, where the agent stops and waits, and the diff cards, which reach you from the sandbox without passing through the coordinator at all.</p>
+    </div>
+
+    <figure data-stepper="12">
+      <svg viewBox="0 0 1200 1010" role="img" aria-label="Sequence diagram of one editing session across five lanes: you in the browser, the coordinator, the editor subagents, the sandbox scripts, and the Google Sheet, showing preparation, an approval gate, parallel editing, diff cards streamed straight to the browser, a rejection loop, and the final commit.">
+        <text x="40" y="30" class="s-t-head">ONE SESSION · TIME RUNS DOWN</text>
+
+        <rect x="40" y="48" width="190" height="40" rx="8" class="s-box-accent"></rect>
+        <text x="135" y="73" class="s-t" text-anchor="middle">You</text>
+        <rect x="266" y="48" width="190" height="40" rx="8" class="s-box"></rect>
+        <text x="361" y="73" class="s-t" text-anchor="middle">Coordinator</text>
+        <rect x="500" y="48" width="190" height="40" rx="8" class="s-box"></rect>
+        <text x="595" y="73" class="s-t" text-anchor="middle">Editors (one per topic)</text>
+        <rect x="740" y="48" width="190" height="40" rx="8" class="s-box"></rect>
+        <text x="835" y="73" class="s-t" text-anchor="middle">Sandbox scripts</text>
+        <rect x="970" y="48" width="190" height="40" rx="8" class="s-box"></rect>
+        <text x="1065" y="73" class="s-t" text-anchor="middle">Google Sheet</text>
+
+        <line x1="135" y1="96" x2="135" y2="960" class="s-band"></line>
+        <line x1="361" y1="96" x2="361" y2="960" class="s-band"></line>
+        <line x1="595" y1="96" x2="595" y2="960" class="s-band"></line>
+        <line x1="835" y1="96" x2="835" y2="960" class="s-band"></line>
+        <line x1="1065" y1="96" x2="1065" y2="960" class="s-band"></line>
+
+        <g data-step="1">
+          <text x="40" y="140" class="d-num">01</text>
+          <line x1="137" y1="150" x2="359" y2="150" class="s-line" marker-end="url(#ar)"></line>
+          <text x="248" y="141" class="s-t-lab" text-anchor="middle">sheet URL + "tighten the transitions"</text>
+        </g>
+
+        <g data-step="2">
+          <text x="40" y="200" class="d-num">02</text>
+          <line x1="363" y1="210" x2="833" y2="210" class="s-line" marker-end="url(#ar)"></line>
+          <text x="598" y="201" class="s-t-lab" text-anchor="middle">run <tspan class="s-code">list_tabs.py</tspan>, then <tspan class="s-code">prepare_workspace.py</tspan></text>
+        </g>
+
+        <g data-step="3">
+          <text x="40" y="260" class="d-num">03</text>
+          <line x1="837" y1="270" x2="1063" y2="270" class="s-line" marker-end="url(#ar)"></line>
+          <text x="950" y="261" class="s-t-lab" text-anchor="middle">read the course tabs</text>
+          <line x1="1063" y1="300" x2="837" y2="300" class="s-line" marker-end="url(#ar)"></line>
+          <text x="950" y="318" class="s-t-lab" text-anchor="middle">rows, every column</text>
+        </g>
+
+        <g data-step="4">
+          <text x="40" y="360" class="d-num">04</text>
+          <rect x="750" y="342" width="170" height="46" rx="6" class="s-box"></rect>
+          <text x="835" y="362" class="s-t-sm" text-anchor="middle">writes /workspace,</text>
+          <text x="835" y="378" class="s-t-sm" text-anchor="middle">outline.md, .baseline</text>
+        </g>
+
+        <g data-step="5">
+          <text x="40" y="430" class="d-num">05</text>
+          <line x1="359" y1="440" x2="139" y2="440" class="s-line-accent" marker-end="url(#ar-a)"></line>
+          <text x="248" y="431" class="s-t-accent" text-anchor="middle">51 blocks, 9 topics — proceed?</text>
+        </g>
+
+        <g data-step="5">
+          <rect x="266" y="456" width="190" height="30" rx="6" class="s-box-gate"></rect>
+          <text x="361" y="476" class="s-t-gate" text-anchor="middle">waits — does not edit</text>
+        </g>
+
+        <g data-step="6">
+          <text x="40" y="520" class="d-num">06</text>
+          <line x1="137" y1="530" x2="359" y2="530" class="s-line" marker-end="url(#ar)"></line>
+          <text x="248" y="521" class="s-t-lab" text-anchor="middle">yes, go ahead</text>
+        </g>
+
+        <g data-step="7">
+          <text x="40" y="580" class="d-num">07</text>
+          <line x1="363" y1="590" x2="593" y2="590" class="s-line" marker-end="url(#ar)"></line>
+          <text x="478" y="581" class="s-t-lab" text-anchor="middle">one brief per topic</text>
+          <text x="478" y="606" class="s-t-sm" text-anchor="middle">file path · request · style · objectives</text>
+        </g>
+
+        <g data-step="8">
+          <text x="40" y="650" class="d-num">08</text>
+          <line x1="599" y1="660" x2="833" y2="660" class="s-line" marker-end="url(#ar)"></line>
+          <text x="716" y="651" class="s-t-lab" text-anchor="middle">read one file, write edits</text>
+          <rect x="510" y="676" width="170" height="30" rx="6" class="s-box"></rect>
+          <text x="595" y="696" class="s-t-sm" text-anchor="middle">N editors, in parallel</text>
+        </g>
+
+        <g data-step="9">
+          <text x="40" y="740" class="d-num">09</text>
+          <line x1="363" y1="750" x2="833" y2="750" class="s-line" marker-end="url(#ar)"></line>
+          <text x="598" y="741" class="s-t-lab" text-anchor="middle">run <tspan class="s-code">present.py</tspan></text>
+        </g>
+
+        <g data-step="10">
+          <text x="40" y="800" class="d-num">10</text>
+          <path d="M 833 810 H 139" class="s-line-accent" marker-end="url(#ar-a)"></path>
+          <text x="486" y="801" class="s-t-accent" text-anchor="middle">diff cards — straight to your screen, not through the coordinator</text>
+          <circle cx="361" cy="810" r="7" class="s-box"></circle>
+          <text x="374" y="832" class="s-t-sm">the model gets counts only</text>
+        </g>
+
+        <g data-step="11">
+          <text x="40" y="870" class="d-num">11</text>
+          <line x1="137" y1="880" x2="359" y2="880" class="s-line" marker-end="url(#ar)"></line>
+          <text x="248" y="871" class="s-t-lab" text-anchor="middle">reject block 12</text>
+          <path d="M 363 895 H 560 V 872 H 593" class="s-line" marker-end="url(#ar)"></path>
+          <text x="470" y="912" class="s-t-lab" text-anchor="middle">re-edit, that block only</text>
+        </g>
+
+        <g data-step="12">
+          <text x="40" y="936" class="d-num">12</text>
+          <line x1="137" y1="946" x2="359" y2="946" class="s-line" marker-end="url(#ar)"></line>
+          <text x="248" y="937" class="s-t-lab" text-anchor="middle">write it back</text>
+          <path d="M 363 970 H 833" class="s-line" marker-end="url(#ar)"></path>
+          <text x="598" y="963" class="s-t-lab" text-anchor="middle">run <tspan class="s-code">commit_workspace.py</tspan></text>
+          <path d="M 837 990 H 1063" class="s-line" marker-end="url(#ar)"></path>
+          <text x="950" y="983" class="s-t-lab" text-anchor="middle">a new tab</text>
+        </g>
+
+        <g data-step="7">
+          <path d="M 1186 590 V 760" class="s-line-accent"></path>
+          <path d="M 1186 590 H 1176 M 1186 760 H 1176" class="s-line-accent"></path>
+          <text x="1180" y="660" class="s-t-accent" text-anchor="end">close the laptop here</text>
+          <text x="1180" y="676" class="s-t-accent" text-anchor="end">and this keeps running</text>
+        </g>
+      </svg>
+      <figcaption><b>Beat 05 and beat 10 are the two to watch.</b> The coordinator stops at the gate and will not edit until you answer — the brief you approve there is the editors' entire authorisation, because a subagent has no channel back to you. And the diff cards cross the coordinator's lane without entering it: what you review came off the disk, and the model was told only how many blocks changed.</figcaption>
+    </figure>
+
+    <div class="col">
+      <p>Beat 11 is the one people ask about. A rejection quotes the original block back by the same identity fields the commit script uses, so "no, not that one" re-edits a single block rather than re-running the topic — and nothing has been written to the sheet yet, because beat 12 hasn't happened.</p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2>How the agent is put together</h2>
+    </div>
+    <div class="col">
+      <p class="lede">The agent is not one long prompt. It is four layers with different lifetimes, and knowing which is which is what makes it maintainable: a change to house style, a change to how a sheet is parsed, and a change to what the agent is allowed to do are three different edits in three different places.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Layer</th><th>What it is</th><th>Where it lives</th><th>Changed by</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Prompt</td>
+            <td><b>instructions.md</b> — the job, the workspace map, the approval rule, how to delegate</td>
+            <td>Context Hub, on deploy</td>
+            <td>an engineer, via deploy</td>
+          </tr>
+          <tr>
+            <td>Skills</td>
+            <td><b>three SKILL.md files</b> — sheet I/O, editing slide chunks, editing research notes, plus six writing styles</td>
+            <td><span class="mono">/skills/</span>, read-only mount</td>
+            <td>an engineer, via deploy</td>
+          </tr>
+          <tr>
+            <td>Scripts</td>
+            <td><b>nine Python scripts</b> — prepare, present, measure, commit, auth check</td>
+            <td><span class="mono">/opt/cce/scripts</span>, baked into the image</td>
+            <td>an engineer, via deploy + bake</td>
+          </tr>
+          <tr>
+            <td>Memory</td>
+            <td><b>AGENTS.md</b> — the team's editorial standards, accumulated</td>
+            <td><span class="mono">/memories/agent/</span>, Context Hub</td>
+            <td><b>the agent, during a session</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <p>The distinction in that last column is the important one. Three layers change only when someone deploys. Memory changes while the tool is being used — which is what lets a correction outlive the conversation it was made in, and why it needs rules of its own.</p>
+      <h3>Why the model does not read all of it</h3>
+      <p>A course has fifty topics, three skills, six writing styles and a research corpus. Putting that in one prompt would be slow, expensive, and worse at the job. So the agent loads in layers: it always knows what exists, and reads the detail only when the task calls for it.</p>
+    </div>
+
+    <figure data-stepper="3">
+      <svg viewBox="0 0 1060 560" role="img" aria-label="Three tiers of context: material loaded into every run, material read on demand when the task calls for it, and material that never enters the model's context at all.">
+        <text x="30" y="34" class="s-t-head">WHAT THE MODEL ACTUALLY READS</text>
+
+        <g data-step="1">
+          <rect x="30" y="60" width="1000" height="130" rx="10" class="s-box-accent"></rect>
+          <text x="52" y="88" class="s-t-accent">ALWAYS · every run, every turn</text>
+          <rect x="52" y="100" width="300" height="70" rx="6" class="s-box"></rect>
+          <text x="202" y="126" class="s-t s-code" text-anchor="middle">instructions.md</text>
+          <text x="202" y="148" class="s-t-sm" text-anchor="middle">the job and its boundaries</text>
+          <rect x="372" y="100" width="300" height="70" rx="6" class="s-box"></rect>
+          <text x="522" y="126" class="s-t s-code" text-anchor="middle">/memories/agent/AGENTS.md</text>
+          <text x="522" y="148" class="s-t-sm" text-anchor="middle">the team's editorial standards</text>
+          <rect x="692" y="100" width="316" height="70" rx="6" class="s-box"></rect>
+          <text x="850" y="126" class="s-t" text-anchor="middle">skill index</text>
+          <text x="850" y="148" class="s-t-sm" text-anchor="middle">names and one-line descriptions only</text>
+        </g>
+
+        <g data-step="2">
+          <rect x="30" y="240" width="1000" height="130" rx="10" class="s-box"></rect>
+          <text x="52" y="268" class="s-t-head">ON DEMAND · when the task matches</text>
+          <rect x="52" y="280" width="228" height="70" rx="6" class="s-box-plain"></rect>
+          <text x="166" y="306" class="s-t" text-anchor="middle">a SKILL.md body</text>
+          <text x="166" y="328" class="s-t-sm" text-anchor="middle">one of three</text>
+          <rect x="300" y="280" width="228" height="70" rx="6" class="s-box-plain"></rect>
+          <text x="414" y="306" class="s-t" text-anchor="middle">a writing style</text>
+          <text x="414" y="328" class="s-t-sm" text-anchor="middle">one of six</text>
+          <rect x="548" y="280" width="228" height="70" rx="6" class="s-box-plain"></rect>
+          <text x="662" y="306" class="s-t s-code" text-anchor="middle">outline.md</text>
+          <text x="662" y="328" class="s-t-sm" text-anchor="middle">the course's objectives</text>
+          <rect x="796" y="280" width="212" height="70" rx="6" class="s-box-plain"></rect>
+          <text x="902" y="306" class="s-t" text-anchor="middle">one topic file</text>
+          <text x="902" y="328" class="s-t-sm" text-anchor="middle">per editor, not per course</text>
+        </g>
+
+        <g data-step="3">
+          <rect x="30" y="420" width="1000" height="120" rx="10" class="s-box"></rect>
+          <text x="52" y="448" class="s-t-head">NEVER · does not enter context at all</text>
+          <rect x="52" y="460" width="300" height="60" rx="6" class="s-box-plain"></rect>
+          <text x="202" y="486" class="s-t" text-anchor="middle">the presented file bytes</text>
+          <text x="202" y="506" class="s-t-sm" text-anchor="middle">they go to your screen</text>
+          <rect x="372" y="460" width="300" height="60" rx="6" class="s-box-plain"></rect>
+          <text x="522" y="486" class="s-t" text-anchor="middle">the other topics</text>
+          <text x="522" y="506" class="s-t-sm" text-anchor="middle">an editor sees only its own</text>
+          <rect x="692" y="460" width="316" height="60" rx="6" class="s-box-plain"></rect>
+          <text x="850" y="486" class="s-t" text-anchor="middle">the service account key</text>
+          <text x="850" y="506" class="s-t-sm" text-anchor="middle">it is never on the disk</text>
+        </g>
+
+        <g data-step="3">
+          <path d="M 850 174 V 236" class="d-flow" marker-end="url(#ar)"></path>
+        </g>
+        <g data-step="2">
+          <text x="838" y="212" class="s-t-lab" text-anchor="end">the index is what makes the choice</text>
+        </g>
+
+        <g data-step="2">
+          <line x1="522" y1="392" x2="522" y2="414" class="s-line-dead"></line>
+          <line x1="510" y1="392" x2="534" y2="414" class="s-strike"></line>
+          <line x1="534" y1="392" x2="510" y2="414" class="s-strike"></line>
+        </g>
+      </svg>
+      <figcaption><b>The skill index is the mechanism.</b> The model always knows a skill exists and what it is for, and reads its body only when a task matches — so adding a fourth skill costs a line of context, not a chapter. The bottom tier is not an optimisation: those three are held out deliberately, and the first two are what sections 04 and 05 are about.</figcaption>
+    </figure>
+
+    <div class="col">
+      <h3>Memory, and why it is the layer to watch</h3>
+      <p>Memory is scoped to the <em>deployment</em>, not to a person: one shared tree that every caller reads and every session can write. Ask the agent to stop expanding transitions, and the correction can be written once and apply for everyone afterwards. That is the feature. It is also the risk, because whatever one person's session saves is read by everyone who comes next.</p>
+      <p>Two rules keep that safe, and both are worth stating out loud in the demo. Memory holds <strong>procedural knowledge only</strong> — conventions stated in general terms, never a person, a sheet URL, or a credential. And memory carries <strong>no authority</strong>: it is treated as notes from a colleague, not as instructions, so what it says can inform an edit but can never widen what the agent is allowed to do. Permission lives in the deployment's own configuration, where a session cannot reach it.</p>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 1060 320" role="img" aria-label="Memory loop: a session writes a general standard into the shared AGENTS.md, which is then loaded into every later session, across all users of the deployment.">
+        <text x="30" y="34" class="s-t-head">MEMORY ACROSS SESSIONS</text>
+
+        <rect x="30" y="70" width="260" height="80" rx="10" class="s-box"></rect>
+        <text x="160" y="102" class="s-t" text-anchor="middle">Session on Monday</text>
+        <text x="160" y="124" class="s-t-sm" text-anchor="middle">"stop padding transitions"</text>
+
+        <rect x="400" y="70" width="260" height="80" rx="10" class="s-box"></rect>
+        <text x="530" y="102" class="s-t" text-anchor="middle">Session on Tuesday</text>
+        <text x="530" y="124" class="s-t-sm" text-anchor="middle">a different editor, a new course</text>
+
+        <rect x="770" y="70" width="260" height="80" rx="10" class="s-box"></rect>
+        <text x="900" y="102" class="s-t" text-anchor="middle">Every session after</text>
+        <text x="900" y="124" class="s-t-sm" text-anchor="middle">the standard already applies</text>
+
+        <path d="M 30 230 H 1030 M 30 290 H 1030 M 30 230 V 290 M 66 230 V 290" class="d-store"></path>
+        <text x="48" y="266" class="d-num-store" text-anchor="middle">D2</text>
+        <text x="82" y="256" class="s-t s-code">/memories/agent/AGENTS.md</text>
+        <text x="82" y="278" class="s-t-sm">one shared tree · every caller of this deployment reads it</text>
+
+        <path d="M 160 154 V 226" class="d-flow-key" marker-end="url(#ar-a)"></path>
+        <text x="172" y="196" class="s-t-accent">writes, once, in general terms</text>
+
+        <path d="M 530 226 V 156" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="542" y="196" class="s-t-lab">loaded into every run</text>
+
+        <path d="M 900 226 V 156" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="912" y="196" class="s-t-lab">no one re-explains it</text>
+      </svg>
+      <figcaption><b>The correction outlives the conversation.</b> This is the layer that turns a tool into something that improves — and the one place a session can change the agent's behaviour for everybody, which is why what may be written there is deliberately narrow.</figcaption>
+    </figure>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2>Data flow</h2>
+    </div>
+    <div class="col">
+      <p>The same system in standard DFD notation, for anyone who wants to audit it rather than admire it. Squares are external entities, rounded boxes are processes, open-ended boxes are data stores, and every arrow is labelled with what actually moves along it.</p>
+      <p>The context diagram first: what crosses the system boundary at all.</p>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 940 340" role="img" aria-label="Level 0 context diagram: an instructional designer exchanges requests and diffs with the Course Content Editor, which reads course tabs from and writes a new tab to Google Sheets, and receives an OAuth token from the LangSmith secret store.">
+        <text x="20" y="26" class="s-t-head">LEVEL 0 · CONTEXT</text>
+
+        <rect x="40" y="125" width="160" height="90" rx="2" class="d-ext"></rect>
+        <text x="120" y="163" class="s-t" text-anchor="middle">Instructional</text>
+        <text x="120" y="181" class="s-t" text-anchor="middle">Designer</text>
+        <text x="120" y="200" class="s-t-sm" text-anchor="middle">E1</text>
+
+        <rect x="370" y="120" width="200" height="100" rx="6" class="d-proc"></rect>
+        <text x="386" y="144" class="d-num">0</text>
+        <text x="470" y="168" class="s-t" text-anchor="middle">Course Content</text>
+        <text x="470" y="186" class="s-t" text-anchor="middle">Editor (MDA)</text>
+        <text x="470" y="206" class="s-t-sm" text-anchor="middle">hosted deployment</text>
+
+        <rect x="740" y="40" width="160" height="90" rx="2" class="d-ext"></rect>
+        <text x="820" y="78" class="s-t" text-anchor="middle">Google Sheet</text>
+        <text x="820" y="96" class="s-t-sm" text-anchor="middle">the course</text>
+        <text x="820" y="115" class="s-t-sm" text-anchor="middle">E2</text>
+
+        <rect x="740" y="210" width="160" height="90" rx="2" class="d-ext"></rect>
+        <text x="820" y="248" class="s-t" text-anchor="middle">LangSmith</text>
+        <text x="820" y="266" class="s-t" text-anchor="middle">secret store</text>
+        <text x="820" y="285" class="s-t-sm" text-anchor="middle">E3</text>
+
+        <line x1="202" y1="152" x2="366" y2="152" class="d-flow" marker-end="url(#ar)"></line>
+        <text x="284" y="143" class="s-t-lab" text-anchor="middle">edit request</text>
+
+        <line x1="368" y1="192" x2="204" y2="192" class="d-flow-key" marker-end="url(#ar-a)"></line>
+        <text x="284" y="211" class="s-t-accent" text-anchor="middle">diff cards, questions</text>
+
+        <path d="M 738 70 H 646 V 138 H 574" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="656" y="60" class="s-t-lab">course tabs</text>
+
+        <path d="M 572 166 H 690 V 100 H 738" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="600" y="182" class="s-t-lab">new tab</text>
+
+        <path d="M 738 246 H 646 V 200 H 574" class="d-flow-key" marker-end="url(#ar-a)"></path>
+        <text x="600" y="240" class="s-t-accent">OAuth token</text>
+      </svg>
+      <figcaption><b>Three external entities, five flows.</b> Nothing else crosses the boundary — no other system reads the course, and no credential travels inward past the proxy.</figcaption>
+    </figure>
+
+    <div class="col">
+      <p>Then the decomposition. The five processes are the five things the agent actually does, in the order it does them.</p>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 1240 1010" role="img" aria-label="Level 1 data flow diagram with five processes: prepare the workspace, plan the sweep, edit one topic, present before and after, and commit to a new tab, exchanging data with the workspace store, the agent memory store, the instructional designer, Google Sheets and the LangSmith secret store.">
+        <text x="40" y="34" class="s-t-head">LEVEL 1 · DECOMPOSITION</text>
+
+        <path d="M 60 80 H 280 M 60 150 H 280 M 60 80 V 150 M 96 80 V 150" class="d-store"></path>
+        <text x="78" y="120" class="d-num-store" text-anchor="middle">D2</text>
+        <text x="110" y="108" class="s-t">agent memory</text>
+        <text x="110" y="132" class="s-t-sm">shared, deployment-wide</text>
+
+        <rect x="60" y="380" width="220" height="90" rx="2" class="d-ext"></rect>
+        <text x="170" y="415" class="s-t" text-anchor="middle">Instructional</text>
+        <text x="170" y="435" class="s-t" text-anchor="middle">Designer</text>
+        <text x="170" y="456" class="s-t-sm" text-anchor="middle">E1</text>
+
+        <rect x="500" y="80" width="240" height="80" rx="10" class="d-proc"></rect>
+        <text x="516" y="104" class="d-num">1.0</text>
+        <text x="620" y="124" class="s-t" text-anchor="middle">Prepare the workspace</text>
+        <text x="620" y="145" class="s-t-sm" text-anchor="middle">sheet rows to files</text>
+
+        <rect x="500" y="230" width="240" height="80" rx="10" class="d-proc"></rect>
+        <text x="516" y="254" class="d-num">2.0</text>
+        <text x="620" y="274" class="s-t" text-anchor="middle">Plan the sweep</text>
+        <text x="620" y="295" class="s-t-sm" text-anchor="middle">one editor per topic</text>
+
+        <rect x="500" y="380" width="240" height="80" rx="10" class="d-proc"></rect>
+        <text x="516" y="404" class="d-num">3.0</text>
+        <text x="620" y="424" class="s-t" text-anchor="middle">Edit one topic</text>
+        <text x="620" y="445" class="s-t-sm" text-anchor="middle">isolated subagent</text>
+
+        <rect x="500" y="530" width="240" height="80" rx="10" class="d-proc"></rect>
+        <text x="516" y="554" class="d-num">4.0</text>
+        <text x="620" y="574" class="s-t" text-anchor="middle">Present before / after</text>
+        <text x="620" y="595" class="s-t-sm" text-anchor="middle">bytes, not a summary</text>
+
+        <rect x="500" y="680" width="240" height="80" rx="10" class="d-proc"></rect>
+        <text x="516" y="704" class="d-num">5.0</text>
+        <text x="620" y="724" class="s-t" text-anchor="middle">Commit to a new tab</text>
+        <text x="620" y="745" class="s-t-sm" text-anchor="middle">never the source tab</text>
+
+        <rect x="960" y="80" width="220" height="90" rx="2" class="d-ext"></rect>
+        <text x="1070" y="115" class="s-t" text-anchor="middle">Google Sheet</text>
+        <text x="1070" y="136" class="s-t-sm" text-anchor="middle">the course</text>
+        <text x="1070" y="157" class="s-t-sm" text-anchor="middle">E2</text>
+
+        <path d="M 960 380 H 1180 M 960 450 H 1180 M 960 380 V 450 M 996 380 V 450" class="d-store"></path>
+        <text x="978" y="420" class="d-num-store" text-anchor="middle">D1</text>
+        <text x="1010" y="408" class="s-t s-code">/workspace</text>
+        <text x="1010" y="432" class="s-t-sm s-code">topics · context · outline.md</text>
+
+        <rect x="960" y="790" width="220" height="80" rx="2" class="d-ext"></rect>
+        <text x="1070" y="825" class="s-t" text-anchor="middle">LangSmith secrets</text>
+        <text x="1070" y="846" class="s-t-sm" text-anchor="middle">E3</text>
+
+        <path d="M 620 160 V 226" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="634" y="199" class="s-t-lab">workspace ready</text>
+
+        <path d="M 620 310 V 376" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="634" y="349" class="s-t-lab">brief: file, request, style</text>
+
+        <path d="M 620 460 V 526" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="634" y="499" class="s-t-lab">edits complete</text>
+
+        <path d="M 620 610 V 676" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="634" y="649" class="s-t-lab">approved set</text>
+
+        <path d="M 280 115 H 420 V 250 H 496" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="292" y="106" class="s-t-lab">editorial standards</text>
+
+        <path d="M 170 378 V 285 H 496" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="182" y="277" class="s-t-lab">edit request</text>
+
+        <path d="M 498 560 H 370 V 425 H 284" class="d-flow-key" marker-end="url(#ar-a)"></path>
+        <text x="380" y="500" class="s-t-accent">diff cards</text>
+
+        <path d="M 170 472 V 720 H 496" class="d-flow-gate" marker-end="url(#ar)"></path>
+        <text x="182" y="700" class="d-t-gate">approval, in the</text>
+        <text x="182" y="716" class="d-t-gate">user's own words</text>
+
+        <path d="M 958 110 H 744" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="851" y="101" class="s-t-lab" text-anchor="middle">course tabs (read)</text>
+
+        <path d="M 742 138 H 860 V 402 H 956" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="872" y="262" class="s-t-lab">topic files</text>
+        <text x="872" y="278" class="s-t-lab s-code">+ outline.md</text>
+
+        <path d="M 958 424 H 744" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="851" y="415" class="s-t-lab" text-anchor="middle">topic + its objectives</text>
+
+        <path d="M 742 446 H 956" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="851" y="466" class="s-t-lab" text-anchor="middle">edited blocks</text>
+
+        <path d="M 1000 452 V 570 H 744" class="d-flow-key" marker-end="url(#ar-a)"></path>
+        <text x="756" y="561" class="s-t-accent">before / after bytes</text>
+
+        <path d="M 1060 452 V 706 H 744" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="756" y="697" class="s-t-lab">edited workspace</text>
+
+        <path d="M 1120 788 V 736 H 744" class="d-flow-key" marker-end="url(#ar-a)"></path>
+        <text x="756" y="728" class="s-t-accent">token, at egress</text>
+
+        <path d="M 620 762 V 900 H 1210 V 122 H 1182" class="d-flow" marker-end="url(#ar)"></path>
+        <text x="636" y="892" class="s-t-lab">new tab, all columns intact</text>
+
+        <line x1="40" y1="930" x2="1200" y2="930" class="d-flow"></line>
+        <text x="40" y="958" class="s-t-head">NOTATION</text>
+
+        <rect x="176" y="944" width="40" height="22" rx="8" class="d-proc"></rect>
+        <text x="226" y="960" class="s-t-sm">process, numbered</text>
+
+        <path d="M 400 944 H 440 M 400 966 H 440 M 400 944 V 966 M 411 944 V 966" class="d-store"></path>
+        <text x="450" y="960" class="s-t-sm">data store</text>
+
+        <rect x="580" y="944" width="40" height="22" rx="2" class="d-ext"></rect>
+        <text x="630" y="960" class="s-t-sm">external entity</text>
+
+        <line x1="790" y1="955" x2="830" y2="955" class="d-flow" marker-end="url(#ar)"></line>
+        <text x="840" y="960" class="s-t-sm">data flow</text>
+
+        <line x1="960" y1="955" x2="1000" y2="955" class="d-flow-key" marker-end="url(#ar-a)"></line>
+        <text x="1010" y="960" class="s-t-sm">guarantee path</text>
+      </svg>
+      <figcaption><b>Read the accent flows first.</b> Content leaves D1 for the screen without passing through a process that can rewrite it, and the credential enters only at egress. Note what is <em>absent</em>: no arrow from any process back into E2's source tab, and no flow that carries the service account key inward.</figcaption>
+    </figure>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <h2>The two things it refuses to do</h2>
+    </div>
+    <div class="col">
+      <p>Both of these are load-bearing, and both are easy to lose by accident. They are worth a minute each in the demo because they are the difference between a tool the content team can trust with a live course and a tool that needs checking.</p>
+    </div>
+
+    <div class="fig-grid">
+      <figure>
+        <svg viewBox="0 0 520 320" role="img" aria-label="Comparison: a plain tool result routes file content through the model's context before it reaches the screen; the present bridge sends bytes straight to the screen and gives the model only counts.">
+          <text x="20" y="30" class="s-t-head">THE OBVIOUS WAY</text>
+          <rect x="20" y="46" width="120" height="52" rx="2" class="s-box"></rect>
+          <text x="80" y="70" class="s-t" text-anchor="middle">files</text>
+          <text x="80" y="87" class="s-t-sm" text-anchor="middle">on disk</text>
+
+          <rect x="196" y="46" width="128" height="52" rx="2" class="s-box"></rect>
+          <text x="260" y="70" class="s-t" text-anchor="middle">model context</text>
+          <text x="260" y="87" class="s-t-sm" text-anchor="middle">re-typed</text>
+
+          <rect x="380" y="46" width="120" height="52" rx="2" class="s-box"></rect>
+          <text x="440" y="78" class="s-t" text-anchor="middle">screen</text>
+
+          <line x1="140" y1="72" x2="194" y2="72" class="s-line" marker-end="url(#ar)"></line>
+          <line x1="324" y1="72" x2="378" y2="72" class="s-line" marker-end="url(#ar)"></line>
+          <line x1="222" y1="34" x2="298" y2="110" class="s-strike"></line>
+          <text x="260" y="128" class="s-t-lab" text-anchor="middle">a quote you cannot verify</text>
+
+          <line x1="20" y1="164" x2="500" y2="164" stroke="var(--line)" stroke-width="1"></line>
+
+          <text x="20" y="196" class="s-t-head">WHAT WE BUILT</text>
+          <rect x="20" y="212" width="120" height="52" rx="2" class="s-box"></rect>
+          <text x="80" y="236" class="s-t" text-anchor="middle">files</text>
+          <text x="80" y="253" class="s-t-sm" text-anchor="middle">on disk</text>
+
+          <rect x="196" y="212" width="128" height="52" rx="2" class="s-box-accent"></rect>
+          <text x="260" y="236" class="s-t s-code" text-anchor="middle">present_bridge</text>
+          <text x="260" y="253" class="s-t-sm" text-anchor="middle">custom stream</text>
+
+          <rect x="380" y="212" width="120" height="52" rx="2" class="s-box"></rect>
+          <text x="440" y="244" class="s-t" text-anchor="middle">screen</text>
+
+          <line x1="140" y1="238" x2="194" y2="238" class="s-line-accent" marker-end="url(#ar-a)"></line>
+          <line x1="324" y1="238" x2="378" y2="238" class="s-line-accent" marker-end="url(#ar-a)"></line>
+
+          <path d="M 260 264 L 260 292" class="s-line" marker-end="url(#ar)"></path>
+          <text x="270" y="288" class="s-t-lab">model gets counts only</text>
+        </svg>
+        <figcaption><b>Every diff you read came off the disk.</b> Content routed through a model can come back paraphrased or truncated, and a reader cannot tell a faithful quote from a confident approximation. Custom-stream data never enters message state — so it is not in the agent's context now, and not in the thread's history later.</figcaption>
+      </figure>
+
+      <figure>
+        <svg viewBox="0 0 520 320" role="img" aria-label="The sandbox sends an unauthenticated request; an egress proxy outside the sandbox injects an OAuth token minted from a LangSmith workspace secret before the request reaches Google.">
+          <rect x="20" y="40" width="230" height="180" rx="3" class="s-band"></rect>
+          <text x="34" y="64" class="s-t-head">SANDBOX</text>
+
+          <rect x="36" y="80" width="198" height="52" rx="2" class="s-box"></rect>
+          <text x="135" y="104" class="s-t s-code" text-anchor="middle">prepare_workspace.py</text>
+          <text x="135" y="121" class="s-t-sm s-code" text-anchor="middle">gspread · AnonymousCredentials</text>
+
+          <rect x="36" y="150" width="198" height="52" rx="2" class="s-box-plain"></rect>
+          <text x="135" y="174" class="s-t-sm" text-anchor="middle">service account key</text>
+          <text x="135" y="191" class="s-t-sm" text-anchor="middle">on this disk</text>
+          <line x1="52" y1="158" x2="218" y2="194" class="s-strike"></line>
+
+          <rect x="292" y="80" width="120" height="88" rx="2" class="s-box-accent"></rect>
+          <text x="352" y="108" class="s-t" text-anchor="middle">egress</text>
+          <text x="352" y="126" class="s-t" text-anchor="middle">proxy</text>
+          <text x="352" y="146" class="s-t-sm" text-anchor="middle">outside the box</text>
+
+          <rect x="292" y="196" width="200" height="60" rx="2" class="s-box"></rect>
+          <text x="392" y="220" class="s-t" text-anchor="middle">LangSmith secret</text>
+          <text x="392" y="238" class="s-t-sm s-code" text-anchor="middle">GCP_SERVICE_ACCOUNT_JSON</text>
+
+          <rect x="440" y="80" width="60" height="88" rx="2" class="s-box"></rect>
+          <text x="470" y="118" class="s-t" text-anchor="middle">Sheets</text>
+          <text x="470" y="136" class="s-t-sm" text-anchor="middle">API</text>
+
+          <line x1="234" y1="106" x2="288" y2="106" class="s-line" marker-end="url(#ar)"></line>
+          <text x="261" y="94" class="s-t-lab" text-anchor="middle">bare</text>
+
+          <line x1="412" y1="124" x2="436" y2="124" class="s-line-accent" marker-end="url(#ar-a)"></line>
+
+          <path d="M 352 196 L 352 172" class="s-line-accent" marker-end="url(#ar-a)"></path>
+          <text x="362" y="188" class="s-t-accent">mints token</text>
+
+          <text x="261" y="284" class="s-t-lab" text-anchor="middle">the Authorization header is added here,</text>
+          <text x="261" y="300" class="s-t-lab" text-anchor="middle">where the agent cannot read it</text>
+        </svg>
+        <figcaption><b>Nothing to steal.</b> A course sheet is user-supplied input, so a malicious cell is a plausible way to make the agent read files or run commands. The credential never enters the sandbox: scripts send unauthenticated requests and the proxy signs them on the way out. The service account still has to be shared on the sheet, exactly as today.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">07</span>
+      <h2>Why hosted, and what it costs</h2>
+    </div>
+    <div class="col">
+      <p>The earlier build ran the agent inside the Streamlit session. If the session timed out mid-edit — and a fifty-topic sweep takes a while — the work went with it. Here the run executes on the server and the thread id lives in the page URL, so a refresh, a reconnect, or a laptop closing at the wrong moment all land in the same place: the work is still running, and you can still address it.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Dimension</th><th>Setting</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Sandbox lifetime</td>
+            <td><b>600 s idle</b></td>
+            <td>A conversation paused while someone reads a diff should not keep a VM warm</td>
+          </tr>
+          <tr>
+            <td>Sandbox disk</td>
+            <td><b class="num">16 GiB</b></td>
+            <td>Platform default. At $0.000123/GiB-hr the free monthly allowance covers <span class="num">~508</span> sandbox-hours</td>
+          </tr>
+          <tr>
+            <td>Scripts</td>
+            <td><b>baked into the image</b></td>
+            <td>Pre-installed at deploy time, so the first tool call in a thread is not a pip install</td>
+          </tr>
+          <tr>
+            <td>Standing cost</td>
+            <td><b>deployment database</b></td>
+            <td>Billed while live and persisting state — the largest line, independent of usage</td>
+          </tr>
+          <tr>
+            <td>Variable cost</td>
+            <td><b>sandbox compute</b></td>
+            <td>~40 sandbox-hours/month within the free allowance; disk is a rounding error</td>
+          </tr>
+          <tr>
+            <td>Model</td>
+            <td><b>swappable</b></td>
+            <td>One environment variable; the coordinator and editors are not pinned to one vendor</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">08</span>
+      <h2>Six minutes, live</h2>
+    </div>
+    <div class="col">
+      <p>A run on a real course sheet, in the order that makes the design visible. Each beat shows something the previous build could not do.</p>
+    </div>
+
+    <ol class="demo">
+      <li>
+        <div>
+          <h3>Paste a sheet URL and ask for something small</h3>
+          <p class="say">"Tighten the transitions in Topic 3." No setup step, no configuration screen — the session is created on the first message.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Let the tool activity run in the open</h3>
+          <p>The turn shows the scripts as they execute — reading tabs, loading slide chunks, counting blocks. Nobody has to trust a summary of what happened.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Ask for the whole course</h3>
+          <p>Delegation is the moment worth watching: each topic goes to its own editor with its own learning objectives, and the subagent panels fill in parallel.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Open the Review tab and reject one block</h3>
+          <p>Rejection quotes the original back to the agent by its identity fields. This is where the diff-not-a-summary decision pays off.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Close the browser tab mid-run, then reopen the URL</h3>
+          <p class="say">The strongest thirty seconds of the demo. The run kept going on the server; the thread id in the URL brings the whole conversation, workspace and files back.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Commit, and show the source tab still intact</h3>
+          <p>The edits land in a new tab with every original column preserved. Then open the tab you started from and show that nothing moved.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">09</span>
+      <h2>Where it stands</h2>
+    </div>
+    <div class="status">
+      <div>
+        <h3>Verified</h3>
+        <ul>
+          <li>Full round trip against a real course sheet: edit, present, withhold the commit until asked, write a new tab with every column intact</li>
+          <li>The committed notes are the <em>edited</em> ones — 4,407 → 3,696 words — not a re-pull of the source</li>
+          <li>Survival when the client disconnects mid-run</li>
+          <li>Five test suites: offline, auth proxy, scripts in a real sandbox, deployed behaviour, disconnect</li>
+        </ul>
+      </div>
+      <div class="open">
+        <h3>Open</h3>
+        <ul>
+          <li>A merge deadlock kept an earlier run at 51 blocks in, 51 blocks out. The rule conflict behind it is fixed and deployed; the next run on that same plumbing course is the number to watch</li>
+          <li>The agent re-reads its editorial standards from a static file every session, and a correction in one thread never reaches the next. Consolidating what it learns across threads is the obvious next capability</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Architecture brief for the Course Content Editor (MDA) build · agents/course_content_editor_mda · prepared for internal review, 10 September 2026.
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement, btn = document.getElementById('themeToggle');
+    function label() { btn.textContent = root.dataset.theme === 'dark' ? 'Light' : 'Dark'; }
+    btn.addEventListener('click', function () {
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      label();
+    });
+    label();
+  }());
+</script>
+<script>
+  /* Step-through for sequential figures. The page rests fully revealed —
+     stepping starts only when asked, so a screenshot or a skim shows the
+     whole diagram. Arrow keys drive the figure you last touched. */
+  (function () {
+    var figures = [].slice.call(document.querySelectorAll('figure[data-stepper]'));
+    var active = null;
+
+    figures.forEach(function (fig) {
+      var total = parseInt(fig.dataset.stepper, 10);
+      var groups = [].slice.call(fig.querySelectorAll('g[data-step]'));
+      var svg = fig.querySelector('svg');
+      var at = 0;                                   // 0 = resting, all shown
+
+      var bar = document.createElement('div');
+      bar.className = 'stepbar';
+      bar.innerHTML =
+        '<button type="button" class="sc-btn" data-act="start">Step through</button>' +
+        '<button type="button" class="sc-btn sc-btn-ghost" data-act="prev" hidden>Back</button>' +
+        '<button type="button" class="sc-btn sc-btn-ghost" data-act="next" hidden>Next</button>' +
+        '<span class="stepcount" hidden></span>' +
+        '<span class="spacer"></span>' +
+        '<span class="stephint">Arrow keys, or click the diagram</span>';
+      fig.appendChild(bar);
+
+      var btnStart = bar.querySelector('[data-act="start"]'),
+          btnPrev  = bar.querySelector('[data-act="prev"]'),
+          btnNext  = bar.querySelector('[data-act="next"]'),
+          count    = bar.querySelector('.stepcount');
+
+      function render() {
+        if (at === 0) {
+          fig.classList.remove('stepping');
+          groups.forEach(function (g) { g.classList.remove('is-past', 'is-now'); });
+          btnStart.textContent = 'Step through';
+          [btnPrev, btnNext, count].forEach(function (el) { el.hidden = true; });
+          return;
+        }
+        fig.classList.add('stepping');
+        groups.forEach(function (g) {
+          var n = parseInt(g.dataset.step, 10);
+          g.classList.toggle('is-now', n === at);
+          g.classList.toggle('is-past', n < at);
+        });
+        btnStart.textContent = 'Show all';
+        [btnPrev, btnNext, count].forEach(function (el) { el.hidden = false; });
+        btnPrev.disabled = at === 1;
+        btnNext.disabled = at === total;
+        count.textContent = 'Step ' + at + ' / ' + total;
+      }
+
+      function go(n) { at = Math.max(0, Math.min(total, n)); active = fig; render(); }
+
+      btnStart.addEventListener('click', function () { go(at === 0 ? 1 : 0); });
+      btnNext.addEventListener('click', function () { go(at + 1); });
+      btnPrev.addEventListener('click', function () { go(at - 1); });
+      svg.addEventListener('click', function () { if (at > 0) { go(at === total ? 0 : at + 1); } });
+      fig.addEventListener('mouseenter', function () { active = fig; });
+      fig.setAttribute('tabindex', '0');
+      fig.addEventListener('focus', function () { active = fig; });
+
+      fig.step = go;
+      fig.state = function () { return at; };
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (!active || e.metaKey || e.ctrlKey || e.altKey) { return; }
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); active.step(active.state() + 1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); active.step(Math.max(1, active.state() - 1)); }
+      else if (e.key === 'Escape') { active.step(0); }
+    });
+  }());
+</script>
+
+</body>
+</html>

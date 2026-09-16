@@ -390,6 +390,83 @@ def build_outline(ordered_topics, outline_df, topics_manifest) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def local_edits(workspace) -> list[tuple[str, int, int]]:
+    """Workspace files that differ from `.baseline`, as (path, words_now, words_baseline).
+
+    This is how a prepare script can tell "nobody has touched this workspace"
+    from "someone edited it and has not committed yet". Without the check, a
+    second prepare into the same directory overwrites the edits *and* replaces
+    the baseline in the same breath, so the evidence of the loss goes with it.
+
+    That is not hypothetical. In one observed session the user asked to look at
+    a different tab; the agent re-prepared into the same workspace; the previous
+    turn's edit (411 words rewritten to 456) was replaced by the sheet's 548,
+    and nothing in the output said so. The command printed "OK".
+
+    Empty list means the workspace is pristine, absent, or has no baseline to
+    compare against — all cases where overwriting costs nothing.
+    """
+    from pathlib import Path as _Path  # noqa: PLC0415
+
+    workspace = _Path(workspace)
+    baseline = workspace / BASELINE_DIRNAME
+    if not baseline.is_dir():
+        return []
+
+    drifted: list[tuple[str, int, int]] = []
+    for kind in WORKSPACE_KINDS:
+        directory = workspace / kind
+        if not directory.is_dir():
+            continue
+        for f in sorted(directory.glob("*.md")):
+            old = baseline / kind / f.name
+            if not old.is_file():
+                # A file with no baseline entry was created after the snapshot.
+                drifted.append((f"{kind}/{f.name}", _words(f), 0))
+                continue
+            now, was = f.read_text(encoding="utf-8"), old.read_text(encoding="utf-8")
+            if now != was:
+                drifted.append((f"{kind}/{f.name}", len(now.split()), len(was.split())))
+    return drifted
+
+
+def _words(path) -> int:
+    try:
+        return len(path.read_text(encoding="utf-8").split())
+    except OSError:
+        return 0
+
+
+def refuse_if_edited(workspace, discard_local: bool) -> int | None:
+    """Stop a prepare that would silently discard local edits. Exit code or None.
+
+    The message carries both ways out, non-destructive first, because the
+    agent reading it has no other way to learn that a second workspace is
+    even possible: `--workspace` is required, so every call already names one,
+    and nothing says the name may differ.
+    """
+    if discard_local:
+        return None
+    drifted = local_edits(workspace)
+    if not drifted:
+        return None
+
+    eprint(f"ERROR: {workspace} has local edits that this would overwrite.")
+    for path, now, was in drifted:
+        eprint(f"  {path}   {now} words now, {was} in the baseline")
+    eprint("")
+    eprint("Nothing has been written. Choose one:")
+    eprint(f"  - Prepare into a second workspace and keep this one:")
+    eprint(f"      --workspace {workspace}_2")
+    eprint(f"    Each workspace is self-contained, so both stay editable and")
+    eprint(f"    committable. Pass the same --workspace to present.py and the")
+    eprint(f"    commit scripts.")
+    eprint(f"  - Commit the edits first, if they are finished.")
+    eprint(f"  - Throw the edits away on purpose:")
+    eprint(f"      --discard-local")
+    return 3
+
+
 def snapshot_baseline(workspace) -> int:
     """Copy the pristine workspace aside as the "before" for later diffs.
 
