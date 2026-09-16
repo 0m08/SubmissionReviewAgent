@@ -21,3 +21,6 @@ _tmp_whl/
 scratch_data.pkl
 scratchpad_placeholder
 mda-skill-script-secrets.md
+
+# Runtime telemetry log — 71MB, rewritten on every app run
+logging.csv
