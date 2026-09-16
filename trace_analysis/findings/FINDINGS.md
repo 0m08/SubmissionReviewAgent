@@ -1139,3 +1139,91 @@ same test `prepare_workspace.py` applies when reading it. Backups and
 `(Revised)` tabs carry that header too and are excluded from the count by name,
 because counting them made the warning fire on a sheet with one real source.
 Cost is one batched API call, measured at 0.42s for 21 tabs.
+
+---
+
+### F-042 — The editor subagent was told to "count with the shell"
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: highest**
+
+**Fixed 2026-09-16.** The editor system prompt in `agent.py` now names
+`present.py --measure` and `per_block` as the only source of counts, and says
+not to write a counter.
+
+**Observed.** Subagent 4 in `01a0a9ed` made 37 tool calls against the smallest
+file in the session — 6 blocks, 399 words — and 2 of them changed it. It was
+the largest span in the fan-out; the largest file, at 34 blocks, took 23.
+
+**Verified.** The editor's own `system_prompt` said, in Editing mechanics:
+
+> Count with the shell before and after any request that names a direction
+
+and in the report spec:
+
+> What you changed — block by block, with before -> after counts you measured.
+
+The two together require a per-block count and point at the shell to get it.
+The subagents complied exactly. Calls 13–21 are nine consecutive calls reading
+`commit_workspace.py`, `present.py` and `_presentation.py` — twice each for the
+last — to find `block_body()` and copy how it counts words. Calls 24, 25, 36 and
+37 then build the counter, two of them failing on backslash-escaped quotes.
+
+**Why.** This is the stronger half of F-030. The missing `per_block` left the
+agent without the number; this line told it where to go instead, and it went
+there. A tool gap and an instruction pointing away from the tool compound: the
+agent read the measuring tool's source rather than its output.
+
+**Note.** F-030 was recorded as "the single largest source of steps in the
+pass", which over-credited it. On this span the two fixes together account for
+13 of 37 calls. The rest is F-043 and F-044.
+
+---
+
+### F-043 — Six greps to re-check an edit already read back
+**Status:** fixed · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+**Fixed 2026-09-16.** Step 5 of the editor prompt now says to re-read once and
+not to grep the file for what was just written.
+
+**Observed.** Subagent 4 calls 26–31 are six greps of its own file, four
+returning "No matches found", followed by a full re-read at 34. The same shape
+appears in the orchestrator's own turn: `01a0a9cf` steps 3–5 grep the file it
+had just written for an em dash and for `**`.
+
+**Verified.** Call 22 wrote the file; call 23 measured it; call 34 read all 71
+lines back. Every grep between them searched text the agent had authored in
+that same turn.
+
+**Why.** Step 5 of the editor prompt requires confirming "every change you
+intend to report is actually present", and does not say that one read satisfies
+it. A per-item confirmation loop is a reasonable reading of it. Compounded by
+F-001: a grep that correctly finds nothing is rendered as a failed command, so
+a negative result reads as something to retry rather than an answer.
+
+---
+
+### F-044 — An editor reading outside its own brief
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Fixed 2026-09-16.** The editor prompt now names what it may open, and forbids
+looking in `/memories/`.
+
+**Observed.** Subagent 4, owner of topic 04, opened: `/memories/agent/AGENTS.md`
+(call 4), `ls /memories/agent` (5), `ls /memories/agent/editors` (6),
+`/memories/agent/editors/ed_f84a65233902.md` (7), the sheets SKILL.md (12), and
+`/workspace/topics/topic_02_toolboxes-bags.md` (11) — a file belonging to
+subagent 2, which was editing it concurrently.
+
+**Verified.** Calls 5–7 re-derived something the brief already carried: "Slide
+Length: Strictly keep every slide under 60 words (editor ed_f84a65233902
+preference)". Call 4 re-read AGENTS.md, which is hot memory and already in the
+system prompt of that very run. `instructions.md` forbids listing the editors
+directory — "Do not list the editors directory, do not read or write another
+editor's file" — but that rule is in the *coordinator's* instructions, and the
+editor subagent has its own system prompt, which said nothing about memory at
+all.
+
+**Why.** A boundary stated in one agent's instructions does not reach another
+agent. The editor prompt had a "Your file only" rule that governed *edits* and
+explicitly allowed reading `outline.md`, which reads as permission to read
+widely. Reading a sibling topic mid-edit is also a correctness risk, not only a
+cost one: subagent 2 was writing that file at the time.
