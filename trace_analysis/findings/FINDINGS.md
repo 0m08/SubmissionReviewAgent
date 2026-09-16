@@ -1381,3 +1381,86 @@ taken yet:
 
 Option 2 is worth doing whichever of 1 and 3 is chosen: a title change reaching
 the sheet unmentioned is the same class of problem as an unreported deletion.
+
+---
+
+## Pass 5 — 2026-09-16 16:01 (controlled repeat)
+
+`01a0aaf4`, same sheet, same request, same code as `01a0aa84` two hours earlier.
+Run to settle whether the 14:00 latency was transient. It was.
+
+| | 11:15 old code (2 turns) | 14:00 new code | 16:01 new code |
+|---|---|---|---|
+| wall | 266s | 463s | **180s** |
+| model steps | 133 | 58 | 54 |
+| tool calls | 145 | 71 | 64 |
+| cost | $1.25 | $0.78 | $0.71 |
+| subagent failures | 15 | 0 | 0 |
+| median LLM latency | 2.14s | 8.05s | **2.83s** |
+| median small-call latency | 1.52s | 5.82s | **2.15s** |
+| median `read_file` | 0.35s | 0.36s | 0.35s |
+
+### F-047 — The 14:00 slowdown was provider-side and transient
+**Status:** closed · **Confidence:** verified · **Sessions:** 3
+
+Median LLM latency at 16:01 is 2.83s, inside the range measured across the
+fourteen prior sessions (1.60–4.66s). The 14:00 run's 8.05s was roughly double
+the previous worst. Code, model (`gemini-3.8-flash`), prompt sizes and
+`cache_read` (~40,950 tokens) are identical across the two new-code runs, and
+tool latency never moved in any of the three. Nothing in the deployment
+explains it and nothing needed changing.
+
+The phase breakdown confirms it: pre-spawn 155s -> 70s, subagent phase 162s ->
+85s, verification 147s -> 25s, with the same work in each phase.
+
+### F-048 — The 14:00 coordinator grep storm did not recur
+**Status:** closed · **Confidence:** verified · **Sessions:** 2
+
+At 14:00 the coordinator made 12 calls after its subagents returned, 8 of them
+greps of the workspace, costing ~121s. At 16:01 it made 4, all `present.py`,
+and 1 grep in the whole session against 8.
+
+Recorded because a fix was proposed for it — carrying the F-043 "do not grep
+what you just read" rule into `instructions.md`. That proposal was premature:
+one run showed the behaviour and one run showed its absence, which establishes
+variance, not a systematic fault. No change made. If it appears again, it is
+worth the rule.
+
+### F-049 — Two runs of one brief disagree on how much to cut
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+Same file, same brief, same style, two hours apart:
+
+| | 14:00 | 16:01 |
+|---|---|---|
+| topic_01 blocks | 34 -> 34 | 34 -> **28** |
+| topic_01 words | -21.4% | **-38.4%** |
+| topic_03 words | -32.7% | -27.9% |
+
+One run kept every block in topic_01; the other merged six away and cut nearly
+twice as many words. Both reported themselves as complete and compliant, and
+both are defensible readings of "find issues and fix them" — the brief sets a
+per-slide ceiling and a style, and says nothing about how much consolidation is
+wanted. The variance is in the instruction, not the model: nothing in the brief
+distinguishes a 21% cut from a 38% one.
+
+Worth deciding whether that latitude is wanted. If it is not, the lever is the
+brief — a stated block-count expectation, or an explicit "do not merge unless
+the LO makes a block redundant".
+
+### F-046 — further evidence, and an inconsistency
+**Status:** open (unchanged) · **Sessions:** 4
+
+Six generic retitles this run: `Precision Alignment`, `Carrying Your Gear` and
+`Matching the Blade to the Job` all to `Intro`; three summaries to `Topic
+Summary`. Eleven other retitles are ordinary rewrites.
+
+New: one editor went the other way. Topic_01's summary, already titled `Topic
+Summary` in the source, was renamed to `Field Mastery with Hand Tools` — the
+exact label the style file says to reuse, replaced with an invented one, while
+three sibling editors were replacing invented labels with it. Same style, same
+run, opposite directions. That strengthens the case for deciding the rule
+explicitly rather than leaving it in a style reference.
+
+Still unreported: 17 titles changed and the final report does not tell the user
+any of them changed.
