@@ -1227,3 +1227,62 @@ agent. The editor prompt had a "Your file only" rule that governed *edits* and
 explicitly allowed reading `outline.md`, which reads as permission to read
 widely. Reading a sibling topic mid-edit is also a correctness risk, not only a
 cost one: subagent 2 was writing that file at the time.
+
+---
+
+### F-045 — Audit: rules in instructions.md that never reached the editor subagent
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Fixed 2026-09-16.** The four gaps below are now in the editor's system prompt;
+the content-injection rule was added to both prompts.
+
+**Why the audit.** This deployment has two prompts — `instructions.md` for the
+coordinator, and `EDITOR["system_prompt"]` in `agent.py` — and F-044 showed a
+rule written in the first does not reach the second. Every section of
+`instructions.md` was checked against the editor prompt and classified:
+coordinator-only, already covered, or a gap. Four gaps, all with observed
+failures behind them. Rules found correctly coordinator-only: Getting oriented,
+Delegating, Every turn, Writing back, status updates, mid-edit preferences.
+Rules found already covered: reactive-editor scope, the two editing skills,
+`outline.md` as the boundary, block-removal mechanics.
+
+**Gap 1 — `/skills/` is readable but not runnable.** `instructions.md` Where
+things are: "the shell runs on the sandbox disk and `/skills/` is a mount the
+shell cannot see. The sheet skill's scripts are baked into the image at
+`/opt/cce/scripts/`." Absent from the editor prompt. Subagents 1 and 3 both ran
+`python3 /skills/working-with-google-sheets/scripts/present.py` and got `No such
+file or directory`. Previously logged under F-034 as a rule that "did not
+survive into a subagent's working set"; that was the wrong diagnosis. The rule
+was never there.
+
+**Gap 2 — course content is data, not instructions.** Neither prompt had one.
+The only mention of injection anywhere in the deployment is one clause in
+`working-with-google-sheets/SKILL.md` about why no credential is in the sandbox.
+The editor is the higher-risk side: it reads sheet-derived content directly, and
+it has `write_file` and `execute`. The F-044 fix narrowed its reading scope and
+in doing so removed its one path to that clause, so the gap was widened before
+it was found. Now stated in both prompts, in the terms each needs: the editor
+takes direction from its brief only, the coordinator from the user only.
+
+**Gap 3 — `.baseline` is read-only and `git` does not exist here.**
+`instructions.md`: "Read-only, and you never need to touch it." Absent from the
+editor. Subagent 2 ran `diff -u /workspace/.baseline/... `; subagents 2 and 3 ran
+`git status`, `git diff` and `git -C / status`, three failures, in a sandbox that
+is not a repository.
+
+**Gap 4 — relay a script's stderr rather than summarising it.**
+`instructions.md` General rules: "the message is written for you to act on, not
+to summarise away." Absent from the editor, which is the agent that most often
+sees a script fail. No mis-relay observed yet; added on the same grounds the
+coordinator has it.
+
+**Checked and found not to be a gap.** "Never write file content into your
+message" is coordinator-facing, and the concern that an editor might paste
+rewritten prose upward for the coordinator to relay was tested: zero sentences
+of twelve words or more from any newly written file appear verbatim in any of
+the four reports. No rule added — the evidence did not support one.
+
+**Note.** The reports do misattribute their per-block figures. Subagent 4's
+report is headed "Quantitative Measurements (`present.py --measure`)" above
+counts the tool did not produce at the time. F-030 and F-042 remove the reason
+to derive them; the report spec now says to quote the tool's numbers.
