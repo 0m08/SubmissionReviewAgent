@@ -5,6 +5,7 @@ from agents.model_3d_search.vectorstore_3d import (
     load_3d_chroma_db,
     embed_text_gemini,
     embed_image_gemini,
+    CENTRAL_3D_MODELS_FOLDER_ID,
 )
 
 
@@ -16,7 +17,7 @@ def search_vectorstore_3d(
     extension_filter: Optional[Union[str, List[str]]] = None,
     top_n: int = 10,
     drive=None,
-    parent_folder_id: str = "root",
+    parent_folder_id: str = CENTRAL_3D_MODELS_FOLDER_ID,
 ) -> List[Dict[str, Any]]:
     """
     Direct vector similarity search against single `3d_models_unified` ChromaDB collection.

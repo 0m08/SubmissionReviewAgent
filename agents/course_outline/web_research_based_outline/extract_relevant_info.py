@@ -5,6 +5,7 @@ from services.sheets_service import (
     get_sheet_data_and_df,
     save_to_sheet,
     clear_worksheet,
+    update_sheet_row_ranges,
 )
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
@@ -174,6 +175,30 @@ def get_relevant_info_from_article(course_name, target_audience, course_backgrou
     return response
 
 
+RELEVANT_INFO_COLUMNS = [
+    "summary",
+    "analysis_breakdown",
+    "content_evaluation",
+    "objective_brainstorm",
+    "final_verdict",
+    "learning_objectives",
+]
+
+
+def _flush_pending_relevant_info_saves(worksheet, df, pending_row_indices):
+    if not pending_row_indices:
+        return
+
+    columns = [col for col in RELEVANT_INFO_COLUMNS if col in df.columns]
+    if not columns:
+        return
+
+    row_indices = list(dict.fromkeys(pending_row_indices))
+    print(f"Saving {len(row_indices)} row(s) to sheet (incremental).")
+    update_sheet_row_ranges(worksheet, df, row_indices, columns)
+    pending_row_indices.clear()
+
+
 def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, target_audience, course_background, llm = 'gemini_2_flash'):
     """
     This function identifies the relevant articles and extracts relevant info as learning objectives
@@ -259,7 +284,7 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
 
         # Collect the results as they complete
         total_tasks = len(futures_map)
-        save_interval = 5  # how often to save (in number of completed tasks)
+        save_interval = 10  # how often to save (in number complete tasks)
 
         if total_tasks == 0:
             raise
@@ -268,6 +293,10 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
 
         # Now, pass only the futures (the keys) to as_completed:
+        pending_save_indices = []
+        import time
+        last_save_time = time.time()
+
         for future in tqdm(as_completed(futures_map), total=total_tasks):
             index = futures_map[future]  # retrieve the index
             response = future.result()
@@ -279,18 +308,28 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
             preliminary_research_df.loc[index, 'objective_brainstorm'] = response.get('objective_brainstorm', '')
             preliminary_research_df.loc[index, 'final_verdict'] = response.get('final_verdict', '')
             preliminary_research_df.loc[index, 'learning_objectives'] = response.get('learning_objectives', '')
-            
+            pending_save_indices.append(index)
+
             # Update progress
             progress.update()
 
             # Check if we should save
-            if progress.should_save():
+            current_time = time.time()
+            if len(pending_save_indices) >= save_interval and (current_time - last_save_time) >= 20:
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                save_to_sheet(worksheet = preliminary_research_sheet, df = preliminary_research_df)
+                _flush_pending_relevant_info_saves(
+                    preliminary_research_sheet,
+                    preliminary_research_df,
+                    pending_save_indices,
+                )
+                last_save_time = current_time
 
-    # Final save to sheet after all tasks
-    print('All rows processed. Saving final DataFrame to sheet.')
-    save_to_sheet(worksheet = preliminary_research_sheet, df = preliminary_research_df)
+        _flush_pending_relevant_info_saves(
+            preliminary_research_sheet,
+            preliminary_research_df,
+            pending_save_indices,
+        )
+        print('All rows processed. Relevant info saved incrementally.')
 
     return
 

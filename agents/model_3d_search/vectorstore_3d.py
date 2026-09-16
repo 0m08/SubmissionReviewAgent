@@ -11,7 +11,7 @@ load_dotenv()
 
 CHROMA_3D_LOAD_LOCK = threading.Lock()  # guards parallel calls during first-load
 
-
+CENTRAL_3D_MODELS_FOLDER_ID="1tJRuj-kbNeKA8TH1PGZTegVjm6cIa6ok"
 def get_gemini_embedding_client():
     """
     Returns Google GenAI client or Vertex AI fallback for gemini-embedding-2.

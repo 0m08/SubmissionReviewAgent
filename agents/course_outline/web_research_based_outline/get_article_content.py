@@ -3,6 +3,8 @@ from services.sheets_service import (
     get_sheet_data_and_df,
     save_to_sheet,
     clear_worksheet,
+    update_sheet_row_ranges,
+    delete_worksheet_rows,
 )
 # from concurrent.futures import ThreadPoolExecutor, as_completed
 # from services.web_page_loaders import get_docs_from_url
@@ -18,7 +20,6 @@ from langchain_community.document_loaders import AsyncHtmlLoader, PyPDFLoader, A
 from langchain_community.document_transformers import Html2TextTransformer
 from langchain_community.document_loaders import PyPDFLoader
 from services.helper_functions import create_and_populate_columns, escape_single_braces
-from services.sheets_service import get_sheet_data_and_df
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.web_page_loaders import clean_mark_article_stdout
 from langsmith import traceable
@@ -188,8 +189,34 @@ def fetch_and_process_article(index, row):
     except Exception as e:
         print(f"Unexpected error processing index {index}: {e}")
         return index, None
-    
-    
+
+
+def _article_content_columns(df):
+    cols = [col for col in df.columns if col.startswith("article_content_")]
+
+    def _chunk_index(col_name):
+        try:
+            return int(col_name.rsplit("_", 1)[1])
+        except ValueError:
+            return 0
+
+    return sorted(cols, key=_chunk_index)
+
+
+def _flush_pending_article_saves(worksheet, df, pending_row_indices):
+    if not pending_row_indices:
+        return
+
+    article_cols = _article_content_columns(df)
+    if not article_cols:
+        return
+
+    row_indices = list(dict.fromkeys(pending_row_indices))
+    print(f"Saving {len(row_indices)} row(s) to sheet (incremental).")
+    update_sheet_row_ranges(worksheet, df, row_indices, article_cols)
+    pending_row_indices.clear()
+
+
 def run_fetch_article_content(sheet, worksheet_name):
     """
     Fetch article content for all rows in parallel using ThreadPoolExecutor with a progress bar.
@@ -217,7 +244,7 @@ def run_fetch_article_content(sheet, worksheet_name):
 
         # Collect the results as they complete
         total_tasks = len(futures)
-        save_interval = 5  # how often to save (in number of completed tasks)
+        save_interval = 10  # how often to save (in number of completed tasks)
 
         # Initialize the progress tracker
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
@@ -225,6 +252,10 @@ def run_fetch_article_content(sheet, worksheet_name):
         # completed_count = 0
         # total_tasks = len(futures)
         # progress_bar = st.progress(0, text="Percent complete: 0%")
+
+        pending_save_indices = []
+        import time
+        last_save_time = time.time()
 
         for future in tqdm(as_completed(futures), total=total_tasks):
             index, article_content = future.result()
@@ -236,14 +267,27 @@ def run_fetch_article_content(sheet, worksheet_name):
                     col_base_name='article_content',
                     chunk_size=49000
                 )
+                pending_save_indices.append(index)
 
             # Update progress
             progress.update()
 
             # Check if we should save
-            if progress.should_save():
+            current_time = time.time()
+            if len(pending_save_indices) >= save_interval and (current_time - last_save_time) >= 20:
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
-                save_to_sheet(worksheet = preliminary_research_sheet, df = preliminary_research_df)
+                _flush_pending_article_saves(
+                    preliminary_research_sheet,
+                    preliminary_research_df,
+                    pending_save_indices,
+                )
+                last_save_time = current_time
+
+        _flush_pending_article_saves(
+            preliminary_research_sheet,
+            preliminary_research_df,
+            pending_save_indices,
+        )
 
     # Before final save, drop any rows that have content in article_content_7 and beyond
     article_cols = [c for c in preliminary_research_df.columns if c.startswith("article_content_")]
@@ -259,17 +303,21 @@ def run_fetch_article_content(sheet, worksheet_name):
         if idx >= 7:
             extra_cols.append(c)
 
-    rows_before_drop = len(preliminary_research_df)
+    dropped_row_indices = []
     if extra_cols:
         # Treat non-empty strings in any of the extra_cols as "has extra content"
         mask_has_extra = preliminary_research_df[extra_cols].astype(str).ne("").any(axis=1)
+        dropped_row_indices = preliminary_research_df.index[mask_has_extra].tolist()
         preliminary_research_df = preliminary_research_df[~mask_has_extra].reset_index(drop=True)
-    rows_after_drop = len(preliminary_research_df)
 
-    if rows_after_drop < rows_before_drop:
-        clear_worksheet(preliminary_research_sheet)
-    print('All rows processed. Saving final DataFrame to sheet.')
-    save_to_sheet(worksheet = preliminary_research_sheet, df = preliminary_research_df)
+    if dropped_row_indices:
+        print(
+            f'Removing {len(dropped_row_indices)} oversized row(s) from sheet '
+            f'(article_content_7+ populated).'
+        )
+        delete_worksheet_rows(preliminary_research_sheet, dropped_row_indices)
+    else:
+        print('All rows processed. Article content already saved incrementally.')
 
     # Hide the columns
     # hide_columns_by_name(worksheet = preliminary_research_sheet, column_names = column_names, df = preliminary_research_df)

@@ -18,6 +18,7 @@ from agents.model_3d_search.vectorstore_3d import (
     load_3d_chroma_db,
     embed_paired_gemini,
     make_path_writable,
+    CENTRAL_3D_MODELS_FOLDER_ID,
 )
 
 # ── Gemini multimodal embedding pricing (published rates) ──
@@ -408,7 +409,7 @@ def process_and_index_3d_models(
     gc,
     drive,
     sheet_link: str,
-    parent_folder_id: str = "root",
+    parent_folder_id: str = CENTRAL_3D_MODELS_FOLDER_ID,
     force_recreate: bool = False,
     batch_size: int = 5,
     progress_callback: Optional[Any] = None,
@@ -572,7 +573,7 @@ def create_vectorstore_3d(
     gc,
     drive,
     sheet_link: str,
-    parent_folder_id: str = "root",
+    parent_folder_id: str = CENTRAL_3D_MODELS_FOLDER_ID,
     batch_size: int = 5,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
@@ -594,7 +595,7 @@ def update_vectorstore_3d(
     gc,
     drive,
     sheet_link: str,
-    parent_folder_id: str = "root",
+    parent_folder_id: str = CENTRAL_3D_MODELS_FOLDER_ID,
     batch_size: int = 5,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
