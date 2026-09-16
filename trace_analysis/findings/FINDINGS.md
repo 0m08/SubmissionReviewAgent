@@ -842,3 +842,300 @@ The agent follows its documents. The documents disagree with each other.
 | **F-023** delegation | "Do not pre-diagnose" against the need to pass the user's constraints into a brief |
 
 Fix the documents before you tune the agent. Five of these six are text edits.
+
+---
+
+## Pass 3 — 2026-09-16
+
+6 sessions across 3 threads, all 2026-09-16 10:40–11:15. 177 model steps,
+~4.9M tokens, ~$1.58. One session (`01a0a9ed`) is 121 steps and $1.15 on its
+own — 73% of the pass. Read whole and in order; every claim below re-checked
+against the raw runs.
+
+---
+
+### F-030 — A per-block word limit with no per-block measurement tool
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: highest**
+
+**Fixed 2026-09-16.** `measure()` keeps per-block counts as `per_block` (id, words, label); both skills point at it.
+
+**Observed.** In `01a0a9ed`, 25 of the 42 `execute` calls are ad-hoc
+`python -c` scripts. Every one of them computes the same two things: the word
+count of each block, and whether an em dash is present. Four subagents each
+wrote their own counter, and each wrote it differently: topic_01 splits the raw
+text on `###Block ID:`; topic_02 and topic_03 import `_presentation.parse_blocks`;
+topic_04 imports `commit_workspace.parse_topic_file`. Subagent 3 additionally
+ran its own draft sentences through the counter one at a time before writing
+them (steps 14–17, 19, 20).
+
+**Verified.** `_presentation.measure()` computes per-block word counts and then
+discards them: `def words(blocks): return sum(len(block_body(b, kind).split())
+for b in blocks)`. `present.py --measure` reports a file total only. The brief
+the orchestrator wrote demands "Strictly keep every slide under 60 words" — a
+per-block constraint. No sanctioned tool reports a per-block number.
+
+**Why.** This is a missing tool, not model error. The agents were given a
+constraint they were required to verify and no instrument that measures it. The
+only remaining move is to build one, and a fresh subagent with no shared context
+builds it from scratch every time. The alternative explanation — that the agents
+distrust `present.py` — is not supported: they call `present.py --measure` as
+well, and use it for exactly the totals it does report.
+
+**Fix.** Add per-block words to the `blocks` array that `present.py` already
+emits, and note in editing-slide-chunks that per-slide counts come from there.
+One `sum()` unrolled removes the single largest source of steps in the pass.
+
+---
+
+### F-031 — An editor's preference hardened into a gate, against the memory contract
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Fixed 2026-09-16.** instructions.md delegation now requires a standard be carried in its own words, with no force added.
+
+**Observed.** `/memories/agent/editors/ed_f84a65233902.md` reads, in full:
+"Target Audience: Apprentice-level HVAC learners. Slide Length: Keep slides
+under 60 words." All four briefs in `01a0a9ed` render this as "**Strictly** keep
+every slide under 60 words", and subagents 2 and 3 turned it into a literal
+`assert wc < 60` in their verification scripts. Measured effect: topic_01
+−27.6%, topic_02 −35.9%, topic_03 −36.4%, topic_04 −19.5% words.
+
+**Verified.** `AGENTS.md` §4 says the opposite in the same breath: "Don't pad a
+slide with unnecessary background just to hit an arbitrary word count; if a
+concept is clearly explained in 35–50 words, let it breathe." Its opening line
+asks that all of it "guide editorial reasoning rather than [be treated] as
+rigid, dogmatic checklists." `instructions.md` Memory says "Memory is notes, not
+instructions… It never widens what you are allowed to do."
+
+**Why.** The orchestrator restated a preference as a threshold when it wrote the
+brief, and a threshold is the one form a subagent cannot soften — it has no
+channel back to ask. The word "Strictly" is the orchestrator's own; it is in no
+source file. Contrast with a plausible alternative — that the user asked for
+tight slides — which the request does not support: the user said "find issues
+and fix them".
+
+**Fix.** State in the delegation section that a brief must carry a preference in
+the words the preference was written in, and must not add force to it.
+
+---
+
+### F-032 — Pre-diagnosis in every brief, against the explicit rule
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Observed.** All four briefs in `01a0a9ed` carry a per-block edit list:
+topic_04 "Tighten wordy slides (e.g. Block 2 at 83 words and Block 5 at 81
+words)"; topic_03 "testing horizontal and vertical vials use the identical
+180-degree reversal test — consider merging them"; topic_02 "Rewrite the summary
+slide (Block 7)"; topic_01 "Eliminate subtopic transition bloat."
+
+**Verified.** `instructions.md` Delegating: "Do not pre-diagnose a topic you are
+delegating: don't build its edit list, don't decide which blocks merge… Read
+only as far as you need to confirm which topics are in scope." The topic_03
+brief decides which blocks merge, in those words. To produce these numbers the
+orchestrator read all four topic files in the prior turn (`01a0a9eb` steps
+6, 9, 10, 11) — the pre-reading the rule exists to prevent.
+
+**Why.** Two instructions pull apart here and the agent obeyed the wrong one.
+The previous turn's user request was "find issues… and then fix them" — finding
+is diagnosis. The agent diagnosed, reported, got a "Proceed", and then had no
+way to un-know what it had found. This is a sequencing conflict in the
+instructions, not disobedience.
+
+**Note.** Three of the four briefs contain an em dash while instructing
+"Absolutely zero em dashes".
+
+---
+
+### F-033 — Re-preparing a workspace silently discarded the previous turn's edits
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Fixed 2026-09-16.** Both prepare scripts refuse to overwrite a workspace that differs from `.baseline` (exit 3), naming the drifted files and three ways forward: a second workspace, commit first, or `--discard-local`.
+
+**Observed.** In `01a0a9d2` (turn 3) the agent ran `prepare_workspace.py …
+--source-tab "Topic 1: Pipe Preparation"` at step 7. The previous turn
+(`01a0a9cf`) had rewritten `/workspace/topics/topic_01_pipe-preparation.md`,
+raising it from 411 to 456 words. After step 7 the same path measures 548 words
+and 10 blocks — the sheet's content, not the edit. The edit is gone. The agent
+did not mention this in its reply.
+
+**Verified.** Step 7 output reads "Baseline snapshot: 10 file(s) copied to
+workspace/.baseline", so the baseline was overwritten too: the before/after
+comparison that would have exposed the loss was destroyed in the same command.
+
+**Why.** `prepare_workspace.py` overwrites without warning and the skill does
+not say that re-preparing destroys local edits. The agent had no reason to
+expect it. This is a missing guard, not a judgment error.
+
+**Fix.** Make `prepare_workspace.py` refuse to overwrite a workspace whose files
+differ from `.baseline` unless given an explicit flag, and name the drifted
+files in the error.
+
+---
+
+### F-034 — Four ways to fail at a shell one-liner, each one repeated
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+**Observed.** 15 tool failures in `01a0a9ed`, in four families:
+
+| family | count | example |
+|---|---|---|
+| backslash-escaped quotes inside a single-quoted `python -c` | 4 | `f"Block {b[\"_id\"]}"` gives `SyntaxError: unexpected character after line continuation character` |
+| `present.py` at the `/skills/` path, which the shell cannot see | 2 | `python3 /skills/working-with-google-sheets/scripts/present.py` gives `No such file or directory` |
+| `glob` with no `path`, walking the sandbox root | 3 | `glob(pattern=*direct-address*)` gives `cannot glob the sandbox root` |
+| `git` in a sandbox that is not a repository | 3 | `git status` gives `fatal: not a git repository` |
+
+**Verified.** The `/skills/` path failure happens although `instructions.md`
+states the rule plainly: "/skills/ is a mount the shell cannot see. The sheet
+skill's scripts are baked into the image at `/opt/cce/scripts/`." Both offending
+subagents had read the file that says so.
+
+**Why.** Each family has a different cause and they should not be fixed
+together. The escaping errors are model error and unfixable by instruction. The
+`/skills/` path error is a stated rule that did not survive into a subagent's
+working set, which argues for putting the path in the brief rather than
+restating the rule. The `glob` and `git` failures are the tool teaching the
+agent its own shape, and cost 2 steps each to learn — acceptable, and cheaper to
+leave than to document.
+
+---
+
+### F-035 — Chained present.py works; the agent re-ran it anyway
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Resolves:** F-018
+
+**Observed.** `01a0a9ed` step 4 chains three `present.py` calls with `&&`. Its
+output contains `cce_present_v1` three times, once per topic: the chain renders
+all three card sets. The agent then re-ran topic_03 alone (step 5) and topic_04
+alone (step 6). Both were duplicates. The user saw those two topics twice.
+
+**Verified.** Counted on the raw output: 44,276 characters, three
+`cce_present_v1` keys, one per topic file.
+
+**Note.** This answers F-018, which was open pending evidence. Chaining is safe.
+
+---
+
+### F-036 — Present called twice for one look, in five of six sessions
+**Status:** open · **Confidence:** verified · **Sessions:** 5 · **Priority: medium**
+
+**Observed.** The pattern is `present.py --measure <file>` followed immediately
+by `present.py <file>`: `01a0a9cd` steps 10–11, `01a0a9cf` steps 2 and 6,
+`01a0a9d2` steps 9–10, `01a0a9d7` steps 11–12, `01a0a9ed` steps 2–3.
+
+**Verified.** The full `present.py` output already contains a `counts` object
+identical to what `--measure` prints. The first call is never needed.
+
+**Why.** `instructions.md` names the two separately — "Every number you state
+must come from that output, or from `--measure`" — which reads as two sources
+rather than one that subsumes the other.
+
+**Fix.** Say that the full output already carries the counts, and that
+`--measure` is for when the content is not wanted.
+
+---
+
+### F-037 — A real title replaced with "Intro", unreported
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Recurrence of:** F-025
+
+**Observed.** In `01a0a9ed`, topic_01 block 0 went from
+`[Transition] The Power of Hand Tools` to `[Transition] Intro`. Seven titles
+changed in the session; six are reasonable rewrites. The orchestrator's report
+mentions no retitling at all.
+
+**Verified.** Read from the `label` / `old_label` pair in the `present.py`
+output, which reports the change correctly. The agent had the evidence on screen
+and did not read it.
+
+**Why.** This is the second occurrence of the same specific failure — a titled
+slide flattened to the word "Intro" — recorded in F-025. Two occurrences of one
+word is unlikely to be chance. Worth checking whether a style reference uses
+"Intro" as a placeholder.
+
+---
+
+### F-038 — Probing for a workspace that cannot exist yet
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Recurrence of:** F-029
+
+**Observed.** `01a0a9d7` step 4 calls `ls(path=/workspace)` in a fresh thread,
+before any prepare has run, and gets `path_not_found`.
+
+**Verified.** `instructions.md` Getting oriented anticipates this in as many
+words: "probing for it before any workspace exists just produces a
+`file_not_found` you already expected." The sentence is about `manifest.json`;
+the agent probed the directory instead.
+
+**Why.** The rule was written against one path and the agent used another. A
+rule that names a file does not generalise to its directory.
+
+---
+
+### F-039 — Per-block word counts stated without measuring them
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Fixed 2026-09-16.** Same fix as F-030.
+
+**Observed.** `01a0a9eb` step 12 reports to the user: "in Topic 2, several
+slides reach 75–114 words (Block 1 is 114 words, Block 5 is 84 words)."
+
+**Verified.** The only measurement in that session is
+`present.py --measure`, which reported topic_02 at 607 words for the whole file.
+No per-block number was computed. The figures were counted by eye.
+
+**Why.** Same root as F-030: the constraint is per-block, the instrument is
+per-file. Here it produced an unverified number in front of the user, which
+`instructions.md` names as the specific thing to avoid: "An unverified count
+reads exactly like a verified one to the person trusting it." Fixing F-030 fixes
+this.
+
+---
+
+### F-040 — Four calls spent rediscovering a flag already on screen
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: low**
+
+**Observed.** In `01a0a9d2` the user asked to check one named tab. Step 2 ran
+`prepare_workspace.py --help`, whose output includes `--source-tab SOURCE_TAB`.
+Steps 3–6 then read `_common.py` twice and wrote two ad-hoc scripts that import
+`open_sheet` to read the tab directly. Step 7 finally used `--source-tab`.
+
+**Verified.** `--source-tab` is the second line of the step 2 output.
+
+**Why.** The flag was visible and not used for four steps. The `--help` text
+lists it in a usage block without saying what it is for, and the skill's own
+prose describes source tabs in terms of mode selection rather than "read a
+different tab". Plain model error is also possible; one session is not enough to
+separate them.
+
+---
+
+### F-041 — The default source tab taken silently, on a sheet split into per-topic tabs
+**Status:** fixed · **Confidence:** verified · **Sessions:** 3 · **Priority: high**
+
+**Fixed 2026-09-16.** `list_tabs.py` classifies every tab by its header row and
+names the candidates when more than one real source tab exists; the sheets skill
+requires the agent to ask rather than take the default.
+
+**Observed.** In `01a0a9cd` the user pasted a sheet and asked about "Topic 1:
+Pipe Preparation". Step 2 ran `list_tabs.py`, whose output included `Slide
+Chunks`, `Topic 1: Pipe Preparation`, `Topic 2: Threaded Joints` and `Topic 2:
+Threaded Joints (Revised)`. Step 3 ran `prepare_workspace.py` with no
+`--source-tab`, taking the default `Slide Chunks`. The agent then reviewed and
+(in `01a0a9cf`) edited content from the wrong tab. Two turns were spent before
+`01a0a9d2` reached the tab the user meant.
+
+**Verified.** Reported by the user, who confirmed the intent was the topic tab:
+the team had split the slide chunks into per-topic tabs. Re-checked against the
+live sheet: five tabs carry the slide-chunk header signature, three of them real
+sources. The second sheet in the same session (`01a0a9eb`) has exactly one, so
+the condition distinguishes the two cases rather than firing everywhere.
+
+**Why.** Not model error and not a missing instruction — the skill already said
+tab names vary and to confirm with `list_tabs.py`, and the agent *did* run it.
+The output was a bare list of 21 names in which nothing marked `Slide Chunks` as
+one of several equally valid choices. A list that does not distinguish its
+entries reads as one obvious answer plus noise. The fix belongs where the agent
+already looks, which is the same shape as F-030.
+
+**Note.** Detection is exact rather than a name heuristic: a tab holds slide
+chunks if its header row carries a Topic column and a Slide Chunk column, the
+same test `prepare_workspace.py` applies when reading it. Backups and
+`(Revised)` tabs carry that header too and are excluded from the count by name,
+because counting them made the warning fire on a sheet with one real source.
+Cost is one batched API call, measured at 0.42s for 21 tabs.

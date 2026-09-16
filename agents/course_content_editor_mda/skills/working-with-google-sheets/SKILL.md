@@ -176,6 +176,21 @@ contain `"Context unavailable."` instead of failing — tell the user you're
 editing without research-notes context before making scope judgements on
 slide edits.
 
+**Re-preparing into a workspace that has edits in it is refused.** Both prepare
+scripts compare the workspace against `.baseline` first. If anything differs,
+they write nothing, exit 3, and name the drifted files with their word counts.
+This matters because a prepare replaces the baseline as well as the files, so an
+overwrite would destroy the edit *and* the only record that there was one.
+
+The error names three ways forward: prepare into a second workspace
+(`--workspace workspace_2`) and keep both, commit the edits first, or discard
+them on purpose with `--discard-local`. Relay it and let the user pick. A second
+workspace is self-contained — pass the same `--workspace` to `present.py` and
+the commit scripts and it behaves exactly like the first.
+
+Reaching for `--discard-local` because the script said no is not a fix; it is
+the destructive option, and it is there to be chosen deliberately.
+
 ### `prepare_context_workspace.py`
 
 ```bash
@@ -226,6 +241,22 @@ trusting the write.
 ### `list_tabs.py` / `check_auth.py`
 
 Same as the checklist agent's — see their own output for usage.
+
+`list_tabs.py` marks each tab with what its header row says it holds: `slide
+chunks`, `outline`, `slide chunks (backup/output)` for backups and `(Revised)`
+tabs, or nothing. It also marks which tabs are the defaults. Read the marks;
+they are read off the sheet, not guessed from the name.
+
+**When it says the source tab is ambiguous, ask.** Several tabs can hold slide
+chunks at once — the generator's `Slide Chunks`, plus per-topic tabs somebody
+split out by hand. They are all valid sources and the names do not say which one
+is meant. The script prints the candidates when there is more than one; name
+them back to the user and let them choose. Taking the default in that situation
+is how a whole turn gets spent editing content nobody asked about — which has
+happened: the user meant `Topic 1: Pipe Preparation` and got `Slide Chunks`,
+silently.
+
+One candidate, or none, means no question to ask. Do not ask anyway.
 
 ## The commands, in full
 
@@ -299,9 +330,16 @@ Call it without being asked once you finish editing, and again whenever the user
 asks to see, read, check or confirm anything.
 
 It also prints counted facts — blocks before/after, words before/after with the
-percentage change, and for slide chunks a census of slide types. **Every number
-you state must come from that output.** `--measure` gives the counts alone, with
-no diff:
+percentage change, a `per_block` list giving each block's id, title and word
+count, and for slide chunks a census of slide types. **Every number you state
+must come from that output.**
+
+`per_block` is what answers a per-slide length rule. A limit like "keep slides
+under 60 words" is a limit on each block, and the file total cannot tell you
+whether any single block breaks it — read `per_block` and look. Do not write a
+script to count words; this is that script, and one already ran.
+
+`--measure` gives the counts alone, with no diff:
 
 ```
 python /opt/cce/scripts/present.py     --workspace workspace --measure topics/topic_02_<slug>.md

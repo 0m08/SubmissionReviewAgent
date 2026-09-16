@@ -180,14 +180,27 @@ def measure(before: str, after: str, kind: str) -> dict:
     before_blocks = parse_blocks(before, kind)
     after_blocks = parse_blocks(after, kind)
 
+    def block_words(b) -> int:
+        return len(block_body(b, kind).split())
+
     def words(blocks) -> int:
-        return sum(len(block_body(b, kind).split()) for b in blocks)
+        return sum(block_words(b) for b in blocks)
 
     wb, wa = words(before_blocks), words(after_blocks)
     facts = {
         "blocks": {"before": len(before_blocks), "after": len(after_blocks)},
         "words": {"before": wb, "after": wa,
                   "change_pct": round((wa - wb) / wb * 100, 1) if wb else None},
+        # Per-block counts, kept rather than summed away. Length rules are
+        # written per slide ("keep slides under 60 words"), so a file total
+        # cannot answer the question anyone actually asks of it. Without
+        # these an agent has no measured per-block number and either writes
+        # its own counter — observed four times in one session, four
+        # different ways — or states a count it arrived at by eye.
+        "per_block": [
+            {"id": b["_id"], "words": block_words(b), "label": block_label(b, kind)}
+            for b in after_blocks
+        ],
     }
     if kind == "topics":
         # The slide-type census is what makes "I deleted every transition

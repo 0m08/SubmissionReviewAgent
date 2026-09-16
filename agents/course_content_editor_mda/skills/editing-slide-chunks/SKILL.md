@@ -311,8 +311,15 @@ trim, expand, fewer slides, more slides — measure it:
        topics/topic_02_drainage-basics.md
    ```
 
-   It returns the block count, the word count of the slide prose, and a census
-   of slide types by name.
+   It returns the block count, the word count of the slide prose, a census of
+   slide types by name, and `per_block` — one entry per block with its id,
+   title and word count.
+
+   `per_block` is the one to read when the request or a preference sets a
+   length per slide rather than for the file. It names the blocks that break
+   the limit, so you can fix those and leave the rest alone. Counting the
+   words yourself, in your head or in a script you write, produces a number
+   nobody can check; this one is parsed from the file.
 
 2. **After you edit**, call it again on the same path.
 

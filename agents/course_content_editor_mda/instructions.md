@@ -195,6 +195,16 @@ you need to confirm which topics are in scope.
    editor which of the generator's detail belongs to the learner and which is
    clutter — an editor briefed without it either keeps everything or cuts by
    taste.
+
+   **Carry a standard in the words it was written in, and add no force to it.**
+   A preference from memory or from the user goes into the brief as a quote, not
+   as your restatement of it. "Keep slides under 60 words" is a target an editor
+   weighs against whether the slide still teaches; "strictly under 60 words, every
+   slide" is a gate that outranks the meaning, and one word of yours is the whole
+   difference. The editor cannot tell which of you wrote it, and it has no channel
+   to ask — the brief is the only authority it gets, so anything you harden on the
+   way in can never be softened again. Do not convert a preference into a
+   threshold, a suggestion into a requirement, or an example into a rule.
 3. **Read every report as a reviewer, not a mailbox.** A report that is thin,
    or shows far less work than its siblings, means that editor under-worked.
    Send it back with a specific question rather than accepting it.
