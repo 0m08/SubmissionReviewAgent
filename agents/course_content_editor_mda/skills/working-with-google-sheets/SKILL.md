@@ -80,6 +80,15 @@ user simply gets shown nothing.
   there's doubt about access or tab names. Tab names vary per course sheet —
   don't assume `Slide Chunks` is the literal tab name; confirm with
   `list_tabs.py` first if the user hasn't told you.
+- **Ignore the `gid` in a pasted URL.** A sheet link copied from a browser
+  carries `?gid=…#gid=…` for whatever tab happened to be open. It is an artifact
+  of copying, not a request to work on that tab, and the scripts take a tab
+  *name* — `--source-tab`, `--outline-tab`, `--target-tab` — never a gid. There
+  is no supported way to resolve one, and you do not need one: take the tab name
+  from what the user said, or from `list_tabs.py`, or leave the default. If the
+  gid and the user's words seem to disagree, that is not a discrepancy to
+  investigate — the words win. Reconciling a gid against the sheet is the exact
+  situation that tempts a hand-rolled `gspread` call, which is forbidden above.
 
 ## Workspace layout
 
