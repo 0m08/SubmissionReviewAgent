@@ -694,6 +694,8 @@ so a later regression is recognisable.
 ### F-025 — Two slide titles replaced with "Intro", unreported, under a prose-only request
 **Status:** open · **Confidence:** verified · **Sessions:** 1
 
+**Diagnosis superseded by F-046 (2026-09-16):** the fixed labels are instructed by the writing-style reference, not an agent defect. The unreported-change half of this entry stands.
+
 **Observed.** User said *"Okay works. Implement this style"*.
 `editing-slide-chunks`: *"Style governs prose only. It never overrides the format
 contract above, a loaded standard, or an explicit instruction from the user."*
@@ -1035,6 +1037,8 @@ rather than one that subsumes the other.
 ### F-037 — A real title replaced with "Intro", unreported
 **Status:** open · **Confidence:** verified · **Sessions:** 1 · **Recurrence of:** F-025
 
+**Diagnosis superseded by F-046 (2026-09-16):** the fixed labels are instructed by the writing-style reference, not an agent defect. The unreported-change half of this entry stands.
+
 **Observed.** In `01a0a9ed`, topic_01 block 0 went from
 `[Transition] The Power of Hand Tools` to `[Transition] Intro`. Seven titles
 changed in the session; six are reasonable rewrites. The orchestrator's report
@@ -1286,3 +1290,94 @@ the four reports. No rule added — the evidence did not support one.
 report is headed "Quantitative Measurements (`present.py --measure`)" above
 counts the tool did not produce at the time. F-030 and F-042 remove the reason
 to derive them; the report spec now says to quote the tool's numbers.
+
+---
+
+## Pass 4 — 2026-09-16 (post-fix)
+
+1 session, `01a0aa84`, 14:00 UTC — the first run against the deployed fixes from
+F-030, F-042, F-043, F-044 and F-045. Same sheet, same four topics, same editor
+identity and same request as `01a0a9eb` + `01a0a9ed`, so the comparison is
+like-for-like. Read to check whether the fixes did what they claimed, not to
+find new things; F-046 was found anyway.
+
+**Measured against the same work before the fixes:**
+
+| | before (2 turns) | after (1 turn) |
+|---|---|---|
+| model steps | 133 | 58 |
+| tool calls | 145 | 71 |
+| cost | $1.25 | $0.78 |
+| subagent steps | 22 / 31 / 26 / 35 = 114 | 13 / 7 / 9 / 7 = 36 |
+| subagent tool failures | 15 | **0** |
+| ad-hoc `python -c` counters | 25 | **0** |
+| `/skills/` path in shell | 2 | **0** |
+| `git` in the sandbox | 3 | **0** |
+| hand-diffing `.baseline` | 1 | **0** |
+| `ls /memories/...` | 6 | **0** |
+
+The editor loop is now read, measure, write, measure, verify. `per_block`
+appears in 21 tool outputs and the coordinator's final report quotes it as a
+per-block range for every topic — a per-block claim it can now substantiate,
+which F-039 was about.
+
+---
+
+### F-046 — The placeholder titles are the style guide's instruction, not a defect
+**Status:** open · **Confidence:** verified · **Sessions:** 3 · **Supersedes the
+diagnosis in:** F-025, F-037 · **Priority: high — needs a decision, not a fix**
+
+**Observed.** In `01a0aa84`, five of the six title changes replace a written
+title with a fixed generic one, across three subagents independently:
+
+| file | before | after |
+|---|---|---|
+| topic_03 | `Precision Alignment` | `Intro` |
+| topic_04 | `Matching the Blade to the Job` | `Intro` |
+| topic_02 | `Organizing for Success` | `Topic Summary` |
+| topic_03 | `Level Basics Summary` | `Topic Summary` |
+| topic_04 | `Hacksaw Blade Selection Summary` | `Topic Summary` |
+
+The sixth, `Testing Horizontal Accuracy` -> `Testing Level Accuracy`, is a
+correct consequence of merging two slides.
+
+**Verified.** `skills/editing-slide-chunks/references/writing-styles/direct-address-field-guide.md`
+line 98 says, in full:
+
+> "Intro" is the fixed title for a topic's opening Transition slide; "Topic
+> Summary" (or "Summary") is the fixed title for the closing Summary slide —
+> reuse these exact labels rather than inventing new ones.
+
+Lines 89–90 repeat it, and `plain-sequential-descriptive.md` line 88 says the
+same for Summary slides. The coordinator selected Direct-Address Field Guide as
+the style and named it in all four briefs. The editors read the style file and
+complied exactly.
+
+**Why this entry corrects two earlier ones.** F-025 recorded two titles
+"silently changed to Intro" and F-037 recorded a third as a regression the agent
+should have caught. Both framed it as agent error. It is not: it is the
+documented house style being applied. F-037 guessed the cause correctly ("worth
+checking whether a style reference uses 'Intro' as a placeholder") and that
+guess is now confirmed. Three sessions of consistent behaviour across at least
+five different subagents is compliance, not drift.
+
+**What is still a real problem.** The retitling is never reported. The word
+"title" does not appear anywhere in the `01a0aa84` final report, which otherwise
+runs to per-block word ranges for all four topics. `present.py` reports the
+change correctly in `old_label` / `label`; nobody reads it. A user who did not
+want `Intro` would have no way to notice from the report.
+
+**The decision.** Whether these fixed labels are wanted is the user's call, not
+a defect to fix. Relevant: the user has said the `AGENTS.md` house style is now
+the most evolved one and the skill style files are "kind of obsolete", kept in
+case something in them is not yet captured. `AGENTS.md` says nothing about
+titles, so nothing currently contradicts the style file. Three options, none
+taken yet:
+
+1. Drop the fixed-label rule from the style files, and let titles be written.
+2. Keep it, and require the report to state retitles so the user sees them.
+3. Keep it and say so in `AGENTS.md`, making it the house rule rather than one
+   style's rule.
+
+Option 2 is worth doing whichever of 1 and 3 is chosen: a title change reaching
+the sheet unmentioned is the same class of problem as an unreported deletion.
