@@ -25,6 +25,57 @@ from services.activity_tracking_service import track_login, track_page_view
 
 # from jira import JIRA
 
+# ---------------------------------------------------------------------------
+# Carrying a page's own query parameters across the Google sign-in redirect
+# ---------------------------------------------------------------------------
+#
+# Google returns the browser to `redirect_uri` with `code` and `state` and
+# nothing else, and the success path below then calls `st.query_params.clear()`.
+# So a parameter the user arrived with — `?thread=` on the Course Content Editor,
+# which is the only pointer to a running agent session — is destroyed twice over
+# by signing in.
+#
+# `state` is the parameter OAuth provides for exactly this: opaque to Google,
+# returned unchanged, already round-tripped and already compared. We append the
+# value to the random nonce rather than replacing it, and store the whole string
+# in session state as before, so the CSRF comparison still compares the same
+# string it sent and is not touched by any of this.
+#
+# Everything here fails closed: no parameter to carry, a malformed state, or an
+# id that is not a plain UUID all leave the caller exactly where it was before.
+
+_OAUTH_STATE_SEP = "."
+#: Parameters worth preserving, and the only ones that will be restored. A
+#: closed list on purpose — this value comes back from the browser, so anything
+#: accepted here is something an attacker chooses.
+_CARRIED_PARAMS = ("thread",)
+
+
+def _pack_oauth_state(nonce: str) -> str:
+    """`nonce` alone, or `nonce.<param>.<value>` when there is one to carry."""
+    import re as _re
+
+    for name in _CARRIED_PARAMS:
+        value = st.query_params.get(name)
+        if value and _re.fullmatch(r"[0-9a-fA-F-]{8,64}", str(value)):
+            return f"{nonce}{_OAUTH_STATE_SEP}{name}{_OAUTH_STATE_SEP}{value}"
+    return nonce
+
+
+def _restore_carried_params(state_received: str | None) -> None:
+    """Put a carried parameter back after the query string has been cleared."""
+    import re as _re
+
+    if not state_received:
+        return
+    parts = str(state_received).split(_OAUTH_STATE_SEP)
+    if len(parts) != 3:
+        return
+    _nonce, name, value = parts
+    if name in _CARRIED_PARAMS and _re.fullmatch(r"[0-9a-fA-F-]{8,64}", value):
+        st.query_params[name] = value
+
+
 # load_dotenv()
 # Helper to load image as base64
 def load_image_as_base64(path):
@@ -153,6 +204,10 @@ def login():
 
                     st.session_state.pop("oauth_state", None)
                     st.query_params.clear()
+                    # Put back whatever the user arrived with. `clear()` above
+                    # is what the rest of the app expects; this only restores a
+                    # parameter that was already in the URL before sign-in.
+                    _restore_carried_params(state_received)
                     st.rerun()
                 else:
                     st.error(f"Access denied. Email {user_email} is not authorized to access this application.")
@@ -201,10 +256,13 @@ def login():
 
         if clicked == 0:  # Image clicked
             if oauth_client_id and oauth_client_secret:
+                import secrets as _secrets
+
                 auth_url, state = get_google_oauth_authorization_url(
                     client_id=oauth_client_id,
                     client_secret=oauth_client_secret,
                     redirect_uri=redirect_uri,
+                    state=_pack_oauth_state(_secrets.token_urlsafe(32)),
                 )
                 st.session_state["oauth_state"] = state
                 st.markdown(
