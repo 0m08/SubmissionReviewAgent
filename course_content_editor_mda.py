@@ -41,6 +41,7 @@ but do not read the absence of a confirm dialog as the absence of a write.
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import time
@@ -279,6 +280,33 @@ def _text(message) -> str:
     return str(content or "")
 
 
+def _ack_presentations(body: str) -> list[dict]:
+    """Presentation entries rebuilt from a `present.py` acknowledgement.
+
+    The ack is what the middleware leaves in message state: which files were
+    shown and the counts it measured, deliberately without the file content —
+    that went to the browser on the custom stream and never entered the model's
+    context. So a rebuilt card carries every number and no prose, and
+    `render_presentation` offers to fetch the current content.
+    """
+    if '"status": "presented"' not in body and '"status":"presented"' not in body:
+        return []
+    try:
+        ack = json.loads(body)
+    except (ValueError, TypeError):
+        return []
+    out = []
+    for shown in ack.get("shown") or []:
+        path = shown.get("path")
+        if not path:
+            continue
+        counts = {k: shown[k] for k in ("blocks", "words", "slide_types", "per_block")
+                  if k in shown}
+        out.append({"path": path, "kind": "topics" if "/topics/" in f"/{path}" else "context",
+                    "counts": counts, "before": None, "after": None, "restored": True})
+    return out
+
+
 def _server_turns(client, thread_id: str) -> list[dict]:
     """Prior turns rebuilt from the thread's own message history.
 
@@ -286,11 +314,10 @@ def _server_turns(client, thread_id: str) -> list[dict]:
     has no local transcript, and inventing one from session state would show a
     different conversation from the one the agent is continuing.
 
-    These come back in the plainer shape — user message and final reply, no
-    timeline — because message state is all the server keeps. Tool activity and
-    presentations are streamed, not stored, so they exist only in the transcript
-    of the browser that watched the turn happen. `render_turn` handles both
-    shapes for that reason.
+    Rebuilt in the same woven shape a live turn has, because the thread keeps
+    more than it looked like it did: 46 of the 109 messages in one real thread
+    carry `tool_calls` with their names and arguments, and 51 are the results.
+    Only the presented file *content* is genuinely absent, by design.
     """
     try:
         state = client.threads.get_state(thread_id)
@@ -298,16 +325,48 @@ def _server_turns(client, thread_id: str) -> list[dict]:
         return []
 
     turns: list[dict] = []
+    task_of: dict[str, dict] = {}  # tool_call_id -> the subagent record it answers
     for message in (state.get("values") or {}).get("messages") or []:
         kind = message.get("type")
         body = _text(message).strip()
-        if not body:
-            continue
+
         if kind == "human":
-            turns.append({"user": body, "timeline": [], "presentations": [],
-                          "threads": {}, "reply": "", "error": None})
-        elif kind == "ai" and turns:
-            turns[-1]["reply"] = body
+            if body:
+                turns.append({"user": body, "timeline": [], "presentations": [],
+                              "threads": {}, "reply": "", "error": None})
+            continue
+        if not turns:
+            continue  # tool chatter before the first human message
+        turn = turns[-1]
+
+        if kind == "ai":
+            if body:
+                turn["timeline"].append({"kind": "text", "text": body})
+                turn["reply"] = body
+            for call in message.get("tool_calls") or []:
+                if call.get("name") == "task":
+                    label, brief = _brief_of(call)
+                    call_id = str(call.get("id"))
+                    rec = {"id": call_id, "file": label, "agent": "editor",
+                           "status": "done", "task": brief, "report": "", "lines": []}
+                    turn["threads"][call_id] = rec
+                    task_of[call_id] = rec
+                    turn["timeline"].append({"kind": "thread", "id": call_id})
+                else:
+                    turn["timeline"].append({"kind": "tool", "label": _label_for(call)})
+
+        elif kind == "tool":
+            rec = task_of.get(str(message.get("tool_call_id") or ""))
+            if rec is not None:
+                # A subagent's report. Its own tool calls ran in a separate
+                # graph and are not in this thread's messages, so the panel
+                # shows the brief and the report without the step list.
+                rec["report"] = body
+                continue
+            for entry in _ack_presentations(body):
+                turn["timeline"].append(
+                    {"kind": "presentation", "index": len(turn["presentations"])})
+                turn["presentations"].append(entry)
     return turns
 
 
@@ -453,6 +512,35 @@ def render_presentation(entry: dict, *, uid: str) -> None:
     name = path.rsplit("/", 1)[-1]
     kind = entry.get("kind") or "topics"
     before, after = entry.get("before"), entry.get("after")
+
+    if entry.get("restored"):
+        # Rebuilt from the acknowledgement in message state. Every number the
+        # deployment measured is here; the prose is not, because it went to the
+        # browser on the custom stream and never entered message state — the
+        # same split that guarantees what you saw came off disk. The workspace
+        # outlives the session by 14 days, so the content is one turn away.
+        with st.expander(f"{name} — counts only", expanded=False):
+            summary = counts_line(entry.get("counts") or {})
+            if summary:
+                st.markdown(f'<div class="cce-counts">{summary}</div>',
+                            unsafe_allow_html=True)
+            per_block = (entry.get("counts") or {}).get("per_block") or []
+            if per_block:
+                st.caption(", ".join(
+                    f"{b.get('label', b.get('id'))} · {b.get('words')}w"
+                    for b in per_block[:12]))
+            st.caption(
+                "Content isn't replayed — it goes straight to the screen and is "
+                "never stored in the conversation. Fetch it from the workspace:"
+            )
+            if st.button("Show current content", key=f"repres_{uid}",
+                         use_container_width=True):
+                st.session_state["cce_mda_pending_feedback"] = (
+                    f"Run present.py on {path} so I can see it as it stands now. "
+                    "Do not edit anything."
+                )
+                st.rerun()
+        return
 
     if before is None or after is None:
         # A payload from before present.py shipped whole-file content. Session
