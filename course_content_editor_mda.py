@@ -45,14 +45,13 @@ import os
 import re
 import time
 import traceback
-from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
 from dotenv import dotenv_values
 
 from services.activity_tracking_service import track_tool_action
-from services.agent_identity import editor_id, run_context, run_metadata
+from services.agent_identity import run_context, run_metadata
 from services.cce_diff import (
     PAGE_CSS,
     counts_line,
@@ -113,108 +112,13 @@ def _client(url: str, key: str):
     return get_sync_client(url=url, api_key=key)
 
 
-#: A sandbox is deleted 14 days after it stops (``delete_after_stop_seconds``
-#: = 1209600, read off the live sandboxes). Its thread outlives it, so a
-#: conversation older than this comes back with its messages and an empty
-#: workspace — which reads as the agent having lost the files. Warn before that
-#: happens rather than after.
-SANDBOX_LIFE_DAYS = 14
-SANDBOX_WARN_DAYS = 12
-
-#: Placeholder for a thread with no human message in it.
-EMPTY_THREAD = "(no messages yet)"
-
-
-def _current_editor() -> str | None:
-    return editor_id(st.session_state.get("user_email"))
-
-
-def _new_thread(client) -> str:
-    """Create a thread tagged with who it belongs to.
-
-    The tag is what makes the session picker possible: `threads.search` filters
-    on metadata, and without it the only listing available is every thread in
-    the deployment — one editor's work shown to another. Threads created before
-    this carry no tag and will not be listed; they are still reachable by id.
-    """
-    meta = {"surface": "course-content-editor-mda"}
-    who = _current_editor()
-    if who:
-        meta["editor_id"] = who
-    thread_id = client.threads.create(metadata=meta)["thread_id"]
+def _thread_id(client) -> str:
+    existing = st.query_params.get("thread")
+    if existing:
+        return existing
+    thread_id = client.threads.create()["thread_id"]
     st.query_params["thread"] = thread_id
     return thread_id
-
-
-def _recent_threads(client, limit: int = 8) -> list[dict]:
-    """This editor's most recent threads, newest first.
-
-    Returns [] when nobody is signed in rather than falling back to an
-    unfiltered search: a listing that cannot be scoped to one person should not
-    be shown at all.
-    """
-    who = _current_editor()
-    if not who:
-        return []
-    try:
-        rows = client.threads.search(
-            metadata={"surface": "course-content-editor-mda", "editor_id": who},
-            sort_by="updated_at",
-            sort_order="desc",
-            limit=limit * 3,
-        )
-    except Exception:  # noqa: BLE001 — a picker that errors is worse than none
-        return []
-    # Sorted again here, on the timestamp this app trusts. `updated_at` moves
-    # whenever anything writes to the thread — including a metadata-only write,
-    # which is not activity the person would recognise. `_last_active` prefers
-    # a stamp we set deliberately and falls back to `updated_at`.
-    rows.sort(key=lambda t: _last_active(t) or "", reverse=True)
-    return rows[:limit]
-
-
-def _last_active(thread: dict) -> str | None:
-    """When this thread last did work, newest-first sortable.
-
-    Metadata wins over `updated_at` because the latter is not a record of
-    activity: backfilling a tag onto thirteen old threads set all thirteen to
-    the same instant and made the picker list 2026-09-11 test threads above
-    yesterday's real work.
-    """
-    stamped = (thread.get("metadata") or {}).get("last_active")
-    return str(stamped) if stamped else (
-        str(thread["updated_at"]) if thread.get("updated_at") else None)
-
-
-def _thread_age_days(thread: dict) -> float | None:
-    stamp = _last_active(thread) or thread.get("created_at")
-    if not stamp:
-        return None
-    try:
-        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return (datetime.now(timezone.utc) - when).total_seconds() / 86400
-
-
-def _thread_summary(client, thread: dict) -> str:
-    """First thing the person said in that thread, for the picker row.
-
-    Prefers the messages `search` already returned; only falls back to fetching
-    state when they are absent, so a picker of eight rows is normally one API
-    call rather than nine.
-    """
-    messages = (thread.get("values") or {}).get("messages") or []
-    for message in messages:
-        if message.get("type") == "human":
-            text = _text(message).strip()
-            if text:
-                return text
-    for turn in _server_turns(client, thread["thread_id"]):
-        text = (turn.get("user") or "").strip()
-        if text:
-            return text
-    return EMPTY_THREAD
 
 
 # ---------------------------------------------------------------------------
@@ -725,67 +629,6 @@ def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _render_session_picker(client) -> None:
-    """Offer this editor's recent sessions, or return to start a fresh one.
-
-    Returns only when the caller should create a new thread — because there is
-    nothing to offer, or because the person asked for one. Otherwise it renders
-    the list and halts the run, so the picker *is* the page.
-
-    Shown only when the URL carries no thread — which is exactly the case that
-    used to mint a fresh thread without saying so. The work was never lost
-    then; the pointer to it was, and an empty chat is indistinguishable from
-    deletion. Nothing here creates state: choosing a row sets the query
-    parameter and reruns, the same as arriving on a shared link.
-    """
-    threads = _recent_threads(client)
-    if not threads:
-        return
-
-    st.markdown("#### Pick up where you left off")
-    st.caption(
-        "Your recent sessions. The agent keeps each one's workspace on the "
-        "server, so an edit you started days ago is still there."
-    )
-
-    shown = 0
-    for thread in threads:
-        tid = thread["thread_id"]
-        age = _thread_age_days(thread)
-        if age is not None and age >= SANDBOX_LIFE_DAYS:
-            continue  # its workspace is gone; the messages alone would mislead
-
-        summary = _thread_summary(client, thread)
-        if summary == EMPTY_THREAD:
-            # A thread nobody ever spoke in. The old code minted one of these
-            # every time the page loaded without a thread parameter, so they
-            # outnumber the real sessions and listing them buries the work.
-            continue
-        shown += 1
-
-        row, button = st.columns([5, 1])
-        with row:
-            st.markdown(f"**{summary[:120]}**")
-            when = "just now" if age is None else (
-                f"{age * 24:.0f} h ago" if age < 1 else f"{age:.0f} days ago")
-            note = f"{when} · `{tid[:8]}`"
-            if age is not None and age >= SANDBOX_WARN_DAYS:
-                left = SANDBOX_LIFE_DAYS - age
-                note += f" · ⚠️ workspace expires in {left:.0f} day(s)"
-            st.caption(note)
-        with button:
-            if st.button("Open", key=f"open_{tid}", use_container_width=True):
-                st.query_params["thread"] = tid
-                st.rerun()
-        st.divider()
-
-    if not shown:
-        return  # everything was empty or expired; nothing to offer
-    if st.button("Start a new session", type="primary"):
-        return
-    st.stop()
-
-
 def main() -> None:
     st.markdown(PAGE_CSS, unsafe_allow_html=True)
     st.markdown('<div class="cce-title">Course Content Editor</div>', unsafe_allow_html=True)
@@ -804,8 +647,7 @@ def main() -> None:
         st.caption(
             "The thread id is in this page's URL. Copy the link and the same "
             "conversation comes back — including after a timeout, since the "
-            "agent keeps running on the server. Lost the link? Start a new "
-            "session and your recent ones are listed to pick from."
+            "agent keeps running on the server."
         )
 
     if not key:
@@ -817,15 +659,7 @@ def main() -> None:
 
     client = _client(url, key)
     try:
-        thread_id = st.query_params.get("thread")
-        if not thread_id:
-            # No pointer. Offer the ones this person already has before making
-            # a new one: silently creating a thread here is what turns a timed
-            # out session into what looks like lost work. The picker halts the
-            # run itself unless there is nothing to offer, or a new session was
-            # asked for.
-            _render_session_picker(client)
-            thread_id = _new_thread(client)
+        thread_id = _thread_id(client)
     except Exception as e:  # noqa: BLE001
         if "forbidden" in str(e).lower() or "denied" in str(e).lower():
             st.error(
