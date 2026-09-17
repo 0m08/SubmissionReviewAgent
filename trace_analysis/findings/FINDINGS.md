@@ -1464,3 +1464,95 @@ explicitly rather than leaving it in a style reference.
 
 Still unreported: 17 titles changed and the final report does not tell the user
 any of them changed.
+
+---
+
+## Pass 6 — 2026-09-17 — model comparison, GPT-5.6-sol vs Gemini 3.8 Flash
+
+A second deployment, `course-content-editor-mda-gpt`, built from the same source
+with `CCE_MODEL=openai:gpt-5.6-sol`. Same sheet, same request verbatim, same
+editor identity, same fresh-thread turn 1.
+
+**Validity.** The first attempt (`01a0ae43`) is void: a new deployment starts
+with an empty memory tree, so `AGENTS.md` was blank and
+`editors/ed_f84a65233902.md` did not exist. Every brief GPT wrote said so in as
+many words. After the memory was seeded by hand, the seeded run's system prompt
+measures 35,704 characters and carries the AGENTS.md doctrine — byte-identical
+in size to Gemini's. That is what makes `01a0ae50` comparable and `01a0ae43`
+not.
+
+| | Gemini 3.8 Flash | GPT-5.6-sol (seeded) | GPT (unseeded, void) |
+|---|---|---|---|
+| **cost** | **$0.71** | **$1.67** | $1.17 |
+| wall | 180s | 246s | 208s |
+| model steps | 54 | 61 | 36 |
+| tool calls | 60 | 82 | 59 |
+| subagents | 4 | **8** | 4 |
+| input tokens | 1,299,729 | 899,491 | 607,513 |
+| cache read | 61% | **83%** | 81% |
+| output tokens | 74,072 | 30,894 | 20,201 |
+| reasoning tokens | 56,266 | 9,043 | 7,112 |
+| median LLM latency | 2.83s | 4.13s | 5.00s |
+| **slides ≥60 words** | **0** | **0** | 30 |
+| word reduction | −18.8% to −38.4% | −32.9% to −41.4% | −9.2% to −25.3% |
+| titles changed | 17 (6 generic) | 54 (**0 generic**) | 24 (7 generic) |
+
+### F-050 — Memory is per-deployment, so any model test starts blank
+**Status:** open · **Confidence:** verified · **Priority: high**
+
+`memory.py` sets `scope="agent"`, and its own comment notes deploys never
+overwrite what earlier runs learned. The consequence, not noticed until a run
+was spent on it: a second deployment has an empty memory tree. Production's
+`AGENTS.md` is 7,154 characters written by earlier runs; the local seed at
+`.mda/__contexthub__/memories/agent/AGENTS.md` is 0 bytes.
+
+Any future model comparison must seed memory first and verify it landed. The
+check is cheap: the system prompt is 35,704 characters with the doctrine and
+28,394 without. A snapshot of both files is kept at
+`trace_analysis/context/memory_snapshot/` for that purpose.
+
+Seeding through `.mda/__contexthub__/` and redeploying is the wrong route —
+`--context-strategy overwrite` could then clobber production's learned memory.
+Seed through the running agent instead.
+
+### F-051 — GPT's coordinator reviewed its editors; Gemini's never has
+**Status:** open · **Confidence:** verified · **Priority: high — this is the
+finding worth acting on**
+
+GPT spawned 8 subagents in two rounds. Round 1 at t+45.6s was the ordinary
+fan-out. Round 2 at t+162.0s sent every one of the four files back, each brief
+opening "Revisit exactly … after coordinator review. Do not broaden or rewrite
+the substantive edit. Focus only on these verified misses" and naming them.
+
+That is what `instructions.md` Delegating asks for and has never once been
+observed from the Gemini build across twenty sessions:
+
+> Read every report as a reviewer, not a mailbox… Send it back with a specific
+> question rather than accepting it.
+> Verify before you report. Spot-check the files yourself. A report is a claim,
+> not evidence.
+
+The second round is where GPT's compliance came from: round 1 left slides over
+the limit, the coordinator measured, caught it, and fixed it. Gemini reaches the
+same end state in one round, but by its editors getting it right first time
+rather than by the coordinator checking — so the same instruction is satisfied
+by accident on Gemini and on purpose on GPT.
+
+This is the half of the comparison worth keeping regardless of which model is
+chosen: the review loop is a behaviour the instructions already require, and its
+absence on Gemini is invisible whenever the editors happen to comply.
+
+### F-052 — The two models disagree about the fixed-label title rule
+**Status:** open · **Confidence:** verified · **Relates to:** F-046
+
+Gemini changed 17 titles, 6 of them to the fixed generic labels `Intro` and
+`Topic Summary` that `direct-address-field-guide.md` line 98 instructs.
+
+GPT changed 54 titles — nearly every block in the course — and **none** to a
+generic label. It read the same style file and did not apply that line.
+
+Neither is wrong against the documents; the style file says to reuse the fixed
+labels, and the AGENTS.md doctrine says to write for field competence. It does
+mean the pending F-046 decision now changes the output materially depending on
+which model runs, and that GPT retitles at roughly three times the rate — a
+scope difference the reports do not mention on either model.
