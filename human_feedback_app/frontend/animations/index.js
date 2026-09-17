@@ -60,7 +60,6 @@ window.HFPlayerMotion = (function () {
       kill();
       return;
     }
-
     if (isSplitCue(cue)) {
       activate('split');
       if (window.HFSplitComparison) {
@@ -119,9 +118,9 @@ window.HFPlayerMotion = (function () {
           cueWords: opts.cueWords || null,
           cueLead: opts.cueLead || 0,
           bboxTreatment:
-            (window.HFTreatmentRotator && window.HFTreatmentRotator.getBboxTreatment && cue)
+            opts.bboxTreatment || ((window.HFTreatmentRotator && window.HFTreatmentRotator.getBboxTreatment && cue)
               ? window.HFTreatmentRotator.getBboxTreatment(cue)
-              : "bbox_draw",
+              : "bbox_draw"),
         });
       }
       return;

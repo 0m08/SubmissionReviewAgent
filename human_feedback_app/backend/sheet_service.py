@@ -34,8 +34,13 @@ from human_feedback_app.backend.constants import (
     SEGMENTATION_PLAN_COLUMN,
     LAYOUT_FEEDBACK_COLUMN,
     LAYOUT_PLAN_COLUMN,
+    PLAYER_SCENE_OVERRIDES_COLUMN,
 )
 from human_feedback_app.backend.sessions import UserSession
+from human_feedback_app.backend.player_overrides import (
+    clean_player_scene_override,
+    parse_player_scene_overrides,
+)
 
 from agents.graphics_definition_v2.review_agent.human_feedback_based_review_and_revise import (
     _format_human_feedback_revision_tracking,
@@ -1539,6 +1544,39 @@ def _parse_per_scene_layout_feedback(feedback_str: str) -> Dict[str, str]:
     return {}
 
 
+def save_scene_player_override(
+    session: UserSession,
+    row_index: int,
+    scene_id: str,
+    override: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Atomically replace one scene's Player override while preserving sibling scenes."""
+    scene_key = str(scene_id or "").strip()
+    if not scene_key:
+        raise ValueError("Scene id is required")
+    cleaned = clean_player_scene_override(override)
+    saved: Dict[str, Any] = {}
+
+    def mutate(df):
+        nonlocal saved
+        if row_index < 0 or row_index >= len(df.index):
+            raise ValueError("Slide row is out of range")
+        column = _pick_column(df, PLAYER_SCENE_OVERRIDES_COLUMN)
+        if column not in df.columns:
+            df[column] = ""
+        current = parse_player_scene_overrides(df.at[row_index, column])
+        if cleaned:
+            current[scene_key] = cleaned
+            saved = cleaned
+        else:
+            current.pop(scene_key, None)
+            saved = {}
+        df.at[row_index, column] = json.dumps(current, ensure_ascii=False, separators=(",", ":")) if current else ""
+
+    mutate_row_cells(session, row_index, mutate)
+    return saved
+
+
 def _parse_scene_animation_data(row) -> Dict[str, Dict[str, Any]]:
     """Parse hero overlay plan/coords/icons/callouts from a row, grouped by scene_id.
     """
@@ -1807,6 +1845,18 @@ def _build_scenes_payload(
 
     feedback_map = _parse_per_scene_layout_feedback(layout_feedback_str)
     anim_data = _parse_scene_animation_data(row)
+    player_override_cell = ""
+    if row is not None:
+        override_col = next(
+            (
+                col
+                for col in getattr(row, "index", [])
+                if str(col).strip().lower() == PLAYER_SCENE_OVERRIDES_COLUMN.lower()
+            ),
+            PLAYER_SCENE_OVERRIDES_COLUMN,
+        )
+        player_override_cell = str(row.get(override_col, "")).strip()
+    player_overrides = parse_player_scene_overrides(player_override_cell)
 
     # Try mapping by URL
     url_mapping_success = True
@@ -1865,6 +1915,7 @@ def _build_scenes_payload(
                     "bboxHighlights": anim["bboxHighlights"],
                     "iconOverlays": anim["iconOverlays"],
                     "calloutCards": anim["calloutCards"],
+                    "playerOverrides": player_overrides.get(sc_id_str, {}),
                 }
             )
         return out
@@ -1900,6 +1951,7 @@ def _build_scenes_payload(
                 "bboxHighlights": anim["bboxHighlights"],
                 "iconOverlays": anim["iconOverlays"],
                 "calloutCards": anim["calloutCards"],
+                "playerOverrides": player_overrides.get(sc_id_str, {}),
             }
         )
     return out

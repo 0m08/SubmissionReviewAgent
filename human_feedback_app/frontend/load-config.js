@@ -149,6 +149,7 @@
   };
 
   const values = Object.assign({}, defaults);
+  let scopedValues = Object.create(null);
   const loadedFonts = Object.create(null);
 
   const SYSTEM_FONTS = {
@@ -172,6 +173,9 @@
 
   function get(key) {
     const k = String(key || "").toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(scopedValues, k) && String(scopedValues[k]).trim() !== "") {
+      return String(scopedValues[k]).trim();
+    }
     if (Object.prototype.hasOwnProperty.call(values, k) && String(values[k]).trim() !== "") {
       return String(values[k]).trim();
     }
@@ -252,11 +256,12 @@
     if (!root) return;
 
     // Apply generic CSS variables for every key in values dictionary
-    Object.keys(values).forEach(function (k) {
+    const effectiveValues = Object.assign({}, values, scopedValues);
+    Object.keys(effectiveValues).forEach(function (k) {
       const cssProp = "--hf-" + k.replace(/_/g, "-");
-      root.style.setProperty(cssProp, values[k]);
+      root.style.setProperty(cssProp, effectiveValues[k]);
       if (k.indexOf("font") !== -1 && k.indexOf("weight") === -1 && k.indexOf("size") === -1) {
-        ensureGoogleFontLoaded(values[k]);
+        ensureGoogleFontLoaded(effectiveValues[k]);
       }
     });
 
@@ -484,6 +489,33 @@
     getAll: function () {
       return Object.assign({}, values);
     },
+    getBase: function (k) {
+      var key = String(k || "").toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(values, key) && String(values[key]).trim() !== "") {
+        return String(values[key]).trim();
+      }
+      return Object.prototype.hasOwnProperty.call(defaults, key) ? defaults[key] : "";
+    },
+    getScopedOverrides: function () {
+      return Object.assign({}, scopedValues);
+    },
+    setScopedOverrides: function (obj) {
+      var next = Object.create(null);
+      if (obj && typeof obj === "object") {
+        Object.keys(obj).forEach(function (key) {
+          var value = obj[key];
+          if (value != null && String(value).trim() !== "") {
+            next[String(key).toLowerCase()] = String(value).trim();
+          }
+        });
+      }
+      scopedValues = next;
+      apply();
+    },
+    clearScopedOverrides: function () {
+      scopedValues = Object.create(null);
+      apply();
+    },
     getDefaults: function () {
       return Object.assign({}, defaults);
     },
@@ -497,7 +529,7 @@
       values[key] = strVal;
       var root = document.documentElement;
       if (root) {
-        root.style.setProperty("--hf-" + key.replace(/_/g, "-"), strVal);
+        root.style.setProperty("--hf-" + key.replace(/_/g, "-"), get(key));
       }
       if (key.indexOf("font") !== -1 && key.indexOf("weight") === -1 && key.indexOf("size") === -1) {
         ensureGoogleFontLoaded(strVal);

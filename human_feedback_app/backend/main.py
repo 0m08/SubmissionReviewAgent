@@ -31,6 +31,7 @@ from human_feedback_app.backend.sheet_service import (
     replace_visual_with_url,
     revert_visual,
     select_pool_alternative,
+    save_scene_player_override,
     slides_to_ui_payload,
 )
 from human_feedback_app.backend.sessions import UserSession
@@ -107,6 +108,14 @@ class DownloadVideosRequest(BaseModel):
     hero_motion: Optional[str] = "zoom_in"
 
 
+class ScenePlayerOverridesRequest(BaseModel):
+    row_index: int = Field(ge=0)
+    scene_id: str = Field(min_length=1, max_length=100)
+    animation_enabled: Optional[bool] = None
+    animation_treatment: Optional[str] = Field(default=None, max_length=80)
+    styles: Dict[str, str] = Field(default_factory=dict)
+
+
 def session_dep(request: Request) -> UserSession:
     return get_current_session(request)
 
@@ -147,17 +156,72 @@ def api_load_sheet(body: LoadSheetRequest, session: UserSession = Depends(sessio
     if not is_inside_skillcat_shared_drive(sheet_id):
         raise HTTPException(status_code=400, detail="Sheet must be inside the Skillcat Shared Drive")
 
-    session.sheet_link = body.sheet_link.strip()
-    session.worksheet_name = body.worksheet_name.strip() or "Slide Chunks"
+    worksheet_name = (body.worksheet_name or "").strip() or "Slide Chunks"
+    sheet_link = body.sheet_link.strip()
+
+    try:
+        sheet = session.gc.open_by_url(sheet_link)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not open that Google Sheet. Check the link and your access. ({exc})",
+        ) from exc
+
+    try:
+        tab_titles = [ws.title for ws in sheet.worksheets()]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not read the tabs in that Google Sheet. ({exc})",
+        ) from exc
+
+    matched = next(
+        (title for title in tab_titles if title.strip().lower() == worksheet_name.lower()),
+        None,
+    )
+    if matched is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f'This Google Sheet has no tab named "{worksheet_name}". '
+                f'Create or rename a tab to "{worksheet_name}", then try again.'
+            ),
+        )
+
+    session.sheet_link = sheet_link
+    session.worksheet_name = matched
     session.root_folder_id = (body.root_folder_id or "").strip()
-    session.sheet = session.gc.open_by_url(session.sheet_link)
+    session.sheet = sheet
     session.manifest_repair_cache = {}
     session.manifest_sync_triggered = False
     session.manifest_sync_status = {}
-    reconcile_stale_visual_revisions(session)
-    payload = slides_to_ui_payload(session)
-    maybe_trigger_manifest_sync_checker(session)
-    return payload
+
+    try:
+        reconcile_stale_visual_revisions(session)
+        payload = slides_to_ui_payload(session)
+        maybe_trigger_manifest_sync_checker(session)
+        return payload
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Avoid leaving a half-loaded sheet on the session after a failed parse/load.
+        session.sheet_link = ""
+        session.sheet = None
+        session.worksheet_name = "Slide Chunks"
+        err_name = type(exc).__name__
+        err_text = str(exc) or err_name
+        if "WorksheetNotFound" in err_name or "worksheet not found" in err_text.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'This Google Sheet has no tab named "{worksheet_name}". '
+                    f'Create or rename a tab to "{worksheet_name}", then try again.'
+                ),
+            ) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to load the course sheet: {err_text}",
+        ) from exc
 
 
 @api_router.get("/slides")
@@ -174,6 +238,28 @@ def api_manifest_sync(session: UserSession = Depends(session_dep)) -> Dict[str, 
         raise HTTPException(status_code=400, detail="No sheet loaded")
     maybe_trigger_manifest_sync_checker(session)
     return get_manifest_sync_status(session)
+
+
+@api_router.post("/scenes/player-overrides")
+def api_save_scene_player_overrides(
+    body: ScenePlayerOverridesRequest,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    """Persist one scene's animation and style overrides on its slide row."""
+    try:
+        saved = save_scene_player_override(
+            session,
+            row_index=body.row_index,
+            scene_id=body.scene_id,
+            override={
+                "animationEnabled": body.animation_enabled,
+                "animationTreatment": body.animation_treatment or "",
+                "styles": body.styles,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "overrides": saved}
 
 
 @api_router.get("/assets/image")

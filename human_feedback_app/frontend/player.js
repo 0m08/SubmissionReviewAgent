@@ -46,6 +46,12 @@ window.HFPlayer = (function () {
             bboxHighlights: scene.bboxHighlights || [],
             iconOverlays: scene.iconOverlays || [],
             calloutCards: scene.calloutCards || [],
+            playerOverrides: scene.playerOverrides || {},
+            animationEnabled: scene.playerOverrides && typeof scene.playerOverrides.animationEnabled === "boolean"
+              ? scene.playerOverrides.animationEnabled
+              : true,
+            animationTreatment: (scene.playerOverrides && scene.playerOverrides.animationTreatment) || "",
+            styleOverrides: (scene.playerOverrides && scene.playerOverrides.styles) || {},
             sceneHasVideo: sceneHasVideo,
             slideType: slide.slideType || "",
             slideChunk: slide.slideChunk || "",
@@ -105,6 +111,7 @@ window.HFPlayer = (function () {
     this.muted = false;
     this.ccOn = true;
     this.pauseForReview = false;
+    this._playBoundary = null;
     this.assetsReady = false;
     this.preloadProgress = 0;
     this._preloading = false;
@@ -146,6 +153,7 @@ window.HFPlayer = (function () {
       });
     }
     const slideTiming = this._slideTiming();
+    const sceneTiming = this._sceneTiming();
     const pad = this._ttsPad[String((cue && cue.voiceover) || "").trim()] || {};
     if (cue) {
       this._syncDriveVideoTime(cue);
@@ -161,6 +169,13 @@ window.HFPlayer = (function () {
       muted: this.muted,
       ccOn: this.ccOn,
       pauseForReview: this.pauseForReview,
+      playBoundary: this._playBoundary
+        ? {
+            mode: this._playBoundary.mode,
+            slideIdx: this._playBoundary.slideIdx,
+            sceneId: this._playBoundary.sceneId,
+          }
+        : null,
       cueElapsed: this._cueElapsed,
       cueDuration: this._cueDuration,
       cueLead: pad.lead || 0,
@@ -168,6 +183,8 @@ window.HFPlayer = (function () {
       cueWords: this._ttsWords[String((cue && cue.voiceover) || "").trim()] || null,
       slideElapsed: slideTiming.elapsed,
       slideDuration: slideTiming.duration,
+      sceneElapsed: sceneTiming.elapsed,
+      sceneDuration: sceneTiming.duration,
       hasCues: this.cues.length > 0,
       assetsReady: this.assetsReady,
       preloadProgress: this.preloadProgress,
@@ -193,22 +210,53 @@ window.HFPlayer = (function () {
     return Math.max(1.2, key.length / 14);
   };
 
-  Controller.prototype._slideTiming = function () {
+  Controller.prototype._rangeTiming = function (predicate) {
     const cue = this.cues[this.cueIndex];
-    if (!cue) return { elapsed: 0, duration: 0 };
-    const slideIdx = cue.slideIdx;
+    if (!cue || typeof predicate !== "function") return { elapsed: 0, duration: 0 };
     let duration = 0;
     let elapsed = 0;
     for (let i = 0; i < this.cues.length; i++) {
       const c = this.cues[i];
-      if (c.slideIdx !== slideIdx) continue;
+      if (!predicate(c)) continue;
       const d = this._durationForCue(c, i);
       if (i < this.cueIndex) elapsed += d;
       duration += d;
     }
+    if (!predicate(cue)) return { elapsed: 0, duration: duration };
     const currentDur = this._durationForCue(cue, this.cueIndex);
     elapsed += Math.max(0, Math.min(currentDur, this._cueElapsed || 0));
     return { elapsed: elapsed, duration: duration };
+  };
+
+  Controller.prototype._slideTiming = function () {
+    const cue = this.cues[this.cueIndex];
+    if (!cue) return { elapsed: 0, duration: 0 };
+    const slideIdx = cue.slideIdx;
+    return this._rangeTiming(function (c) { return c.slideIdx === slideIdx; });
+  };
+
+  Controller.prototype._sceneTiming = function () {
+    const cue = this.cues[this.cueIndex];
+    if (!cue) return { elapsed: 0, duration: 0 };
+    const slideIdx = cue.slideIdx;
+    const sceneId = String(cue.sceneId);
+    return this._rangeTiming(function (c) {
+      return c.slideIdx === slideIdx && String(c.sceneId) === sceneId;
+    });
+  };
+
+  Controller.prototype._isOutsidePlayBoundary = function (cue) {
+    const boundary = this._playBoundary;
+    if (!boundary || !cue) return false;
+    if (cue.slideIdx !== boundary.slideIdx) return true;
+    if (boundary.mode === "scene" && String(cue.sceneId) !== String(boundary.sceneId)) return true;
+    return false;
+  };
+
+  Controller.prototype.clearPlayBoundary = function () {
+    if (!this._playBoundary) return;
+    this._playBoundary = null;
+    this.emit();
   };
 
   Controller.prototype._ytMountIdForCue = function (cue) {
@@ -1000,9 +1048,10 @@ window.HFPlayer = (function () {
     return self._preloadPromise;
   };
 
-  Controller.prototype.play = function () {
+  Controller.prototype.play = function (opts) {
     if (!this.cues.length) return;
     const self = this;
+    if (!(opts && opts.keepBoundary)) self._playBoundary = null;
     if (!self.assetsReady) {
       self.playing = true;
       self.emit();
@@ -1017,6 +1066,30 @@ window.HFPlayer = (function () {
     self._runLoop();
   };
 
+  Controller.prototype.replayWithin = function (opts) {
+    if (!this.cues.length) return;
+    opts = opts || {};
+    const mode = opts.mode === "slide" ? "slide" : "scene";
+    const slideIdx = opts.slideIdx;
+    const sceneId = opts.sceneId != null ? String(opts.sceneId) : "";
+    let idx = -1;
+    for (let i = 0; i < this.cues.length; i++) {
+      const c = this.cues[i];
+      if (c.slideIdx !== slideIdx) continue;
+      if (mode === "scene" && String(c.sceneId) !== sceneId) continue;
+      idx = i;
+      break;
+    }
+    if (idx < 0) return;
+    this.jumpToCue(idx);
+    this._playBoundary = {
+      mode: mode,
+      slideIdx: slideIdx,
+      sceneId: mode === "scene" ? sceneId : "",
+    };
+    this.play({ keepBoundary: true });
+  };
+
   Controller.prototype._runLoop = function () {
     const self = this;
     if (!self.playing) return;
@@ -1024,11 +1097,18 @@ window.HFPlayer = (function () {
       if (!self.playing) return;
       if (self.cueIndex < self.cues.length - 1) {
         const cur = self.cues[self.cueIndex];
+        const nxt = self.cues[self.cueIndex + 1];
+        if (self._isOutsidePlayBoundary(nxt)) {
+          // Finished the requested scene/slide — stop without continuing.
+          self.playing = false;
+          if (self._cueDuration > 0) self._cueElapsed = self._cueDuration;
+          self.emit();
+          return;
+        }
         self.cueIndex += 1;
         self._cueElapsed = 0;
         self._cueDuration = 0;
         self.emit();
-        const nxt = self.cues[self.cueIndex];
         if (sameSceneParts(cur, nxt)) {
           if (!self.playing) return;
           self._runLoop();
@@ -1040,6 +1120,7 @@ window.HFPlayer = (function () {
         });
       } else {
         self.playing = false;
+        if (self._cueDuration > 0) self._cueElapsed = self._cueDuration;
         self.emit();
       }
     });
@@ -1059,6 +1140,7 @@ window.HFPlayer = (function () {
       this.emit();
       return;
     }
+    this._playBoundary = null;
     if (this._audio && this._cueDuration > 0 && this._cueElapsed > 0 && this._cueElapsed < this._cueDuration - 0.05) {
       this.playing = true;
       this._bindAudio(this._audio);
@@ -1091,6 +1173,7 @@ window.HFPlayer = (function () {
     if (!this.cues.length) return;
     const wasPlaying = this.playing;
     this.playing = false;
+    this._playBoundary = null;
     // Halt any active cue video before stepping back.
     this._pauseCueVideo(this.cues[this.cueIndex]);
     this._primedAudio = null;
@@ -1108,6 +1191,7 @@ window.HFPlayer = (function () {
     if (!this.cues.length) return;
     const wasPlaying = this.playing;
     this.playing = false;
+    this._playBoundary = null;
     this._freezeCueVideo(this.cues[this.cueIndex]);
     this._primedAudio = null;
     this._stopMedia({ destroyVideos: false });
@@ -1216,6 +1300,7 @@ window.HFPlayer = (function () {
   Controller.prototype.replay = function () {
     if (!this.cues.length) return;
     this.playing = false;
+    this._playBoundary = null;
     this._primedAudio = null;
     this._pauseCueVideo(this.cues[this.cueIndex]);
     this._stopMedia({ destroyVideos: false });
@@ -1237,6 +1322,7 @@ window.HFPlayer = (function () {
     const idx = this.cues.findIndex(function (c) { return c.slideIdx === slideIdx; });
     if (idx < 0) return;
     this.playing = false;
+    this._playBoundary = null;
     this._primedAudio = null;
     this._pendingSeek = null;
     this._stopMedia({ destroyVideos: true });
@@ -1249,6 +1335,7 @@ window.HFPlayer = (function () {
     if (!this.cues.length) return;
     const idx = Math.max(0, Math.min(this.cues.length - 1, cueIndex | 0));
     this.playing = false;
+    this._playBoundary = null;
     this._primedAudio = null;
     this._pendingSeek = null;
     this._stopMedia({ destroyVideos: true });

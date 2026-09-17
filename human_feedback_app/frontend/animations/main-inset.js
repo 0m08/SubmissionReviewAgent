@@ -54,10 +54,13 @@ window.HFMainInset = (function () {
   function resetSlot(slot) {
     const target = motionTarget(slot);
     const enter = entranceTarget(slot);
+    const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
     gsap.killTweensOf([slot, target, enter]);
+    if (labelBadge) gsap.killTweensOf(labelBadge);
     slot.classList.remove('is-awaiting-visual');
     gsap.set(slot, { clearProps: 'filter,boxShadow,transform,clipPath,opacity,visibility' });
     gsap.set([target, enter], { clearProps: 'transform,filter,clipPath,opacity,visibility' });
+    if (labelBadge) gsap.set(labelBadge, { clearProps: 'transform,opacity,visibility,x,y,autoAlpha' });
   }
 
   function killEntranceTl() {
@@ -223,10 +226,11 @@ window.HFMainInset = (function () {
         gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
         const labelBadge = slot.querySelector('.hf-player-slot-label-badge');
         if (labelBadge) {
-          if (idx <= partIdx) {
+          // Hide active/upcoming labels while idle; play animates them once.
+          if (idx < partIdx) {
             gsap.set(labelBadge, { autoAlpha: 1, x: 0 });
           } else {
-            gsap.set(labelBadge, { autoAlpha: 0 });
+            gsap.set(labelBadge, { autoAlpha: 0, x: 0 });
           }
         }
       });
@@ -299,16 +303,19 @@ window.HFMainInset = (function () {
 
     const key = sceneKeyForCue(cue);
     const partIdx = cue.partIdx != null ? cue.partIdx : 0;
-    const treatmentChanged = lastTreatment && lastTreatment !== treatment;
+    const treatmentChanged = lastTreatment !== treatment;
+
+    function resetMotionState() {
+      slots.forEach(resetSlot);
+      killEntranceTl();
+      entranceDone = {};
+      labelEntranceDone = {};
+    }
 
     if (!playing) {
       if (key !== sceneKey || treatmentChanged || forceRestart) {
         if (key !== sceneKey) kill();
-        else {
-          slots.forEach(resetSlot);
-          killEntranceTl();
-          entranceDone = {};
-        }
+        else resetMotionState();
         sceneKey = key;
         lastTreatment = treatment;
         lastPartIdx = partIdx;
@@ -341,9 +348,7 @@ window.HFMainInset = (function () {
     }
 
     if (treatmentChanged || forceRestart) {
-      slots.forEach(resetSlot);
-      killEntranceTl();
-      entranceDone = {};
+      resetMotionState();
       lastTreatment = treatment;
       lastPartIdx = partIdx;
       playEntrances();

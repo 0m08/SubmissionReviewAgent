@@ -10,6 +10,7 @@ window.HFHeroStills = (function() {
   let currentTarget = null;
   let currentWrap = null;
   let currentCueKey = '';
+  let currentOverlaySignature = '';
   let splitDone = false;
 
   function prefersReducedMotion() {
@@ -215,6 +216,7 @@ window.HFHeroStills = (function() {
   function kill() {
     killTween();
     activeTweenDuration = 0;
+    currentOverlaySignature = '';
     if (currentTarget) {
       gsap.killTweensOf(currentTarget);
       gsap.set(currentTarget, { clearProps: 'transform,clipPath,filter,opacity', scale: 1, x: 0, y: 0, xPercent: 0, yPercent: 0 });
@@ -875,6 +877,7 @@ window.HFHeroStills = (function() {
     const playing = opts.playing;
     const elapsed = opts.elapsed || 0;
     const forceRestart = !!opts.forceRestart;
+    const animationsEnabled = cue && cue.animationEnabled !== false;
 
     if (!cue) {
       kill();
@@ -898,6 +901,14 @@ window.HFHeroStills = (function() {
     if (animType !== 'none' && !isTopicTransition(cue)) {
       treatment = 'still';
     }
+    const bboxTreatment = String(opts.bboxTreatment || 'bbox_draw').toLowerCase();
+    const overlaySignature = [
+      animType,
+      treatment,
+      bboxTreatment,
+      String((cue && cue.animationTreatment) || ''),
+      String((cue && cue.animationEnabled) === false ? '0' : '1'),
+    ].join('|');
 
     if (duration <= 0) {
       if (treatment === 'center_split') {
@@ -911,12 +922,17 @@ window.HFHeroStills = (function() {
       return;
     }
 
-    let overlayContainer = currentWrap.querySelector('.hf-hero-overlay-container');
-    if (forceRestart && overlayContainer) {
-      overlayContainer.remove();
-      overlayContainer = null;
+    // Switching Drawn Stroke <-> Spotlight (or force replay) must rebuild overlays.
+    // Previously we reused the old tween whenever duration matched, so the new style never appeared.
+    const overlayChanged = currentOverlaySignature && currentOverlaySignature !== overlaySignature;
+    if (forceRestart || overlayChanged) {
+      killTween();
+      const oldOverlay = currentWrap.querySelector('.hf-hero-overlay-container');
+      if (oldOverlay) oldOverlay.remove();
+      currentOverlaySignature = overlaySignature;
     }
 
+    let overlayContainer = currentWrap.querySelector('.hf-hero-overlay-container');
     if (!overlayContainer) {
       overlayContainer = document.createElement('div');
       overlayContainer.className = 'hf-hero-overlay-container';
@@ -925,10 +941,15 @@ window.HFHeroStills = (function() {
       overlayContainer.style.zIndex = '20';
       overlayContainer.style.pointerEvents = 'none';
       currentWrap.appendChild(overlayContainer);
+      currentOverlaySignature = overlaySignature;
     }
 
     if (activeTween) {
       if (activeTweenDuration === duration) {
+        if (!animationsEnabled) {
+          activeTween.progress(1).pause();
+          return;
+        }
         if (playing) {
           activeTween.play();
           if (Math.abs(activeTween.time() - elapsed) > 0.25) activeTween.time(elapsed);
@@ -950,7 +971,10 @@ window.HFHeroStills = (function() {
         overlayContainer.style.zIndex = '20';
         overlayContainer.style.pointerEvents = 'none';
         currentWrap.appendChild(overlayContainer);
+        currentOverlaySignature = overlaySignature;
       }
+    } else {
+      currentOverlaySignature = overlaySignature;
     }
 
     const tl = gsap.timeline({ paused: true });
@@ -1403,6 +1427,7 @@ window.HFHeroStills = (function() {
       };
 
       const renderBboxes = function () {
+        if (bboxStyle === 'off' || bboxStyle === 'none' || bboxStyle === 'still') return;
         if (bboxStyle === 'bbox_spotlight') {
           drawBboxSpotlightStyle();
         } else {
@@ -1701,6 +1726,10 @@ window.HFHeroStills = (function() {
 
     activeTween = tl;
     activeTweenDuration = duration;
+    if (!animationsEnabled) {
+      activeTween.progress(1).pause();
+      return;
+    }
     activeTween.time(elapsed);
     if (playing) activeTween.play();
   }

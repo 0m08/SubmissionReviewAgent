@@ -366,7 +366,29 @@ window.HFTreatmentRotator = (function () {
     return byScene[sceneKey(cue.slideIdx, cue.sceneId)] || null;
   }
 
+  function isOverlayOnlyTreatment(value) {
+    const v = String(value || "").trim().toLowerCase();
+    if (!v) return false;
+    // Labels intentionally drive split/inset/grid focus motion — not overlay-only.
+    return v.indexOf("bbox_") === 0 || v.indexOf("callout_") === 0;
+  }
+
+  function isBboxTreatment(value) {
+    const v = String(value || "").trim().toLowerCase();
+    return v.indexOf("bbox_") === 0;
+  }
+
+  function isCalloutTreatment(value) {
+    const v = String(value || "").trim().toLowerCase();
+    return v.indexOf("callout_") === 0;
+  }
+
   function getTreatment(cue) {
+    if (cue && cue.animationEnabled === false) return "off";
+   
+    if (cue && cue.animationTreatment && !isOverlayOnlyTreatment(cue.animationTreatment)) {
+      return cue.animationTreatment;
+    }
     const entry = getEntry(cue);
     if (entry) return entry.treatment;
     const layout = layoutKey(cue && cue.sceneTemplate);
@@ -393,6 +415,10 @@ window.HFTreatmentRotator = (function () {
 
   function getBboxTreatment(cue) {
     if (!cue) return "bbox_draw";
+    if (cue.animationEnabled === false) return "off";
+    if (cue.animationTreatment && isBboxTreatment(cue.animationTreatment)) {
+      return cue.animationTreatment;
+    }
     const key = sceneKey(cue.slideIdx, cue.sceneId);
     if (byBbox[key]) return byBbox[key];
     const anims = bboxList();
@@ -402,6 +428,15 @@ window.HFTreatmentRotator = (function () {
   function getCalloutEntrance(cue, cardIdx) {
     if (!cue) {
       return { entrance: "callout_fade", position: "center_left", occurrence: 0 };
+    }
+    if (cue.animationEnabled === false) {
+      return { entrance: "off", position: "center_left", occurrence: 0 };
+    }
+    const overridePos = normalizeCalloutPosition(
+      cue.calloutCards && cue.calloutCards[cardIdx] && cue.calloutCards[cardIdx].position
+    );
+    if (cue.animationTreatment && isCalloutTreatment(cue.animationTreatment)) {
+      return { entrance: cue.animationTreatment, position: overridePos, occurrence: 0 };
     }
     const key = calloutCardKey(cue.slideIdx, cue.sceneId, cardIdx);
     if (byCallout[key]) return byCallout[key];

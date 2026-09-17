@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="/static/load-config.js?v=35"></script>
-<script src="/static/review-api.js?v=8"></script>
+<script src="/static/load-config.js?v=36"></script>
+<script src="/static/review-api.js?v=9"></script>
 <script src="/static/youtube-player.js?v=18"></script>
-<script src="/static/player.js?v=34"></script>
+<script src="/static/player.js?v=36"></script>
 <script src="/static/support.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="/static/animations/overlay-timing.js?v=1"></script>
-<script src="/static/animations/hero-stills.js?v=67"></script>
-<script src="/static/animations/split-comparison.js?v=21"></script>
-<script src="/static/animations/main-inset.js?v=8"></script>
-<script src="/static/animations/multi-panel-grid.js?v=3"></script>
+<script src="/static/animations/hero-stills.js?v=70"></script>
+<script src="/static/animations/split-comparison.js?v=23"></script>
+<script src="/static/animations/main-inset.js?v=10"></script>
+<script src="/static/animations/multi-panel-grid.js?v=5"></script>
 <script src="/static/animations/scene-transitions.js?v=4"></script>
-<script src="/static/animations/treatment-rotator.js?v=15"></script>
-<script src="/static/animations/index.js?v=9"></script>
+<script src="/static/animations/treatment-rotator.js?v=18"></script>
+<script src="/static/animations/index.js?v=10"></script>
 </head>
 <body>
 <x-dc>
@@ -309,7 +309,222 @@
     place-items: center;
     background: #000000;
     color: #333;
+    position: relative;
+  }
+  .hf-player-preview-area {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    place-items: center;
     container-type: size;
+  }
+  .hf-player-root.is-customizing {
+    grid-template-columns: minmax(0, 1fr) 360px;
+    place-items: stretch;
+  }
+  .hf-player-scene-panel {
+    width: 360px;
+    min-width: 0;
+    height: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    background: #111827;
+    color: #e5e7eb;
+    border-left: 1px solid #273244;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.32);
+    overflow: hidden;
+    z-index: 45;
+  }
+  .hf-player-scene-panel-head {
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid #273244;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex-shrink: 0;
+    background: #111827;
+  }
+  .hf-player-scene-panel-title {
+    color: #fff;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.25;
+  }
+  .hf-player-scene-panel-sub {
+    color: #94a3b8;
+    font-size: 11.5px;
+    line-height: 1.4;
+    margin-top: 4px;
+  }
+  .hf-player-scene-panel-note {
+    color: #cbd5e1;
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+  .hf-player-scene-panel-body {
+    padding: 16px 18px 28px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background: #111827;
+  }
+  .hf-player-scene-section {
+    padding: 14px;
+    border: 1px solid #2a3548;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.035);
+  }
+  .hf-player-scene-section-title {
+    margin: 0 0 5px;
+    color: #f8fafc;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .hf-player-scene-help {
+    margin: 0 0 12px;
+    color: #94a3b8;
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .hf-player-scene-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    color: #cbd5e1;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  .hf-player-scene-select,
+  .hf-player-scene-input {
+    width: 100%;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    border: 1px solid #3a475c;
+    border-radius: 8px;
+    background: #0b1220;
+    color: #f1f5f9;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    outline: none;
+  }
+  .hf-player-scene-select:focus,
+  .hf-player-scene-input:focus {
+    border-color: #f05725;
+    box-shadow: 0 0 0 2px rgba(240, 87, 37, 0.14);
+  }
+  .hf-player-scene-input-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .hf-player-scene-color {
+    width: 38px;
+    height: 36px;
+    padding: 3px;
+    border: 1px solid #3a475c;
+    border-radius: 8px;
+    background: #0b1220;
+    cursor: pointer;
+  }
+  .hf-player-scene-reset {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: #fb923c;
+    font-family: inherit;
+    font-size: 10.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .hf-player-scene-reset:hover { color: #fdba74; }
+  .hf-player-scene-preview-btn {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 38px;
+    padding: 0;
+    border: 1px solid #f05725;
+    border-radius: 8px;
+    background: #f05725;
+    color: #fff;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .hf-player-scene-preview-btn + .hf-player-scene-preview-btn {
+    margin-top: 8px;
+  }
+  .hf-player-scene-preview-btn-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: #7a2410;
+    z-index: 0;
+    transition: width 0.12s linear;
+    pointer-events: none;
+  }
+  .hf-player-scene-preview-btn-label {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+  .hf-player-scene-preview-btn:hover {
+    border-color: #d94c1d;
+    background: #d94c1d;
+  }
+  .hf-player-scene-preview-btn.is-active {
+    box-shadow: 0 0 0 1px rgba(240, 87, 37, 0.35);
+  }
+  .hf-player-scene-preview-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .hf-player-scene-close {
+    width: 30px;
+    height: 30px;
+    margin-left: auto;
+    border: 1px solid #334155;
+    border-radius: 7px;
+    background: #172033;
+    color: #cbd5e1;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .hf-player-scene-close:hover { background: #243047; color: #fff; }
+  .hf-player-scene-save-status {
+    min-height: 16px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .hf-player-scene-save-status.is-saved { color: #34d399; }
+  .hf-player-scene-save-status.is-error { color: #fca5a5; }
+  @media (max-width: 980px) {
+    .hf-player-root.is-customizing { grid-template-columns: minmax(0, 1fr); }
+    .hf-player-scene-panel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(360px, 92vw);
+    }
   }
   /* SkillCat-style player frame, matching 16:9 stage plus 56px bottom controls. */
   .hf-player-theater {
@@ -840,6 +1055,32 @@
   }
   .hf-player-icon-btn.is-square.is-muted {
     opacity: .58;
+  }
+  .hf-player-scene-nav-btn {
+    flex: 0 0 auto;
+    height: 28px;
+    min-width: 112px;
+    padding: 0 10px;
+    border: 1px solid var(--sc-btn-border);
+    border-radius: 7px;
+    background: var(--sc-orange);
+    color: #fff;
+    font-family: inherit;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: .01em;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 0 1px 0 rgb(207,207,207);
+    transition: filter 0.2s, transform 0.1s;
+  }
+  .hf-player-scene-nav-btn:hover {
+    filter: brightness(.98);
+  }
+  .hf-player-scene-nav-btn.is-on {
+    border-color: #d94c1d;
+    background: #d94c1d;
+    color: #fff;
   }
   .hf-player-icon-btn.is-cc {
     position: relative;
@@ -2524,6 +2765,16 @@
         </div>
       </div>
       <div ref="{{ setRail }}" style="flex: 1; overflow-y: auto; padding: 4px 10px 16px; width: 296px; box-sizing: border-box;">
+        <sc-if value="{{ reviewEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 18px 12px; color: #8b93a1; font-size: 13px; font-weight: 600; line-height: 1.45;">
+            No slides found for this course sheet.
+          </div>
+        </sc-if>
+        <sc-if value="{{ !reviewSlidesReady }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 18px 12px; color: #8b93a1; font-size: 13px; font-weight: 600; line-height: 1.45;">
+            Loading slides&#8230;
+          </div>
+        </sc-if>
         <sc-for list="{{ topicGroups }}" as="group" hint-placeholder-count="2">
           <div style="margin-bottom: 16px;">
             <div class="hf-text" style="padding: 0 11px; margin-bottom: 10px; line-height: 1.35;"><span class="hf-topic-label" style="display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; margin-bottom: 3px;">Topic Name:</span><span class="hf-topic-name" style="display: block; font-size: 15.5px; font-weight: 700; color: #1f2530;">{{ group.topic }}</span></div>
@@ -2558,6 +2809,33 @@
 
     <main class="hf-main" ref="{{ setMain }}" style="flex: 1; min-width: 0; overflow-y: auto; background: #eef0f3;">
       <div style="max-width: {{ isSidebarCollapsed ? '1200px' : '940px' }}; margin: 0 auto; padding: 28px 32px 80px; transition: max-width 0.22s cubic-bezier(0.2,0.7,0.3,1), filter 0.25s, opacity 0.25s; position: relative; {{ slideRevising ? 'filter: grayscale(0.5); opacity: 0.65;' : '' }}">
+
+        <sc-if value="{{ !reviewSlidesReady }}" hint-placeholder-val="{{ false }}">
+          <div class="hf-panel" style="background: #fff; border-radius: 14px; padding: 48px 28px; text-align: center; box-shadow: 0 1px 2px rgba(16,24,40,0.05), 0 1px 3px rgba(16,24,40,0.04);">
+            <div style="display: inline-flex; align-items: center; gap: 10px; color: #4f46e5; font-size: 15px; font-weight: 700;">
+              <span style="width: 16px; height: 16px; border: 2.5px solid #c7d2fe; border-right-color: #4f46e5; border-radius: 99px; display: inline-block; animation: gdspin 0.7s linear infinite;"></span>
+              Loading slides&#8230;
+            </div>
+            <p style="margin: 12px 0 0; font-size: 13.5px; line-height: 1.5; color: #6b7280;">Fetching visuals from the course sheet.</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ reviewEmpty }}" hint-placeholder-val="{{ false }}">
+          <div class="hf-panel" style="background: #fff; border-radius: 14px; padding: 48px 28px; text-align: center; box-shadow: 0 1px 2px rgba(16,24,40,0.05), 0 1px 3px rgba(16,24,40,0.04);">
+            <div style="width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 14px; background: #eef2ff; color: #4f46e5; display: flex; align-items: center; justify-content: center;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>
+            </div>
+            <h1 class="hf-main-title" style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: #11151a;">No slides to review</h1>
+            <p style="margin: 12px auto 0; max-width: 460px; font-size: 14.5px; line-height: 1.55; color: #6b7280;">
+              This course sheet did not return any valid slides. Check that the worksheet has completed graphics definitions, or load a different sheet from Setup.
+            </p>
+            <div style="margin-top: 20px;">
+              <a href="/setup" style="display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; border-radius: 10px; background: #4f46e5; color: #fff; font-family: inherit; font-weight: 700; font-size: 13.5px; text-decoration: none;">Back to Setup</a>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ reviewHasSlides }}" hint-placeholder-val="{{ true }}">
 
         <div style="display: flex; align-items: flex-start; gap: 20px; margin-bottom: 24px;">
           <div style="flex: 1; min-width: 0;">
@@ -3178,12 +3456,14 @@
             </div>
           </sc-for>
         </div>
+        </sc-if>
       </div>
     </main>
   </sc-if>
 
   <sc-if value="{{ isPlayerView }}" hint-placeholder-val="{{ false }}">
-    <div class="hf-player-root">
+    <div class="hf-player-root {{ playerCustomizeRootClass }}">
+      <div class="hf-player-preview-area">
       <sc-if value="{{ playerEmpty }}" hint-placeholder-val="{{ false }}">
         <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; color: #9aa3b2; font-size: 15px; font-weight: 600; text-align: center;">
           No scene layouts are available for playback yet. Slides need manifest scenes with voiceovers.
@@ -3310,6 +3590,9 @@
                 <rect x="6.6" y="11.6" width="7.6" height="1.8" rx="0.7"/>
               </svg>
             </button>
+            <button class="hf-player-scene-nav-btn {{ playerCustomizeButtonClass }}" onClick="{{ onPlayerToggleCustomize }}" title="Adjust animations" aria-label="Adjust animations">
+              {{ playerSceneNavLabel }}
+            </button>
             <button class="hf-player-nav-btn" onClick="{{ onPlayerPrev }}" disabled="{{ playerPrevDisabled }}" title="Previous">
               ‹ PREV
             </button>
@@ -3319,6 +3602,8 @@
           </div>
         </div>
       </sc-if>
+      </div>
+      {{ playerCustomizePanelEl }}
     </div>
   </sc-if>
 
@@ -3812,6 +4097,7 @@ class Component extends DCLogic {
   _tid = 1;
   _navCounter = 0;
   slides = [];
+  slidesLoaded = false;
   moduleLabel = 'Loading...';
   _pendingJobs = {};
   _pendingPoolSelects = {};
@@ -3842,6 +4128,13 @@ class Component extends DCLogic {
     { value: 0.5, label: '0.5x' },
   ];
   _playerSpeedClose = null;
+  playerCustomizeOpen = false;
+  playerCustomizeStyleComponent = 'slide_title';
+  _sceneOverrideSaveTimers = {};
+  _sceneOverrideSaveSeq = {};
+  _sceneOverrideSaveStatus = {};
+  _sceneOverrideSaveInFlight = {};
+  _sceneOverrideLocal = {};
   heroMotionTreatment = (() => {
     try {
       return localStorage.getItem('hf_hero_motion_treatment') || 'zoom_in';
@@ -4025,7 +4318,21 @@ class Component extends DCLogic {
   }
 
   _playerTreatmentForCue(cue) {
-    if (window.HFTreatmentRotator && cue) {
+    if (!cue) return this.heroMotionTreatment || 'zoom_in';
+    const animType = String(cue.animationType || 'none');
+    // Hero overlay scenes keep the image still; motion lives on the overlay.
+    if (
+      animType === 'bbox_highlight'
+      || animType === 'callout_card'
+      || animType === 'icon_overlay'
+      || animType === 'text_label'
+    ) {
+      const layout = this._normalizePlayerTemplate(cue);
+      if (layout === 'single_visual_hero' || layout === 'topic_transition' || !layout) {
+        return 'still';
+      }
+    }
+    if (window.HFTreatmentRotator) {
       return window.HFTreatmentRotator.getTreatment(cue);
     }
     const raw = this._normalizePlayerTemplate(cue);
@@ -4033,6 +4340,25 @@ class Component extends DCLogic {
     if (raw.indexOf('inset') !== -1) return this.insetMotionTreatment || 'keep_main_reveal';
     if (raw.indexOf('grid') !== -1 || raw.indexOf('multi_panel') !== -1) return this.gridMotionTreatment || 'scale_emphasis';
     return this.heroMotionTreatment || 'zoom_in';
+  }
+
+  _cueNeedsOverlayMotion(cue) {
+    if (!cue) return false;
+    const animType = String(cue.animationType || 'none');
+    // Only hero-still overlay timelines need a forced rebuild when duration arrives.
+    // Split/inset/grid text-label motion must NOT hard-restart on play+duration
+    // (that caused labels to animate twice: appear, vanish, slide in again).
+    if (String(cue.slideType || '').trim().toLowerCase() === 'transition') return true;
+    if (
+      animType !== 'bbox_highlight'
+      && animType !== 'callout_card'
+      && animType !== 'icon_overlay'
+      && animType !== 'text_label'
+    ) {
+      return false;
+    }
+    const layout = this._normalizePlayerTemplate(cue);
+    return layout === 'single_visual_hero' || layout === 'topic_transition' || !layout;
   }
 
   _syncPlayerMotion(forceRestart) {
@@ -4043,6 +4369,11 @@ class Component extends DCLogic {
       return;
     }
     const treatment = this._playerTreatmentForCue(cue);
+    const bboxTreatment = (
+      window.HFTreatmentRotator && window.HFTreatmentRotator.getBboxTreatment
+        ? window.HFTreatmentRotator.getBboxTreatment(cue)
+        : 'bbox_draw'
+    );
     window.HFPlayerMotion.syncHeroStill({
       cue: cue,
       duration: this.playerSnap.cueDuration || 0,
@@ -4055,10 +4386,7 @@ class Component extends DCLogic {
       forceRestart: !!forceRestart,
       cueWords: this.playerSnap.cueWords || null,
       cueLead: this.playerSnap.cueLead || 0,
-      bboxTreatment:
-        window.HFTreatmentRotator && window.HFTreatmentRotator.getBboxTreatment
-          ? window.HFTreatmentRotator.getBboxTreatment(cue)
-          : "bbox_draw",
+      bboxTreatment: bboxTreatment,
     });
   }
 
@@ -4338,7 +4666,7 @@ class Component extends DCLogic {
 
   hydrateSlides(apiSlides) {
     const pending = this._pendingJobs || {};
-    return (apiSlides || []).map((slide, slideIdx) => ({
+    const hydrated = (apiSlides || []).map((slide, slideIdx) => ({
       title: slide.title,
       topic: slide.topic,
       segmentationFeedback: slide.segmentationFeedback || '',
@@ -4369,6 +4697,18 @@ class Component extends DCLogic {
         }),
       })),
     }));
+    hydrated.forEach((slide) => {
+      const rowIndex = this.slideRowIndex(slide);
+      if (rowIndex == null) return;
+      (slide.scenes || []).forEach((scene, sceneIdx) => {
+        const sceneId = scene.id != null ? String(scene.id) : String(sceneIdx + 1);
+        const key = this._sceneOverrideKey(rowIndex, sceneId);
+        if (Object.prototype.hasOwnProperty.call(this._sceneOverrideLocal, key)) {
+          scene.playerOverrides = this._sceneOverrideLocal[key];
+        }
+      });
+    });
+    return hydrated;
   }
 
   _applyPendingPoolSelectToStep(st) {
@@ -4506,6 +4846,12 @@ class Component extends DCLogic {
     const data = await window.HFApi.loadSlides();
     this.slides = this.hydrateSlides(data.slides);
     this._restoreLocalDrafts(this.slides, drafts);
+    this.slidesLoaded = true;
+    if (!this.slides.length) {
+      this.current = 0;
+    } else if (this.current >= this.slides.length) {
+      this.current = this.slides.length - 1;
+    }
     this.courseName = data.courseName || 'Course';
     this.topicName = data.topicName || '';
     this._ensurePlayer();
@@ -4734,6 +5080,10 @@ class Component extends DCLogic {
     if (this._manifestSyncTimer) clearInterval(this._manifestSyncTimer);
     if (this._animPreviewTimer) clearInterval(this._animPreviewTimer);
     if (this._animPreviewEndTimer) clearTimeout(this._animPreviewEndTimer);
+    Object.keys(this._sceneOverrideSaveTimers || {}).forEach((key) => clearTimeout(this._sceneOverrideSaveTimers[key]));
+    if (window.HFPlayerTheme && window.HFPlayerTheme.clearScopedOverrides) {
+      window.HFPlayerTheme.clearScopedOverrides();
+    }
     if (this._player) this._player.stop();
     this._clearPlayerVideoPreloads();
     if (window.HFPlayerMotion) {
@@ -4769,6 +5119,10 @@ class Component extends DCLogic {
           || self.playerSnap.assetsError !== snap.assetsError
           || self.playerSnap.preloadProgress !== snap.preloadProgress;
         const prevCue = self.playerSnap && self.playerSnap.cue ? self.playerSnap.cue : self._playerPrevCue;
+        if (cueChanged && self.appView === 'player') {
+          if (snap.cue && Number.isFinite(snap.cue.slideIdx)) self.current = snap.cue.slideIdx;
+          self._applyPlayerSceneScope(snap.cue);
+        }
         if (!cueChanged) {
           self.playerSnap = snap;
         }
@@ -4798,15 +5152,18 @@ class Component extends DCLogic {
           }
           if (playChanged) {
             self._playerLastPlaying = snap.playing;
-            if (window.HFPlayerMotion && snap.cue) {
-              self._syncPlayerMotion(false);
-            }
           }
           if (durationChanged) {
             self._playerLastDuration = snap.cueDuration || 0;
-            if (window.HFPlayerMotion && snap.cue) {
-              self._syncPlayerMotion(false);
-            }
+          }
+          if ((playChanged || durationChanged) && window.HFPlayerMotion && snap.cue) {
+            // Hero overlays may need one forced rebuild when duration arrives.
+            // Never call sync twice in the same tick (that double-played labels).
+            const forceMotion = self._cueNeedsOverlayMotion(snap.cue) && (
+              (durationChanged && (snap.cueDuration || 0) > 0)
+              || (playChanged && !!snap.playing)
+            );
+            self._syncPlayerMotion(!!forceMotion);
           }
           self._patchPlayerProgress(snap);
           if (playChanged) self._patchPlayerPlayButton(snap.playing);
@@ -5746,6 +6103,7 @@ class Component extends DCLogic {
         el.style.width = fillPct.toFixed(2) + '%';
       }
     }
+    this._patchReplayButtonProgress(snap);
     const courseEl = document.querySelector('.hf-player-course-timeline-fill');
     if (courseEl) courseEl.style.width = this._courseTimelinePct(snap).toFixed(2) + '%';
     this._patchPlayerCaption(snap);
@@ -5809,6 +6167,7 @@ class Component extends DCLogic {
           }
         }).catch(() => {});
       } else {
+        this._applyPlayerSceneScope(null);
         this.forceUpdate();
       }
       return;
@@ -5819,6 +6178,8 @@ class Component extends DCLogic {
     this._playerVisualFadePromise = Promise.resolve();
     this._setCaptionHold(false);
     this._closePlayerSpeedMenu();
+    this.playerCustomizeOpen = false;
+    this._applyPlayerSceneScope(null);
     this.appView = view || 'review';
     if (this.appView === 'primitives') {
       this._initPrimitivesState();
@@ -7046,6 +7407,605 @@ class Component extends DCLogic {
     this.go(cue.slideIdx, stepKey);
     setTimeout(() => this.focusStep(cue.slideIdx, j, k), 200);
   }
+
+  _sceneDefForCue(cue) {
+    if (!cue || !this.slides || !this.slides[cue.slideIdx]) return null;
+    const scenes = this.slides[cue.slideIdx].scenes || [];
+    for (let i = 0; i < scenes.length; i++) {
+      const id = scenes[i].id != null ? String(scenes[i].id) : String(i + 1);
+      if (id === String(cue.sceneId)) return scenes[i];
+    }
+    return scenes[cue.sceneIdx] || null;
+  }
+
+  _sceneOverrideKey(rowIndex, sceneId) {
+    return String(rowIndex) + ':' + String(sceneId);
+  }
+
+  _sceneOverrideForCue(cue) {
+    const scene = this._sceneDefForCue(cue);
+    return (scene && scene.playerOverrides && typeof scene.playerOverrides === 'object')
+      ? scene.playerOverrides
+      : {};
+  }
+
+  _applyPlayerSceneScope(cue) {
+    if (!window.HFPlayerTheme) return;
+    const overrides = cue ? this._sceneOverrideForCue(cue) : {};
+    const styles = overrides && overrides.styles ? overrides.styles : {};
+    if (window.HFPlayerTheme.setScopedOverrides) {
+      window.HFPlayerTheme.setScopedOverrides(styles);
+    } else if (!cue && window.HFPlayerTheme.apply) {
+      window.HFPlayerTheme.apply();
+    }
+  }
+
+  _assignSceneOverride(cue, override) {
+    const scene = this._sceneDefForCue(cue);
+    if (!scene) return;
+    const next = override && typeof override === 'object' ? override : {};
+    scene.playerOverrides = next;
+    this._sceneOverrideLocal[this._sceneOverrideKey(cue.rowIndex, cue.sceneId)] = next;
+    const updateCue = (item) => {
+      if (!item || item.rowIndex !== cue.rowIndex || String(item.sceneId) !== String(cue.sceneId)) return;
+      item.playerOverrides = next;
+      item.animationEnabled = typeof next.animationEnabled === 'boolean' ? next.animationEnabled : true;
+      item.animationTreatment = next.animationTreatment || '';
+      item.styleOverrides = next.styles || {};
+    };
+    ((this._player && this._player.cues) || []).forEach(updateCue);
+    updateCue(this.playerSnap && this.playerSnap.cue);
+  }
+
+  _updateSceneOverride(cue, updater, saveDelay) {
+    if (!cue) return;
+    const current = this._sceneOverrideForCue(cue);
+    const next = {
+      ...current,
+      styles: { ...((current && current.styles) || {}) },
+    };
+    updater(next);
+    if (!Object.keys(next.styles || {}).length) delete next.styles;
+    if (!next.animationTreatment) delete next.animationTreatment;
+    this._assignSceneOverride(cue, next);
+    this._applyPlayerSceneScope(cue);
+    this._rebuildTreatmentRotator();
+    this._scheduleSceneOverrideSave(cue, saveDelay == null ? 450 : saveDelay);
+    this.forceUpdate();
+    requestAnimationFrame(() => {
+      // Hard-reset motion so label/bbox/callout switches always rebuild.
+      if (window.HFPlayerMotion && window.HFPlayerMotion.kill) window.HFPlayerMotion.kill();
+      if (window.HFPlayerMotion) this._syncPlayerMotion(true);
+    });
+  }
+
+  _scheduleSceneOverrideSave(cue, delay) {
+    if (!cue) return;
+    const key = this._sceneOverrideKey(cue.rowIndex, cue.sceneId);
+    if (this._sceneOverrideSaveTimers[key]) clearTimeout(this._sceneOverrideSaveTimers[key]);
+    this._sceneOverrideSaveSeq[key] = (this._sceneOverrideSaveSeq[key] || 0) + 1;
+    const seq = this._sceneOverrideSaveSeq[key];
+    this._sceneOverrideSaveStatus[key] = 'saving';
+    this._sceneOverrideSaveTimers[key] = setTimeout(() => {
+      delete this._sceneOverrideSaveTimers[key];
+      this._flushSceneOverrideSave(cue, key, seq);
+    }, Math.max(0, delay || 0));
+  }
+
+  async _flushSceneOverrideSave(cue, key, seq) {
+    if (this._sceneOverrideSaveInFlight[key]) {
+      this._sceneOverrideSaveTimers[key] = setTimeout(() => {
+        delete this._sceneOverrideSaveTimers[key];
+        this._flushSceneOverrideSave(cue, key, this._sceneOverrideSaveSeq[key]);
+      }, 100);
+      return;
+    }
+    this._sceneOverrideSaveInFlight[key] = true;
+    const override = Object.prototype.hasOwnProperty.call(this._sceneOverrideLocal, key)
+      ? this._sceneOverrideLocal[key]
+      : this._sceneOverrideForCue(cue);
+    try {
+      if (!window.HFApi || !window.HFApi.saveScenePlayerOverrides) {
+        throw new Error('Save API is unavailable');
+      }
+      await window.HFApi.saveScenePlayerOverrides({
+        row_index: cue.rowIndex,
+        scene_id: String(cue.sceneId),
+        animation_enabled: Object.prototype.hasOwnProperty.call(override, 'animationEnabled')
+          ? override.animationEnabled
+          : null,
+        animation_treatment: override.animationTreatment || null,
+        styles: override.styles || {},
+      });
+      if (this._sceneOverrideSaveSeq[key] === seq) {
+        this._sceneOverrideSaveStatus[key] = 'saved';
+        this.forceUpdate();
+      }
+    } catch (err) {
+      if (this._sceneOverrideSaveSeq[key] === seq) {
+        this._sceneOverrideSaveStatus[key] = 'error';
+        this.forceUpdate();
+      }
+    } finally {
+      delete this._sceneOverrideSaveInFlight[key];
+      if (this._sceneOverrideSaveSeq[key] !== seq && !this._sceneOverrideSaveTimers[key]) {
+        this._sceneOverrideSaveTimers[key] = setTimeout(() => {
+          delete this._sceneOverrideSaveTimers[key];
+          this._flushSceneOverrideSave(cue, key, this._sceneOverrideSaveSeq[key]);
+        }, 0);
+      }
+    }
+  }
+
+  _sceneAnimationSchemaKey(cue) {
+    if (!cue) return '';
+    const animType = String(cue.animationType || 'none');
+    if (animType === 'bbox_highlight') return 'bbox_anims';
+    if (animType === 'callout_card') return 'callout_anims';
+
+    const compact = (text) => String(text || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (String(cue.slideType || '').trim().toLowerCase() === 'transition'
+        && compact(cue.topic)
+        && (compact(cue.slideChunk) === compact(cue.topic) || compact(cue.slideTitle) === compact(cue.topic))) {
+      return 'layout_anims_topic';
+    }
+
+    const layout = this._normalizePlayerTemplate(cue);
+    if (animType === 'text_label') {
+      if (layout === 'two_item_split_comparison') return 'label_anims_split';
+      if (layout === 'main_plus_supporting_inset') return 'label_anims_inset';
+      if (layout === 'multi_panel_grid') return (cue.partCount || 0) === 4
+        ? 'label_anims_multi_panel_4'
+        : 'label_anims_multi_panel_3';
+      return '';
+    }
+    if (layout === 'single_visual_hero') return 'layout_anims_hero';
+    if (layout === 'two_item_split_comparison') return 'layout_anims_split';
+    if (layout === 'main_plus_supporting_inset') return 'layout_anims_inset';
+    if (layout === 'multi_panel_grid') return (cue.partCount || 0) === 4
+      ? 'layout_anims_multi_panel_4'
+      : 'layout_anims_multi_panel_3';
+    return '';
+  }
+
+  _sceneStyleComponentKeys(cue) {
+    const keys = ['slide_title', 'caption'];
+    if (!cue) return keys;
+    const animType = String(cue.animationType || 'none');
+    const animationKey = this._sceneAnimationSchemaKey(cue);
+    if (animationKey === 'layout_anims_topic') keys.push('topic_card');
+    if (animType === 'text_label') {
+      keys.push(this._normalizePlayerTemplate(cue) === 'single_visual_hero' ? 'hero_label' : 'panel_label');
+    }
+    if (animType === 'callout_card') keys.push('callout_card');
+    if (animType === 'bbox_highlight') keys.push('bbox');
+    return keys.filter((key, idx) => keys.indexOf(key) === idx);
+  }
+
+  _isReplayActive(mode, cue) {
+    const snap = this.playerSnap || {};
+    const boundary = snap.playBoundary;
+    if (!snap.playing || !boundary || !cue || boundary.mode !== mode) return false;
+    if (boundary.slideIdx !== cue.slideIdx) return false;
+    if (mode === 'scene' && String(boundary.sceneId) !== String(cue.sceneId)) return false;
+    return true;
+  }
+
+  _stopReplayPreview() {
+    if (!this._player || !this._player.playing) return;
+    // Pause in place so the current scene stays selected in the dropdown.
+    this._player.togglePlay();
+    this.forceUpdate();
+    requestAnimationFrame(() => {
+      const cue = this.playerSnap && this.playerSnap.cue;
+      if (cue) this._applyPlayerSceneScope(cue);
+      this._patchReplayButtonProgress(this.playerSnap);
+      this._patchPlayerPlayButton(false);
+    });
+  }
+
+  _previewCurrentScene(cue) {
+    if (!cue || !this._player || typeof this._player.replayWithin !== 'function') return;
+    if (this._isReplayActive('scene', cue)) {
+      this._stopReplayPreview();
+      return;
+    }
+    if (window.HFPlayerMotion && window.HFPlayerMotion.kill) window.HFPlayerMotion.kill();
+    this._player.replayWithin({
+      mode: 'scene',
+      slideIdx: cue.slideIdx,
+      sceneId: cue.sceneId,
+    });
+    this.forceUpdate();
+    requestAnimationFrame(() => {
+      this._applyPlayerSceneScope(this._player.cues[this._player.cueIndex]);
+      this._syncPlayerMotion(true);
+      this._patchReplayButtonProgress(this.playerSnap);
+    });
+  }
+
+  _previewCurrentSlide(cue) {
+    if (!cue || !this._player || typeof this._player.replayWithin !== 'function') return;
+    if (this._isReplayActive('slide', cue)) {
+      this._stopReplayPreview();
+      return;
+    }
+    if (window.HFPlayerMotion && window.HFPlayerMotion.kill) window.HFPlayerMotion.kill();
+    this._player.replayWithin({
+      mode: 'slide',
+      slideIdx: cue.slideIdx,
+    });
+    this.forceUpdate();
+    requestAnimationFrame(() => {
+      this._applyPlayerSceneScope(this._player.cues[this._player.cueIndex]);
+      this._syncPlayerMotion(true);
+      this._patchReplayButtonProgress(this.playerSnap);
+    });
+  }
+
+  _replayProgressPct(snap, mode, cue) {
+    if (!snap || !cue) return 0;
+    const boundary = snap.playBoundary;
+    if (!boundary || boundary.mode !== mode) return 0;
+    if (boundary.slideIdx !== cue.slideIdx) return 0;
+    if (mode === 'scene' && String(boundary.sceneId) !== String(cue.sceneId)) return 0;
+    const elapsed = mode === 'slide' ? (snap.slideElapsed || 0) : (snap.sceneElapsed || 0);
+    const duration = mode === 'slide' ? (snap.slideDuration || 0) : (snap.sceneDuration || 0);
+    if (duration <= 0) return snap.playing ? 0 : 0;
+    const pct = Math.min(100, Math.max(0, (elapsed / duration) * 100));
+    if (!snap.playing && pct >= 98) return 100;
+    return pct;
+  }
+
+  _patchReplayButtonProgress(snap) {
+    const cue = snap && snap.cue;
+    const sceneFill = document.querySelector('.hf-player-scene-preview-btn-fill[data-replay-mode="scene"]');
+    const slideFill = document.querySelector('.hf-player-scene-preview-btn-fill[data-replay-mode="slide"]');
+    const sceneBtn = document.querySelector('.hf-player-scene-preview-btn[data-replay-mode="scene"]');
+    const slideBtn = document.querySelector('.hf-player-scene-preview-btn[data-replay-mode="slide"]');
+    const scenePct = this._replayProgressPct(snap, 'scene', cue);
+    const slidePct = this._replayProgressPct(snap, 'slide', cue);
+    if (sceneFill) sceneFill.style.width = scenePct.toFixed(2) + '%';
+    if (slideFill) slideFill.style.width = slidePct.toFixed(2) + '%';
+    if (sceneBtn) {
+      if (snap && snap.playBoundary && snap.playBoundary.mode === 'scene' && snap.playing) sceneBtn.classList.add('is-active');
+      else sceneBtn.classList.remove('is-active');
+    }
+    if (slideBtn) {
+      if (snap && snap.playBoundary && snap.playBoundary.mode === 'slide' && snap.playing) slideBtn.classList.add('is-active');
+      else slideBtn.classList.remove('is-active');
+    }
+  }
+
+  _jumpPlayerToSlide(slideIdx) {
+    if (!this._player) return;
+    const idx = Math.max(0, Math.min(this.slides.length - 1, parseInt(slideIdx, 10) || 0));
+    this.current = idx;
+    this._player.jumpToSlide(idx);
+    const cue = this._player.cues[this._player.cueIndex];
+    if (cue) {
+      this._applyPlayerSceneScope(cue);
+      this._preloadPlayerSceneImages(cue);
+      this._player.prefetchVoiceovers(this._player.cueIndex, 8);
+    }
+  }
+
+  _jumpPlayerToScene(cue, sceneId) {
+    if (!cue || !this._player) return;
+    const idx = (this._player.cues || []).findIndex((item) =>
+      item.slideIdx === cue.slideIdx && String(item.sceneId) === String(sceneId)
+    );
+    if (idx < 0) return;
+    this.current = cue.slideIdx;
+    this._player.jumpToCue(idx);
+    const nextCue = this._player.cues[idx];
+    this._applyPlayerSceneScope(nextCue);
+    this._preloadPlayerSceneImages(nextCue);
+    this._player.prefetchVoiceovers(idx, 8);
+  }
+
+  _toSceneHexColor(value, fallback) {
+    const v = String(value || '').trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    if (/^#[0-9a-fA-F]{3}$/.test(v)) return '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+    const rgb = v.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+    if (rgb) {
+      const hex = (n) => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0');
+      return '#' + hex(rgb[1]) + hex(rgb[2]) + hex(rgb[3]);
+    }
+    const embedded = v.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/);
+    return embedded ? this._toSceneHexColor(embedded[0], fallback) : (fallback || '#f05725');
+  }
+
+  buildPlayerCustomizePanel(cue) {
+    if (!this.playerCustomizeOpen || !cue) return null;
+    const h = React.createElement;
+    const scene = this._sceneDefForCue(cue) || {};
+    const override = this._sceneOverrideForCue(cue);
+    const styles = override.styles || {};
+    const schema = this._getStylesSchema();
+    const componentKeys = this._sceneStyleComponentKeys(cue).filter((key) => schema.primitives && schema.primitives[key]);
+    if (componentKeys.indexOf(this.playerCustomizeStyleComponent) === -1) {
+      this.playerCustomizeStyleComponent = componentKeys[0] || 'slide_title';
+    }
+    const activeKey = this.playerCustomizeStyleComponent;
+    const activeComp = (schema.primitives && schema.primitives[activeKey]) || {};
+    const animationKey = this._sceneAnimationSchemaKey(cue);
+    const animationDef = (schema.animations && schema.animations[animationKey]) || {};
+    const animationOptions = (animationDef.options || []).filter((opt) => opt && opt.value != null);
+    const hasEnabledOverride = Object.prototype.hasOwnProperty.call(override, 'animationEnabled');
+    const animationMode = hasEnabledOverride ? (override.animationEnabled ? 'on' : 'off') : 'inherit';
+    const sceneHasVideo = !!cue.sceneHasVideo;
+
+    const slideOptions = (this.slides || []).map((slide, idx) => {
+      const title = String((slide && slide.title) || '').trim();
+      return h('option', { key: String(idx), value: String(idx) },
+        'Slide ' + (idx + 1) + (title ? ' — ' + title : '')
+      );
+    });
+    const playableSceneIds = new Set((this._player.cues || [])
+      .filter((item) => item.slideIdx === cue.slideIdx)
+      .map((item) => String(item.sceneId)));
+    const sceneOptions = ((this.slides[cue.slideIdx] && this.slides[cue.slideIdx].scenes) || [])
+      .map((item, idx) => ({ item, id: item.id != null ? String(item.id) : String(idx + 1) }))
+      .filter((entry) => playableSceneIds.has(entry.id))
+      .map((entry) => h('option', { key: entry.id, value: entry.id },
+        'Scene ' + entry.id + (entry.item.templateLabel ? ' — ' + entry.item.templateLabel : '')
+      ));
+
+    const baseValue = (propKey, propDef) => {
+      const fromTheme = window.HFPlayerTheme && window.HFPlayerTheme.getBase
+        ? window.HFPlayerTheme.getBase(propKey)
+        : '';
+      return fromTheme || (propDef && propDef.default != null ? String(propDef.default) : '');
+    };
+    const effectiveValue = (propKey, propDef) => {
+      if (propKey === 'bbox_treatment' && String(cue.animationType || '') === 'bbox_highlight') {
+        if (override.animationTreatment) return override.animationTreatment;
+        const activeBbox = window.HFTreatmentRotator && window.HFTreatmentRotator.getBboxTreatment
+          ? window.HFTreatmentRotator.getBboxTreatment(cue)
+          : '';
+        return activeBbox && activeBbox !== 'off' ? activeBbox : ((animationOptions[0] && animationOptions[0].value) || 'bbox_draw');
+      }
+      return Object.prototype.hasOwnProperty.call(styles, propKey)
+        ? String(styles[propKey])
+        : baseValue(propKey, propDef);
+    };
+
+    const updateStyle = (propKey, value) => {
+      this._updateSceneOverride(cue, (next) => {
+        next.styles = { ...(next.styles || {}), [propKey]: String(value) };
+      }, 550);
+    };
+    const resetStyle = (propKey) => {
+      this._updateSceneOverride(cue, (next) => {
+        next.styles = { ...(next.styles || {}) };
+        delete next.styles[propKey];
+      }, 0);
+    };
+
+    const fieldElements = [];
+    Object.keys(activeComp.sections || {}).forEach((sectionKey) => {
+      const section = activeComp.sections[sectionKey] || {};
+      const when = section.when;
+      if (when && typeof when === 'object') {
+        const visible = Object.keys(when).every((key) => {
+          const def = { default: key === 'bbox_treatment' ? 'bbox_spotlight' : '' };
+          return effectiveValue(key, def) === String(when[key]);
+        });
+        if (!visible) return;
+      }
+      const fields = Object.keys(section.properties || {}).filter((propKey) => propKey !== 'bbox_treatment').map((propKey) => {
+        const prop = section.properties[propKey] || {};
+        const value = effectiveValue(propKey, prop);
+        const isOverridden = Object.prototype.hasOwnProperty.call(styles, propKey);
+        const label = h('label', { className: 'hf-player-scene-label' },
+          h('span', null, prop.label || propKey),
+          isOverridden ? h('button', {
+            type: 'button',
+            className: 'hf-player-scene-reset',
+            onClick: () => resetStyle(propKey),
+          }, 'Use course default') : null
+        );
+        let control;
+        if (prop.type === 'select') {
+          const options = (prop.options || []).map((opt) => typeof opt === 'object'
+            ? opt
+            : { value: String(opt), label: String(opt) });
+          if (!options.some((opt) => String(opt.value) === String(value))) {
+            options.push({ value: String(value), label: String(value) + ' (current)' });
+          }
+          control = h('select', {
+            className: 'hf-player-scene-select',
+            value: String(value),
+            onChange: (e) => updateStyle(propKey, e.target.value),
+          }, options.map((opt) => h('option', { key: String(opt.value), value: String(opt.value) }, opt.label)));
+        } else if (prop.type === 'color') {
+          control = h('div', { className: 'hf-player-scene-input-row' },
+            h('input', {
+              type: 'color',
+              className: 'hf-player-scene-color',
+              value: this._toSceneHexColor(value, '#f05725'),
+              onChange: (e) => updateStyle(propKey, e.target.value),
+            }),
+            h('input', {
+              type: 'text',
+              className: 'hf-player-scene-input',
+              value: String(value),
+              placeholder: prop.placeholder || '#ffffff',
+              onChange: (e) => updateStyle(propKey, e.target.value),
+            })
+          );
+        } else {
+          control = h('input', {
+            type: 'text',
+            className: 'hf-player-scene-input',
+            value: String(value),
+            placeholder: prop.placeholder || '',
+            onChange: (e) => updateStyle(propKey, e.target.value),
+          });
+        }
+        return h('div', { key: propKey, style: { marginBottom: '12px' } }, label, control);
+      });
+      if (!fields.length) return;
+      fieldElements.push(h('div', { key: sectionKey },
+        h('div', { style: { color: '#94a3b8', fontSize: '10px', fontWeight: '800', letterSpacing: '0.06em', textTransform: 'uppercase', margin: '4px 0 10px' } }, section.title || sectionKey),
+        fields
+      ));
+    });
+
+    const componentOptions = componentKeys.map((key) => {
+      const def = schema.primitives[key] || {};
+      return h('option', { key, value: key }, def.name || key);
+    });
+    const treatmentOptions = [h('option', { key: 'inherit', value: '' }, 'Use course default')]
+      .concat(animationOptions.map((opt) => h('option', { key: String(opt.value), value: String(opt.value) }, opt.label || opt.value)));
+
+    return h('aside', { className: 'hf-player-scene-panel' },
+      h('div', { className: 'hf-player-scene-panel-head' },
+        h('div', { style: { minWidth: 0 } },
+          h('div', { className: 'hf-player-scene-panel-title' }, 'Adjust animations'),
+          h('div', { className: 'hf-player-scene-panel-sub' },
+            'Slide ' + (cue.slideIdx + 1) + ' · Scene ' + String(cue.sceneId) + ' · ' + (scene.templateLabel || 'Scene')
+          )
+        ),
+        h('button', { type: 'button', className: 'hf-player-scene-close', onClick: () => { this.playerCustomizeOpen = false; this.forceUpdate(); }, title: 'Close' }, '×')
+      ),
+      h('div', { className: 'hf-player-scene-panel-body' },
+        h('div', { className: 'hf-player-scene-panel-note' },
+          'Changes apply only to this scene. Course defaults in Styles are left unchanged.'
+        ),
+        h('section', { className: 'hf-player-scene-section' },
+          h('h3', { className: 'hf-player-scene-section-title' }, 'Choose slide and scene'),
+          h('p', { className: 'hf-player-scene-help' }, 'Jump directly here in Player. You do not need to select anything in Review first.'),
+          h('div', { style: { marginBottom: '12px' } },
+            h('label', { className: 'hf-player-scene-label' }, h('span', null, 'Slide')),
+            h('select', {
+              className: 'hf-player-scene-select',
+              value: String(cue.slideIdx),
+              onChange: (e) => this._jumpPlayerToSlide(e.target.value),
+            }, slideOptions)
+          ),
+          h('div', null,
+            h('label', { className: 'hf-player-scene-label' }, h('span', null, 'Scene')),
+            h('select', {
+              className: 'hf-player-scene-select',
+              value: String(cue.sceneId),
+              onChange: (e) => this._jumpPlayerToScene(cue, e.target.value),
+            }, sceneOptions)
+          )
+        ),
+        h('section', { className: 'hf-player-scene-section' },
+          h('h3', { className: 'hf-player-scene-section-title' }, 'Animation'),
+          h('p', { className: 'hf-player-scene-help' }, sceneHasVideo
+            ? 'Motion treatments are skipped for scenes containing video.'
+            : 'Use the course default, choose a treatment, or make this scene static.'),
+          h('div', { style: { marginBottom: '12px' } },
+            h('label', { className: 'hf-player-scene-label' }, h('span', null, 'Animations')),
+            h('select', {
+              className: 'hf-player-scene-select',
+              value: animationMode,
+              disabled: sceneHasVideo,
+              onChange: (e) => {
+                const mode = e.target.value;
+                this._updateSceneOverride(cue, (next) => {
+                  if (mode === 'inherit') delete next.animationEnabled;
+                  else next.animationEnabled = mode === 'on';
+                }, 0);
+              },
+            },
+              h('option', { value: 'inherit' }, 'Use course default'),
+              h('option', { value: 'on' }, 'On for this scene'),
+              h('option', { value: 'off' }, 'Off — static scene')
+            )
+          ),
+          animationOptions.length ? h('div', { style: { marginBottom: '12px' } },
+            h('label', { className: 'hf-player-scene-label' }, h('span', null, animationDef.name || 'Treatment')),
+            h('select', {
+              className: 'hf-player-scene-select',
+              value: override.animationTreatment || '',
+              disabled: sceneHasVideo || animationMode === 'off',
+              onChange: (e) => {
+                const treatment = e.target.value;
+                this._updateSceneOverride(cue, (next) => {
+                  if (treatment) next.animationTreatment = treatment;
+                  else delete next.animationTreatment;
+                }, 0);
+              },
+            }, treatmentOptions)
+          ) : h('p', { className: 'hf-player-scene-help', style: { marginTop: 0 } },
+            'This overlay uses its built-in treatment and can be turned on or off.'
+          ),
+          (() => {
+            const snap = this.playerSnap || {};
+            const scenePct = this._replayProgressPct(snap, 'scene', cue);
+            const slidePct = this._replayProgressPct(snap, 'slide', cue);
+            const sceneActive = !!(snap.playBoundary && snap.playBoundary.mode === 'scene' && snap.playing);
+            const slideActive = !!(snap.playBoundary && snap.playBoundary.mode === 'slide' && snap.playing);
+            return h('div', null,
+              h('button', {
+                type: 'button',
+                className: 'hf-player-scene-preview-btn' + (sceneActive ? ' is-active' : ''),
+                'data-replay-mode': 'scene',
+                onClick: () => this._previewCurrentScene(cue),
+              },
+                h('span', {
+                  className: 'hf-player-scene-preview-btn-fill',
+                  'data-replay-mode': 'scene',
+                  style: { width: scenePct.toFixed(2) + '%' },
+                }),
+                h('span', { className: 'hf-player-scene-preview-btn-label' }, 'Play this scene')
+              ),
+              h('button', {
+                type: 'button',
+                className: 'hf-player-scene-preview-btn' + (slideActive ? ' is-active' : ''),
+                'data-replay-mode': 'slide',
+                onClick: () => this._previewCurrentSlide(cue),
+              },
+                h('span', {
+                  className: 'hf-player-scene-preview-btn-fill',
+                  'data-replay-mode': 'slide',
+                  style: { width: slidePct.toFixed(2) + '%' },
+                }),
+                h('span', { className: 'hf-player-scene-preview-btn-label' }, 'Play this slide')
+              )
+            );
+          })()
+        ),
+        h('section', { className: 'hf-player-scene-section' },
+          h('h3', { className: 'hf-player-scene-section-title' }, 'Style overrides'),
+          h('p', { className: 'hf-player-scene-help' }, 'Only elements used by this scene are listed. Editing a value previews it immediately.'),
+          h('div', { style: { marginBottom: '14px' } },
+            h('label', { className: 'hf-player-scene-label' }, h('span', null, 'Element')),
+            h('select', {
+              className: 'hf-player-scene-select',
+              value: activeKey,
+              onChange: (e) => { this.playerCustomizeStyleComponent = e.target.value; this.forceUpdate(); },
+            }, componentOptions)
+          ),
+          fieldElements
+        ),
+        h('button', {
+          type: 'button',
+          className: 'hf-player-scene-reset',
+          style: { alignSelf: 'flex-start', fontSize: '11.5px' },
+          onClick: () => {
+            if (!window.confirm('Reset animation and style overrides for this scene?')) return;
+            this._assignSceneOverride(cue, {});
+            this._applyPlayerSceneScope(cue);
+            this._rebuildTreatmentRotator();
+            this._scheduleSceneOverrideSave(cue, 0);
+            this.forceUpdate();
+            requestAnimationFrame(() => {
+              if (window.HFPlayerMotion && window.HFPlayerMotion.kill) window.HFPlayerMotion.kill();
+              this._syncPlayerMotion(true);
+            });
+          },
+        }, 'Reset all scene overrides')
+      )
+    );
+  }
+
   buildPlayerRenderData(snap, total) {
     const self = this;
     const cue = snap.cue;
@@ -7098,6 +8058,10 @@ class Component extends DCLogic {
         : 0);
     const captionNow = self._captionChunkForSnap(snap);
     return {
+      playerCustomizeRootClass: self.playerCustomizeOpen ? 'is-customizing' : '',
+      playerCustomizeButtonClass: self.playerCustomizeOpen ? 'is-on' : '',
+      playerSceneNavLabel: 'Adjust animations',
+      playerCustomizePanelEl: self.buildPlayerCustomizePanel(cue),
       playerEmpty: !snap.hasCues,
       playerShowLoading: !!snap.preloading || (!snap.assetsReady && snap.hasCues),
       playerLoadProgress: snap.preloadProgress || 0,
@@ -7184,6 +8148,10 @@ class Component extends DCLogic {
         }
       },
       onPlayerToggleCc: () => { if (self._player) self._player.toggleCc(); },
+      onPlayerToggleCustomize: () => {
+        self.playerCustomizeOpen = !self.playerCustomizeOpen;
+        self.forceUpdate();
+      },
     };
   }
   buildPlayerSceneSlots(cue, snap) {
@@ -7829,6 +8797,10 @@ class Component extends DCLogic {
     st.showAlts = false;
     st.editing = false;
     this.forceUpdate();
+    // Keep unsent feedback typed on OTHER visual cards across the rebuild.
+    // Skip this visual — its feedback was already submitted for the replace.
+    const skipDraftKeys = new Set([this._stepKey(st)]);
+    const drafts = this._collectLocalDrafts(skipDraftKeys);
     try {
       const result = await window.HFApi.replace({
         row_index: st.rowIndex,
@@ -7840,6 +8812,7 @@ class Component extends DCLogic {
       });
       if (result && result.payload) {
         this.slides = this.hydrateSlides(result.payload.slides);
+        this._restoreLocalDrafts(this.slides, drafts, skipDraftKeys);
         this.forceUpdate();
       } else {
         await this.reloadSlides();
@@ -9193,13 +10166,16 @@ class Component extends DCLogic {
       topicName: currentTopic || '',
       topicStyle,
       reviewedCount: approvedCount, totalCount: total,
+      reviewSlidesReady: !!this.slidesLoaded,
+      reviewEmpty: !!this.slidesLoaded && total === 0,
+      reviewHasSlides: total > 0,
       progressBarStyle: { width: pct + '%', height: '100%', background: 'linear-gradient(90deg, #4f46e5, #10b981)', borderRadius: '99px', transition: 'width 0.4s ease' },
       autoAdvance: this.autoAdvance, onToggleAuto: (e) => { this.autoAdvance = e.target.checked; this.forceUpdate(); },
       themeMode: this.themeMode, onThemeChange: (e) => this.onThemeChange(e),
       showLayoutPanel: this.showLayoutPanel, onToggleLayoutPanel: () => this.onToggleLayoutPanel(),
       filterPills, topicGroups,
       setRail: (el) => { this.rail = el; }, setMain: (el) => { this.main = el; },
-      curNum: i + 1, curTitle: cur.title, curKey: 'slide-' + i, fullScript,
+      curNum: total ? (i + 1) : 0, curTitle: cur.title || (total ? '' : 'No slides'), curKey: 'slide-' + i, fullScript,
       totalVoiceoverParts, segFeedbackExpanded, mapLabel, slideMetaLabel,
       onToggleSegFeedback: () => {
         if (slideRowIndex != null) {
@@ -9229,8 +10205,8 @@ class Component extends DCLogic {
       slideBadgeStyle: { background: curBadgeDot + '22', color: curBadgeColor },
       slideBadgeDot: { width: '8px', height: '8px', borderRadius: '99px', background: curBadgeDot, display: 'inline-block' },
       onPrev: () => { if (i > 0) this.go(i - 1); }, onNext: () => { if (i < total - 1) this.go(i + 1); },
-      prevDisabled: i === 0, nextDisabled: i === total - 1,
-      prevStyle: navBtn(i === 0), nextStyle: navBtn(i === total - 1),
+      prevDisabled: total === 0 || i === 0, nextDisabled: total === 0 || i === total - 1,
+      prevStyle: navBtn(total === 0 || i === 0), nextStyle: navBtn(total === 0 || i === total - 1),
       currentSteps: steps, currentScenes, toasts,
       isSidebarCollapsed, asideStyle, sidebarToggleStyle, sidebarToggleHoverBg, sidebarToggleHoverColor,
       onToggleSidebar: () => this.toggleSidebar(),

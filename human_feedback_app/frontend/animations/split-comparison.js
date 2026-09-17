@@ -64,10 +64,13 @@ window.HFSplitComparison = (function () {
   function resetSlot(slot) {
     const target = motionTarget(slot);
     const enter = entranceTarget(slot);
+    const labelBadge = labelBadgeForSlot(slot);
     gsap.killTweensOf([slot, target, enter]);
+    if (labelBadge) gsap.killTweensOf(labelBadge);
     slot.classList.remove('is-awaiting-visual');
     gsap.set(slot, { clearProps: 'filter,boxShadow,transform,clipPath,opacity,visibility' });
     gsap.set([target, enter], { clearProps: 'transform,filter,clipPath,opacity,visibility' });
+    if (labelBadge) gsap.set(labelBadge, { clearProps: 'transform,opacity,visibility,x,y,autoAlpha' });
   }
 
   function wipeClip(fromLeft, closed) {
@@ -334,10 +337,12 @@ window.HFSplitComparison = (function () {
         gsap.set(slot, { filter: 'brightness(1) saturate(1)' });
         const labelBadge = labelBadgeForSlot(slot);
         if (labelBadge) {
-          if (idx <= partIdx) {
+          // Keep the active/upcoming labels hidden while idle so play does not
+          // flash a final-state badge and then re-animate it.
+          if (idx < partIdx) {
             gsap.set(labelBadge, { autoAlpha: 1, x: 0 });
           } else {
-            gsap.set(labelBadge, { autoAlpha: 0 });
+            gsap.set(labelBadge, { autoAlpha: 0, x: 0 });
           }
         }
       });
@@ -440,16 +445,20 @@ window.HFSplitComparison = (function () {
 
     const key = sceneKeyForCue(cue);
     const partIdx = cue.partIdx != null ? cue.partIdx : 0;
-    const treatmentChanged = lastTreatment && lastTreatment !== treatment;
+    const treatmentChanged = lastTreatment !== treatment;
+
+    function resetMotionState() {
+      slots.forEach(resetSlot);
+      if (ambientTween) { ambientTween.kill(); ambientTween = null; }
+      if (splitTl) { splitTl.kill(); splitTl = null; }
+      entranceDone = {};
+      labelEntranceDone = {};
+    }
 
     if (!playing) {
       if (key !== sceneKey || treatmentChanged || forceRestart) {
         if (key !== sceneKey) kill();
-        else {
-          slots.forEach(resetSlot);
-          if (ambientTween) { ambientTween.kill(); ambientTween = null; }
-          entranceDone = {};
-        }
+        else resetMotionState();
         sceneKey = key;
         lastTreatment = treatment;
         lastPartIdx = partIdx;
@@ -472,12 +481,7 @@ window.HFSplitComparison = (function () {
     }
 
     if (treatmentChanged || forceRestart) {
-      slots.forEach(resetSlot);
-      if (ambientTween) {
-        ambientTween.kill();
-        ambientTween = null;
-      }
-      entranceDone = {};
+      resetMotionState();
       lastTreatment = treatment;
       lastPartIdx = partIdx;
       runSceneEntrances(treatment, slots);
