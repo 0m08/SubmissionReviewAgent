@@ -1556,3 +1556,97 @@ labels, and the AGENTS.md doctrine says to write for field competence. It does
 mean the pending F-046 decision now changes the output materially depending on
 which model runs, and that GPT retitles at roughly three times the rate — a
 scope difference the reports do not mention on either model.
+
+---
+
+## Session continuity — 2026-09-17
+
+Triggered by a hosted Streamlit session timing out mid-edit and the work
+appearing to be lost. It was not lost. What follows is measured against the live
+deployment rather than inferred, because every part of it was previously either
+undocumented or assumed.
+
+### F-053 — How long a session's workspace actually survives
+**Status:** open (reference) · **Confidence:** verified · **Priority: high —
+this is the number nobody had**
+
+**Measured.** Read off the live sandboxes via `langsmith.sandbox.SandboxClient`,
+identical across all 34 of them:
+
+| field | value | meaning |
+|---|---|---|
+| `idle_ttl_seconds` | 600 | stopped 10 minutes after the last turn |
+| `delete_after_stop_seconds` | 1209600 | deleted 14 days after stopping |
+
+**A stop is not a deletion, and this was verified rather than assumed.** The
+sandbox for thread `01a0ab3f` (last active 2026-09-16 17:37, stopped 17:48) was
+restarted on 2026-09-17:
+
+```
+cold start           3.9s
+/workspace           .baseline/  context/  topics/  manifest.json  outline.md
+present.py --measure blocks 34 -> 26, words 2044 -> 1096 (-46.4%)
+```
+
+Every file was intact, including the edits made the previous day, and
+`present.py` reported them correctly. The sandbox was returned to `stopped`
+afterwards.
+
+**So the window is 14 days, not 10 minutes.** A conversation resumed within it
+restarts its own box and finds its own files. The oldest sandbox on the
+deployment was from 2026-09-07 — 10 days — and still present. Nothing has been
+reclaimed.
+
+**Why the mechanism works.** `sandbox.py` enforces `scope="thread"`, so the
+sandbox name is deterministic per deployment and thread
+(`_managed_sandbox_name`). On resume, `_resolve_sandbox_instance` looks that
+name up; `_adopt_sandbox` adopts a `ready` or `running` box as-is, and calls
+`_restart_sandbox` on a `stopped` one. Only when the box is gone does it create
+a fresh, empty one.
+
+**What this costs.** Sandbox charges are the small part of the bill: 20,017 vCPU
+seconds and 80,070 GiB-seconds month-to-date, $0.73 combined against $10.99 of
+deployment uptime. Keeping stopped sandboxes around is close to free; it is the
+always-on deployment that costs money.
+
+**What it means for the product.** Two states fail differently and should be
+told apart:
+
+- **Within 14 days** — messages and files both return. Resuming is complete.
+- **After 14 days** — the thread outlives its sandbox, so the conversation comes
+  back and the workspace does not. That reads as the agent having lost the
+  files, which is the worst possible presentation of it.
+
+`course_content_editor_mda.py` warns from day 12 and hides rows past day 14 for
+that reason.
+
+**Note.** `disconnecttest.py` was cited as verifying that a thread survives the
+client going away, and it does — but it tests minutes, inside one session. It
+says nothing about hours or days, and the 14-day figure was not known until it
+was measured here.
+
+### F-054 — Nothing was lost; the pointer was
+**Status:** fixed · **Confidence:** verified
+
+`_thread_id()` read `?thread=` from the URL and, finding nothing, created a new
+thread without saying so. An empty chat is indistinguishable from deleted work.
+The module docstring had already named this exact failure — "intact work you
+cannot address looks exactly like lost work" — and then rested the whole
+recovery path on one query parameter.
+
+Fixed by listing the editor's recent sessions instead of silently creating one
+(commit `2576696`). Threads are tagged `{surface, editor_id}` on create so
+`threads.search` can scope to one person; the `owner` field already present on
+every thread is the shared API key's LangSmith user and is the same for
+everyone, so it cannot be used for this.
+
+**Unfixed and deliberately so:** signing in still destroys `?thread=`. The
+redirect returns only `code` and `state`, and the success path calls
+`st.query_params.clear()`. Carrying the value through the OAuth `state`
+parameter works and was implemented, but does not help: `streamlit_app.py` is an
+`st.navigation` app whose pages are registered from `user_pages`, which exists
+only after sign-in — so a signed-out visitor to that page gets "Page not found"
+and lands on Home regardless of any parameter. Fixing it properly means carrying
+the page as well and calling `st.switch_page` after auth, which is a change to
+navigation and page gating. Reverted (`f8a3739`) as not worth that risk. The
+picker makes a lost link recoverable instead of fatal.
