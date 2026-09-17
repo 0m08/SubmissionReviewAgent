@@ -1,0 +1,27 @@
+{
+  "skills": {
+    "working-with-google-sheets": {
+      "skill_id": "skill_01EbAue3YY2p8AgnsVja4DMr",
+      "version": "1788264832445081",
+      "hash": "97f9f8e113d2baddb2e308f24542d0c48ba7eba7c14659c93c44b375fd4b48c4"
+    },
+    "editing-slide-chunks": {
+      "skill_id": "skill_01PNPpVHebJKJmWThiLxp127",
+      "version": "1788460531971051",
+      "hash": "c17b23cd687609873bf5e2cec0982c070f1f23a9f756985381c7f08651367b01"
+    },
+    "editing-research-notes": {
+      "skill_id": "skill_01Q99GtinECY2rrQKfH3RJhp",
+      "version": "1788460533221920",
+      "hash": "ca88a035ccfa8bc8ac46a5a6fc240d5145c7ef9ced6bacc49af4dc3b12a7f89c"
+    }
+  },
+  "sa_file_id": "file_01F1PY5QZUBQHgkKqeEdK8CD",
+  "sa_client_email": "gdrive-for-streamlit@youtube-search-444517.iam.gserviceaccount.com",
+  "environment_id": "env_01NnRHoiaCB8bZtEYYgnxzDq",
+  "agent_id": "agent_014dzS39qRzF5uxwHvAVpJXE",
+  "agent_version": 22,
+  "shared_memory_store_id": "memstore_017nmNYseyX4C1RHr7uWnCi5",
+  "editor_agent_id": "agent_01Y6wLJBvNU1hb7Czh9TbUka",
+  "editor_agent_version": 5
+}

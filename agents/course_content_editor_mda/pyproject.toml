@@ -1,0 +1,16 @@
+[project]
+name = "course_content_editor_mda"
+version = "0.0.0"
+description = "A Managed Deep Agent project."
+requires-python = ">=3.11"
+dependencies = [
+    "managed-deepagents==0.6.1",
+    # gspread and pandas are deliberately absent: sheet access happens in the
+    # skill's scripts/, which run in the sandbox, so those install via
+    # sandbox/setup.sh instead of shipping with the hosted app.
+    # Model providers. Trim to the ones CCE_MODEL might name; each also needs
+    # its API key present for `mda deploy` to pass preflight.
+    "langchain-google-genai>=4.3",
+    "langchain-anthropic>=1.3",
+    "langchain-openai>=0.3",
+]

@@ -1,0 +1,16 @@
+{
+  "skills": ["editing-course-content", "working-with-google-sheets"],
+  "scenario": "research_notes_directive_single_row",
+  "source": "Live quality-test round 1 (course_content_editor), case 'vent_directive', run against the real Course - Plumbing System Fundamentals sheet.",
+  "query": "Here's our course sheet: <SHEET_URL>. For the Vent Piping research notes (Air and Water Protection topic), make these specific cuts:\n1. In \"When the system is under negative pressure...\", trim the P-trap/siphoning detail — keep only the point that pressure imbalance interferes with drainage flow.\n2. In \"A vent breaks this vacuum by introducing air...\", keep only the \"introducing air\" point; cut the trap-seal-preservation framing.\n3. Remove the entire \"### Types of Vents and How They Function\" section (Individual Vents, Vent Stacks, Air Admittance Valves, including the roof-penetration line) — vent-type classification is outside the LO.\n4. Remove the entire \"### The Trap Arm and Distance\" section — vent-design/trap-arm-configuration content, not pressure-balance-and-flow explanation.\n5. Remove the entire \"### Keeping the Air Path Open\" section — maintenance/design content outside the LO.",
+  "expected_behavior": [
+    "Loads the workspace via prepare_context_workspace.py (research-notes-only request, no slide-chunks tab needed) rather than prepare_workspace.py.",
+    "States before writing what it's about to change and gets confirmation before a sweeping edit (5 named cuts).",
+    "The 'Types of Vents and How They Function', 'The Trap Arm and Distance', and 'Keeping the Air Path Open' sections are removed in full from the Vent Piping (Air and Water Protection topic) research notes.",
+    "The AAV 'handy when it's too hard to run a pipe all the way to the roof' line is gone — this is the LO's explicit prohibition ('avoid a roof-penetration lesson'); its survival is the single clearest failure signal on this row.",
+    "The P-trap/siphoning sentence is trimmed to the pressure-imbalance point, not deleted outright and not left verbatim.",
+    "Topic:, Subtopic:, and Learning Objective: fields for the Vent Piping block are byte-identical to the source sheet after editing (write-back identity key untouched).",
+    "Markdown image links inside kept paragraphs are preserved unless the cut removed the whole paragraph they were in.",
+    "Does not write to the sheet unless a follow-up turn explicitly asks it to."
+  ]
+}
