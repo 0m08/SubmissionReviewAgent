@@ -738,51 +738,68 @@ def _render_session_picker(client) -> None:
     deletion. Nothing here creates state: choosing a row sets the query
     parameter and reruns, the same as arriving on a shared link.
     """
-    threads = _recent_threads(client)
-    if not threads:
-        return
-
-    st.markdown("#### Pick up where you left off")
-    st.caption(
-        "Your recent sessions. The agent keeps each one's workspace on the "
-        "server, so an edit you started days ago is still there."
-    )
-
-    shown = 0
-    for thread in threads:
-        tid = thread["thread_id"]
+    # Filter before drawing anything. Deciding what to show while showing it
+    # leaves a heading standing over an empty list when every row is filtered.
+    rows: list[tuple[dict, float | None, str]] = []
+    for thread in _recent_threads(client):
         age = _thread_age_days(thread)
         if age is not None and age >= SANDBOX_LIFE_DAYS:
             continue  # its workspace is gone; the messages alone would mislead
-
         summary = _thread_summary(client, thread)
         if summary == EMPTY_THREAD:
             # A thread nobody ever spoke in. The old code minted one of these
             # every time the page loaded without a thread parameter, so they
             # outnumber the real sessions and listing them buries the work.
             continue
-        shown += 1
+        rows.append((thread, age, summary))
 
-        row, button = st.columns([5, 1])
-        with row:
-            st.markdown(f"**{summary[:120]}**")
-            when = "just now" if age is None else (
-                f"{age * 24:.0f} h ago" if age < 1 else f"{age:.0f} days ago")
-            note = f"{when} · `{tid[:8]}`"
-            if age is not None and age >= SANDBOX_WARN_DAYS:
-                left = SANDBOX_LIFE_DAYS - age
-                note += f" · ⚠️ workspace expires in {left:.0f} day(s)"
-            st.caption(note)
-        with button:
-            if st.button("Open", key=f"open_{tid}", use_container_width=True):
-                st.query_params["thread"] = tid
-                st.rerun()
-        st.divider()
-
-    if not shown:
-        return  # everything was empty or expired; nothing to offer
-    if st.button("Start a new session", type="primary"):
+    if not rows:
         return
+
+    # New session first, because that is the one thing someone arriving here
+    # with no link in mind is most likely to want, and because burying it under
+    # a list of old work makes starting fresh feel like the unsupported path.
+    head, action = st.columns([3, 1], vertical_alignment="center")
+    with head:
+        st.markdown(
+            '<div class="cce-session-head">Continue a session</div>'
+            '<div class="cce-session-note">Each one keeps its own workspace on '
+            "the server. Files you edited days ago are still there.</div>",
+            unsafe_allow_html=True,
+        )
+    with action:
+        if st.button("Start new session", type="primary", use_container_width=True):
+            return
+
+    for thread, age, summary in rows:
+        tid = thread["thread_id"]
+        # Same bordered container the review cards use, so a session reads as
+        # the same kind of object as everything else on this page.
+        with st.container(border=True):
+            body, button = st.columns([6, 1], vertical_alignment="center")
+            with body:
+                when = "Just now" if age is None else (
+                    f"{age * 24:.0f} hours ago" if age < 1
+                    else f"{age:.0f} day{'s' if age >= 2 else ''} ago")
+                meta = f"{when} &middot; {html.escape(tid[:8])}"
+                if age is not None and age >= SANDBOX_WARN_DAYS:
+                    left = max(SANDBOX_LIFE_DAYS - age, 0)
+                    meta += (
+                        '<span class="cce-session-expiry">&middot; workspace '
+                        f"expires in {left:.0f} day{'s' if left >= 2 else ''}"
+                        "</span>"
+                    )
+                st.markdown(
+                    f'<div class="cce-card-label">{html.escape(summary[:110])}'
+                    f'{"…" if len(summary) > 110 else ""}</div>'
+                    f'<div class="cce-card-meta">{meta}</div>',
+                    unsafe_allow_html=True,
+                )
+            with button:
+                if st.button("Open", key=f"open_{tid}", use_container_width=True):
+                    st.query_params["thread"] = tid
+                    st.rerun()
+
     st.stop()
 
 
