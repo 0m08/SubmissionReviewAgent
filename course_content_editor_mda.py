@@ -280,7 +280,7 @@ def _text(message) -> str:
     return str(content or "")
 
 
-def _ack_presentations(body: str) -> list[dict]:
+def _ack_presentations(body: str, call_id: str = "") -> list[dict]:
     """Presentation entries rebuilt from a `present.py` acknowledgement.
 
     The ack is what the middleware leaves in message state: which files were
@@ -296,14 +296,20 @@ def _ack_presentations(body: str) -> list[dict]:
     except (ValueError, TypeError):
         return []
     out = []
-    for shown in ack.get("shown") or []:
+    for index, shown in enumerate(ack.get("shown") or []):
         path = shown.get("path")
         if not path:
             continue
         counts = {k: shown[k] for k in ("blocks", "words", "slide_types", "per_block")
                   if k in shown}
+        # Keyed off the acknowledgement's own tool_call_id, for the same reason
+        # the live path keeps a uid on the entry: position is not unique. Two
+        # turns each presenting one file both sit at index 0, and Streamlit
+        # rejects the second widget with that key. A call id is unique within
+        # the thread and stable across reruns, so widget state survives.
         out.append({"path": path, "kind": "topics" if "/topics/" in f"/{path}" else "context",
-                    "counts": counts, "before": None, "after": None, "restored": True})
+                    "counts": counts, "before": None, "after": None, "restored": True,
+                    "uid": f"r{call_id or 'x'}_{index}"})
     return out
 
 
@@ -363,7 +369,7 @@ def _server_turns(client, thread_id: str) -> list[dict]:
                 # shows the brief and the report without the step list.
                 rec["report"] = body
                 continue
-            for entry in _ack_presentations(body):
+            for entry in _ack_presentations(body, str(message.get("tool_call_id") or "")):
                 turn["timeline"].append(
                     {"kind": "presentation", "index": len(turn["presentations"])})
                 turn["presentations"].append(entry)
