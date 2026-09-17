@@ -197,6 +197,28 @@ def _thread_age_days(thread: dict) -> float | None:
     return (datetime.now(timezone.utc) - when).total_seconds() / 86400
 
 
+def _when(age: float | None) -> str:
+    """Age as a short phrase, with the expiry said plainly when it is close.
+
+    A workspace is reclaimed 14 days after its last turn, and by then the
+    conversation still comes back while the files do not. Saying so on the row
+    is the only warning anyone gets.
+    """
+    if age is None:
+        return "Just now"
+    if age < 1:
+        hours = max(round(age * 24), 1)
+        stamp = f"{hours} hour{'s' if hours != 1 else ''} ago"
+    else:
+        days = round(age)
+        stamp = f"{days} day{'s' if days != 1 else ''} ago"
+    if age >= SANDBOX_WARN_DAYS:
+        left = max(round(SANDBOX_LIFE_DAYS - age), 0)
+        stamp += " · files expire today" if left == 0 else (
+            f" · files expire in {left} day{'s' if left != 1 else ''}")
+    return stamp
+
+
 def _thread_summary(client, thread: dict) -> str:
     """First thing the person said in that thread, for the picker row.
 
@@ -737,10 +759,14 @@ def _render_session_picker(client) -> None:
     then; the pointer to it was, and an empty chat is indistinguishable from
     deletion. Nothing here creates state: choosing a row sets the query
     parameter and reruns, the same as arriving on a shared link.
+
+    Plain Streamlit on purpose. The rest of this page is heavily styled because
+    a diff needs it; a list of eight links does not, and hand-styling it only
+    made it look like a third design.
     """
     # Filter before drawing anything. Deciding what to show while showing it
     # leaves a heading standing over an empty list when every row is filtered.
-    rows: list[tuple[dict, float | None, str]] = []
+    rows: list[tuple[str, str, str]] = []
     for thread in _recent_threads(client):
         age = _thread_age_days(thread)
         if age is not None and age >= SANDBOX_LIFE_DAYS:
@@ -751,54 +777,24 @@ def _render_session_picker(client) -> None:
             # every time the page loaded without a thread parameter, so they
             # outnumber the real sessions and listing them buries the work.
             continue
-        rows.append((thread, age, summary))
+        rows.append((thread["thread_id"], summary, _when(age)))
 
     if not rows:
         return
 
-    # New session first, because that is the one thing someone arriving here
-    # with no link in mind is most likely to want, and because burying it under
-    # a list of old work makes starting fresh feel like the unsupported path.
-    head, action = st.columns([3, 1], vertical_alignment="center")
-    with head:
-        st.markdown(
-            '<div class="cce-session-head">Continue a session</div>'
-            '<div class="cce-session-note">Each one keeps its own workspace on '
-            "the server. Files you edited days ago are still there.</div>",
-            unsafe_allow_html=True,
-        )
-    with action:
-        if st.button("Start new session", type="primary", use_container_width=True):
-            return
+    st.subheader("Your sessions")
+    if st.button("Start a new session", type="primary"):
+        return
+    st.caption("Or continue one below. Each keeps its files for 14 days.")
 
-    for thread, age, summary in rows:
-        tid = thread["thread_id"]
-        # Same bordered container the review cards use, so a session reads as
-        # the same kind of object as everything else on this page.
+    for thread_id, summary, when in rows:
         with st.container(border=True):
-            body, button = st.columns([6, 1], vertical_alignment="center")
-            with body:
-                when = "Just now" if age is None else (
-                    f"{age * 24:.0f} hours ago" if age < 1
-                    else f"{age:.0f} day{'s' if age >= 2 else ''} ago")
-                meta = f"{when} &middot; {html.escape(tid[:8])}"
-                if age is not None and age >= SANDBOX_WARN_DAYS:
-                    left = max(SANDBOX_LIFE_DAYS - age, 0)
-                    meta += (
-                        '<span class="cce-session-expiry">&middot; workspace '
-                        f"expires in {left:.0f} day{'s' if left >= 2 else ''}"
-                        "</span>"
-                    )
-                st.markdown(
-                    f'<div class="cce-card-label">{html.escape(summary[:110])}'
-                    f'{"…" if len(summary) > 110 else ""}</div>'
-                    f'<div class="cce-card-meta">{meta}</div>',
-                    unsafe_allow_html=True,
-                )
-            with button:
-                if st.button("Open", key=f"open_{tid}", use_container_width=True):
-                    st.query_params["thread"] = tid
-                    st.rerun()
+            body, action = st.columns([6, 1], vertical_alignment="center")
+            body.write(summary[:110] + ("…" if len(summary) > 110 else ""))
+            body.caption(when)
+            if action.button("Open", key=f"open_{thread_id}", use_container_width=True):
+                st.query_params["thread"] = thread_id
+                st.rerun()
 
     st.stop()
 

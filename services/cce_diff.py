@@ -94,29 +94,6 @@ PAGE_CSS = """
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
-/* Session picker — shown when the page is opened without a thread in the URL.
-   Deliberately reuses .cce-card-label / .cce-card-meta for each row, so a saved
-   session reads as the same kind of object as a slide card rather than as a
-   different screen. Only the section header and the expiry flag are new. */
-.cce-session-head {
-    font-family: 'Fraunces', Georgia, serif;
-    font-size: 1.15rem;
-    font-weight: 600;
-    color: var(--cce-ink);
-    margin-bottom: 0.1rem;
-}
-.cce-session-note {
-    font-family: 'Public Sans', sans-serif;
-    font-size: 0.85rem;
-    color: var(--cce-ink-soft);
-    margin-bottom: 0.2rem;
-}
-/* The one warm-red thing on the screen. A workspace about to be reclaimed is
-   the only fact here that expires, so it is the only one that gets the accent. */
-.cce-session-expiry {
-    color: var(--cce-accent);
-    margin-left: 0.35rem;
-}
 /* Learning Objective — a full sentence, so no uppercase/letter-spacing
    (that reads fine for "RESEARCH NOTES · TOPIC" but not for prose). */
 .cce-card-lo {
