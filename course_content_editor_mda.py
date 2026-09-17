@@ -748,11 +748,14 @@ def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
 
 
 def _render_session_picker(client) -> None:
-    """Offer this editor's recent sessions, or return to start a fresh one.
+    """Offer this editor's recent sessions.
 
-    Returns only when the caller should create a new thread — because there is
-    nothing to offer, or because the person asked for one. Otherwise it renders
-    the list and halts the run, so the picker *is* the page.
+    Returns only when there is nothing to offer and nothing has been drawn, so
+    the caller can create a thread and render the page normally. Every other
+    path ends the run — `st.stop()` to leave the list up, or `st.rerun()` after
+    making a new thread. It never returns having drawn something, because the
+    caller keeps going in the same script run and whatever this drew would be
+    left stranded above the chat.
 
     Shown only when the URL carries no thread — which is exactly the case that
     used to mint a fresh thread without saying so. The work was never lost
@@ -784,7 +787,13 @@ def _render_session_picker(client) -> None:
 
     st.subheader("Your sessions")
     if st.button("Start a new session", type="primary"):
-        return
+        # Make the thread and rerun, rather than returning to let the caller do
+        # it. Returning continues the *same* script run, so everything drawn
+        # here — this heading, this button — stays on the page above the chat
+        # that renders after it. Rerunning redraws from the top with the thread
+        # in the URL, so the picker is simply not reached.
+        _new_thread(client)
+        st.rerun()
     st.caption("Or continue one below. Each keeps its files for 14 days.")
 
     for thread_id, summary, when in rows:
