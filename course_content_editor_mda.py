@@ -192,8 +192,8 @@ def _last_active(thread: dict) -> str | None:
         str(thread["updated_at"]) if thread.get("updated_at") else None)
 
 
-def _thread_age_days(thread: dict) -> float | None:
-    stamp = _last_active(thread) or thread.get("created_at")
+def _age_days(stamp: str | None) -> float | None:
+    """Days since an ISO timestamp, or None when it cannot be read."""
     if not stamp:
         return None
     try:
