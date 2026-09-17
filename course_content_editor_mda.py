@@ -146,6 +146,28 @@ def _new_thread(client) -> str:
     return thread_id
 
 
+def _touch_thread(client, thread_id: str) -> None:
+    """Record that this session was just used, for ordering the past list.
+
+    `updated_at` is not a usable substitute. It moves on *any* write, so the
+    metadata backfill set thirteen threads to the same instant, and it is what
+    the ordering used to fall back to. This stamp moves only when someone
+    actually takes a turn, which is what "last used" means to a reader.
+
+    Metadata writes merge rather than replace — verified against the
+    deployment — so `editor_id`, `surface` and the platform's own `owner` all
+    survive this. Best-effort: a session that ran is not worth failing over a
+    bookkeeping write.
+    """
+    try:
+        client.threads.update(
+            thread_id,
+            metadata={"last_active": datetime.now(timezone.utc).isoformat()},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _recent_threads(client, fetch: int = 100) -> list[dict]:
     """This editor's threads, newest first. Unfiltered and uncapped.
 
@@ -1002,6 +1024,7 @@ def main() -> None:
                     # URL, so a reload or a shared link finds this session.
                     thread_id = _new_thread(client)
                 turn = stream_turn(client, thread_id, prompt, live, progress)
+                _touch_thread(client, thread_id)
                 if not turn["reply"] and not turn["presentations"]:
                     st.info("The agent finished without a closing message.")
                 track_tool_action(
