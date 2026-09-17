@@ -186,8 +186,13 @@ def _last_active(thread: dict) -> str | None:
         str(thread["updated_at"]) if thread.get("updated_at") else None)
 
 
-def _thread_age_days(thread: dict) -> float | None:
-    stamp = _last_active(thread) or thread.get("created_at")
+def _age_days(stamp: str | None) -> float | None:
+    """Days since an ISO timestamp, or None when it cannot be read.
+
+    Takes the stamp rather than the thread so the caller can cache the cheap
+    string and still compute a live age: a cached "17 hours ago" would drift,
+    a cached timestamp does not.
+    """
     if not stamp:
         return None
     try:
@@ -747,65 +752,56 @@ def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _render_session_picker(client) -> None:
-    """Offer this editor's recent sessions.
+@st.cache_data(ttl=60, show_spinner=False)
+def _session_rows(_client, editor: str, limit: int = 8) -> list[tuple[str, str, str | None]]:
+    """(thread_id, first message, last-active stamp) for one editor, newest first.
 
-    Returns only when there is nothing to offer and nothing has been drawn, so
-    the caller can create a thread and render the page normally. Every other
-    path ends the run — `st.stop()` to leave the list up, or `st.rerun()` after
-    making a new thread. It never returns having drawn something, because the
-    caller keeps going in the same script run and whatever this drew would be
-    left stranded above the chat.
-
-    Shown only when the URL carries no thread — which is exactly the case that
-    used to mint a fresh thread without saying so. The work was never lost
-    then; the pointer to it was, and an empty chat is indistinguishable from
-    deletion. Nothing here creates state: choosing a row sets the query
-    parameter and reruns, the same as arriving on a shared link.
-
-    Plain Streamlit on purpose. The rest of this page is heavily styled because
-    a diff needs it; a list of eight links does not, and hand-styling it only
-    made it look like a third design.
+    Cached because this now renders on every run rather than only on an empty
+    URL, and Streamlit reruns on every keystroke-ish interaction. A minute of
+    staleness costs nothing here — a session list that is 60 seconds behind is
+    still the list — and without it the menu would cost an API round trip per
+    rerun. `_client` is underscore-prefixed so Streamlit skips hashing it.
     """
-    # Filter before drawing anything. Deciding what to show while showing it
-    # leaves a heading standing over an empty list when every row is filtered.
-    rows: list[tuple[str, str, str]] = []
-    for thread in _recent_threads(client):
-        age = _thread_age_days(thread)
-        if age is not None and age >= SANDBOX_LIFE_DAYS:
-            continue  # its workspace is gone; the messages alone would mislead
-        summary = _thread_summary(client, thread)
+    rows: list[tuple[str, str, str | None]] = []
+    for thread in _recent_threads(_client, limit=limit):
+        summary = _thread_summary(_client, thread)
         if summary == EMPTY_THREAD:
-            # A thread nobody ever spoke in. The old code minted one of these
-            # every time the page loaded without a thread parameter, so they
-            # outnumber the real sessions and listing them buries the work.
+            # A thread nobody ever spoke in. The old flow minted one of these
+            # on every parameter-less page load, so they outnumber real work.
             continue
-        rows.append((thread["thread_id"], summary, _when(age)))
+        rows.append((thread["thread_id"], summary, _last_active(thread)))
+    return rows
 
+
+def _render_session_menu(client, thread_id: str) -> None:
+    """Previous sessions, as a menu on the page rather than a page of its own.
+
+    This used to be an interstitial: no thread in the URL meant a full-page
+    list, so starting fresh from inside a session took two clicks — one to
+    leave, one to confirm. The list is the same; where it lives is the fix.
+    """
+    editor = _current_editor()
+    rows = _session_rows(client, editor) if editor else []
+    rows = [r for r in rows if r[0] != thread_id]
     if not rows:
         return
 
-    st.subheader("Your sessions")
-    if st.button("Start a new session", type="primary"):
-        # Make the thread and rerun, rather than returning to let the caller do
-        # it. Returning continues the *same* script run, so everything drawn
-        # here — this heading, this button — stays on the page above the chat
-        # that renders after it. Rerunning redraws from the top with the thread
-        # in the URL, so the picker is simply not reached.
-        _new_thread(client)
-        st.rerun()
-    st.caption("Or continue one below. Each keeps its files for 14 days.")
-
-    for thread_id, summary, when in rows:
-        with st.container(border=True):
-            body, action = st.columns([6, 1], vertical_alignment="center")
-            body.write(summary[:110] + ("…" if len(summary) > 110 else ""))
-            body.caption(when)
-            if action.button("Open", key=f"open_{thread_id}", use_container_width=True):
-                st.query_params["thread"] = thread_id
+    with st.popover(f"Previous sessions ({len(rows)})", use_container_width=True):
+        st.caption("Each session keeps its files for 14 days.")
+        for tid, summary, stamp in rows:
+            age = _age_days(stamp)
+            if age is not None and age >= SANDBOX_LIFE_DAYS:
+                continue  # workspace gone; the messages alone would mislead
+            if st.button(
+                f"{summary[:70]}{'…' if len(summary) > 70 else ''}",
+                key=f"open_{tid}",
+                use_container_width=True,
+            ):
+                st.query_params["thread"] = tid
+                for name in ("cce_mda_transcript", "cce_mda_presentations"):
+                    st.session_state.pop(name, None)
                 st.rerun()
-
-    st.stop()
+            st.caption(_when(age))
 
 
 def main() -> None:
@@ -841,12 +837,10 @@ def main() -> None:
     try:
         thread_id = st.query_params.get("thread")
         if not thread_id:
-            # No pointer. Offer the ones this person already has before making
-            # a new one: silently creating a thread here is what turns a timed
-            # out session into what looks like lost work. The picker halts the
-            # run itself unless there is nothing to offer, or a new session was
-            # asked for.
-            _render_session_picker(client)
+            # Arriving with no pointer means a new session, immediately — that
+            # is what someone opening this page almost always wants. Earlier
+            # work is not lost and is one click away in the toolbar; gating the
+            # page on a list made starting fresh cost two clicks.
             thread_id = _new_thread(client)
     except Exception as e:  # noqa: BLE001
         if "forbidden" in str(e).lower() or "denied" in str(e).lower():
@@ -863,17 +857,22 @@ def main() -> None:
 
     transcript = _transcript(client, thread_id)
 
-    _bar_left, _bar_mid, _bar_right = st.columns([1, 1, 2])
+    _bar_left, _bar_mid, _bar_prev, _bar_right = st.columns([1, 1, 1, 1])
     with _bar_left:
         if transcript and st.button("Resync this session", use_container_width=True):
             _resync(client, thread_id)
             st.rerun()
     with _bar_mid:
         if st.button("Start new session", use_container_width=True):
-            st.query_params.pop("thread", None)
+            # Straight into a fresh thread. This used to clear the parameter
+            # and rerun into a full-page list, so leaving a session and
+            # starting one were two separate clicks for one intention.
             for name in ("cce_mda_transcript", "cce_mda_presentations"):
                 st.session_state.pop(name, None)
+            _new_thread(client)
             st.rerun()
+    with _bar_prev:
+        _render_session_menu(client, thread_id)
     with _bar_right:
         st.caption(f"Thread `{thread_id}`")
 
