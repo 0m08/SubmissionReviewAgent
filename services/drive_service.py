@@ -300,23 +300,10 @@ def _build_web_client_config(client_id: str, client_secret: str, redirect_uri: s
     }
 
 
-def get_google_oauth_authorization_url(
-    client_id: str,
-    client_secret: str,
-    redirect_uri: str,
-    state: str | None = None,
-):
+def get_google_oauth_authorization_url(client_id: str, client_secret: str, redirect_uri: str):
     """
     Initialize the web OAuth flow and return (authorization_url, state).
     The caller should persist the returned "state" in session and verify it on callback.
-
-    `state` is optional. Omit it and the library mints a random one, which is
-    the historical behaviour and what every existing caller gets. Supply one to
-    round-trip a little caller state through the redirect — the parameter
-    exists for exactly that — and it is returned unchanged so the caller still
-    persists and verifies the same string it sent. Whatever is passed comes back
-    from the browser, so treat it as untrusted on the way in and keep secrets
-    out of it.
     """
     client_config = _build_web_client_config(client_id, client_secret, redirect_uri)
     flow = Flow.from_client_config(
@@ -324,12 +311,10 @@ def get_google_oauth_authorization_url(
         scopes=GOOGLE_OAUTH_SCOPES,
         redirect_uri=redirect_uri,
     )
-    kwargs = {"state": state} if state else {}
     authorization_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
-        **kwargs,
     )
     return authorization_url, state
 
