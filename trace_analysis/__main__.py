@@ -27,6 +27,20 @@ SESSIONS = os.path.join(HERE, "sessions")
 CACHE = os.path.join(HERE, ".cache")
 
 
+def _dirs(project: str) -> tuple[str, str]:
+    """Where logs and cached runs go for a project.
+
+    The default project keeps the flat layout the findings ledger cites. Any
+    other project — a second deployment testing a different model, say — is
+    namespaced under its own name, so a throwaway comparison never mixes into
+    the production session logs or gets read by `spans`. A test run landing in
+    the ledger's evidence would be worse than no test at all.
+    """
+    if project == ls.PROJECT:
+        return SESSIONS, CACHE
+    return os.path.join(SESSIONS, project), os.path.join(CACHE, project)
+
+
 def _slug(run) -> str:
     stamp = (run.get("start_time") or "")[:19].replace(":", "").replace("-", "").replace("T", "-")
     return f"{stamp}_{run.get('trace_id', run.get('id', 'unknown'))[:8]}"
@@ -47,9 +61,9 @@ def cmd_list(args):
     print(f"\n{len(roots)} sessions.")
 
 
-def _load_runs(trace_id, refresh=False):
-    os.makedirs(CACHE, exist_ok=True)
-    path = os.path.join(CACHE, f"{trace_id}.json")
+def _load_runs(cache, trace_id, refresh=False):
+    os.makedirs(cache, exist_ok=True)
+    path = os.path.join(cache, f"{trace_id}.json")
     if os.path.exists(path) and not refresh:
         return json.load(io.open(path, encoding="utf-8"))
     runs = ls.trace_runs(trace_id)
@@ -58,6 +72,7 @@ def _load_runs(trace_id, refresh=False):
 
 
 def cmd_pull(args):
+    sessions, cache = _dirs(args.project)
     pid = ls.project_id(args.project)
     if args.trace:
         targets = [{"trace_id": args.trace, "start_time": ""}]
@@ -67,12 +82,12 @@ def cmd_pull(args):
             roots = [r for r in roots if (r.get("start_time") or "") >= args.since]
         targets = roots[: args.last] if args.last else roots
 
-    os.makedirs(SESSIONS, exist_ok=True)
+    os.makedirs(sessions, exist_ok=True)
     written = []
     for root in targets:
         tid = root["trace_id"]
         try:
-            runs = _load_runs(tid, refresh=args.refresh)
+            runs = _load_runs(cache, tid, refresh=args.refresh)
         except Exception as exc:  # one bad trace should not sink the batch
             print(f"  !! {tid[:8]}: {exc}", file=sys.stderr)
             continue
@@ -80,7 +95,7 @@ def cmd_pull(args):
             starts = [r.get("start_time") or "" for r in runs if r.get("start_time")]
             root["start_time"] = min(starts) if starts else ""
         text = render(runs)
-        path = os.path.join(SESSIONS, _slug(root) + ".md")
+        path = os.path.join(sessions, _slug(root) + ".md")
         io.open(path, "w", encoding="utf-8").write(text)
         _, spans, content = build_spans(runs)
         s = span_stats(content)
@@ -93,6 +108,7 @@ def cmd_pull(args):
 
 
 def cmd_spans(args):
+    _, CACHE_DIR = _dirs(args.project)
     """Every subagent fan-out, one row per span, across all cached sessions.
 
     This is the view that motivates a close read: siblings get near-identical
@@ -100,10 +116,10 @@ def cmd_spans(args):
     pointer to the session worth reading line by line.
     """
     rows = []
-    for name in sorted(os.listdir(CACHE)) if os.path.isdir(CACHE) else []:
+    for name in sorted(os.listdir(CACHE_DIR)) if os.path.isdir(CACHE_DIR) else []:
         if not name.endswith(".json"):
             continue
-        runs = json.load(io.open(os.path.join(CACHE, name), encoding="utf-8"))
+        runs = json.load(io.open(os.path.join(CACHE_DIR, name), encoding="utf-8"))
         _, spans, content = build_spans(runs)
         if not spans:
             continue

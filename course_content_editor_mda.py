@@ -45,13 +45,14 @@ import os
 import re
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
 from dotenv import dotenv_values
 
 from services.activity_tracking_service import track_tool_action
-from services.agent_identity import run_context, run_metadata
+from services.agent_identity import editor_id, run_context, run_metadata
 from services.cce_diff import (
     PAGE_CSS,
     counts_line,
@@ -112,13 +113,158 @@ def _client(url: str, key: str):
     return get_sync_client(url=url, api_key=key)
 
 
-def _thread_id(client) -> str:
-    existing = st.query_params.get("thread")
-    if existing:
-        return existing
-    thread_id = client.threads.create()["thread_id"]
+#: A sandbox is deleted 14 days after it stops (``delete_after_stop_seconds``
+#: = 1209600, read off the live sandboxes). Its thread outlives it, so a
+#: conversation older than this comes back with its messages and an empty
+#: workspace — which reads as the agent having lost the files. Warn before that
+#: happens rather than after.
+SANDBOX_LIFE_DAYS = 14
+SANDBOX_WARN_DAYS = 12
+
+#: Placeholder for a thread with no human message in it.
+EMPTY_THREAD = "(no messages yet)"
+
+
+def _current_editor() -> str | None:
+    return editor_id(st.session_state.get("user_email"))
+
+
+def _new_thread(client) -> str:
+    """Create a thread tagged with who it belongs to.
+
+    The tag is what makes the session picker possible: `threads.search` filters
+    on metadata, and without it the only listing available is every thread in
+    the deployment — one editor's work shown to another. Threads created before
+    this carry no tag and will not be listed; they are still reachable by id.
+    """
+    meta = {"surface": "course-content-editor-mda"}
+    who = _current_editor()
+    if who:
+        meta["editor_id"] = who
+    thread_id = client.threads.create(metadata=meta)["thread_id"]
     st.query_params["thread"] = thread_id
     return thread_id
+
+
+def _touch_thread(client, thread_id: str) -> None:
+    """Record that this session was just used, for ordering the past list.
+
+    `updated_at` is not a usable substitute. It moves on *any* write, so the
+    metadata backfill set thirteen threads to the same instant, and it is what
+    the ordering used to fall back to. This stamp moves only when someone
+    actually takes a turn, which is what "last used" means to a reader.
+
+    Metadata writes merge rather than replace — verified against the
+    deployment — so `editor_id`, `surface` and the platform's own `owner` all
+    survive this. Best-effort: a session that ran is not worth failing over a
+    bookkeeping write.
+    """
+    try:
+        client.threads.update(
+            thread_id,
+            metadata={"last_active": datetime.now(timezone.utc).isoformat()},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _recent_threads(client, fetch: int = 100) -> list[dict]:
+    """This editor's threads, newest first. Unfiltered and uncapped.
+
+    Deliberately returns everything it fetched rather than a page. The caller
+    discards threads nobody ever spoke in, and capping before that discards the
+    wrong ones: a page load with no thread in the URL creates an empty thread,
+    those are the newest rows, so a cap of eight returned eight empties and the
+    list rendered four real sessions out of a dozen.
+
+    Returns [] when nobody is signed in rather than falling back to an
+    unfiltered search: a listing that cannot be scoped to one person should not
+    be shown at all.
+    """
+    who = _current_editor()
+    if not who:
+        return []
+    try:
+        rows = client.threads.search(
+            metadata={"surface": "course-content-editor-mda", "editor_id": who},
+            sort_by="updated_at",
+            sort_order="desc",
+            limit=fetch,
+        )
+    except Exception:  # noqa: BLE001 — a picker that errors is worse than none
+        return []
+    # Sorted again here, on the timestamp this app trusts. `updated_at` moves
+    # whenever anything writes to the thread — including a metadata-only write,
+    # which is not activity the person would recognise. `_last_active` prefers
+    # a stamp we set deliberately and falls back to `updated_at`.
+    rows.sort(key=lambda t: _last_active(t) or "", reverse=True)
+    return rows
+
+
+def _last_active(thread: dict) -> str | None:
+    """When this thread last did work, newest-first sortable.
+
+    Metadata wins over `updated_at` because the latter is not a record of
+    activity: backfilling a tag onto thirteen old threads set all thirteen to
+    the same instant and made the picker list 2026-09-11 test threads above
+    yesterday's real work.
+    """
+    stamped = (thread.get("metadata") or {}).get("last_active")
+    return str(stamped) if stamped else (
+        str(thread["updated_at"]) if thread.get("updated_at") else None)
+
+
+def _age_days(stamp: str | None) -> float | None:
+    """Days since an ISO timestamp, or None when it cannot be read."""
+    if not stamp:
+        return None
+    try:
+        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - when).total_seconds() / 86400
+
+
+def _when(age: float | None) -> str:
+    """Age as a short phrase, with the expiry said plainly when it is close.
+
+    A workspace is reclaimed 14 days after its last turn, and by then the
+    conversation still comes back while the files do not. Saying so on the row
+    is the only warning anyone gets.
+    """
+    if age is None:
+        return "Just now"
+    if age < 1:
+        hours = max(round(age * 24), 1)
+        stamp = f"{hours} hour{'s' if hours != 1 else ''} ago"
+    else:
+        days = round(age)
+        stamp = f"{days} day{'s' if days != 1 else ''} ago"
+    if age >= SANDBOX_WARN_DAYS:
+        left = max(round(SANDBOX_LIFE_DAYS - age), 0)
+        stamp += " · files expire today" if left == 0 else (
+            f" · files expire in {left} day{'s' if left != 1 else ''}")
+    return stamp
+
+
+def _thread_summary(client, thread: dict) -> str:
+    """First thing the person said in that thread, for the picker row.
+
+    Prefers the messages `search` already returned; only falls back to fetching
+    state when they are absent, so a picker of eight rows is normally one API
+    call rather than nine.
+    """
+    messages = (thread.get("values") or {}).get("messages") or []
+    for message in messages:
+        if message.get("type") == "human":
+            text = _text(message).strip()
+            if text:
+                return text
+    for turn in _server_turns(client, thread["thread_id"]):
+        text = (turn.get("user") or "").strip()
+        if text:
+            return text
+    return EMPTY_THREAD
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +354,15 @@ def _presentations() -> dict[str, dict]:
     return store.setdefault(thread, {})
 
 
-def _transcript(client, thread_id: str) -> list[dict]:
-    """This thread's turns, seeded once from the server then appended to live."""
+def _transcript(client, thread_id: str | None) -> list[dict]:
+    """This thread's turns, seeded once from the server then appended to live.
+
+    `None` means the session has not started — the thread is created by the
+    first message, not by opening the page — so there is nothing to seed from
+    and nowhere to cache it against.
+    """
+    if not thread_id:
+        return []
     store = st.session_state.setdefault("cce_mda_transcript", {})
     if thread_id not in store:
         store[thread_id] = _server_turns(client, thread_id)
@@ -629,6 +782,83 @@ def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
 # ---------------------------------------------------------------------------
 
 
+SHOW_SESSIONS = "cce_mda_show_sessions"
+
+
+def _render_session_picker(client) -> None:
+    """The past-sessions view. Reached from the toolbar, never automatically.
+
+    Ends the run with `st.stop()` so this view *is* the page while it is open.
+    Streamlit renders as it executes, so it can never return having drawn
+    something — the caller would carry on in the same run and draw the chat
+    underneath whatever this left on screen.
+
+    Only loaded when asked for. Listing threads on every run costs an API round
+    trip per rerun, which is what made the toolbar version of this slow.
+    """
+    st.subheader("Past sessions")
+
+    back, _spacer = st.columns([1, 3])
+    with back:
+        if st.button("Back to current session", use_container_width=True):
+            st.session_state.pop(SHOW_SESSIONS, None)
+            st.rerun()
+
+    # Discard the ones nobody spoke in first, then cap. Capping first shows a
+    # short list padded with nothing, which is how a dozen sessions rendered
+    # as four.
+    rows: list[tuple[str, str, float | None]] = []
+    for thread in _recent_threads(client):
+        age = _age_days(_last_active(thread))
+        if age is not None and age >= SANDBOX_LIFE_DAYS:
+            continue  # its workspace is gone; the messages alone would mislead
+        summary = _thread_summary(client, thread)
+        if summary == EMPTY_THREAD:
+            continue
+        rows.append((thread["thread_id"], summary, age))
+        if len(rows) >= 15:
+            break
+
+    if not rows:
+        st.caption("No earlier sessions yet.")
+        st.stop()
+
+    st.caption("Each session keeps its files for 14 days.")
+    current = st.query_params.get("thread")
+    for tid, summary, age in rows:
+        with st.container(border=True):
+            body, action = st.columns([6, 1], vertical_alignment="center")
+            body.write(summary[:110] + ("…" if len(summary) > 110 else ""))
+            body.caption(_when(age) + (" · current" if tid == current else ""))
+            if action.button("Open", key=f"open_{tid}", use_container_width=True):
+                st.query_params["thread"] = tid
+                st.session_state.pop(SHOW_SESSIONS, None)
+                for name in ("cce_mda_transcript", "cce_mda_presentations"):
+                    st.session_state.pop(name, None)
+                st.rerun()
+
+    st.stop()
+
+
+def _connection_error(url: str, error: Exception) -> None:
+    """Explain a failed call to the deployment, distinguishing auth from reach.
+
+    Lives here because it is now raised from the first message rather than from
+    page load: with lazy session creation nothing touches the deployment until
+    someone types, so this is the first moment a wrong key or URL can show.
+    """
+    if "forbidden" in str(error).lower() or "denied" in str(error).lower():
+        st.error(
+            f"The deployment rejected the API key ({error}). The key reached "
+            f"{url}, so this is not a connectivity problem. Check that "
+            "LANGSMITH_API_KEY belongs to the same LangSmith workspace as "
+            "the deployment."
+        )
+    else:
+        st.error(f"Could not reach the deployment at {url}: {error}")
+    st.text(traceback.format_exc())
+
+
 def main() -> None:
     st.markdown(PAGE_CSS, unsafe_allow_html=True)
     st.markdown('<div class="cce-title">Course Content Editor</div>', unsafe_allow_html=True)
@@ -647,7 +877,8 @@ def main() -> None:
         st.caption(
             "The thread id is in this page's URL. Copy the link and the same "
             "conversation comes back — including after a timeout, since the "
-            "agent keeps running on the server."
+            "agent keeps running on the server. Lost the link? Start a new "
+            "session and your recent ones are listed to pick from."
         )
 
     if not key:
@@ -658,36 +889,45 @@ def main() -> None:
         return
 
     client = _client(url, key)
-    try:
-        thread_id = _thread_id(client)
-    except Exception as e:  # noqa: BLE001
-        if "forbidden" in str(e).lower() or "denied" in str(e).lower():
-            st.error(
-                f"The deployment rejected the API key ({e}). The key reached "
-                f"{url}, so this is not a connectivity problem. Check that "
-                "LANGSMITH_API_KEY belongs to the same LangSmith workspace as "
-                "the deployment."
-            )
-        else:
-            st.error(f"Could not reach the deployment at {url}: {e}")
-        st.text(traceback.format_exc())
-        return
+    # May be None: a session is created by its first message, not by opening
+    # the page. Visiting used to mint a thread every time, and those empty
+    # threads are the newest rows — they crowded real sessions out of the list
+    # and accumulated on the deployment forever.
+    #
+    # Nothing is called on the deployment here any more, so there is no startup
+    # probe to catch a bad URL or key. Adding one back would mean an API call on
+    # every rerun, which is the cost this page has been trimming. The first real
+    # call reports it instead, through `_connection_error`.
+    thread_id = st.query_params.get("thread")
+
+    if st.session_state.get(SHOW_SESSIONS):
+        _render_session_picker(client)  # ends the run
 
     transcript = _transcript(client, thread_id)
 
-    _bar_left, _bar_mid, _bar_right = st.columns([1, 1, 2])
+    _bar_left, _bar_mid, _bar_prev, _bar_right = st.columns([1, 1, 1, 1])
     with _bar_left:
         if transcript and st.button("Resync this session", use_container_width=True):
             _resync(client, thread_id)
             st.rerun()
     with _bar_mid:
-        if st.button("Start new session", use_container_width=True):
+        if st.button("Start new session", disabled=not thread_id,
+                     use_container_width=True):
+            # Drops the pointer rather than making a thread. The next message
+            # makes one; until then there is nothing to leave behind.
             st.query_params.pop("thread", None)
             for name in ("cce_mda_transcript", "cce_mda_presentations"):
                 st.session_state.pop(name, None)
             st.rerun()
+    with _bar_prev:
+        if st.button("View past sessions", use_container_width=True):
+            # Sets a flag and reruns rather than listing inline. The list costs
+            # an API call, and paying for it on every rerun is what made the
+            # toolbar version slow; this pays once, when it is asked for.
+            st.session_state[SHOW_SESSIONS] = True
+            st.rerun()
     with _bar_right:
-        st.caption(f"Thread `{thread_id}`")
+        st.caption(f"Thread `{thread_id}`" if thread_id else "New session")
 
     tab_chat, tab_review = st.tabs(["💬 Chat", "📝 Review changes"])
 
@@ -777,7 +1017,14 @@ def main() -> None:
             progress = st.empty()
             set_progress(progress, "Working…")
             try:
+                if not thread_id:
+                    # First message of a new session. Creating it here rather
+                    # than on page load is what keeps unused threads from
+                    # existing at all. `_new_thread` also puts the id in the
+                    # URL, so a reload or a shared link finds this session.
+                    thread_id = _new_thread(client)
                 turn = stream_turn(client, thread_id, prompt, live, progress)
+                _touch_thread(client, thread_id)
                 if not turn["reply"] and not turn["presentations"]:
                     st.info("The agent finished without a closing message.")
                 track_tool_action(
@@ -793,8 +1040,7 @@ def main() -> None:
                     error_message=str(e)[:500],
                     course_name="", sheet_link=sheet_link,
                 )
-                st.error(f"Error: {e}")
-                st.text(traceback.format_exc())
+                _connection_error(url, e)
                 st.caption(
                     "The run may still be going on the server — it was started with "
                     "on_disconnect=continue. Press \"Resync this session\" once it has "
