@@ -332,8 +332,15 @@ def _presentations() -> dict[str, dict]:
     return store.setdefault(thread, {})
 
 
-def _transcript(client, thread_id: str) -> list[dict]:
-    """This thread's turns, seeded once from the server then appended to live."""
+def _transcript(client, thread_id: str | None) -> list[dict]:
+    """This thread's turns, seeded once from the server then appended to live.
+
+    `None` means the session has not started — the thread is created by the
+    first message, not by opening the page — so there is nothing to seed from
+    and nowhere to cache it against.
+    """
+    if not thread_id:
+        return []
     store = st.session_state.setdefault("cce_mda_transcript", {})
     if thread_id not in store:
         store[thread_id] = _server_turns(client, thread_id)
@@ -811,6 +818,25 @@ def _render_session_picker(client) -> None:
     st.stop()
 
 
+def _connection_error(url: str, error: Exception) -> None:
+    """Explain a failed call to the deployment, distinguishing auth from reach.
+
+    Lives here because it is now raised from the first message rather than from
+    page load: with lazy session creation nothing touches the deployment until
+    someone types, so this is the first moment a wrong key or URL can show.
+    """
+    if "forbidden" in str(error).lower() or "denied" in str(error).lower():
+        st.error(
+            f"The deployment rejected the API key ({error}). The key reached "
+            f"{url}, so this is not a connectivity problem. Check that "
+            "LANGSMITH_API_KEY belongs to the same LangSmith workspace as "
+            "the deployment."
+        )
+    else:
+        st.error(f"Could not reach the deployment at {url}: {error}")
+    st.text(traceback.format_exc())
+
+
 def main() -> None:
     st.markdown(PAGE_CSS, unsafe_allow_html=True)
     st.markdown('<div class="cce-title">Course Content Editor</div>', unsafe_allow_html=True)
@@ -841,25 +867,16 @@ def main() -> None:
         return
 
     client = _client(url, key)
-    try:
-        thread_id = st.query_params.get("thread")
-        if not thread_id:
-            # Opening this page means a new session. Earlier work is not lost
-            # and is behind "View past sessions" in the toolbar; gating the page
-            # on a list made starting fresh cost two clicks.
-            thread_id = _new_thread(client)
-    except Exception as e:  # noqa: BLE001
-        if "forbidden" in str(e).lower() or "denied" in str(e).lower():
-            st.error(
-                f"The deployment rejected the API key ({e}). The key reached "
-                f"{url}, so this is not a connectivity problem. Check that "
-                "LANGSMITH_API_KEY belongs to the same LangSmith workspace as "
-                "the deployment."
-            )
-        else:
-            st.error(f"Could not reach the deployment at {url}: {e}")
-        st.text(traceback.format_exc())
-        return
+    # May be None: a session is created by its first message, not by opening
+    # the page. Visiting used to mint a thread every time, and those empty
+    # threads are the newest rows — they crowded real sessions out of the list
+    # and accumulated on the deployment forever.
+    #
+    # Nothing is called on the deployment here any more, so there is no startup
+    # probe to catch a bad URL or key. Adding one back would mean an API call on
+    # every rerun, which is the cost this page has been trimming. The first real
+    # call reports it instead, through `_connection_error`.
+    thread_id = st.query_params.get("thread")
 
     if st.session_state.get(SHOW_SESSIONS):
         _render_session_picker(client)  # ends the run
@@ -872,10 +889,13 @@ def main() -> None:
             _resync(client, thread_id)
             st.rerun()
     with _bar_mid:
-        if st.button("Start new session", use_container_width=True):
+        if st.button("Start new session", disabled=not thread_id,
+                     use_container_width=True):
+            # Drops the pointer rather than making a thread. The next message
+            # makes one; until then there is nothing to leave behind.
+            st.query_params.pop("thread", None)
             for name in ("cce_mda_transcript", "cce_mda_presentations"):
                 st.session_state.pop(name, None)
-            _new_thread(client)
             st.rerun()
     with _bar_prev:
         if st.button("View past sessions", use_container_width=True):
@@ -885,7 +905,7 @@ def main() -> None:
             st.session_state[SHOW_SESSIONS] = True
             st.rerun()
     with _bar_right:
-        st.caption(f"Thread `{thread_id}`")
+        st.caption(f"Thread `{thread_id}`" if thread_id else "New session")
 
     tab_chat, tab_review = st.tabs(["💬 Chat", "📝 Review changes"])
 
@@ -975,6 +995,12 @@ def main() -> None:
             progress = st.empty()
             set_progress(progress, "Working…")
             try:
+                if not thread_id:
+                    # First message of a new session. Creating it here rather
+                    # than on page load is what keeps unused threads from
+                    # existing at all. `_new_thread` also puts the id in the
+                    # URL, so a reload or a shared link finds this session.
+                    thread_id = _new_thread(client)
                 turn = stream_turn(client, thread_id, prompt, live, progress)
                 if not turn["reply"] and not turn["presentations"]:
                     st.info("The agent finished without a closing message.")
@@ -991,8 +1017,7 @@ def main() -> None:
                     error_message=str(e)[:500],
                     course_name="", sheet_link=sheet_link,
                 )
-                st.error(f"Error: {e}")
-                st.text(traceback.format_exc())
+                _connection_error(url, e)
                 st.caption(
                     "The run may still be going on the server — it was started with "
                     "on_disconnect=continue. Press \"Resync this session\" once it has "
