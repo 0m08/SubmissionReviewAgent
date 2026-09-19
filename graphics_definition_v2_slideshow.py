@@ -474,15 +474,51 @@ def _strip_following_use_image_at_note(text, line_end_pos):
     return text[:line_end_pos] + rest[m.end() :]
 
 
+_AI_GENERATED_NOTE_RE = re.compile(r"\(\s*AI Generated\s*\)", re.IGNORECASE)
+_CLIP_SUFFIX_RE = re.compile(r"\(start=\d+(?:&end=\d+)?\)", re.IGNORECASE)
+
+
+def _assigned_asset_url(asset_text: str) -> str:
+    """
+    URL to write into Graphics-to-use lines and manifest slots.
+
+    Keeps a Drive/YouTube clip suffix ``(start=N)`` / ``(start=N&end=M)``.
+    Drops human labels such as ``(AI Generated)``.
+    """
+    s = safe_str(asset_text).strip()
+    if not s:
+        return ""
+    match = re.search(r"https?://[^\s)>\"]+", s)
+    if not match:
+        return s.split()[0] if s.split() else s
+    url = match.group(0).rstrip(".,);\"'")
+    clip = re.match(r"\s*(\(start=\d+(?:&end=\d+)?\))", s[match.end():])
+    if clip:
+        url = url + " " + clip.group(1)
+    return url
+
+
+def _trailing_graphics_notes(trailing: str, new_url: str) -> str:
+    """Keep still-frame / clip notes on a Graphics-to-use line; drop (AI Generated)."""
+    text = trailing or ""
+    text = _AI_GENERATED_NOTE_RE.sub("", text)
+    if _CLIP_SUFFIX_RE.search(new_url or ""):
+        text = _CLIP_SUFFIX_RE.sub("", text)
+    return text.rstrip()
+
+
 def _formatted_graphics_line_replace(raw_text, parsed_segments, override_map):
     """
     Replace URLs on ``Graphics to use:`` lines for formatted final_graphics_definition text.
 
     Parsed ``asset`` values may include a ``(use the image at …)`` note on the next line,
     so plain substring replacement against ``step['asset']`` often fails.
+
+    Trailing same-line notes (clip times, still-frame hints, ``(AI Generated)``) are
+    allowed so a single annotated line does not disable surgical replacement.
     """
     pattern = re.compile(
-        r"(?im)^[ \t]*(Graphics to use:)[ \t]*(\S+)([ \t]*)$",
+        r"(?im)^[ \t]*(Graphics to use:)[ \t]*(\S+)([ \t][^\n]*)?$",
     )
     matches = list(pattern.finditer(raw_text))
     ordered = _ordered_step_keys(parsed_segments)
@@ -501,10 +537,11 @@ def _formatted_graphics_line_replace(raw_text, parsed_segments, override_map):
     for i in sorted(replacements.keys(), reverse=True):
         m = matches[i]
         old_url = m.group(2)
-        new_url = replacements[i]
+        new_url = _assigned_asset_url(replacements[i]) or replacements[i]
         seg_idx, step_idx = ordered[i]
         _log_fgd_asset_replacement(old_url, new_url, "formatted_graphics_line", seg_idx, step_idx)
-        line = f"{m.group(1)} {new_url}{m.group(3)}"
+        trailing = _trailing_graphics_notes(m.group(3) or "", new_url)
+        line = f"{m.group(1)} {new_url}{trailing}"
         line_end = m.start() + len(line)
         result = result[: m.start()] + line + result[m.end() :]
         result = _strip_following_use_image_at_note(result, line_end)
@@ -530,6 +567,11 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
     """
     if not override_map:
         return raw_text  # Nothing changed
+
+    override_map = {
+        key: (_assigned_asset_url(value) or value)
+        for key, value in override_map.items()
+    }
 
     # ── Strategy 1: XML surgical replacement ─────────────────────────────────
     if "<" in raw_text and ">" in raw_text:
@@ -582,11 +624,24 @@ def _apply_asset_overrides_to_raw(raw_text, parsed_segments, override_map):
                         old_url = (step.get("asset") or "").strip()
                         break
         old_primary = _primary_asset_url(old_url)
+        new_clean = _assigned_asset_url(new_url) or new_url
         if old_primary and old_primary in updated:
-            _log_fgd_asset_replacement(old_primary, new_url, "primary_url_fallback", seg_idx, step_idx)
-            idx = updated.find(old_primary)
-            updated = updated.replace(old_primary, new_url, 1)
-            line_end = updated.find("\n", idx)
+            _log_fgd_asset_replacement(old_primary, new_clean, "primary_url_fallback", seg_idx, step_idx)
+            graphics_line = re.compile(
+                r"(?im)^([ \t]*Graphics to use:[ \t]*)"
+                + re.escape(old_primary)
+                + r"([ \t][^\n]*)?$"
+            )
+            match = graphics_line.search(updated)
+            if match:
+                trailing = _trailing_graphics_notes(match.group(2) or "", new_clean)
+                replacement = f"{match.group(1)}{new_clean}{trailing}"
+                updated = graphics_line.sub(replacement, updated, count=1)
+                line_end = match.start() + len(replacement)
+            else:
+                idx = updated.find(old_primary)
+                updated = updated.replace(old_primary, new_clean, 1)
+                line_end = updated.find("\n", idx)
             if line_end == -1:
                 line_end = len(updated)
             updated = _strip_following_use_image_at_note(updated, line_end)
@@ -1091,10 +1146,15 @@ def _parse_formatted_block(block):
         if matched:
             continue
         if current_key:
-            if current_key in ("asset", "asset_reference") and re.match(
-                r"^\(\s*use the image at\b", line, re.IGNORECASE
-            ):
-                data[current_key] = f"{data[current_key]} {line}".strip()
+            if current_key in ("asset", "asset_reference"):
+                if re.match(r"^\(\s*AI Generated\s*\)$", line, re.IGNORECASE):
+                    continue
+                if (
+                    re.match(r"^\(\s*use the image at\b", line, re.IGNORECASE)
+                    or re.match(r"^\(start=\d+", line, re.IGNORECASE)
+                    or re.match(r"^https?://", line)
+                ):
+                    data[current_key] = f"{data[current_key]} {line}".strip()
                 continue
             data[current_key] = f"{data[current_key]} {line}".strip()
     if any(data.values()):

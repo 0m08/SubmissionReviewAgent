@@ -80,7 +80,8 @@ _MANIFEST_SYNC_LOCK = threading.Lock()
 _MANIFEST_SYNC_STATUS_LOCK = threading.Lock()
 _MANIFEST_SYNC_RUNNING_BY_SESSION: Dict[str, bool] = {}
 MANIFEST_SYNC_MAX_REGEN_ATTEMPTS = 3
-MANIFEST_SYNC_MAX_WORKERS = 15
+MANIFEST_SYNC_MAX_WORKERS = 50
+MANIFEST_SYNC_REVIEW_PREFIX_ROWS = 10
 MANIFEST_SYNC_LOG_PREFIX = "[manifest_sync]"
 
 
@@ -177,7 +178,8 @@ def extract_asset_url(raw_def, segment_index, step_index):
         if seg.get("segment_index") == segment_index:
             for step in seg.get("steps") or []:
                 if step.get("step_index") == step_index:
-                    return safe_str(step.get("asset", "")).strip()
+                    raw = safe_str(step.get("asset", "")).strip()
+                    return _first_http_url(raw)
     return ""
 
 
@@ -211,32 +213,125 @@ def _collect_manifest_old_url_candidates(
     return candidates
 
 
+def _fgd_url_occurrence(
+    raw_def: str,
+    segment_index: int,
+    step_index: int,
+    target_url: str,
+) -> int:
+    """1-based index of this step among FGD assets that match ``target_url``.
+
+    Used so a shared Drive file (two visuals, one URL) updates only that
+    visual's manifest slot instead of every slot with the same file.
+    """
+    target = _first_http_url((target_url or "").strip())
+    if not target:
+        return 0
+    helpers = _import_slideshow_helpers()
+    parse_graphics_definition = helpers["parse_graphics_definition"]
+    safe_str = helpers["safe_str"]
+    seen = 0
+    for seg in parse_graphics_definition(raw_def or ""):
+        for step in seg.get("steps") or []:
+            asset = _first_http_url(safe_str(step.get("asset", "")).strip())
+            if not asset:
+                continue
+            matched = urls_match_for_graphics_assignment(asset, target)
+            if matched:
+                seen += 1
+            if seg.get("segment_index") == segment_index and step.get("step_index") == step_index:
+                return seen if matched else 0
+    return 0
+
+
 def _patch_slideshow_manifest_urls(
     df,
     row_index: int,
     new_url: str,
     old_url_candidates: List[str],
+    *,
+    raw_def: str = "",
+    segment_index: Optional[int] = None,
+    step_index: Optional[int] = None,
 ) -> bool:
-    """Replace the first matching old URL in slideshow_manifest with new_url."""
-    new_url = (new_url or "").strip()
+    """Replace one matching old URL in slideshow_manifest with new_url.
+
+    When ``raw_def`` + segment/step are provided, only the Nth slot that
+    currently uses the old URL is rewritten (N = this visual's occurrence
+    in final_graphics_definition). Otherwise every matching slot is replaced.
+    """
+    new_url = _first_http_url((new_url or "").strip())
     if not new_url or "slideshow_manifest" not in df.columns:
         return False
     manifest = safe_str(df.at[row_index, "slideshow_manifest"])
     if not manifest or manifest == "nan" or manifest.startswith("ERROR:"):
         return False
+    scoped = bool(raw_def) and segment_index is not None and step_index is not None
     for old_url in old_url_candidates:
         if not old_url or old_url == new_url:
             continue
+        occurrence = None
+        if scoped:
+            occurrence = _fgd_url_occurrence(raw_def, int(segment_index), int(step_index), old_url)
+            if not occurrence:
+                continue
         try:
             updated_manifest, applied = apply_url_replacements_to_slideshow_manifest_inner_xml(
-                manifest, [(old_url, new_url)]
+                manifest, [(old_url, new_url)], occurrence=occurrence
             )
             if applied and updated_manifest != manifest:
+                if occurrence:
+                    print(
+                        f"[human_feedback] manifest patch: S{segment_index}V{step_index} "
+                        f"replaced occurrence {occurrence} of the old URL"
+                    )
                 df.at[row_index, "slideshow_manifest"] = updated_manifest
                 return True
         except Exception as exc:  # pragma: no cover - defensive
             print(f"[human_feedback] manifest patch failed for row {row_index}: {exc}")
+    if scoped:
+        print(
+            f"[human_feedback] manifest patch: no slot matched for row {row_index} "
+            f"S{segment_index}V{step_index}; skipping replace-all"
+        )
     return False
+
+
+def _refresh_overlays_after_url_change(session: UserSession, row_index: int, new_url: str) -> None:
+    """Re-plan overlays for scenes using the new image. Failures never undo the visual save."""
+    url = (new_url or "").strip()
+    if not url:
+        return
+    try:
+        from human_feedback_app.backend.overlay_refresh import refresh_overlays_after_visual_change
+
+        refresh_overlays_after_visual_change(session, row_index, url)
+    except Exception as exc:
+        print(f"[overlay_refresh] skipped row={row_index}: {exc}")
+
+
+def _rebuild_overlays_after_full_manifest(session: UserSession, row_index: int) -> None:
+    """Wipe and replan every overlay on this row. Failures never undo the manifest save."""
+    try:
+        from human_feedback_app.backend.overlay_refresh import rebuild_overlays_for_row
+
+        rebuild_overlays_for_row(session, row_index)
+    except Exception as exc:
+        print(f"[overlay_refresh] full rebuild skipped row={row_index}: {exc}")
+
+
+def _apply_post_manifest_overlay(
+    session: UserSession,
+    row_index: int,
+    sync_result: Optional[Dict[str, Any]] = None,
+    new_url: str = "",
+) -> None:
+    """Full overlay rebuild after a whole-manifest regen; otherwise surgical URL refresh."""
+    if (sync_result or {}).get("reason") == "repaired_by_regeneration":
+        _rebuild_overlays_after_full_manifest(session, row_index)
+        return
+    if new_url:
+        _refresh_overlays_after_url_change(session, row_index, new_url)
 
 
 def merge_visual_revision(
@@ -267,12 +362,15 @@ def merge_visual_revision(
 
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
     status_col = get_round_column_name(HUMAN_FEEDBACK_STATUS_COLUMN, ROUND_INDEX)
+    url_change = {"new_url": "", "did_change": False}
+    sync_result: Dict[str, Any] = {}
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
         final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
         current_fgd_url = ""
         prior_tracking_entry = None
+        raw_def = ""
         if tracking_col in df.columns:
             prior_tracking_entry = _parse_tracking(safe_str(df.at[row_index, tracking_col])).get(visual_id)
         if final_col in df.columns:
@@ -298,7 +396,15 @@ def merge_visual_revision(
         # 3) slideshow_manifest: replace the URL currently in use (not the first original).
         if final_url and final_url != current_fgd_url:
             old_candidates = _collect_manifest_old_url_candidates(current_fgd_url, prior_tracking_entry)
-            if not _patch_slideshow_manifest_urls(df, row_index, final_url, old_candidates):
+            if not _patch_slideshow_manifest_urls(
+                df,
+                row_index,
+                final_url,
+                old_candidates,
+                raw_def=raw_def,
+                segment_index=segment_index,
+                step_index=step_index,
+            ):
                 print(
                     f"[human_feedback] manifest patch: no slot matched for row {row_index} "
                     f"visual {visual_id} (tried {len(old_candidates)} candidate URL(s))"
@@ -311,15 +417,27 @@ def merge_visual_revision(
                 df[status_col] = ""
             df.at[row_index, status_col] = status_value
 
-        ensure_manifest_sync_for_row(
-            session,
-            df,
-            row_index,
-            reason="merge_visual_revision",
-            force_regenerate=False,
+        sync_result.update(
+            ensure_manifest_sync_for_row(
+                session,
+                df,
+                row_index,
+                reason="merge_visual_revision",
+                force_regenerate=False,
+            )
+            or {}
         )
+        if final_url and final_url != current_fgd_url:
+            url_change["new_url"] = final_url
+            url_change["did_change"] = True
 
     mutate_row_cells(session, row_index, mutate)
+    _apply_post_manifest_overlay(
+        session,
+        row_index,
+        sync_result,
+        url_change["new_url"] if url_change["did_change"] else "",
+    )
 
 
 def _first_http_url(text: str) -> str:
@@ -1085,10 +1203,31 @@ def _manifest_for_ui_row(session: UserSession, row_index: int, row) -> str:
     return safe_str(row.get("slideshow_manifest", ""))
 
 
+def _apply_manifest_sync_ready_flags(status: Dict[str, Any]) -> None:
+    """Review unlocks after the first N rows are resolved; Player waits for all."""
+    if str(status.get("status") or "") == "error":
+        status["review_ready"] = True
+        status["player_ready"] = True
+        return
+    if not status.get("check_complete"):
+        status["review_ready"] = False
+        status["player_ready"] = False
+        return
+    prefix_n = max(0, int(status.get("prefix_row_count") or 0))
+    needing = {int(i) for i in (status.get("rows_needing_repair_indices") or [])}
+    repaired = {int(i) for i in (status.get("repaired_row_indices") or [])}
+    failed = {int(i) for i in (status.get("failed_row_indices") or [])}
+    resolved = repaired | failed
+    prefix_needing = {i for i in needing if 0 <= i < prefix_n}
+    status["review_ready"] = prefix_needing.issubset(resolved)
+    status["player_ready"] = needing.issubset(resolved)
+
+
 def _set_manifest_sync_status(session: UserSession, **kwargs) -> None:
     with _MANIFEST_SYNC_STATUS_LOCK:
         status = dict(getattr(session, "manifest_sync_status", None) or {})
         status.update(kwargs)
+        _apply_manifest_sync_ready_flags(status)
         session.manifest_sync_status = status
 
 
@@ -1101,6 +1240,7 @@ def _append_manifest_sync_repaired_row(session: UserSession, row_index: int) -> 
         status["repaired_row_indices"] = repaired
         status["repaired_rows"] = len(repaired)
         status["repair_version"] = int(status.get("repair_version") or 0) + 1
+        _apply_manifest_sync_ready_flags(status)
         session.manifest_sync_status = status
 
 
@@ -1112,6 +1252,7 @@ def _append_manifest_sync_failed_row(session: UserSession, row_index: int) -> No
             failed.append(int(row_index))
         status["failed_row_indices"] = failed
         status["failed_rows"] = len(failed)
+        _apply_manifest_sync_ready_flags(status)
         session.manifest_sync_status = status
 
 
@@ -1141,10 +1282,22 @@ def get_manifest_sync_status(session: UserSession) -> Dict[str, Any]:
             "repaired_row_indices": [],
             "failed_row_indices": [],
             "repair_version": 0,
+            "check_complete": False,
+            "review_ready": False,
+            "player_ready": False,
+            "prefix_row_count": MANIFEST_SYNC_REVIEW_PREFIX_ROWS,
+            "rows_needing_repair_indices": [],
+            "total_rows": 0,
         }
     status.setdefault("repaired_row_indices", [])
     status.setdefault("failed_row_indices", [])
     status.setdefault("repair_version", 0)
+    status.setdefault("check_complete", False)
+    status.setdefault("review_ready", False)
+    status.setdefault("player_ready", False)
+    status.setdefault("prefix_row_count", MANIFEST_SYNC_REVIEW_PREFIX_ROWS)
+    status.setdefault("rows_needing_repair_indices", [])
+    status.setdefault("total_rows", 0)
     return status
 
 
@@ -1309,11 +1462,12 @@ def _parallel_manifest_sync_repair_task(
         if regenerated_ok:
             print(f"{MANIFEST_SYNC_LOG_PREFIX} Saving regenerated manifest for {label}...")
             _persist_slideshow_manifest_cell(session, row_index, regenerated_manifest)
-            _append_manifest_sync_repaired_row(session, row_index)
             print(
                 f"{MANIFEST_SYNC_LOG_PREFIX} Regeneration succeeded for {label} "
-                f"on attempt {attempt}"
+                f"on attempt {attempt} — rebuilding overlays"
             )
+            _rebuild_overlays_after_full_manifest(session, row_index)
+            _append_manifest_sync_repaired_row(session, row_index)
             return {
                 "row_index": row_index,
                 "synced": True,
@@ -1356,6 +1510,12 @@ def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str
             "failed_rows": 0,
             "repaired_row_indices": [],
             "failed_row_indices": [],
+            "check_complete": True,
+            "prefix_row_count": 0,
+            "rows_needing_repair_indices": [],
+            "review_ready": True,
+            "player_ready": True,
+            "total_rows": 0,
         }
 
     final_col = _pick_column(df, FINAL_GRAPHICS_COLUMN)
@@ -1367,6 +1527,12 @@ def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str
             "failed_rows": 0,
             "repaired_row_indices": [],
             "failed_row_indices": [],
+            "check_complete": True,
+            "prefix_row_count": 0,
+            "rows_needing_repair_indices": [],
+            "review_ready": True,
+            "player_ready": True,
+            "total_rows": 0,
         }
 
     total_rows = len(df)
@@ -1374,6 +1540,7 @@ def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str
         f"{MANIFEST_SYNC_LOG_PREFIX} Checking {total_rows} row(s) in parallel "
         f"(max_workers={MANIFEST_SYNC_MAX_WORKERS})..."
     )
+    _set_manifest_sync_status(session, total_rows=total_rows, checked_rows=0)
 
     check_jobs: List[Tuple[int, str, str]] = []
     repair_snapshots: Dict[int, Dict[str, Any]] = {}
@@ -1401,12 +1568,19 @@ def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str
                 row_index = int(result["row_index"])
                 rows_needing_repair.append(row_index)
                 repair_reasons[row_index] = str(result.get("sync_error") or "out_of_sync")
+            _set_manifest_sync_status(
+                session,
+                total_rows=total_rows,
+                checked_rows=checked_rows,
+            )
 
     rows_needing_repair.sort()
     in_sync_count = checked_rows - len(rows_needing_repair)
+    prefix_n = min(MANIFEST_SYNC_REVIEW_PREFIX_ROWS, total_rows)
     print(
         f"{MANIFEST_SYNC_LOG_PREFIX} Check complete: {checked_rows} row(s) checked, "
-        f"{in_sync_count} in sync, {len(rows_needing_repair)} need regeneration"
+        f"{in_sync_count} in sync, {len(rows_needing_repair)} need regeneration "
+        f"(review prefix={prefix_n})"
     )
     if rows_needing_repair:
         for row_index in rows_needing_repair:
@@ -1420,14 +1594,31 @@ def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str
         session,
         checked_rows=checked_rows,
         rows_needing_repair=len(rows_needing_repair),
+        rows_needing_repair_indices=list(rows_needing_repair),
+        prefix_row_count=prefix_n,
+        check_complete=True,
     )
+    prefix_pending = [i for i in rows_needing_repair if i < prefix_n]
+    if not prefix_pending:
+        print(
+            f"{MANIFEST_SYNC_LOG_PREFIX} First {prefix_n} row(s) are in sync — Review can load"
+        )
+    else:
+        print(
+            f"{MANIFEST_SYNC_LOG_PREFIX} Review waits on {len(prefix_pending)} prefix repair(s)"
+        )
 
     repaired_rows = 0
     failed_rows = 0
     if rows_needing_repair:
+        repair_order = sorted(
+            rows_needing_repair,
+            key=lambda i: (0 if i < prefix_n else 1, i),
+        )
         print(
             f"{MANIFEST_SYNC_LOG_PREFIX} Starting parallel regeneration for "
-            f"{len(rows_needing_repair)} row(s) (max_workers={MANIFEST_SYNC_MAX_WORKERS})..."
+            f"{len(repair_order)} row(s) (max_workers={MANIFEST_SYNC_MAX_WORKERS}, "
+            f"prefix first)..."
         )
         with ThreadPoolExecutor(max_workers=MANIFEST_SYNC_MAX_WORKERS) as executor:
             futures = [
@@ -1439,7 +1630,7 @@ def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str
                     final_col,
                     reason="sheet_load_checker",
                 )
-                for row_index in rows_needing_repair
+                for row_index in repair_order
             ]
             for future in as_completed(futures):
                 result = future.result()
@@ -1463,6 +1654,12 @@ def run_manifest_sync_checker_for_loaded_sheet(session: UserSession) -> Dict[str
         "failed_rows": failed_rows,
         "repaired_row_indices": list(status.get("repaired_row_indices") or []),
         "failed_row_indices": list(status.get("failed_row_indices") or []),
+        "check_complete": True,
+        "prefix_row_count": prefix_n,
+        "rows_needing_repair_indices": list(rows_needing_repair),
+        "review_ready": bool(status.get("review_ready")),
+        "player_ready": True,
+        "total_rows": total_rows,
     }
     print(f"{MANIFEST_SYNC_LOG_PREFIX} Sheet sync finished: {summary}")
     return summary
@@ -1484,9 +1681,15 @@ def trigger_manifest_sync_checker_background(session: UserSession) -> bool:
         repaired_row_indices=[],
         failed_row_indices=[],
         rows_needing_repair=0,
+        rows_needing_repair_indices=[],
         repair_version=0,
         sync_run_id=uuid.uuid4().hex[:8],
         error="",
+        check_complete=False,
+        review_ready=False,
+        player_ready=False,
+        prefix_row_count=MANIFEST_SYNC_REVIEW_PREFIX_ROWS,
+        total_rows=0,
     )
     print(f"{MANIFEST_SYNC_LOG_PREFIX} Background sync started for session {session_id}")
 
@@ -2241,6 +2444,8 @@ def select_pool_alternative(
 
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
     actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+    url_change = {"new_url": "", "did_change": False}
+    sync_result: Dict[str, Any] = {}
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
@@ -2280,18 +2485,29 @@ def select_pool_alternative(
 
         if asset_url and asset_url != current_fgd_url:
             old_candidates = _collect_manifest_old_url_candidates(current_fgd_url, prior_tracking_entry)
-            if not _patch_slideshow_manifest_urls(df, row_index, asset_url, old_candidates):
+            if not _patch_slideshow_manifest_urls(
+                df,
+                row_index,
+                asset_url,
+                old_candidates,
+                raw_def=raw_def,
+                segment_index=segment_index,
+                step_index=step_index,
+            ):
                 print(
                     f"[human_feedback] manifest patch: no slot matched for row {row_index} "
                     f"visual {visual_id} (pool select; tried {len(old_candidates)} candidate URL(s))"
                 )
 
-        ensure_manifest_sync_for_row(
-            session,
-            df,
-            row_index,
-            reason="select_pool_alternative",
-            force_regenerate=False,
+        sync_result.update(
+            ensure_manifest_sync_for_row(
+                session,
+                df,
+                row_index,
+                reason="select_pool_alternative",
+                force_regenerate=False,
+            )
+            or {}
         )
 
         raw_actions = safe_str(df.at[row_index, actions_col])
@@ -2312,12 +2528,21 @@ def select_pool_alternative(
         }
         payload = {"actions": actions_map, "segment_modes": segment_modes, "round": ROUND_INDEX}
         df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+        if asset_url and asset_url != current_fgd_url:
+            url_change["new_url"] = asset_url
+            url_change["did_change"] = True
 
     # The mutate runs inside the global write lock against the freshest sheet and
     # touches only this visual's (segment, step) slice + its tracking key and approval action,
     # so it is safe to run alongside an in-flight revision of a DIFFERENT visual on the
     # same slide and commits everything in a single sheet transaction.
     mutate_row_cells(session, row_index, mutate)
+    _apply_post_manifest_overlay(
+        session,
+        row_index,
+        sync_result,
+        url_change["new_url"] if url_change["did_change"] else "",
+    )
 
 
 def extract_first_url(text: str) -> Optional[str]:
@@ -2364,6 +2589,8 @@ def replace_visual_with_url(
 
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
     actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
+    url_change = {"new_url": "", "did_change": False}
+    sync_result: Dict[str, Any] = {}
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
@@ -2403,18 +2630,29 @@ def replace_visual_with_url(
 
         if url and url != current_fgd_url:
             old_candidates = _collect_manifest_old_url_candidates(current_fgd_url, prior_tracking_entry)
-            if not _patch_slideshow_manifest_urls(df, row_index, url, old_candidates):
+            if not _patch_slideshow_manifest_urls(
+                df,
+                row_index,
+                url,
+                old_candidates,
+                raw_def=raw_def,
+                segment_index=segment_index,
+                step_index=step_index,
+            ):
                 print(
                     f"[human_feedback] manifest patch: no slot matched for row {row_index} "
                     f"visual {visual_id} (manual replace; tried {len(old_candidates)} candidate URL(s))"
                 )
 
-        ensure_manifest_sync_for_row(
-            session,
-            df,
-            row_index,
-            reason="replace_visual_with_url",
-            force_regenerate=False,
+        sync_result.update(
+            ensure_manifest_sync_for_row(
+                session,
+                df,
+                row_index,
+                reason="replace_visual_with_url",
+                force_regenerate=False,
+            )
+            or {}
         )
 
         raw_actions = safe_str(df.at[row_index, actions_col])
@@ -2435,8 +2673,17 @@ def replace_visual_with_url(
         }
         payload = {"actions": actions_map, "segment_modes": segment_modes, "round": ROUND_INDEX}
         df.at[row_index, actions_col] = json.dumps(payload, ensure_ascii=True)
+        if url and url != current_fgd_url:
+            url_change["new_url"] = url
+            url_change["did_change"] = True
 
     mutate_row_cells(session, row_index, mutate)
+    _apply_post_manifest_overlay(
+        session,
+        row_index,
+        sync_result,
+        url_change["new_url"] if url_change["did_change"] else "",
+    )
     return url
 
 
@@ -2456,6 +2703,8 @@ def revert_visual(
 
     actions_col = get_round_column_name(HUMAN_REVIEW_ACTIONS_COLUMN, ROUND_INDEX)
     tracking_col = get_round_column_name(HUMAN_FEEDBACK_TRACKING_COLUMN, ROUND_INDEX)
+    url_change = {"new_url": "", "did_change": False}
+    sync_result: Dict[str, Any] = {}
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
@@ -2488,7 +2737,17 @@ def revert_visual(
 
                 if current_url and current_url != original_url:
                     old_candidates = _collect_manifest_old_url_candidates(current_url, tracking_entry)
-                    _patch_slideshow_manifest_urls(df, row_index, original_url, old_candidates)
+                    _patch_slideshow_manifest_urls(
+                        df,
+                        row_index,
+                        original_url,
+                        old_candidates,
+                        raw_def=raw_def,
+                        segment_index=segment_index,
+                        step_index=step_index,
+                    )
+                    url_change["new_url"] = original_url
+                    url_change["did_change"] = True
 
             # 3. Wipe the revision history for this visual in tracking!
             if original_url:
@@ -2501,15 +2760,24 @@ def revert_visual(
                 }
                 df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(tmap)
 
-        ensure_manifest_sync_for_row(
-            session,
-            df,
-            row_index,
-            reason="revert_visual",
-            force_regenerate=False,
+        sync_result.update(
+            ensure_manifest_sync_for_row(
+                session,
+                df,
+                row_index,
+                reason="revert_visual",
+                force_regenerate=False,
+            )
+            or {}
         )
 
     mutate_row_cells(session, row_index, mutate)
+    _apply_post_manifest_overlay(
+        session,
+        row_index,
+        sync_result,
+        url_change["new_url"] if url_change["did_change"] else "",
+    )
 
 
 def approve_visual(session: UserSession, row_index: int, segment_index: int, step_index: int, visual_id: str, vo: str) -> None:
@@ -2559,6 +2827,7 @@ def apply_segmentation_revision_to_sheet(
     search_map = {k.strip().upper(): v for k, v in (search_tracking or {}).items() if k.strip()}
     # Search targets also need their (stale) review action cleared.
     clear_actions = affected | set(search_map.keys())
+    sync_result: Dict[str, Any] = {}
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
@@ -2623,15 +2892,20 @@ def apply_segmentation_revision_to_sheet(
                 }
             df.at[row_index, tracking_col] = _format_human_feedback_revision_tracking(new_tmap)
 
-        ensure_manifest_sync_for_row(
-            session,
-            df,
-            row_index,
-            reason="apply_segmentation_revision_to_sheet",
-            force_regenerate=False,
+        sync_result.update(
+            ensure_manifest_sync_for_row(
+                session,
+                df,
+                row_index,
+                reason="apply_segmentation_revision_to_sheet",
+                force_regenerate=False,
+            )
+            or {}
         )
 
     mutate_row_cells(session, row_index, mutate)
+    if updated_slideshow_manifest is not None or (sync_result or {}).get("reason") == "repaired_by_regeneration":
+        _rebuild_overlays_after_full_manifest(session, row_index)
     if events:
         print(f"[human_feedback] segmentation revision row {row_index}: " + "; ".join(events))
 
@@ -2780,6 +3054,7 @@ def apply_layout_revision_to_sheet(
     
     layout_feedback_col = get_round_column_name(LAYOUT_FEEDBACK_COLUMN, ROUND_INDEX)
     layout_plan_col = get_round_column_name(LAYOUT_PLAN_COLUMN, ROUND_INDEX)
+    sync_result: Dict[str, Any] = {}
 
     def mutate(df) -> None:
         _invalidate_manifest_repair_cache(session, row_index)
@@ -2816,15 +3091,19 @@ def apply_layout_revision_to_sheet(
         plan_dict[str(scene_id)] = raw_plan
         df.at[row_index, layout_plan_col] = json.dumps(plan_dict)
 
-        ensure_manifest_sync_for_row(
-            session,
-            df,
-            row_index,
-            reason="apply_layout_revision_to_sheet",
-            force_regenerate=False,
+        sync_result.update(
+            ensure_manifest_sync_for_row(
+                session,
+                df,
+                row_index,
+                reason="apply_layout_revision_to_sheet",
+                force_regenerate=False,
+            )
+            or {}
         )
 
     mutate_row_cells(session, row_index, mutate)
+    _rebuild_overlays_after_full_manifest(session, row_index)
     if events:
         print(f"[human_feedback] layout revision row {row_index} scene {scene_id}: " + "; ".join(events))
 

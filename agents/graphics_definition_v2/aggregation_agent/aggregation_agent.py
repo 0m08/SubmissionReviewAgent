@@ -4422,6 +4422,99 @@ def process_aggregation_row(index, row, course_name, drive, llm="gemini_3_flash_
         return index, "", "", ""  # 4-tuple to match caller unpacking
 
 
+_WHEN_VO_STOP_PREFIXES = (
+    "when vo:",
+    "graphics to use:",
+    "assigned asset:",
+    "visual instructions:",
+    "selection justification:",
+)
+
+
+def _normalize_spoken_text(text):
+    """Lowercase, drop punctuation/quotes, collapse spaces for VO vs slide compare."""
+    s = str(text or "").strip().strip('"').strip("'")
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _extract_when_vo_parts(fgd_text):
+    """Return When VO: texts in sheet order. Ignores SEGMENT headers and asset lines."""
+    if not fgd_text or str(fgd_text).strip() in ("", "nan"):
+        return []
+    parts = []
+    lines = str(fgd_text).splitlines()
+    i = 0
+    n = len(lines)
+    while i < n:
+        stripped = lines[i].strip()
+        if not stripped.lower().startswith("when vo:"):
+            i += 1
+            continue
+        after = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+        chunks = [after] if after else []
+        i += 1
+        while i < n:
+            ls = lines[i].strip()
+            low = ls.lower()
+            if any(low.startswith(prefix) for prefix in _WHEN_VO_STOP_PREFIXES):
+                break
+            if ls == "----" or low.startswith("====") or re.match(r"segment\s+\d+\s*$", low):
+                break
+            if ls:
+                chunks.append(ls)
+            i += 1
+        part = " ".join(chunks).strip().strip('"').strip("'")
+        if part:
+            parts.append(part)
+    return parts
+
+
+def _when_vo_parts_cover_slide(slide_text, when_vo_parts):
+    """
+    True when When VO parts, in order, are the full slide with no drop or repeat.
+
+    Caps and punctuation are ignored. Consecutive parts must continue exactly
+    where the previous part ended.
+    """
+    expected = _normalize_spoken_text(slide_text)
+    if not expected:
+        return True, None
+    parts = [_normalize_spoken_text(part) for part in when_vo_parts]
+    parts = [part for part in parts if part]
+    if not parts:
+        return False, "No When VO text found in final_graphics_definition"
+    expected_tokens = expected.split()
+    cursor = 0
+    for idx, part in enumerate(parts, start=1):
+        part_tokens = part.split()
+        remaining = expected_tokens[cursor:]
+        if remaining[: len(part_tokens)] == part_tokens:
+            cursor += len(part_tokens)
+            continue
+        preview = " ".join(part_tokens[:12])
+        return (
+            False,
+            f"When VO {idx} is not the next slice of slide content "
+            f"(repeat, drop, extra words, or wrong order). Got: {preview}",
+        )
+    if cursor != len(expected_tokens):
+        leftover = " ".join(expected_tokens[cursor : cursor + 12])
+        return False, f"When VO dropped remaining slide content starting: {leftover}"
+    return True, None
+
+
+def validate_when_vo_matches_slide_chunk(row):
+    """Compare all When VO lines against Slide Chunk. Empty slide text skips this check."""
+    slide_text = str(row.get("Slide Chunk", "") or "").strip()
+    if not slide_text or slide_text.lower() == "nan":
+        return True, None
+    fgd_text = str(row.get("final_graphics_definition", "") or "").strip()
+    when_vo_parts = _extract_when_vo_parts(fgd_text)
+    return _when_vo_parts_cover_slide(slide_text, when_vo_parts)
+
+
 def validate_final_graphics_definition_row(row):
     """
     Validate that final_graphics_definition matches voiceover_segment:
@@ -4429,6 +4522,7 @@ def validate_final_graphics_definition_row(row):
     - All segments from voiceover_segment have results
     - No gaps in segment numbering (must be sequential starting from 1)
     - For "1 Visual for the whole Slide", expect exactly SEGMENT 1
+    - When VO lines cover Slide Chunk in order with no drop or repetition
     
     :param row: Pandas Series with row data
     :return: Tuple (is_valid, error_message)
@@ -4472,41 +4566,34 @@ def validate_final_graphics_definition_row(row):
 
         if segment_numbers and (len(segment_numbers) != 1 or segment_numbers[0] != 1):
              return False, f"Expected either no segment markers or exactly SEGMENT 1 for '1 Visual for the whole Slide', found: {segment_numbers}"
+    elif vo_segments_text and vo_segments_text != "nan":
+        # Count segments in voiceover_segment (split by newline)
+        vo_segments = [seg.strip() for seg in vo_segments_text.split('\n') if seg.strip()]
+        expected_count = len(vo_segments)
 
-        return True, None
-    
-    # For other strategies, validate against voiceover_segment
-    # Skip validation if voiceover_segment is empty
-    if not vo_segments_text or vo_segments_text == "nan":
-        return True, None
-    
-    # Count segments in voiceover_segment (split by newline)
-    vo_segments = [seg.strip() for seg in vo_segments_text.split('\n') if seg.strip()]
-    expected_count = len(vo_segments)
-    
-    if not segment_numbers:
-        return False, "No segment markers found in final_graphics_definition"
-    
-    # Check count matches
-    actual_count = len(segment_numbers)
-    if actual_count != expected_count:
-        return False, f"Segment count mismatch: expected {expected_count}, found {actual_count}"
-    
-    # Check for gaps (must be sequential starting from 1)
-    segment_numbers_sorted = sorted(segment_numbers)
-    expected_sequence = list(range(1, expected_count + 1))
-    
-    if segment_numbers_sorted != expected_sequence:
-        missing = set(expected_sequence) - set(segment_numbers_sorted)
-        extra = set(segment_numbers_sorted) - set(expected_sequence)
-        error_parts = []
-        if missing:
-            error_parts.append(f"missing segments: {sorted(missing)}")
-        if extra:
-            error_parts.append(f"extra segments: {sorted(extra)}")
-        return False, f"Segment numbering gap: {', '.join(error_parts)}"
-    
-    return True, None
+        if not segment_numbers:
+            return False, "No segment markers found in final_graphics_definition"
+
+        # Check count matches
+        actual_count = len(segment_numbers)
+        if actual_count != expected_count:
+            return False, f"Segment count mismatch: expected {expected_count}, found {actual_count}"
+
+        # Check for gaps (must be sequential starting from 1)
+        segment_numbers_sorted = sorted(segment_numbers)
+        expected_sequence = list(range(1, expected_count + 1))
+
+        if segment_numbers_sorted != expected_sequence:
+            missing = set(expected_sequence) - set(segment_numbers_sorted)
+            extra = set(segment_numbers_sorted) - set(expected_sequence)
+            error_parts = []
+            if missing:
+                error_parts.append(f"missing segments: {sorted(missing)}")
+            if extra:
+                error_parts.append(f"extra segments: {sorted(extra)}")
+            return False, f"Segment numbering gap: {', '.join(error_parts)}"
+
+    return validate_when_vo_matches_slide_chunk(row)
 
 
 def _parse_iso8601_duration_to_seconds(duration):
@@ -4671,7 +4758,6 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
     course_name = course_info_df.loc[0, "Course Name"]
     
     # Setup Drive client for the Reference Image Pipeline.
-    # Priority: (1) dedicated service-account from env var, (2) reuse the existing session drive.
     ref_drive_client = None
     ref_output_folder_id = None
     ref_drive_lock = threading.Lock()
@@ -4904,6 +4990,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
 
     max_retries = 3
     retry_count = 0
+    print("Checking 'When VO' lines against Slide Chunk (order, no drop, no repeat)...")
     
     while retry_count < max_retries:
         # Reload dataframe to get latest state
@@ -4912,6 +4999,7 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
         # Validate all rows and find invalid ones
         duration_cache: Dict[str, Optional[int]] = {}
         invalid_rows = []
+        when_vo_mismatch_count = 0
         for index, row in df.iterrows():
             topic_name = str(row.get("Topic", "")).strip()
             if selected_topics and topic_name not in selected_topics:
@@ -4924,17 +5012,25 @@ def run_aggregation_agent_for_all_rows(sheet, llm="gemini_3_flash_thinking", max
                 reasons: List[str] = []
                 if not is_valid and error_msg:
                     reasons.append(error_msg)
+                    if "When VO" in error_msg:
+                        when_vo_mismatch_count += 1
                 if not clip_valid and clip_error_msg:
                     reasons.append(f"YouTube clip validation failed: {clip_error_msg}")
                     print(f"⚠️ Faulty clip found in row {index + 2}: {clip_error_msg}")
                 invalid_rows.append((index, row, " || ".join(reasons)))
         
         if not invalid_rows:
+            print("'When VO' coverage check passed for all rows.")
             if youtube_api_key:
                 print("✅ YouTube clip validation completed: no faulty clip links found.")
             break
         
         retry_count += 1
+        if when_vo_mismatch_count:
+            print(
+                f"'When VO' did not match Slide Chunk on {when_vo_mismatch_count} row(s). "
+                "Clearing those 'final_graphics_definition' cells and re-aggregating."
+            )
         print(f"\n⚠️ Found {len(invalid_rows)} rows with invalid final_graphics_definition. Retrying (attempt {retry_count}/{max_retries})...")
         for idx, row, error in invalid_rows[:3]:  # Show first 3 errors
             print(f"  Row {idx + 2}: {error}")

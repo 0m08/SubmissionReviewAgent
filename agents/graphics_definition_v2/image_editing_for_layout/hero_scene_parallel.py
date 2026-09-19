@@ -135,12 +135,15 @@ class SceneRowAggregator:
         return merged if merged else empty_fallback
 
 
-def build_cached_row_text(
-    ordered_specs: Sequence[SceneSpec],
-    scene_block_fn: Callable[[str, str], str],
-    empty_fallback: str = "-",
-) -> str:
-    """Merge preset-only scene specs without running workers."""
+def build_cached_row_text(ordered_specs, scene_block_fn, empty_fallback="-"):
+    """
+    Merge preset-only scene specs without running workers.
+
+    :param ordered_specs: The ordered scene specs.
+    :param scene_block_fn: The scene block function.
+    :param empty_fallback: The empty fallback value.
+    :return: The merged text.
+    """
     parts = []
     for _sort_key, scene_id, preset in ordered_specs:
         if preset is not PENDING:
@@ -341,7 +344,7 @@ def execute_nested_row_scene_batch(
             worker_fn=worker,
             scene_block_fn=scene_block_fn,
             api_semaphore=api_semaphore,
-            empty_fallback=empty_fallback,
+            empty_fallback=job.get("empty_fallback", empty_fallback),
             on_scene_done=_on_scene_done if tasks else None,
             streamlit_ctx=streamlit_ctx,
         )

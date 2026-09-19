@@ -1271,7 +1271,21 @@
     height: 100%;
     background: linear-gradient(90deg, #4f46e5, #10b981);
     border-radius: 99px;
-    transition: width 0.2s ease;
+    transition: width 0.35s ease;
+    position: relative;
+    overflow: hidden;
+    min-width: 8px;
+  }
+  .hf-player-loading-fill.is-waiting::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    animation: hfPlayerLoadShine 1.2s ease-in-out infinite;
+  }
+  @keyframes hfPlayerLoadShine {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
   }
   .hf-view-toggle {
     display: inline-flex;
@@ -2757,12 +2771,14 @@
 
     <aside class="hf-aside" style="{{ asideStyle }}">
       <div style="padding: 16px 16px 12px;">
-        <div class="hf-muted" style="font-size: 12px; font-weight: 700; color: #8b93a1; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px;">Slides · {{ totalCount }}</div>
+        <div class="hf-muted" style="font-size: 12px; font-weight: 700; color: #8b93a1; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px;">{{ sidebarSlidesLabel }}</div>
+        <sc-if value="{{ reviewSlidesReady }}" hint-placeholder-val="{{ false }}">
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          <sc-for list="{{ filterPills }}" as="pill" hint-placeholder-count="4">
+          <sc-for list="{{ filterPills }}" as="pill" hint-placeholder-count="0">
             <button onClick="{{ pill.onClick }}" style="{{ pill.style }}">{{ pill.label }}<span style="{{ pill.countStyle }}">{{ pill.count }}</span></button>
           </sc-for>
         </div>
+        </sc-if>
       </div>
       <div ref="{{ setRail }}" style="flex: 1; overflow-y: auto; padding: 4px 10px 16px; width: 296px; box-sizing: border-box;">
         <sc-if value="{{ reviewEmpty }}" hint-placeholder-val="{{ false }}">
@@ -2775,11 +2791,12 @@
             Loading slides&#8230;
           </div>
         </sc-if>
-        <sc-for list="{{ topicGroups }}" as="group" hint-placeholder-count="2">
+        <sc-if value="{{ reviewSlidesReady }}" hint-placeholder-val="{{ false }}">
+        <sc-for list="{{ topicGroups }}" as="group" hint-placeholder-count="0">
           <div style="margin-bottom: 16px;">
             <div class="hf-text" style="padding: 0 11px; margin-bottom: 10px; line-height: 1.35;"><span class="hf-topic-label" style="display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; margin-bottom: 3px;">Topic Name:</span><span class="hf-topic-name" style="display: block; font-size: 15.5px; font-weight: 700; color: #1f2530;">{{ group.topic }}</span></div>
             <div style="display: flex; flex-direction: column; gap: 2px;">
-              <sc-for list="{{ group.items }}" as="nav" hint-placeholder-count="3">
+              <sc-for list="{{ group.items }}" as="nav" hint-placeholder-count="0">
           <button onClick="{{ nav.onClick }}" style="{{ nav.rowStyle }}">
             <span style="{{ nav.dotStyle }}"></span>
             <span style="font-size: 12px; font-weight: 700; color: #aab1bc; width: 20px; flex-shrink: 0; text-align: right;">{{ nav.num }}</span>
@@ -2795,6 +2812,7 @@
             </div>
           </div>
         </sc-for>
+        </sc-if>
       </div>
     </aside>
 
@@ -3482,7 +3500,7 @@
                   <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.02em;">{{ playerLoadingLabel }}</div>
                   <div style="font-size: 13px; color: #9aa3b2; max-width: 520px; line-height: 1.5;">{{ playerLoadingDetail }}</div>
                   <div class="hf-player-loading-bar">
-                    <div class="hf-player-loading-fill" style="width: {{ playerLoadProgress }}%;"></div>
+                    <div class="hf-player-loading-fill {{ playerLoadFillClass }}" style="width: {{ playerLoadProgress }}%;"></div>
                   </div>
                   <div style="font-size: 12px; font-weight: 600; color: #6b7280;">{{ playerLoadProgress }}%</div>
                 </div>
@@ -4098,6 +4116,11 @@ class Component extends DCLogic {
   _navCounter = 0;
   slides = [];
   slidesLoaded = false;
+  manifestReviewReady = false;
+  manifestPlayerReady = false;
+  _manifestSyncStatus = null;
+  _playerWaitDisplayPct = 4;
+  _playerWaitTickTimer = null;
   moduleLabel = 'Loading...';
   _pendingJobs = {};
   _pendingPoolSelects = {};
@@ -4854,15 +4877,17 @@ class Component extends DCLogic {
     }
     this.courseName = data.courseName || 'Course';
     this.topicName = data.topicName || '';
-    this._ensurePlayer();
-    if (this._player) {
-      this._player.setSlides(this.slides);
-      this._player.prefetchAll();
-      this._playerPrepareToken += 1;
+    if (this.manifestPlayerReady) {
+      this._ensurePlayer();
+      if (this._player) {
+        this._player.setSlides(this.slides);
+        this._player.prefetchAll();
+        this._playerPrepareToken += 1;
+      }
     }
     this.forceUpdate();
     this.preloadAllImages();
-    if (this.appView === 'player' && this._player && this._player.cues.length) {
+    if (this.manifestPlayerReady && this.appView === 'player' && this._player && this._player.cues.length) {
       this.preparePlayerPlayback().catch(() => {});
     }
   }
@@ -4926,8 +4951,66 @@ class Component extends DCLogic {
     this._manifestSyncRepairVersion = 0;
     this._manifestSyncFinalReloadDone = false;
     this._manifestSyncPolling = false;
+    this._playerWaitDisplayPct = 4;
+    this._startPlayerWaitProgressTick();
     this._pollManifestSyncOnce();
     this._manifestSyncTimer = setInterval(() => this._pollManifestSyncOnce(), 800);
+  }
+
+  _startPlayerWaitProgressTick() {
+    if (this._playerWaitTickTimer) return;
+    this._playerWaitTickTimer = setInterval(() => {
+      if (this.manifestPlayerReady) {
+        this._stopPlayerWaitProgressTick();
+        return;
+      }
+      const next = this._computePlayerWaitProgress();
+      if (next !== this._playerWaitDisplayPct) {
+        this._playerWaitDisplayPct = next;
+        if (this.appView === 'player') this.forceUpdate();
+      }
+    }, 250);
+  }
+
+  _stopPlayerWaitProgressTick() {
+    if (this._playerWaitTickTimer) {
+      clearInterval(this._playerWaitTickTimer);
+      this._playerWaitTickTimer = null;
+    }
+  }
+
+  _manifestSyncTargetProgress() {
+    const status = this._manifestSyncStatus || {};
+    const total = Number(status.total_rows || 0);
+    const checked = Number(status.checked_rows || 0);
+    const needing = Number(status.rows_needing_repair || (status.rows_needing_repair_indices || []).length || 0);
+    const resolved = Number(status.repaired_rows || 0) + Number(status.failed_rows || 0);
+    if (status.status === 'error' || status.player_ready) return 92;
+    if (total > 0 && !status.check_complete) {
+      return 8 + Math.round(Math.min(1, checked / total) * 32);
+    }
+    if (status.check_complete) {
+      if (needing <= 0) return 88;
+      return 40 + Math.round(Math.min(1, resolved / needing) * 48);
+    }
+    return 8;
+  }
+
+  _computePlayerWaitProgress() {
+    const target = this._manifestSyncTargetProgress();
+    const prev = Number(this._playerWaitDisplayPct || 4);
+    let shown = Math.max(prev, target, 4);
+    if (shown < 92) shown = Math.min(92, shown + 0.6);
+    return Math.round(shown);
+  }
+
+  _playerLoadingPercent(snap) {
+    if (!this.manifestPlayerReady) {
+      return this._playerWaitDisplayPct || this._computePlayerWaitProgress();
+    }
+    const preload = Number((snap && snap.preloadProgress) || 0);
+    const waitFloor = Math.max(Number(this._playerWaitDisplayPct || 0), 88);
+    return Math.min(100, Math.max(waitFloor, Math.round(88 + preload * 0.12)));
   }
 
   async _reloadSlidesAfterManifestRepair() {
@@ -4945,6 +5028,13 @@ class Component extends DCLogic {
     try {
       const status = await window.HFApi.getManifestSync();
       if (!status || status.status === 'idle') return;
+      this._manifestSyncStatus = status;
+      this._startPlayerWaitProgressTick();
+
+      const wasReviewReady = !!this.manifestReviewReady;
+      const wasPlayerReady = !!this.manifestPlayerReady;
+      this.manifestReviewReady = !!status.review_ready;
+      this.manifestPlayerReady = !!status.player_ready;
 
       const repairVersion = Number(status.repair_version || 0);
       const repaired = status.repaired_row_indices || [];
@@ -4968,12 +5058,28 @@ class Component extends DCLogic {
         await this._reloadSlidesAfterManifestRepair();
       }
 
+      if (this.manifestReviewReady && !wasReviewReady) {
+        this.forceUpdate();
+      }
+      if (this.manifestPlayerReady && !wasPlayerReady) {
+        this._stopPlayerWaitProgressTick();
+        this._unlockPlayerAfterManifestReady();
+      }
+
       if (status.status === 'done' || status.status === 'error') {
+        if (!this.manifestReviewReady) this.manifestReviewReady = true;
+        if (!this.manifestPlayerReady) this.manifestPlayerReady = true;
         if ((status.repaired_rows || 0) > 0 && !this._manifestSyncFinalReloadDone) {
           this._manifestSyncFinalReloadDone = true;
           await this._reloadSlidesAfterManifestRepair();
         }
+        if (this.manifestPlayerReady && !wasPlayerReady && !this._player) {
+          this._stopPlayerWaitProgressTick();
+          this._unlockPlayerAfterManifestReady();
+        }
+        this._stopPlayerWaitProgressTick();
         clearInterval(this._manifestSyncTimer);
+        this.forceUpdate();
       }
     } catch (_) {
     } finally {
@@ -5078,6 +5184,7 @@ class Component extends DCLogic {
     window.removeEventListener('keydown', this._onKey);
     if (this._pollTimer) clearInterval(this._pollTimer);
     if (this._manifestSyncTimer) clearInterval(this._manifestSyncTimer);
+    this._stopPlayerWaitProgressTick();
     if (this._animPreviewTimer) clearInterval(this._animPreviewTimer);
     if (this._animPreviewEndTimer) clearTimeout(this._animPreviewEndTimer);
     Object.keys(this._sceneOverrideSaveTimers || {}).forEach((key) => clearTimeout(this._sceneOverrideSaveTimers[key]));
@@ -6134,42 +6241,14 @@ class Component extends DCLogic {
   }
   setAppView(view) {
     if (view === 'player') {
-      if (window.HFYoutube) window.HFYoutube.destroyAll();
-      this._ytVideoPreloadCache = Object.create(null);
-      // Clear leftover fade/motion state from a previous Player visit (e.g. after Styles).
-      if (window.HFPlayerMotion) window.HFPlayerMotion.kill();
-      if (window.HFSceneTransition) window.HFSceneTransition.kill();
-      this._playerVisualFadePromise = Promise.resolve();
-      this._setCaptionHold(false);
-      this._playerLastCue = -1;
-      this._playerPrevCue = null;
-      this._ensurePlayer();
-      this.appView = 'player';
-      if (this._player && this._player.cues.length) {
-        this._player.jumpToSlide(this.current);
-        this._player.prefetchVoiceovers(this._player.cueIndex, 8);
-        const cue = this._player.cues[this._player.cueIndex];
-        if (cue) this._preloadPlayerSceneImages(cue);
+      if (!this.manifestPlayerReady) {
+        if (this._player) this._player.stop();
+        this.appView = 'player';
+        this._startPlayerWaitProgressTick();
         this.forceUpdate();
-        requestAnimationFrame(() => {
-          const shell = document.querySelector('.hf-player-fade-shell');
-          if (shell) {
-            shell.classList.remove('is-faded', 'hf-gsap-transitioning');
-            shell.style.transition = '';
-            if (window.gsap) window.gsap.set(shell, { clearProps: 'opacity,visibility,transform,clipPath,filter' });
-          }
-          this._syncPlayerMotion(true);
-        });
-        this.preparePlayerPlayback().then(() => {
-          if (this._player && this._player.cues.length) {
-            const cue = this._player.cues[this._player.cueIndex];
-            if (cue) this._schedulePlayerSceneVideoSync(cue);
-          }
-        }).catch(() => {});
-      } else {
-        this._applyPlayerSceneScope(null);
-        this.forceUpdate();
+        return;
       }
+      this._enterPlayerView();
       return;
     }
     if (this._player) this._player.stop();
@@ -6185,6 +6264,61 @@ class Component extends DCLogic {
       this._initPrimitivesState();
     }
     this.forceUpdate();
+  }
+
+  _unlockPlayerAfterManifestReady() {
+    this.manifestPlayerReady = true;
+    this._stopPlayerWaitProgressTick();
+    this._ensurePlayer();
+    if (this._player) {
+      this._player.setSlides(this.slides || []);
+      this._player.prefetchAll();
+      this._playerPrepareToken += 1;
+    }
+    if (this.appView === 'player') {
+      this._enterPlayerView();
+    } else {
+      this.forceUpdate();
+    }
+  }
+
+  _enterPlayerView() {
+    if (window.HFYoutube) window.HFYoutube.destroyAll();
+    this._ytVideoPreloadCache = Object.create(null);
+    // Clear leftover fade/motion state from a previous Player visit (e.g. after Styles).
+    if (window.HFPlayerMotion) window.HFPlayerMotion.kill();
+    if (window.HFSceneTransition) window.HFSceneTransition.kill();
+    this._playerVisualFadePromise = Promise.resolve();
+    this._setCaptionHold(false);
+    this._playerLastCue = -1;
+    this._playerPrevCue = null;
+    this._ensurePlayer();
+    this.appView = 'player';
+    if (this._player && this._player.cues.length) {
+      this._player.jumpToSlide(this.current);
+      this._player.prefetchVoiceovers(this._player.cueIndex, 8);
+      const cue = this._player.cues[this._player.cueIndex];
+      if (cue) this._preloadPlayerSceneImages(cue);
+      this.forceUpdate();
+      requestAnimationFrame(() => {
+        const shell = document.querySelector('.hf-player-fade-shell');
+        if (shell) {
+          shell.classList.remove('is-faded', 'hf-gsap-transitioning');
+          shell.style.transition = '';
+          if (window.gsap) window.gsap.set(shell, { clearProps: 'opacity,visibility,transform,clipPath,filter' });
+        }
+        this._syncPlayerMotion(true);
+      });
+      this.preparePlayerPlayback().then(() => {
+        if (this._player && this._player.cues.length) {
+          const cue = this._player.cues[this._player.cueIndex];
+          if (cue) this._schedulePlayerSceneVideoSync(cue);
+        }
+      }).catch(() => {});
+    } else {
+      this._applyPlayerSceneScope(null);
+      this.forceUpdate();
+    }
   }
 
   _getStylesSchema() {
@@ -8062,12 +8196,15 @@ class Component extends DCLogic {
       playerCustomizeButtonClass: self.playerCustomizeOpen ? 'is-on' : '',
       playerSceneNavLabel: 'Adjust animations',
       playerCustomizePanelEl: self.buildPlayerCustomizePanel(cue),
-      playerEmpty: !snap.hasCues,
-      playerShowLoading: !!snap.preloading || (!snap.assetsReady && snap.hasCues),
-      playerLoadProgress: snap.preloadProgress || 0,
+      playerEmpty: !!this.manifestPlayerReady && !snap.hasCues,
+      playerShowLoading: !this.manifestPlayerReady || !!snap.preloading || (!snap.assetsReady && snap.hasCues),
+      playerLoadProgress: this._playerLoadingPercent(snap),
+      playerLoadFillClass: !this.manifestPlayerReady ? 'is-waiting' : '',
       playerLoadingLabel: snap.assetsError
         ? 'Playback assets unavailable'
-        : (snap.preloading ? 'Preparing playback...' : 'Loading assets...'),
+        : (this.manifestPlayerReady
+          ? (snap.preloading ? 'Preparing playback...' : 'Loading assets...')
+          : 'Loading assets...'),
       playerLoadingDetail: snap.assetsError
         ? (snap.assetsError + ' Press Play to retry preparation.')
         : 'Warming every voiceover, image, and YouTube clip before enabling playback.',
@@ -10166,14 +10303,16 @@ class Component extends DCLogic {
       topicName: currentTopic || '',
       topicStyle,
       reviewedCount: approvedCount, totalCount: total,
-      reviewSlidesReady: !!this.slidesLoaded,
-      reviewEmpty: !!this.slidesLoaded && total === 0,
-      reviewHasSlides: total > 0,
+      reviewSlidesReady: !!this.slidesLoaded && !!this.manifestReviewReady,
+      reviewEmpty: !!this.slidesLoaded && !!this.manifestReviewReady && total === 0,
+      reviewHasSlides: !!this.slidesLoaded && !!this.manifestReviewReady && total > 0,
+      sidebarSlidesLabel: (!!this.slidesLoaded && !!this.manifestReviewReady) ? ('Slides · ' + total) : 'Slides',
       progressBarStyle: { width: pct + '%', height: '100%', background: 'linear-gradient(90deg, #4f46e5, #10b981)', borderRadius: '99px', transition: 'width 0.4s ease' },
       autoAdvance: this.autoAdvance, onToggleAuto: (e) => { this.autoAdvance = e.target.checked; this.forceUpdate(); },
       themeMode: this.themeMode, onThemeChange: (e) => this.onThemeChange(e),
       showLayoutPanel: this.showLayoutPanel, onToggleLayoutPanel: () => this.onToggleLayoutPanel(),
-      filterPills, topicGroups,
+      filterPills: (!!this.slidesLoaded && !!this.manifestReviewReady) ? filterPills : [],
+      topicGroups: (!!this.slidesLoaded && !!this.manifestReviewReady) ? topicGroups : [],
       setRail: (el) => { this.rail = el; }, setMain: (el) => { this.main = el; },
       curNum: total ? (i + 1) : 0, curTitle: cur.title || (total ? '' : 'No slides'), curKey: 'slide-' + i, fullScript,
       totalVoiceoverParts, segFeedbackExpanded, mapLabel, slideMetaLabel,

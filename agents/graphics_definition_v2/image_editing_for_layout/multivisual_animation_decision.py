@@ -208,6 +208,14 @@ def parse_multivisual_animation_response(response_text):
     return plan_match.group(1).strip()
 
 def _upload_composed_preview_to_drive(pil_image, drive, slide_title):
+    """
+    Upload a composed preview to Drive.
+
+    :param pil_image: The PIL image to upload.
+    :param drive: The drive instance.
+    :param slide_title: The slide title.
+    :return: The Drive URL of the uploaded file.
+    """
     if pil_image is None or not drive:
         return None
     folder_id = "1an92bpldViG1KL25SPrPyC7sJ2ASYXpZ"
@@ -244,6 +252,16 @@ def _upload_composed_preview_to_drive(pil_image, drive, slide_title):
     return None
 
 def _append_scene_slots_multimodal_parts(parts, scene, resolver, drive, slide_title=None):
+    """
+    Append scene slots multimodal parts to the parts list.
+
+    :param parts: The parts list to append to.
+    :param scene: The scene to process.
+    :param resolver: The resolver to use.
+    :param drive: The drive instance.
+    :param slide_title: The slide title.
+    :return: None
+    """
     from agents.graphics_definition_v2.review_agent.layout_revision_agent import (
         make_agent_scene_preview_image,
     )
@@ -299,6 +317,22 @@ def _append_scene_slots_multimodal_parts(parts, scene, resolver, drive, slide_ti
     }
 )
 def generate_multivisual_animation_decision_for_scene(course_name, target_audience, topic_name, subtopic_name, slide_type, slide_title, slide_content, scene, final_graphics_definition, drive, llm="gemini_3_flash_thinking"):
+    """
+    Generate a multi-visual overlay animation decision for a scene.
+
+    :param course_name: The course name.
+    :param target_audience: The target audience.
+    :param topic_name: The topic name.
+    :param subtopic_name: The subtopic name.
+    :param slide_type: The slide type.
+    :param slide_title: The slide title.
+    :param slide_content: The slide content.
+    :param scene: The scene to process.
+    :param final_graphics_definition: The final graphics definition.
+    :param drive: The drive instance.
+    :param llm: The LLM to use.
+    :return: A tuple containing the scene id and formatted plan.
+    """
     scene_id = str(scene.get("id", "")).strip() or "1"
     layout_template = str(scene.get("template", "")).strip()
     narration_span = str(scene.get("narration", "")).strip()
@@ -373,13 +407,17 @@ def _extract_xml_tag(text, tag):
     match = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else "N/A"
 
-def collect_multivisual_decision_scene_tasks(
-    index, row, course_name, target_audience, drive, llm="gemini_3_flash_thinking"
-):
+def collect_multivisual_decision_scene_tasks(index, row, course_name, target_audience, drive, llm="gemini_3_flash_thinking"):
     """
     Build ordered scene specs and async tasks for multi-visual scenes on one row.
 
-    :return: Tuple (ordered_specs, async_tasks, immediate_cell_value).
+    :param index: The row index to process.
+    :param row: The row to process.
+    :param course_name: The course name.
+    :param target_audience: The target audience.
+    :param drive: The drive instance.
+    :param llm: The LLM to use.
+    :return: A tuple containing the ordered specs, async tasks, and immediate cell value.
     """
     from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
         PENDING,
@@ -452,6 +490,94 @@ def worker_multivisual_decision_scene(task):
     return task["row_index"], task["sort_key"], task["scene_id"], plan_text
 
 
+def merge_multivisual_plan_into_row(df, row_index, plan_text):
+    """
+    Write or merge one row's multi-visual overlay plan into df.
+
+    :param df: The dataframe to process.
+    :param row_index: The row index to process.
+    :param plan_text: The plan text to merge.
+    :return: None
+    """
+    if not plan_text:
+        return
+    from agents.graphics_definition_v2.image_editing_for_layout.hero_bbox_spatial import (
+        split_hero_plan_scene_blocks,
+    )
+
+    current_all_plans = str(df.at[row_index, _PLAN_COLUMN]).strip()
+    if (
+        current_all_plans
+        and current_all_plans != "nan"
+        and not current_all_plans.startswith("ERROR:")
+    ):
+        existing_blocks_dict = {
+            sid: body for sid, body in split_hero_plan_scene_blocks(current_all_plans)
+        }
+        for n_sid, n_body in split_hero_plan_scene_blocks(plan_text):
+            existing_blocks_dict[n_sid] = n_body
+        merged_text = "\n\n".join(
+            _scene_block(sid, body)
+            for sid, body in sorted(existing_blocks_dict.items(), key=lambda x: x[0])
+        )
+        df.at[row_index, _PLAN_COLUMN] = merged_text
+    else:
+        df.at[row_index, _PLAN_COLUMN] = plan_text
+
+
+def collect_multivisual_plan_row_jobs(df, course_name, target_audience, drive, llm):
+    """
+    Apply multi-visual immediate writes and collect API jobs.
+
+    :param df: The dataframe to process.
+    :param course_name: The course name.
+    :param target_audience: The target audience.
+    :param drive: The drive instance.
+    :param llm: The LLM to use.
+    :return: Tuple of (row_jobs, rows_considered_count).
+    """
+    from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
+        build_cached_row_text,
+    )
+
+    rows_to_process = []
+    for index, row in df.iterrows():
+        manifest_text = str(row.get("slideshow_manifest", "")).strip()
+        if not manifest_text or manifest_text == "nan" or manifest_text.startswith("ERROR:"):
+            continue
+        scenes = parse_scenes_from_slideshow_manifest(manifest_text)
+        if any(_is_multivisual_scene(sc) for sc in scenes):
+            # Check if we already have some plan, otherwise process
+            existing_plan = str(row.get(_PLAN_COLUMN, "")).strip()
+            # If we already have decisions, we append or update. To keep it simple, we re-run multi-visual scenes.
+            rows_to_process.append((index, row))
+
+    row_jobs = []
+    for index, row in rows_to_process:
+        specs, tasks, immediate = collect_multivisual_decision_scene_tasks(
+            index, row, course_name, target_audience, drive, llm
+        )
+        if immediate is not None:
+            if immediate:
+                df.at[index, _PLAN_COLUMN] = immediate
+        elif specs:
+            if tasks:
+                row_jobs.append(
+                    {
+                        "phase": "multivisual",
+                        "row_index": index,
+                        "ordered_specs": specs,
+                        "tasks": tasks,
+                        "empty_fallback": "",
+                    }
+                )
+            else:
+                merged = build_cached_row_text(specs, _scene_block, "")
+                if merged:
+                    merge_multivisual_plan_into_row(df, index, merged)
+    return row_jobs, len(rows_to_process)
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -462,6 +588,17 @@ def worker_multivisual_decision_scene(task):
     }
 )
 def process_multivisual_animation_decision_row(index, row, course_name, target_audience, drive, llm="gemini_3_flash_thinking"):
+    """
+    Process one row's multi-visual overlay animation decision.
+
+    :param index: The row index to process.
+    :param row: The row to process.
+    :param course_name: The course name.
+    :param target_audience: The target audience.
+    :param drive: The drive instance.
+    :param llm: The LLM to use.
+    :return: A tuple containing the row index and plan text.
+    """
     try:
         manifest_text = str(row.get("slideshow_manifest", "")).strip()
         if not manifest_text or manifest_text == "nan" or manifest_text.startswith("ERROR:"):
@@ -523,6 +660,14 @@ def process_multivisual_animation_decision_row(index, row, course_name, target_a
     }
 )
 def run_multivisual_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
+    """
+    Run multi-visual overlay animation decision for all rows.
+
+    :param sheet: The worksheet to process.
+    :param llm: The LLM to use.
+    :param max_workers: The maximum number of workers to use.
+    :return: None
+    """
     worksheet_name = "Slide Chunks"
     print("Multi-visual overlay step: starting...")
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
@@ -535,76 +680,18 @@ def run_multivisual_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_t
     target_audience = str(course_info_df.iloc[0].get("Target Audience & Industry", "")).strip()
 
     drive = get_drive_instance()
-    rows_to_process = []
-    for index, row in df.iterrows():
-        manifest_text = str(row.get("slideshow_manifest", "")).strip()
-        if not manifest_text or manifest_text == "nan" or manifest_text.startswith("ERROR:"):
-            continue
-        scenes = parse_scenes_from_slideshow_manifest(manifest_text)
-        if any(_is_multivisual_scene(sc) for sc in scenes):
-            # Check if we already have some plan, otherwise process
-            existing_plan = str(row.get(_PLAN_COLUMN, "")).strip()
-            # If we already have decisions, we append or update. To keep it simple, we re-run multi-visual scenes.
-            rows_to_process.append((index, row))
+    row_jobs, n_rows = collect_multivisual_plan_row_jobs(
+        df, course_name, target_audience, drive, llm
+    )
 
-    if rows_to_process:
-        from agents.graphics_definition_v2.image_editing_for_layout.hero_bbox_spatial import (
-            split_hero_plan_scene_blocks,
-        )
+    if n_rows:
         from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
             GLOBAL_API_SEMAPHORE_LIMIT,
             OverlayStepProgress,
-            build_cached_row_text,
             execute_nested_row_scene_batch,
         )
 
         sheet_lock = threading.Lock()
-
-        def _merge_multivisual_row(row_index, plan_text):
-            if not plan_text:
-                return
-            current_all_plans = str(df.at[row_index, _PLAN_COLUMN]).strip()
-            if (
-                current_all_plans
-                and current_all_plans != "nan"
-                and not current_all_plans.startswith("ERROR:")
-            ):
-                existing_blocks_dict = {
-                    sid: body for sid, body in split_hero_plan_scene_blocks(current_all_plans)
-                }
-                for n_sid, n_body in split_hero_plan_scene_blocks(plan_text):
-                    existing_blocks_dict[n_sid] = n_body
-                merged_text = "\n\n".join(
-                    _scene_block(sid, body)
-                    for sid, body in sorted(existing_blocks_dict.items(), key=lambda x: x[0])
-                )
-                df.at[row_index, _PLAN_COLUMN] = merged_text
-            else:
-                df.at[row_index, _PLAN_COLUMN] = plan_text
-
-        row_jobs = []
-        for index, row in rows_to_process:
-            specs, tasks, immediate = collect_multivisual_decision_scene_tasks(
-                index, row, course_name, target_audience, drive, llm
-            )
-            if immediate is not None:
-                if immediate:
-                    df.at[index, _PLAN_COLUMN] = immediate
-            elif specs:
-                if tasks:
-                    row_jobs.append(
-                        {
-                            "phase": "multivisual",
-                            "row_index": index,
-                            "ordered_specs": specs,
-                            "tasks": tasks,
-                        }
-                    )
-                else:
-                    merged = build_cached_row_text(specs, _scene_block, "")
-                    if merged:
-                        _merge_multivisual_row(index, merged)
-
         progress = OverlayStepProgress(
             description="Multi-visual overlay animation decision",
             save_interval=5,
@@ -622,8 +709,8 @@ def run_multivisual_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_t
                 row_jobs=row_jobs,
                 worker_by_phase={"multivisual": worker_multivisual_decision_scene},
                 scene_block_fn=_scene_block,
-                on_row_complete=lambda _phase, row_index, text: _merge_multivisual_row(
-                    row_index, text
+                on_row_complete=lambda _phase, row_index, text: merge_multivisual_plan_into_row(
+                    df, row_index, text
                 ),
                 max_row_workers=max_workers,
                 api_semaphore_limit=GLOBAL_API_SEMAPHORE_LIMIT,
@@ -663,24 +750,138 @@ def delete_multivisual_animation_decision_columns(sheet):
 
 def run_overlay_animation_decisions_for_all_rows(sheet, llm="gemini_3_flash_thinking", max_workers=50):
     """
-    Orchestrates overlay animation decisions for both single visual hero layouts
-    and multi-visual layouts (split comparison, panel grid, main plus inset).
+    Orchestrates overlay animation decisions for both single visual hero layouts and multi-visual layouts (split comparison, panel grid, main plus inset).
+    
+    :param sheet: The worksheet to process.
+    :param llm: The LLM to use.
+    :param max_workers: The maximum number of workers to use.
+    :return: None
     """
-    from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
-        run_hero_animation_decision_for_all_rows,
+    from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
+        get_drive_instance,
     )
-    print("Overlay animation step: starting hero (single-visual) decisions...")
-    run_hero_animation_decision_for_all_rows(sheet, llm=llm, max_workers=max_workers)
+    from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
+        _CALLOUTS_COLUMN,
+        _COORDS_COLUMN,
+        _ICONS_COLUMN,
+        _PLAN_COLUMN as HERO_PLAN_COLUMN,
+        _scene_block as _hero_scene_block,
+        collect_hero_plan_row_jobs,
+        run_hero_spatial_and_icon_phases_parallel,
+        worker_hero_decision_scene,
+    )
+    from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
+        GLOBAL_API_SEMAPHORE_LIMIT,
+        OverlayStepProgress,
+        execute_nested_row_scene_batch,
+    )
+    from agents.graphics_definition_v2.slideshow_manifest.manifest_url_sync import (
+        ensure_slideshow_manifests_synced_for_overlay_step,
+    )
 
-    print("Overlay animation step: starting multi-visual decisions...")
-    run_multivisual_animation_decision_for_all_rows(sheet, llm=llm, max_workers=max_workers)
+    print("Overlay animation step: checking slideshow_manifest vs assigned visuals...")
+    ensure_slideshow_manifests_synced_for_overlay_step(
+        sheet, llm=llm, max_workers=max_workers
+    )
 
+    worksheet_name = "Slide Chunks"
+    _, course_info_df = get_sheet_data_and_df(sheet, "Course info")
+    course_name = str(course_info_df.loc[0, "Course Name"]).strip() if not course_info_df.empty else ""
+    target_audience = (
+        str(course_info_df.loc[0, "Target Audience & Industry"]).strip()
+        if not course_info_df.empty
+        else ""
+    )
+
+    ws, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if HERO_PLAN_COLUMN not in df.columns:
+        df[HERO_PLAN_COLUMN] = ""
+    if _COORDS_COLUMN not in df.columns:
+        df[_COORDS_COLUMN] = ""
+    if _ICONS_COLUMN not in df.columns:
+        df[_ICONS_COLUMN] = ""
+    if _CALLOUTS_COLUMN not in df.columns:
+        df[_CALLOUTS_COLUMN] = ""
+    if _PLAN_COLUMN not in df.columns:
+        df[_PLAN_COLUMN] = ""
+
+    drive = get_drive_instance()
+    if not drive:
+        print("Overlay animation step: Drive not available; some image loads may fail.")
+
+    print("Overlay animation step: collecting hero and multi-visual plan jobs...")
+    hero_jobs, hero_rows = collect_hero_plan_row_jobs(
+        df, course_name, target_audience, drive, llm
+    )
+    multi_jobs, multi_rows = collect_multivisual_plan_row_jobs(
+        df, course_name, target_audience, drive, llm
+    )
+    plan_row_jobs = hero_jobs + multi_jobs
+
+    progress = OverlayStepProgress(
+        description="Overlay animation decisions",
+        save_interval=5,
+    )
+    sheet_lock = threading.Lock()
+
+    if plan_row_jobs:
+        total_scenes = sum(len(j["tasks"]) for j in plan_row_jobs)
+        hero_scenes = sum(len(j["tasks"]) for j in hero_jobs)
+        multi_scenes = sum(len(j["tasks"]) for j in multi_jobs)
+        progress.add_tasks(total_scenes)
+        print(
+            f"Overlay plan phase: {total_scenes} scene task(s) in {len(plan_row_jobs)} row job(s) "
+            f"({hero_scenes} hero, {multi_scenes} multi-visual; "
+            f"{hero_rows} hero row(s), {multi_rows} multi-visual row(s)), "
+            f"row_workers={max_workers}, api_semaphore={GLOBAL_API_SEMAPHORE_LIMIT}"
+        )
+
+        def on_plan_row_complete(phase, row_index, text):
+            if phase == "plan":
+                df.at[row_index, HERO_PLAN_COLUMN] = text
+            elif phase == "multivisual":
+                merge_multivisual_plan_into_row(df, row_index, text)
+
+        execute_nested_row_scene_batch(
+            row_jobs=plan_row_jobs,
+            worker_by_phase={
+                "plan": worker_hero_decision_scene,
+                "multivisual": worker_multivisual_decision_scene,
+            },
+            scene_block_fn=_hero_scene_block,
+            on_row_complete=on_plan_row_complete,
+            max_row_workers=max_workers,
+            api_semaphore_limit=GLOBAL_API_SEMAPHORE_LIMIT,
+            progress=progress,
+            log_label="Overlay plan",
+            log_every=5,
+            on_checkpoint=lambda: save_to_sheet(ws, df),
+            empty_fallback="-",
+            sheet_lock=sheet_lock,
+        )
+        save_to_sheet(ws, df)
+        print("Overlay plan phase: complete.")
+    elif hero_rows or multi_rows:
+        print("Overlay plan phase: all rows resolved from cache (no scene tasks).")
+        save_to_sheet(ws, df)
+    else:
+        print("Overlay plan phase: no rows to process.")
+
+    print("Overlay animation step: starting bbox, icons, callouts...")
+    run_hero_spatial_and_icon_phases_parallel(
+        ws, df, drive, llm=llm, max_workers=max_workers, progress=progress
+    )
+    progress.finish()
+    format_worksheet(ws)
     print("Overlay animation step: complete.")
 
 
 def delete_overlay_animation_decisions_columns(sheet):
     """
     Deletes both hero and multi-visual overlay animation planning columns.
+    
+    :param sheet: The worksheet to process.
+    :return: None
     """
     from agents.graphics_definition_v2.image_editing_for_layout.hero_animation_decision import (
         delete_hero_animation_decision_columns,

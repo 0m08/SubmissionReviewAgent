@@ -354,7 +354,8 @@ def plan_cell_needs_processing(existing_text):
     """
     Return True when hero_animation_plan should be (re)generated.
 
-    Retries cells that contain ERROR anywhere (e.g. ``---Scene ID: 1---\\nERROR: ...``).
+    :param existing_text: The existing text to process.
+    :return: True when hero_animation_plan should be (re)generated.
     """
     existing = str(existing_text or "").strip()
     if not existing or existing.lower() == "nan" or existing == "-":
@@ -562,9 +563,13 @@ def collect_hero_decision_scene_tasks(index, row, course_name, target_audience, 
     """
     Build ordered scene specs and async tasks for one Slide Chunks row (phase 1).
 
-    :return: Tuple (ordered_specs, async_tasks, immediate_cell_value).
-        immediate_cell_value is set when the whole row can be written without API calls
-        (empty manifest, row error, or no hero scenes).
+    :param index: The row index to process.
+    :param row: The row to process.
+    :param course_name: The course name.
+    :param target_audience: The target audience.
+    :param drive: The drive instance.
+    :param llm: The LLM to use.
+    :return: A tuple containing the ordered specs, async tasks, and immediate cell value.
     """
     from agents.graphics_definition_v2.image_editing_for_layout.hero_bbox_spatial import (
         split_hero_plan_scene_blocks,
@@ -638,7 +643,12 @@ def collect_hero_decision_scene_tasks(index, row, course_name, target_audience, 
 
 
 def worker_hero_decision_scene(task):
-    """Run one phase-1 hero overlay decision scene task."""
+    """
+    Run one phase-1 hero overlay decision scene task.
+
+    :param task: The task to process.
+    :return: A tuple containing the row index, sort key, scene id, and plan text.
+    """
     _, plan_text = generate_hero_animation_decision_for_scene(
         course_name=task["course_name"],
         target_audience=task["target_audience"],
@@ -652,6 +662,65 @@ def worker_hero_decision_scene(task):
         llm=task["llm"],
     )
     return task["row_index"], task["sort_key"], task["scene_id"], plan_text
+
+
+def collect_hero_plan_row_jobs(df, course_name, target_audience, drive, llm):
+    """
+    Collect hero plan row jobs for all rows in the dataframe.
+    
+    :param df: The dataframe to process.
+    :param course_name: The course name.
+    :param target_audience: The target audience.
+    :param drive: The drive instance.
+    :param llm: The LLM to use.
+    :return: A list of row jobs.
+    """
+    from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
+        build_cached_row_text,
+    )
+
+    rows_to_process = []
+    for index, row in df.iterrows():
+        existing_plan = str(row.get(_PLAN_COLUMN, "")).strip()
+        if str(row.get("Slide Type", "")).strip().lower() == "transition":
+            if not existing_plan or existing_plan == "nan" or existing_plan.startswith("ERROR:"):
+                df.at[index, _PLAN_COLUMN] = "-"
+                df.at[index, _COORDS_COLUMN] = "-"
+                df.at[index, _ICONS_COLUMN] = "-"
+                df.at[index, _CALLOUTS_COLUMN] = "-"
+            continue
+        manifest = str(row.get("slideshow_manifest", "")).strip()
+        if not manifest or manifest == "nan" or manifest.startswith("ERROR:"):
+            continue
+        if (
+            existing_plan
+            and existing_plan != "nan"
+            and not plan_cell_needs_processing(existing_plan)
+        ):
+            continue
+        rows_to_process.append((index, row))
+
+    plan_row_jobs = []
+    for index, row in rows_to_process:
+        specs, tasks, immediate = collect_hero_decision_scene_tasks(
+            index, row, course_name, target_audience, drive, llm
+        )
+        if immediate is not None:
+            df.at[index, _PLAN_COLUMN] = immediate
+        elif specs:
+            if tasks:
+                plan_row_jobs.append(
+                    {
+                        "phase": "plan",
+                        "row_index": index,
+                        "ordered_specs": specs,
+                        "tasks": tasks,
+                        "empty_fallback": "-",
+                    }
+                )
+            else:
+                df.at[index, _PLAN_COLUMN] = build_cached_row_text(specs, _scene_block, "-")
+    return plan_row_jobs, len(rows_to_process)
 
 
 @traceable(
@@ -750,8 +819,13 @@ def run_hero_spatial_and_icon_phases_parallel(ws, df, drive, llm="gemini_3_flash
     """
     Run Phase 2 (bbox spatial) and Phase 3 (icon + callout generation) in parallel.
 
-    Scene tasks run in parallel within each row; up to max_workers rows run at once.
-    A global API semaphore (30) caps concurrent Gemini/Drive scene workers.
+    :param ws: The worksheet to process.
+    :param df: The dataframe to process.
+    :param drive: The drive instance.
+    :param llm: The LLM to use.
+    :param max_workers: The maximum number of workers to use.
+    :param progress: The progress object to use.
+    :return: None
     """
     from agents.graphics_definition_v2.image_editing_for_layout.hero_bbox_spatial import (
         collect_bbox_scene_tasks,
@@ -940,31 +1014,9 @@ def run_hero_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking
     if not drive:
         print("Hero animation decision: Drive not available; some image loads may fail.")
 
-    rows_to_process = []
-    for index, row in df.iterrows():
-        existing_plan = str(row.get(_PLAN_COLUMN, "")).strip()
-        if str(row.get("Slide Type", "")).strip().lower() == "transition":
-            if not existing_plan or existing_plan == "nan" or existing_plan.startswith("ERROR:"):
-                df.at[index, _PLAN_COLUMN] = "-"
-                df.at[index, _COORDS_COLUMN] = "-"
-                df.at[index, _ICONS_COLUMN] = "-"
-                df.at[index, _CALLOUTS_COLUMN] = "-"
-            continue
-        manifest = str(row.get("slideshow_manifest", "")).strip()
-        if not manifest or manifest == "nan" or manifest.startswith("ERROR:"):
-            continue
-        if (
-            existing_plan
-            and existing_plan != "nan"
-            and not plan_cell_needs_processing(existing_plan)
-        ):
-            continue
-        rows_to_process.append((index, row))
-
     from agents.graphics_definition_v2.image_editing_for_layout.hero_scene_parallel import (
         GLOBAL_API_SEMAPHORE_LIMIT,
         OverlayStepProgress,
-        build_cached_row_text,
         execute_nested_row_scene_batch,
     )
 
@@ -975,27 +1027,11 @@ def run_hero_animation_decision_for_all_rows(sheet, llm="gemini_3_flash_thinking
 
     sheet_lock = threading.Lock()
 
-    plan_row_jobs = []
-    for index, row in rows_to_process:
-        specs, tasks, immediate = collect_hero_decision_scene_tasks(
-            index, row, course_name, target_audience, drive, llm
-        )
-        if immediate is not None:
-            df.at[index, _PLAN_COLUMN] = immediate
-        elif specs:
-            if tasks:
-                plan_row_jobs.append(
-                    {
-                        "phase": "plan",
-                        "row_index": index,
-                        "ordered_specs": specs,
-                        "tasks": tasks,
-                    }
-                )
-            else:
-                df.at[index, _PLAN_COLUMN] = build_cached_row_text(specs, _scene_block, "-")
+    plan_row_jobs, n_rows = collect_hero_plan_row_jobs(
+        df, course_name, target_audience, drive, llm
+    )
 
-    if rows_to_process:
+    if n_rows:
         if plan_row_jobs:
             total_scenes = sum(len(j["tasks"]) for j in plan_row_jobs)
             progress.add_tasks(total_scenes)

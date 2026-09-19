@@ -817,12 +817,13 @@ def apply_edited_asset_urls_to_slideshow_manifest_inner_xml(inner_xml, tracking_
     return ET.tostring(root, encoding="unicode").strip()
 
 
-def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs):
+def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs, occurrence=None):
     """
     Replace slot asset URLs in slideshow manifest inner XML using (old_url, new_url) pairs.
 
     :param inner_xml: slideshow_manifest column value (inner XML, one or more <scene> roots).
     :param url_pairs: Iterable of (old_url, new_url) tuples preserving caller order.
+    :param occurrence: If set to a 1-based int, replace only that matching slot for each old URL (so two scenes sharing a file are not both rewritten). None replaces every matching slot.
     :return: Tuple(updated_inner_xml, applied_pairs) where applied_pairs is a list of (old_url, new_url) tuples that actually replaced at least one slot.
     """
     pairs_list = [(o, n) for o, n in (url_pairs or []) if o and n and o != n]
@@ -859,19 +860,26 @@ def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs)
 
     applied_pairs = []
     applied_set = set()
+    match_counts = {}
+    want_occurrence = int(occurrence) if occurrence else None
     for scene_el in scenes:
         for slot_el in scene_el.findall("slot"):
             asset = (slot_el.get("asset") or "").strip()
             if not asset:
                 continue
             for old_url, new_url in pairs_list:
-                if urls_match_for_graphics_assignment(old_url, asset):
-                    slot_el.set("asset", new_url)
-                    key = (old_url, new_url)
-                    if key not in applied_set:
-                        applied_set.add(key)
-                        applied_pairs.append(key)
+                if not urls_match_for_graphics_assignment(old_url, asset):
+                    continue
+                seen = match_counts.get(old_url, 0) + 1
+                match_counts[old_url] = seen
+                if want_occurrence is not None and seen != want_occurrence:
                     break
+                slot_el.set("asset", new_url)
+                key = (old_url, new_url)
+                if key not in applied_set:
+                    applied_set.add(key)
+                    applied_pairs.append(key)
+                break
 
     if not applied_pairs:
         return (inner_xml or "").strip(), []
