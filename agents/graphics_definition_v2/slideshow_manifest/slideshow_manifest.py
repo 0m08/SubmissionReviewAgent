@@ -527,37 +527,61 @@ def run_slideshow_manifest_for_all_rows(sheet, llm="gemini_3_flash_thinking", ma
 
     print(f"Slideshow manifest: processing {len(rows_to_process)} row(s), max_workers={max_workers}")
 
-    futures_map = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for index, row in rows_to_process:
-            fut = executor.submit(
-                process_slideshow_manifest_row,
-                index,
-                row,
-                course_name,
-                drive,
-                llm,
+    def run_pass(rows_list, pass_num_desc):
+        futures_map = {}
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(rows_list))) as executor:
+            for idx, r_row in rows_list:
+                fut = executor.submit(
+                    process_slideshow_manifest_row,
+                    idx,
+                    r_row,
+                    course_name,
+                    drive,
+                    llm,
+                )
+                futures_map[fut] = idx
+
+            progress = SmartProgressBar(
+                total_tasks=len(futures_map),
+                description=f"Slideshow manifest ({pass_num_desc})",
+                save_interval=5,
             )
-            futures_map[fut] = index
 
-        progress = SmartProgressBar(
-            total_tasks=len(futures_map),
-            description="Slideshow manifest",
-            save_interval=5,
-        )
+            for future in as_completed(futures_map):
+                idx = futures_map[future]
+                try:
+                    row_index, manifest_xml = future.result()
+                    df.at[row_index, "slideshow_manifest"] = manifest_xml
+                    progress.update()
+                    if progress.should_save():
+                        save_to_sheet(ws, df)
+                except Exception as e:
+                    print(f"Slideshow manifest future error row {idx}: {e}")
+                    df.at[idx, "slideshow_manifest"] = f"ERROR: {str(e)}"
+                    progress.update()
 
-        for future in as_completed(futures_map):
-            index = futures_map[future]
-            try:
-                row_index, manifest_xml = future.result()
-                df.at[row_index, "slideshow_manifest"] = manifest_xml
-                progress.update()
-                if progress.should_save():
-                    save_to_sheet(ws, df)
-            except Exception as e:
-                print(f"Slideshow manifest future error row {index}: {e}")
-                df.at[index, "slideshow_manifest"] = f"ERROR: {str(e)}"
-                progress.update()
+    # Initial pass
+    run_pass(rows_to_process, "Initial Pass")
+
+    # Retry pass logic: check if any processed row has an "ERROR" prefix or failed to generate
+    max_retries = 2
+    for retry_pass in range(1, max_retries + 1):
+        failed_rows = []
+        for idx, row in df.iterrows():
+            fgd = str(row.get("final_graphics_definition", "")).strip()
+            manifest_val = str(df.at[idx, "slideshow_manifest"]).strip()
+            if not fgd or fgd == "nan":
+                continue
+            if not manifest_val or manifest_val == "nan" or manifest_val.startswith("ERROR:"):
+                # Clear existing error first so we try fresh
+                df.at[idx, "slideshow_manifest"] = ""
+                failed_rows.append((idx, df.loc[idx]))
+
+        if not failed_rows:
+            break
+
+        print(f"\n⚠️ Slideshow manifest pass ended with {len(failed_rows)} error/empty row(s). Retrying (Pass {retry_pass}/{max_retries})...")
+        run_pass(failed_rows, f"Retry Pass {retry_pass}")
 
     save_to_sheet(ws, df)
     format_worksheet(ws)
@@ -793,12 +817,13 @@ def apply_edited_asset_urls_to_slideshow_manifest_inner_xml(inner_xml, tracking_
     return ET.tostring(root, encoding="unicode").strip()
 
 
-def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs):
+def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs, occurrence=None):
     """
     Replace slot asset URLs in slideshow manifest inner XML using (old_url, new_url) pairs.
 
     :param inner_xml: slideshow_manifest column value (inner XML, one or more <scene> roots).
     :param url_pairs: Iterable of (old_url, new_url) tuples preserving caller order.
+    :param occurrence: If set to a 1-based int, replace only that matching slot for each old URL (so two scenes sharing a file are not both rewritten). None replaces every matching slot.
     :return: Tuple(updated_inner_xml, applied_pairs) where applied_pairs is a list of (old_url, new_url) tuples that actually replaced at least one slot.
     """
     pairs_list = [(o, n) for o, n in (url_pairs or []) if o and n and o != n]
@@ -835,19 +860,26 @@ def apply_url_replacements_to_slideshow_manifest_inner_xml(inner_xml, url_pairs)
 
     applied_pairs = []
     applied_set = set()
+    match_counts = {}
+    want_occurrence = int(occurrence) if occurrence else None
     for scene_el in scenes:
         for slot_el in scene_el.findall("slot"):
             asset = (slot_el.get("asset") or "").strip()
             if not asset:
                 continue
             for old_url, new_url in pairs_list:
-                if urls_match_for_graphics_assignment(old_url, asset):
-                    slot_el.set("asset", new_url)
-                    key = (old_url, new_url)
-                    if key not in applied_set:
-                        applied_set.add(key)
-                        applied_pairs.append(key)
+                if not urls_match_for_graphics_assignment(old_url, asset):
+                    continue
+                seen = match_counts.get(old_url, 0) + 1
+                match_counts[old_url] = seen
+                if want_occurrence is not None and seen != want_occurrence:
                     break
+                slot_el.set("asset", new_url)
+                key = (old_url, new_url)
+                if key not in applied_set:
+                    applied_set.add(key)
+                    applied_pairs.append(key)
+                break
 
     if not applied_pairs:
         return (inner_xml or "").strip(), []

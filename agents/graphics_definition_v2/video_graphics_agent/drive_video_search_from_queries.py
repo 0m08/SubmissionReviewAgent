@@ -362,7 +362,7 @@ def validate_drive_video_pool_row(row):
     drive_video_pool_text = str(row.get(DRIVE_VIDEO_POOL_COLUMN, "")).strip()
     slide_type = str(row.get("Slide Type", "")).strip().lower()
 
-    if slide_type in ("transition", "transition slide"):
+    if slide_type == "transition":
         return True, None
 
     if not search_queries_text or search_queries_text == "nan":
@@ -463,7 +463,7 @@ def run_drive_video_search_for_all_rows(sheet, k=search_k, max_workers=50, selec
             drive_video_pool = str(row.get(DRIVE_VIDEO_POOL_COLUMN, "")).strip()
             slide_type = str(row.get("Slide Type", "")).strip().lower()
 
-            if slide_type in ("transition", "transition slide"):
+            if slide_type == "transition":
                 continue
             if not search_queries or search_queries == "nan":
                 continue

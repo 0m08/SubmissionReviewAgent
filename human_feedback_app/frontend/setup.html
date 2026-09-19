@@ -63,7 +63,14 @@
     }
     @keyframes hf-spin { to { transform: rotate(360deg); } }
     input:disabled { background: #f3f4f6; color: #6b7280; cursor: wait; }
-    .error { color: #b91c1c; font-size: 13px; margin-top: 10px; min-height: 18px; }
+    .error {
+      color: #b91c1c;
+      font-size: 13px;
+      margin-top: 10px;
+      min-height: 18px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
     .meta { margin-top: 16px; font-size: 13px; color: #6b7280; }
     a { color: #4f46e5; }
   </style>
@@ -81,6 +88,26 @@
     <div class="meta" id="user-meta"></div>
   </div>
   <script>
+    function formatApiError(data, text, statusText) {
+      const detail = data && data.detail;
+      if (typeof detail === "string" && detail.trim()) return detail.trim();
+      if (Array.isArray(detail)) {
+        const parts = detail.map((item) => {
+          if (!item) return "";
+          if (typeof item === "string") return item;
+          if (item.msg) return item.msg;
+          try { return JSON.stringify(item); } catch (_) { return String(item); }
+        }).filter(Boolean);
+        if (parts.length) return parts.join("; ");
+      }
+      if (detail && typeof detail === "object") {
+        try { return JSON.stringify(detail); } catch (_) {}
+      }
+      const raw = (text || "").trim();
+      if (raw && !raw.startsWith("<")) return raw;
+      return statusText || "Request failed";
+    }
+
     async function api(path, options) {
       const res = await fetch(path, {
         headers: { "Content-Type": "application/json" },
@@ -91,7 +118,7 @@
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch (_) {}
       if (!res.ok) {
-        throw new Error((data && data.detail) || text || res.statusText);
+        throw new Error(formatApiError(data, text, res.statusText));
       }
       return data;
     }
@@ -141,10 +168,19 @@
         });
         location.href = "/review";
       } catch (ex) {
-        const msg = ex.message || "Failed to load sheet";
+        let msg = ex.message || "Failed to load sheet";
         if (msg.toLowerCase().includes("session expired") || msg.toLowerCase().includes("log out")) {
           location.href = "/auth/logout";
           return;
+        }
+        const lower = msg.toLowerCase();
+        if (
+          lower.includes("internal server error")
+          || lower.includes("max retries exceeded")
+          || lower.includes("worksheetnotfound")
+        ) {
+          msg =
+            'Could not load this sheet. Make sure it has a tab named "Slide Chunks", then try again.';
         }
         err.textContent = msg;
         setLoading(false);
