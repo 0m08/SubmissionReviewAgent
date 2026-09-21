@@ -63,8 +63,15 @@ from services.cce_diff import (
 
 TOOL_NAME = "Course Content Editor (MDA)"
 ASSISTANT = "course-content-editor-mda"
+#: `course-content-editor-mda-free`. The deployment it replaced was created
+#: before LangSmith's free Development tier existed and was billed for its
+#: uptime; a tier cannot be changed in place, so the fix was a new deployment.
+#: Overridable with `CCE_MDA_URL`, which is how you point at the old one.
+#:
+#: Memory and threads do not migrate. Memory is `scope="agent"`, so the tree
+#: was re-seeded by hand here; sessions from the old deployment stay there.
 DEFAULT_URL = (
-    "https://course-content-editor-mda-2d5e94828a6b5dcda339752168c11432.us.langgraph.app"
+    "https://course-content-editor-mda-f-21b23d6376b85b3986b2ad89ac86b7de.us.langgraph.app"
 )
 MDA_PROJECT = Path(__file__).resolve().parent / "agents" / "course_content_editor_mda"
 
