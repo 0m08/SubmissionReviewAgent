@@ -8,6 +8,7 @@ SEGMENTATION_FEEDBACK_COLUMN = "segmentation_feedback"
 SEGMENTATION_PLAN_COLUMN = "segmentation_revision_plan"
 LAYOUT_FEEDBACK_COLUMN = "layout_feedback"
 LAYOUT_PLAN_COLUMN = "layout_revision_plan"
+PLAYER_SCENE_OVERRIDES_COLUMN = "player_scene_overrides"
 
 ACTION_NONE = "unreviewed"
 ACTION_APPROVE = "approve"

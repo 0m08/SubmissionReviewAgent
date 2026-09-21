@@ -697,6 +697,9 @@ def run_decide_final_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", 
             existing = _safe_str(row.get("decision_of_final_visual", "")).strip()
             if existing and existing.lower() != "nan":
                 continue
+            if str(row.get("Slide Type", "")).strip().lower() == "transition":
+                df.at[index, "decision_of_final_visual"] = "-"
+                continue
             fgd = _safe_str(row.get("final_graphics_definition", "")).strip()
             if not fgd or fgd.lower() == "nan":
                 continue
@@ -713,6 +716,12 @@ def run_decide_final_visuals_for_all_rows(sheet, llm="gemini_3_flash_thinking", 
             futures_map[future] = index
 
         if not futures_map:
+            merge_and_save_columns(
+                sheet,
+                worksheet_name,
+                df,
+                ["decision_of_final_visual"],
+            )
             print("✅ No rows to process (already decided, or missing final_graphics_definition).")
             return
 

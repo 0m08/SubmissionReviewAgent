@@ -2,14 +2,20 @@ window.HFYoutube = (function () {
   const players = {};
   const playerRoots = {};
   const mountInflight = {};
+  const preloadByUrl = {};
   let apiLoading = false;
   let apiReady = false;
   const readyQueue = [];
+  const VIDEO_ASPECT = 16 / 9;
 
   function firstHttpUrl(text) {
     if (!text) return "";
-    const match = String(text).trim().match(/https?:\/\/[^\s)>"]+/);
-    return match ? match[0].replace(/[.,);"']+$/, "") : String(text).trim();
+    const normalized = String(text).trim()
+      .replace(/&amp;/gi, "&")
+      .replace(/%26/gi, "&")
+      .replace(/%3D/gi, "=");
+    const match = normalized.match(/https?:\/\/[^\s)>"]+/);
+    return match ? match[0].replace(/[.,);"']+$/, "") : normalized;
   }
 
   function parseYoutubeEmbed(url) {
@@ -73,6 +79,114 @@ window.HFYoutube = (function () {
     return !!meta;
   }
 
+  function hashText(text) {
+    const raw = String(text || "");
+    let hash = 2166136261;
+    for (let i = 0; i < raw.length; i++) {
+      hash ^= raw.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function preloadKey(url) {
+    return firstHttpUrl(url);
+  }
+
+  function normalizeFit(opts) {
+    opts = opts || {};
+    if (opts.fit === "contain" || opts.cover === false) return "contain";
+    return "cover";
+  }
+
+  function ensurePreloadRoot() {
+    let root = document.getElementById("hf-youtube-preload-root");
+    if (root) return root;
+    root = document.createElement("div");
+    root.id = "hf-youtube-preload-root";
+    root.setAttribute("aria-hidden", "true");
+    root.style.position = "fixed";
+    root.style.left = "-10000px";
+    root.style.top = "-10000px";
+    root.style.width = "320px";
+    root.style.height = "180px";
+    root.style.overflow = "hidden";
+    root.style.opacity = "0.01";
+    root.style.pointerEvents = "none";
+    root.style.zIndex = "-1";
+    document.body.appendChild(root);
+    return root;
+  }
+
+  function installBlurBackdrop(container, meta, fit) {
+    if (!container || !meta) return;
+    const old = container.querySelector(".hf-player-video-backdrop");
+    if (old && old.parentNode) {
+      try { old.parentNode.removeChild(old); } catch (_) {}
+    }
+    if (fit !== "contain") {
+      container.style.backgroundImage = "";
+      return;
+    }
+    const bg = document.createElement("div");
+    bg.className = "hf-player-video-backdrop";
+    bg.style.position = "absolute";
+    bg.style.inset = "0";
+    bg.style.backgroundImage = "url(https://img.youtube.com/vi/" + meta.videoId + "/hqdefault.jpg)";
+    bg.style.backgroundSize = "cover";
+    bg.style.backgroundPosition = "center";
+    bg.style.filter = "blur(24px) brightness(0.58)";
+    bg.style.transform = "scale(1.08)";
+    bg.style.zIndex = "0";
+    bg.style.pointerEvents = "none";
+    container.appendChild(bg);
+  }
+
+  function stylePlayerRoot(container, root, fit) {
+    if (!container || !root) return;
+    const cw = Math.max(1, container.clientWidth || 0);
+    const ch = Math.max(1, container.clientHeight || 0);
+    const ratio = cw > 1 && ch > 1 ? (cw / ch) : VIDEO_ASPECT;
+    let widthPct = 100;
+    let heightPct = 100;
+
+    if (fit === "contain") {
+      if (ratio > VIDEO_ASPECT) widthPct = (VIDEO_ASPECT / ratio) * 100;
+      else heightPct = (ratio / VIDEO_ASPECT) * 100;
+    } else {
+      if (ratio > VIDEO_ASPECT) heightPct = (ratio / VIDEO_ASPECT) * 100;
+      else widthPct = (VIDEO_ASPECT / ratio) * 100;
+    }
+
+    root.style.width = widthPct + "%";
+    root.style.height = heightPct + "%";
+    root.style.position = "absolute";
+    root.style.left = "50%";
+    root.style.top = "50%";
+    root.style.transform = "translate(-50%, -50%)";
+    root.style.transformOrigin = "center center";
+    root.style.zIndex = "2";
+    root.style.pointerEvents = "none";
+    root.setAttribute("data-yt-fit", fit);
+  }
+
+  function cleanYoutubeIframe(mountId) {
+    let iframe = document.getElementById(mountId + "-player");
+    if (!iframe && playerRoots[mountId]) {
+      iframe = playerRoots[mountId].querySelector("iframe");
+    }
+    if (!iframe) return;
+    try {
+      iframe.style.width = "100%";
+      iframe.style.height = "100%";
+      iframe.style.border = "0";
+      iframe.style.display = "block";
+      iframe.style.pointerEvents = "none";
+      iframe.setAttribute("tabindex", "-1");
+      iframe.setAttribute("aria-hidden", "true");
+    } catch (_) {}
+  }
+
   function ensureApi(callback) {
     if (window.YT && window.YT.Player) {
       apiReady = true;
@@ -105,6 +219,9 @@ window.HFYoutube = (function () {
 
   function destroyPlayer(mountId) {
     delete mountInflight[mountId];
+    Object.keys(preloadByUrl).forEach(function (key) {
+      if (preloadByUrl[key] && preloadByUrl[key].mountId === mountId) delete preloadByUrl[key];
+    });
     const player = players[mountId];
     const root = playerRoots[mountId];
     if (root && root.parentNode) {
@@ -126,6 +243,11 @@ window.HFYoutube = (function () {
     Object.keys(playerRoots).forEach(function (id) {
       delete playerRoots[id];
     });
+    Object.keys(preloadByUrl).forEach(function (key) {
+      delete preloadByUrl[key];
+    });
+    const preloadRoot = document.getElementById("hf-youtube-preload-root");
+    if (preloadRoot) preloadRoot.innerHTML = "";
   }
 
   function reattachPlayer(mountId) {
@@ -140,6 +262,9 @@ window.HFYoutube = (function () {
     }
     try {
       while (el.firstChild) el.removeChild(el.firstChild);
+      const fit = root.getAttribute("data-yt-fit") || "cover";
+      installBlurBackdrop(el, parseYoutubeEmbed(root.getAttribute("data-yt-url") || ""), fit);
+      stylePlayerRoot(el, root, fit);
       el.appendChild(root);
       const url = root.getAttribute("data-yt-url");
       if (url) el.setAttribute("data-yt-url", url);
@@ -357,6 +482,13 @@ window.HFYoutube = (function () {
       reattachPlayer(mountId);
       const existingUrl = (el.getAttribute("data-yt-url") || (playerRoots[mountId] && playerRoots[mountId].getAttribute("data-yt-url")) || "");
       if (existingUrl === url && isPlayerMounted(mountId)) {
+        const fit = normalizeFit(opts);
+        installBlurBackdrop(el, meta, fit);
+        if (playerRoots[mountId]) {
+          playerRoots[mountId].setAttribute("data-yt-fit", fit);
+          stylePlayerRoot(el, playerRoots[mountId], fit);
+        }
+        cleanYoutubeIframe(mountId);
         if (opts.seekTo != null) {
           try {
             const p = players[mountId];
@@ -373,7 +505,14 @@ window.HFYoutube = (function () {
       // Same player host, different clip — swap via API (avoids 2s remount).
       if (isPlayerMounted(mountId) && cueOrLoadVideo(players[mountId], meta, !!opts.autoplay)) {
         el.setAttribute("data-yt-url", url);
-        if (playerRoots[mountId]) playerRoots[mountId].setAttribute("data-yt-url", url);
+        const fit = normalizeFit(opts);
+        installBlurBackdrop(el, meta, fit);
+        if (playerRoots[mountId]) {
+          playerRoots[mountId].setAttribute("data-yt-url", url);
+          playerRoots[mountId].setAttribute("data-yt-fit", fit);
+          stylePlayerRoot(el, playerRoots[mountId], fit);
+        }
+        cleanYoutubeIframe(mountId);
         if (!opts.autoplay) {
           try {
             const p = players[mountId];
@@ -391,27 +530,16 @@ window.HFYoutube = (function () {
 
     el.setAttribute("data-yt-url", url);
     while (el.firstChild) el.removeChild(el.firstChild);
-    try {
-      el.style.backgroundImage = "url(https://img.youtube.com/vi/" + meta.videoId + "/hqdefault.jpg)";
-      el.style.backgroundSize = "cover";
-      el.style.backgroundPosition = "center";
-    } catch (_) {}
-
-    const coverScale = opts.cover ? 1.65 : 1.0;
-    const cropScaleX = 1.12;
-    const cropScaleY = 1.22;
+    const fit = normalizeFit(opts);
+    installBlurBackdrop(el, meta, fit);
 
     const playerWrapper = document.createElement("div");
     playerWrapper.setAttribute("data-yt-url", url);
-    playerWrapper.style.width = (coverScale * cropScaleX * 100) + "%";
-    playerWrapper.style.height = (coverScale * cropScaleY * 100) + "%";
-    playerWrapper.style.position = "absolute";
-    playerWrapper.style.left = "50%";
-    playerWrapper.style.top = "50%";
-    playerWrapper.style.transform = "translate(-50%, -50%) scale(" + (1 / coverScale) + ")";
-    playerWrapper.style.transformOrigin = "center center";
+    playerWrapper.setAttribute("data-yt-fit", fit);
+    stylePlayerRoot(el, playerWrapper, fit);
     el.style.overflow = "hidden";
     el.style.position = el.style.position || "relative";
+    el.style.backgroundColor = "#0d0f12";
     el.appendChild(playerWrapper);
     playerRoots[mountId] = playerWrapper;
 
@@ -440,13 +568,18 @@ window.HFYoutube = (function () {
         enablejsapi: 1,
         modestbranding: 1,
         disablekb: 1,
+        fs: 0,
         cc_load_policy: 0,
         iv_load_policy: 3,
+        showinfo: 0,
       };
+      try {
+        if (window.location && window.location.origin) playerVars.origin = window.location.origin;
+      } catch (_) {}
       if (end != null) playerVars.end = end;
 
       const player = new window.YT.Player(mountId + "-player", {
-        height: String(Math.round(height * coverScale * cropScaleY) || 480),
+        height: String(Math.round(height) || 480),
         width: "100%",
         videoId: meta.videoId,
         playerVars: playerVars,
@@ -455,6 +588,7 @@ window.HFYoutube = (function () {
             try {
               event.target.mute();
             } catch (_) {}
+            cleanYoutubeIframe(mountId);
             if (opts.seekTo != null) {
               try {
                 event.target.seekTo(opts.seekTo, true);
@@ -470,8 +604,27 @@ window.HFYoutube = (function () {
                 event.target.unloadModule("cc");
               }
             } catch (_) {}
-            if (typeof opts.onReady === "function") {
-              try { opts.onReady(event.target); } catch (_) {}
+            const completeReady = function () {
+              try {
+                if (!opts.autoplay && typeof event.target.pauseVideo === "function") event.target.pauseVideo();
+                if (!opts.autoplay && typeof event.target.seekTo === "function") {
+                  const holdAt = opts.seekTo != null ? opts.seekTo : start;
+                  event.target.seekTo(holdAt, true);
+                }
+              } catch (_) {}
+              cleanYoutubeIframe(mountId);
+              if (typeof opts.onReady === "function") {
+                try { opts.onReady(event.target); } catch (_) {}
+              }
+            };
+            if (opts.primePlayback && !opts.autoplay) {
+              try {
+                event.target.mute();
+                event.target.playVideo();
+              } catch (_) {}
+              setTimeout(completeReady, opts.primeMs != null ? opts.primeMs : 450);
+            } else {
+              completeReady();
             }
           },
           onStateChange: function (event) {
@@ -520,17 +673,71 @@ window.HFYoutube = (function () {
     if (playerRoots[mountId] && players[mountId]) {
       if (playerRoots[mountId].parentNode !== el) reattachPlayer(mountId);
     }
-    const host = document.getElementById(mountId + "-player");
-    return !!(host && el.contains(host));
+    const root = playerRoots[mountId];
+    return !!(root && players[mountId] && el.contains(root));
+  }
+
+  function adoptPreloadedPlayer(mountId, url, height, opts) {
+    opts = opts || {};
+    const key = preloadKey(url);
+    const entry = preloadByUrl[key];
+    if (!entry || !players[entry.mountId] || !playerRoots[entry.mountId]) return false;
+    const target = document.getElementById(mountId);
+    if (!target) return false;
+
+    const sourceMountId = entry.mountId;
+    const player = players[sourceMountId];
+    const root = playerRoots[sourceMountId];
+    const meta = parseYoutubeEmbed(url);
+    const fit = normalizeFit(opts);
+
+    try {
+      while (target.firstChild) target.removeChild(target.firstChild);
+      target.setAttribute("data-yt-url", url);
+      target.style.overflow = "hidden";
+      target.style.position = target.style.position || "relative";
+      target.style.backgroundColor = "#0d0f12";
+      installBlurBackdrop(target, meta, fit);
+      root.setAttribute("data-yt-url", url);
+      root.setAttribute("data-yt-fit", fit);
+      stylePlayerRoot(target, root, fit);
+      target.appendChild(root);
+
+      players[mountId] = player;
+      playerRoots[mountId] = root;
+      delete players[sourceMountId];
+      delete playerRoots[sourceMountId];
+      delete mountInflight[sourceMountId];
+      delete preloadByUrl[key];
+      if (entry.container && entry.container.parentNode) {
+        try { entry.container.parentNode.removeChild(entry.container); } catch (_) {}
+      }
+
+      const start = meta ? (meta.start || 0) : 0;
+      try {
+        if (player && typeof player.mute === "function") player.mute();
+        if (player && typeof player.seekTo === "function") player.seekTo(start, true);
+        if (player && typeof player.pauseVideo === "function") player.pauseVideo();
+      } catch (_) {}
+      cleanYoutubeIframe(mountId);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function scheduleControlledMountAsync(mountId, url, height, opts) {
     opts = opts || {};
+    if (!opts.preloadOnly && adoptPreloadedPlayer(mountId, url, height, opts)) {
+      return Promise.resolve();
+    }
     reattachPlayer(mountId);
     const el = document.getElementById(mountId);
     const existingUrl = el
       ? (el.getAttribute("data-yt-url") || (playerRoots[mountId] && playerRoots[mountId].getAttribute("data-yt-url")) || "")
       : "";
+    const inflight = mountInflight[mountId];
+    if (inflight && inflight.url === url) return inflight.promise;
     if (el && players[mountId] && existingUrl === url && isPlayerMounted(mountId)) {
       if (opts.seekTo != null) {
         try {
@@ -541,8 +748,6 @@ window.HFYoutube = (function () {
       }
       return Promise.resolve();
     }
-    const inflight = mountInflight[mountId];
-    if (inflight && inflight.url === url) return inflight.promise;
     // If a player already exists, mountControlled will reattach/swap instead of full remount.
     const promise = new Promise(function (resolve, reject) {
       const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 6000;
@@ -590,6 +795,7 @@ window.HFYoutube = (function () {
       autoplay: false,
       loop: false,
       cover: opts.cover !== false,
+      fit: opts.fit,
       seekTo: endTimeForUrl(url),
       timeoutMs: opts.timeoutMs,
     });
@@ -597,25 +803,98 @@ window.HFYoutube = (function () {
 
   function mountPausedAtStartAsync(mountId, url, height, opts) {
     opts = opts || {};
+    const entry = preloadByUrl[preloadKey(url)];
+    if (entry && entry.promise && !opts.preloadOnly && !players[entry.mountId]) {
+      return entry.promise.then(function () {
+        return mountPausedAtStartAsync(mountId, url, height, opts);
+      }).catch(function () {
+        return scheduleControlledMountAsync(mountId, url, height, {
+          autoplay: false,
+          loop: false,
+          cover: opts.cover !== false,
+          fit: opts.fit,
+          seekTo: (parseYoutubeEmbed(url) || {}).start || 0,
+          primePlayback: opts.primePlayback,
+          timeoutMs: opts.timeoutMs,
+        });
+      });
+    }
     reattachPlayer(mountId);
     const el = document.getElementById(mountId);
     const existingUrl = el
       ? (el.getAttribute("data-yt-url") || (playerRoots[mountId] && playerRoots[mountId].getAttribute("data-yt-url")) || "")
       : "";
+    const inflight = mountInflight[mountId];
+    if (inflight && inflight.url === url) return inflight.promise;
     if (el && players[mountId] && existingUrl === url && isPlayerMounted(mountId)) {
       return Promise.resolve();
     }
-    const inflight = mountInflight[mountId];
-    if (inflight && inflight.url === url) return inflight.promise;
     const meta = parseYoutubeEmbed(url);
     const start = meta ? (meta.start || 0) : 0;
     return scheduleControlledMountAsync(mountId, url, height, {
       autoplay: false,
       loop: false,
       cover: opts.cover !== false,
+      fit: opts.fit,
       seekTo: start,
+      primePlayback: opts.primePlayback,
       timeoutMs: opts.timeoutMs,
     });
+  }
+
+  function preloadClip(url, height, opts) {
+    opts = opts || {};
+    const meta = parseYoutubeEmbed(url);
+    if (!meta) return Promise.resolve();
+    const key = preloadKey(url);
+    const existing = preloadByUrl[key];
+    if (existing && existing.promise) return existing.promise;
+    const mountId = "hf-yt-preload-" + hashText(key);
+    const root = ensurePreloadRoot();
+    let holder = document.getElementById(mountId);
+    if (!holder) {
+      holder = document.createElement("div");
+      holder.id = mountId;
+      holder.style.position = "relative";
+      holder.style.width = "320px";
+      holder.style.height = "180px";
+      holder.style.overflow = "hidden";
+      holder.style.background = "#0d0f12";
+      holder.style.pointerEvents = "none";
+      root.appendChild(holder);
+    }
+    const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 10000;
+    const promise = scheduleControlledMountAsync(mountId, url, height || 180, {
+      autoplay: false,
+      loop: false,
+      cover: false,
+      fit: "contain",
+      seekTo: meta.start || 0,
+      primePlayback: true,
+      preloadOnly: true,
+      timeoutMs: timeoutMs,
+    }).then(function () {
+      // Mounting can succeed while YouTube is still showing only its thumbnail.
+      // Require real playback once before this clip counts as Player-ready.
+      return playPlayerAsync(mountId, url, { timeoutMs: timeoutMs, retryMs: 250 });
+    }).then(function (playing) {
+      if (!playing) throw new Error("YouTube clip could not be warmed for playback");
+      const player = players[mountId];
+      try {
+        if (player && typeof player.pauseVideo === "function") player.pauseVideo();
+        if (player && typeof player.seekTo === "function") player.seekTo(meta.start || 0, true);
+      } catch (_) {}
+      return true;
+    }).catch(function (error) {
+      if (preloadByUrl[key] && preloadByUrl[key].mountId === mountId) delete preloadByUrl[key];
+      destroyPlayer(mountId);
+      if (holder && holder.parentNode) {
+        try { holder.parentNode.removeChild(holder); } catch (_) {}
+      }
+      throw error;
+    });
+    preloadByUrl[key] = { mountId: mountId, promise: promise, container: holder };
+    return promise;
   }
 
   function playPlayer(mountId, url) {
@@ -664,6 +943,92 @@ window.HFYoutube = (function () {
     }
   }
 
+  function playPlayerAsync(mountId, url, opts) {
+    opts = opts || {};
+    const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 10000;
+    const retryMs = opts.retryMs != null ? opts.retryMs : 250;
+    const startedAt = Date.now();
+    let requested = false;
+
+    return new Promise(function (resolve) {
+      function check() {
+        reattachPlayer(mountId);
+        const p = players[mountId];
+        if (typeof opts.shouldCancel === "function" && opts.shouldCancel()) {
+          try { if (p && typeof p.pauseVideo === "function") p.pauseVideo(); } catch (_) {}
+          resolve(false);
+          return;
+        }
+        if (p && isPlayerMounted(mountId)) {
+          try {
+            const playingState = window.YT && window.YT.PlayerState
+              ? window.YT.PlayerState.PLAYING
+              : 1;
+            if (typeof p.getPlayerState === "function" && p.getPlayerState() === playingState) {
+              resolve(true);
+              return;
+            }
+          } catch (_) {}
+
+          if (!requested) {
+            requested = true;
+            playPlayer(mountId, url);
+          } else {
+            // A muted play request is permitted by browser autoplay policy. Retry
+            // without seeking again so an iframe in BUFFERING/CUED can advance.
+            try {
+              if (typeof p.mute === "function") p.mute();
+              if (typeof p.playVideo === "function") p.playVideo();
+            } catch (_) {}
+          }
+        }
+
+        if (Date.now() - startedAt >= timeoutMs) {
+          try { if (p && typeof p.pauseVideo === "function") p.pauseVideo(); } catch (_) {}
+          resolve(false);
+          return;
+        }
+        setTimeout(check, retryMs);
+      }
+      check();
+    });
+  }
+
+  function resumePlayer(mountId) {
+    reattachPlayer(mountId);
+    const p = players[mountId];
+    if (!p || typeof p.playVideo !== "function") return false;
+    if (!isPlayerMounted(mountId)) return false;
+    try {
+      if (typeof p.mute === "function") p.mute();
+      p.playVideo();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function setPlaybackRate(mountId, rate) {
+    reattachPlayer(mountId);
+    const p = players[mountId];
+    if (!p || typeof p.setPlaybackRate !== "function") return false;
+    try {
+      p.setPlaybackRate(Number(rate) || 1);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function freezeCurrentFrame(mountId) {
+    reattachPlayer(mountId);
+    const p = players[mountId];
+    if (!p) return;
+    try {
+      if (typeof p.pauseVideo === "function") p.pauseVideo();
+    } catch (_) {}
+  }
+
   return {
     parseYoutubeEmbed,
     isYoutubeUrl,
@@ -677,7 +1042,12 @@ window.HFYoutube = (function () {
     freezePlayerAtEnd,
     endTimeForUrl,
     playPlayer,
+    playPlayerAsync,
     pausePlayer,
+    resumePlayer,
+    setPlaybackRate,
+    freezeCurrentFrame,
+    preloadClip,
     isReady,
     reattachPlayer,
     reattachAll,

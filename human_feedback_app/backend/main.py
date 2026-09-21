@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
+
+
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(
+    logging.ERROR
+)
+import human_feedback_app.backend.streamlit_shim  
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +23,7 @@ from human_feedback_app.backend.auth import ensure_google_clients, get_current_s
 from human_feedback_app.backend.asset_service import image_response, video_clip_response
 from human_feedback_app.backend.config import BRAND_ASSETS_DIR, BRAND_FALLBACK_DIR, FRONTEND_DIR
 from human_feedback_app.backend.jobs import JobCancelled, revision_queue
-from human_feedback_app.backend.tts_service import synthesize_tts_mp3_bytes
+from human_feedback_app.backend.tts_service import encode_tts_words_header, synthesize_tts_with_words
 from human_feedback_app.backend.revise_worker import run_row_revision
 from human_feedback_app.backend.segmentation_worker import run_row_segmentation_revision
 from human_feedback_app.backend.layout_worker import run_row_layout_revision
@@ -31,6 +38,7 @@ from human_feedback_app.backend.sheet_service import (
     replace_visual_with_url,
     revert_visual,
     select_pool_alternative,
+    save_scene_player_override,
     slides_to_ui_payload,
 )
 from human_feedback_app.backend.sessions import UserSession
@@ -100,8 +108,39 @@ class LayoutReviseRequest(BaseModel):
     feedback: str = Field(min_length=3)
 
 
+class DownloadVideosRequest(BaseModel):
+    row_indexes: List[int]
+    voice: Optional[str] = "en-US-AvaNeural"
+    quality: Optional[str] = "fast"
+    hero_motion: Optional[str] = "zoom_in"
+
+
+class ScenePlayerOverridesRequest(BaseModel):
+    row_index: int = Field(ge=0)
+    scene_id: str = Field(min_length=1, max_length=100)
+    animation_enabled: Optional[bool] = None
+    animation_treatment: Optional[str] = Field(default=None, max_length=80)
+    styles: Dict[str, str] = Field(default_factory=dict)
+
+
 def session_dep(request: Request) -> UserSession:
     return get_current_session(request)
+
+
+@api_router.get("/player-theme")
+def api_player_theme() -> Dict[str, str]:
+    """Course player style variables from human_feedback_app/player_styles.yaml."""
+    from human_feedback_app.player_config_loader import load_player_theme
+
+    return load_player_theme()
+
+
+@api_router.get("/styles-schema")
+def api_styles_schema() -> Dict[str, Any]:
+    """Course player styles schema and groupings from human_feedback_app/player_styles.yaml."""
+    from human_feedback_app.player_config_loader import load_styles_schema
+
+    return load_styles_schema()
 
 
 @api_router.get("/me")
@@ -124,17 +163,72 @@ def api_load_sheet(body: LoadSheetRequest, session: UserSession = Depends(sessio
     if not is_inside_skillcat_shared_drive(sheet_id):
         raise HTTPException(status_code=400, detail="Sheet must be inside the Skillcat Shared Drive")
 
-    session.sheet_link = body.sheet_link.strip()
-    session.worksheet_name = body.worksheet_name.strip() or "Slide Chunks"
+    worksheet_name = (body.worksheet_name or "").strip() or "Slide Chunks"
+    sheet_link = body.sheet_link.strip()
+
+    try:
+        sheet = session.gc.open_by_url(sheet_link)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not open that Google Sheet. Check the link and your access. ({exc})",
+        ) from exc
+
+    try:
+        tab_titles = [ws.title for ws in sheet.worksheets()]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not read the tabs in that Google Sheet. ({exc})",
+        ) from exc
+
+    matched = next(
+        (title for title in tab_titles if title.strip().lower() == worksheet_name.lower()),
+        None,
+    )
+    if matched is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f'This Google Sheet has no tab named "{worksheet_name}". '
+                f'Create or rename a tab to "{worksheet_name}", then try again.'
+            ),
+        )
+
+    session.sheet_link = sheet_link
+    session.worksheet_name = matched
     session.root_folder_id = (body.root_folder_id or "").strip()
-    session.sheet = session.gc.open_by_url(session.sheet_link)
+    session.sheet = sheet
     session.manifest_repair_cache = {}
     session.manifest_sync_triggered = False
     session.manifest_sync_status = {}
-    reconcile_stale_visual_revisions(session)
-    payload = slides_to_ui_payload(session)
-    maybe_trigger_manifest_sync_checker(session)
-    return payload
+
+    try:
+        reconcile_stale_visual_revisions(session)
+        payload = slides_to_ui_payload(session)
+        maybe_trigger_manifest_sync_checker(session)
+        return payload
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Avoid leaving a half-loaded sheet on the session after a failed parse/load.
+        session.sheet_link = ""
+        session.sheet = None
+        session.worksheet_name = "Slide Chunks"
+        err_name = type(exc).__name__
+        err_text = str(exc) or err_name
+        if "WorksheetNotFound" in err_name or "worksheet not found" in err_text.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'This Google Sheet has no tab named "{worksheet_name}". '
+                    f'Create or rename a tab to "{worksheet_name}", then try again.'
+                ),
+            ) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to load the course sheet: {err_text}",
+        ) from exc
 
 
 @api_router.get("/slides")
@@ -153,6 +247,28 @@ def api_manifest_sync(session: UserSession = Depends(session_dep)) -> Dict[str, 
     return get_manifest_sync_status(session)
 
 
+@api_router.post("/scenes/player-overrides")
+def api_save_scene_player_overrides(
+    body: ScenePlayerOverridesRequest,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    """Persist one scene's animation and style overrides on its slide row."""
+    try:
+        saved = save_scene_player_override(
+            session,
+            row_index=body.row_index,
+            scene_id=body.scene_id,
+            override={
+                "animationEnabled": body.animation_enabled,
+                "animationTreatment": body.animation_treatment or "",
+                "styles": body.styles,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "overrides": saved}
+
+
 @api_router.get("/assets/image")
 def api_asset_image(url: str = Query(min_length=8), thumb: str = Query(""), session: UserSession = Depends(session_dep)):
     return image_response(session, url, thumb)
@@ -167,15 +283,84 @@ def api_asset_video(request: Request, url: str = Query(min_length=8), session: U
 @api_router.get("/tts")
 def api_tts(voiceover: str = Query(min_length=1), session: UserSession = Depends(session_dep)) -> Response:
     try:
-        data, _ = synthesize_tts_mp3_bytes(voiceover)
+        data, words = synthesize_tts_with_words(voiceover)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
+    headers = {"Cache-Control": "public, max-age=86400"}
+    encoded = encode_tts_words_header(words)
+    if encoded:
+        headers["X-TTS-Words"] = encoded
     return Response(
         content=data,
         media_type="audio/mpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers=headers,
+    )
+
+
+@api_router.get("/tts/words")
+def api_tts_words(voiceover: str = Query(min_length=1), session: UserSession = Depends(session_dep)) -> Dict[str, Any]:
+    try:
+        _, words = synthesize_tts_with_words(voiceover)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
+    return {"words": words}
+
+
+@api_router.post("/download-slide-videos")
+def api_start_download_slide_videos(
+    body: DownloadVideosRequest,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    ensure_google_clients(session)
+    if not body.row_indexes:
+        raise HTTPException(status_code=400, detail="No slides selected.")
+
+    from human_feedback_app.backend.player_video_jobs import video_render_jobs
+
+    job = video_render_jobs.start(
+        session=session,
+        row_indexes=body.row_indexes,
+        voice=body.voice or "en-US-AvaNeural",
+        hero_motion=body.hero_motion or "zoom_in",
+    )
+    return {"job_id": job.id, **job.to_dict()}
+
+
+@api_router.get("/download-slide-videos/{job_id}")
+def api_download_slide_videos_status(
+    job_id: str,
+    session: UserSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    from human_feedback_app.backend.player_video_jobs import video_render_jobs
+
+    job = video_render_jobs.get(job_id, session.session_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Render job not found")
+    return job.to_dict()
+
+
+@api_router.get("/download-slide-videos/{job_id}/file")
+def api_download_slide_videos_file(
+    job_id: str,
+    session: UserSession = Depends(session_dep),
+):
+    from human_feedback_app.backend.player_video_jobs import video_render_jobs
+
+    job = video_render_jobs.get(job_id, session.session_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Render job not found")
+    if job.status.value != "completed" or not job.output_path:
+        raise HTTPException(status_code=409, detail=job.error or "Render is not ready yet")
+    if not Path(job.output_path).exists():
+        raise HTTPException(status_code=404, detail="Rendered file is missing on server")
+    return FileResponse(
+        job.output_path,
+        media_type=job.output_media_type or "application/octet-stream",
+        filename=job.output_name or "slide_video",
     )
 
 
@@ -463,7 +648,18 @@ def create_app() -> FastAPI:
         path = FRONTEND_DIR / "Slide Review.dc.html"
         if not path.exists():
             raise HTTPException(status_code=404, detail="Review UI not found")
-        return FileResponse(path)
+
+        mtime = str(int(path.stat().st_mtime))
+        if request.query_params.get("v") != mtime:
+            return RedirectResponse("/review?v=" + mtime, status_code=302)
+        return FileResponse(
+            path,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     brand_dir = BRAND_ASSETS_DIR if BRAND_ASSETS_DIR.exists() else BRAND_FALLBACK_DIR
     if brand_dir.exists():
