@@ -1650,3 +1650,100 @@ and lands on Home regardless of any parameter. Fixing it properly means carrying
 the page as well and calling `st.switch_page` after auth, which is a change to
 navigation and page gating. Reverted (`f8a3739`) as not worth that risk. The
 picker makes a lost link recoverable instead of fatal.
+
+---
+
+## Pass 7 — 2026-09-21 — per-editor memory, across every session on the deployment
+
+Prompted by moving to a free-tier deployment: before deleting the old one, every
+trace was exported, and the question asked of them was whether the per-editor
+memory feature has ever caused a user-facing problem — particularly for editors
+other than the one who built it.
+
+Scope: all root runs on the tracing project, 2026-09-07 to 2026-09-21. Five
+editor identities appear: `ed_f84a65233902` (35 sessions), `ed_6fe63a7d902e`
+(6), `ed_0b8aacc0fcff` (3), `ed_4b9a18618b3a` (1), and one `../../AGENTS` probe
+(F-045). The 54 sessions with no identity also carry no `app`/`surface`
+metadata, which the page always sets, so they are test scripts and Studio rather
+than users falling through unidentified — **every one of the 40 sessions that
+came from the Streamlit page carries an editor id.** The identity plumbing
+works.
+
+### F-056 — A personal memory file is only ever created if someone asks in words
+**Status:** open · **Confidence:** verified · **Priority: medium — a decision,
+not a defect**
+
+**Observed.** Across 100 traces, `/memories/agent/editors/*.md` was read 16
+times and written **once**:
+
+| file | reads | of which "not found" | writes |
+|---|---|---|---|
+| `ed_f84a65233902.md` | 14 | 1 | **1** |
+| `ed_0b8aacc0fcff.md` | 1 | 1 | 0 |
+| `ed_4b9a18618b3a.md` | 1 | 1 | 0 |
+
+The single write, 125 characters, followed a request that left nothing to infer:
+
+> "A preference for you to keep, just mine and not the team's: I write for
+> apprentice-level HVAC learners, and I like slides kept under 60 words. Save
+> that for next time. Don't do anything else."
+
+**Verified.** The lifecycle works end to end for that editor: first read missed,
+the file was written when asked for, and the next thirteen reads found it. It
+has never fired for anyone else, and never without being asked.
+
+**Why.** This is close to what `instructions.md` specifies. Writing requires a
+preference that is durable, clearly personal rather than the team's, and the
+Memory section says to ask which file it belongs in when that is unclear. A
+one-off correction is explicitly not memory-worthy. On that reading, zero
+spontaneous writes may be correct — nobody else stated a qualifying preference.
+
+**But the effect is a feature that is inert and silent.** A second editor's file
+does not exist, nothing will create it, and nothing tells them it could. The
+first session reads, misses, and carries on; there is no moment where the
+capability becomes visible. It works for the person who knew to ask.
+
+**The decision.** Whether a first session should leave a stub — or say once that
+preferences can be kept — is a product call, not a fix. Against it: the Memory
+section is deliberately conservative, and the `AGENTS.md` house style is the
+evolved one. For it: a capability nobody can discover is indistinguishable from
+one that does not exist.
+
+### F-057 — The editor's own file is read only some of the time
+**Status:** open · **Confidence:** verified · **Priority: medium** ·
+**Recurrence of:** F-005
+
+**Observed.** `ed_6fe63a7d902e` ran six sessions on 2026-09-18. The
+`editor_identity` middleware put that editor's id and file path into the system
+prompt of **every one of them**, and the file was never read in any:
+
+```
+01a0b57a   8 steps   identity block present   memory calls: 0
+01a0b57e   1 step    identity block present   memory calls: 0
+01a0b580   2 steps   identity block present   memory calls: 0
+01a0b580   7 steps   identity block present   memory calls: 0
+01a0b59c   2 steps   identity block present   memory calls: 0
+01a0b59d   3 steps   identity block present   memory calls: 0
+```
+
+Two of those did real editing work. The other two editors read theirs on their
+first session, so the instruction is followed sometimes and not others.
+
+**Verified.** The block was confirmed present by searching each run's system
+message for the editor id, not inferred from the middleware being enabled.
+
+**Why.** `instructions.md` says to read the file "near the start, before your
+first edit", and the identity block repeats it. Nothing in these six sessions
+distinguishes them from the two where it was read. Independent of F-056 and
+worth more: a preference that exists but is not consulted is worse than one that
+was never written, because the user has been told it is kept.
+
+### Not findings — checked and clear
+
+- **No memory error has ever reached a user.** Both first-session misses
+  returned `File not found` to the agent and neither appeared in a reply; those
+  turns answered about the actual work. The "a missing file just means it is
+  their first session" instruction is being followed.
+- **F-041 was observed working in production.** In `01a0afa4`, for a different
+  editor, the agent hit an ambiguous sheet, named the candidates — `Slide
+  Chunks` and `Copy of SC` — and asked which to use.
