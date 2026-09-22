@@ -20,6 +20,15 @@ load_dotenv()
 search_k = 5  # Number of results to retrieve per search query
 relevance_threshold = 1.5  # Minimum similarity/relevance score to consider a reference
 
+
+DRIVE_IMAGE_VECTORSTORE_V1_ID = "1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH"
+DRIVE_IMAGE_VECTORSTORE_V2_ID = "1IMGr4d8lwux5R_cAWfhVjBV0fTFdWvNi"
+CENTRAL_DRIVE_IMAGE_VECTORSTORE_IDS = (
+    DRIVE_IMAGE_VECTORSTORE_V1_ID,
+    DRIVE_IMAGE_VECTORSTORE_V2_ID,
+)
+
+
 def _get_drive_instance():
     """
     Get Google Drive instance from session state or initialize from environment.
@@ -43,6 +52,183 @@ def _get_drive_instance():
         return None
 
 
+def _normalize_drive_url(url):
+    """
+    Normalize a Drive URL for dedupe across vectorstore versions.
+
+    :param url: Raw Drive URL string
+    :return: Normalized URL key, or empty string
+    """
+    text = (url or "").strip()
+    if not text:
+        return ""
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", text)
+    if match:
+        return match.group(1)
+    return text
+
+
+def _convert_retriever_hits_to_refs(results, source_label=""):
+    """
+    Convert graphics_retriever hits into the Drive-search reference shape.
+
+    :param results: Raw retriever result list
+    :param source_label: Optional label stored in metadata (e.g. v1 / v2)
+    :return: List of reference dicts
+    """
+    reference_data_list = []
+    for result in results or []:
+        metadata = result.get("metadata", {}) or {}
+        ref_id = metadata.get("image_id", str(uuid.uuid4()))
+        url = metadata.get("drive_url", "")
+        similarity_score = result.get("similarity", 1.0)
+        relevance_score = max(0.0, min(1.0, 1.0 - similarity_score))
+        title = metadata.get("image_title") or metadata.get("name", "Untitled")
+        enriched_metadata = {
+            **metadata,
+            "similarity_distance": similarity_score,
+        }
+        if source_label:
+            enriched_metadata["vectorstore_source"] = source_label
+        reference_data_list.append({
+            "reference_id": ref_id,
+            "url": url,
+            "title": title,
+            "relevance_score": relevance_score,
+            "metadata": enriched_metadata,
+        })
+    return reference_data_list
+
+
+def _search_one_drive_image_vectorstore(query, drive, k, filters, root_folder_id, source_label=""):
+    """
+    Search a single Drive image vectorstore and return filtered reference dicts.
+
+    :param query: Search query string
+    :param drive: Google Drive instance
+    :param k: Max results to request from this store
+    :param filters: Optional filters for image search
+    :param root_folder_id: Vectorstore parent folder ID
+    :param source_label: Optional label for logging/metadata
+    :return: List of reference dicts that pass the relevance threshold
+    """
+    label = source_label or root_folder_id
+    try:
+        results = graphics_retriever(
+            query=query,
+            drive=drive,
+            k=k,
+            filters=filters,
+            load_images=False,
+            root_folder_id=root_folder_id,
+        )
+        print(f"  📁 {label}: raw={len(results)} items")
+    except Exception as e:
+        print(f"  ❌ {label}: search failed: {e}")
+        return []
+
+    refs = _convert_retriever_hits_to_refs(results, source_label=source_label)
+    filtered = [
+        ref for ref in refs
+        if ref["metadata"].get("similarity_distance", 999) <= relevance_threshold
+    ]
+    print(f"  🎯 {label}: after relevance filter (≤{relevance_threshold}): {len(filtered)}")
+    return filtered
+
+
+def _merge_and_rank_drive_image_refs(ref_lists, k=search_k):
+    """
+    Merge multi-store hits, dedupe, and keep the best overall top-k.
+
+    Ranking uses similarity_distance ascending (lower distance = better match).
+
+    :param ref_lists: Iterable of reference-dict lists
+    :param k: Max results to keep after merge
+    :return: Deduped, ranked list of up to k references
+    """
+    merged = []
+    seen_ids = set()
+    seen_urls = set()
+
+    for refs in ref_lists:
+        for ref in refs or []:
+            ref_id = (ref.get("reference_id") or "").strip()
+            url_key = _normalize_drive_url(ref.get("url", ""))
+            if ref_id and ref_id in seen_ids:
+                continue
+            if url_key and url_key in seen_urls:
+                continue
+            if ref_id:
+                seen_ids.add(ref_id)
+            if url_key:
+                seen_urls.add(url_key)
+            merged.append(ref)
+
+    merged.sort(
+        key=lambda ref: float(ref.get("metadata", {}).get("similarity_distance", 999))
+    )
+    return merged[: max(0, int(k))]
+
+
+def _count_refs_by_vectorstore_source(refs):
+    """
+    Count how many references came from each vectorstore source label.
+
+    :param refs: Iterable of reference dicts
+    :return: Dict like {"v1": n, "v2": n, "single": n, "unknown": n}
+    """
+    counts = {"v1": 0, "v2": 0, "single": 0, "unknown": 0}
+    for ref in refs or []:
+        source = str((ref.get("metadata") or {}).get("vectorstore_source", "")).strip().lower()
+        if source in counts:
+            counts[source] += 1
+        else:
+            counts["unknown"] += 1
+    return counts
+
+
+def _format_vectorstore_source_counts(counts):
+    """
+    Build a short log string for v1/v2 source counts.
+
+    :param counts: Dict from _count_refs_by_vectorstore_source
+    :return: Human-readable count string
+    """
+    counts = counts or {}
+    parts = [
+        f"v1={counts.get('v1', 0)}",
+        f"v2={counts.get('v2', 0)}",
+    ]
+    single = counts.get("single", 0)
+    unknown = counts.get("unknown", 0)
+    if single:
+        parts.append(f"single={single}")
+    if unknown:
+        parts.append(f"unknown={unknown}")
+    return ", ".join(parts)
+
+
+def _resolve_central_vectorstore_ids(root_folder_ids=None):
+    """
+    Resolve which central Drive image vectorstore folders to search.
+
+    :param root_folder_ids: Optional explicit list/tuple of folder IDs
+    :return: List of folder IDs
+    """
+    if root_folder_ids:
+        resolved = []
+        seen = set()
+        for folder_id in root_folder_ids:
+            fid = str(folder_id or "").strip()
+            if not fid or fid in seen:
+                continue
+            seen.add(fid)
+            resolved.append(fid)
+        if resolved:
+            return resolved
+    return list(CENTRAL_DRIVE_IMAGE_VECTORSTORE_IDS)
+
+
 @traceable(
     metadata={
         "agent_name": "graphics_definition_v2",
@@ -52,75 +238,84 @@ def _get_drive_instance():
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def execute_drive_search_for_query(query, drive, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
+def execute_drive_search_for_query(query, drive, k=search_k, filters=None, root_folder_id=DRIVE_IMAGE_VECTORSTORE_V1_ID, use_both_central_vectorstores=False, root_folder_ids=None):
     """
     Execute drive search for a single query and return reference data.
     
     :param query: Search query string
     :param drive: Google Drive instance
-    :param k: Number of results to retrieve
+    :param k: Number of results to retrieve (final top-k after merge)
     :param filters: Optional filters for image search
-    :param root_folder_id: Root folder ID for vector store
+    :param root_folder_id: Single vectorstore folder ID (used when not searching both)
+    :param use_both_central_vectorstores: If True, search central v1+v2 and return combined top-k
+    :param root_folder_ids: Optional explicit multi-store folder list (overrides the default pair)
     :return: List of reference data dictionaries with url, reference_id, etc.
     """
     if not drive:
         print(f"⚠️  Drive instance not available for search")
         return []
-    
+
     print(f"🔎 Executing drive search for query: \"{query}\"")
-    
-    # Execute search
-    try:
-        results = graphics_retriever(
-            query=query,
-            drive=drive,
-            k=k,
-            filters=filters,
-            load_images=False,
-            root_folder_id=root_folder_id
-        )
-        print(f"Raw results: {len(results)} items")
-    except Exception as e:
-        print(f"❌ Search error: {str(e)}")
-        return []
-    
-    # Convert results to reference data format
-    reference_data_list = []
-    for idx, result in enumerate(results):
-        metadata = result.get("metadata", {})
-        
-        # Generate unique ID
-        ref_id = metadata.get("image_id", str(uuid.uuid4()))
-        
-        # Get URL from metadata (drive_url field)
-        url = metadata.get("drive_url", "")
-        
-        # Calculate relevance score from similarity (lower distance = higher relevance)
-        similarity_score = result.get("similarity", 1.0)
-        relevance_score = max(0.0, min(1.0, 1.0 - similarity_score))
-        
-        # Get title from metadata
-        title = metadata.get("image_title") or metadata.get("name", "Untitled")
-        
-        reference_data = {
-            "reference_id": ref_id,
-            "url": url,
-            "title": title,
-            "relevance_score": relevance_score,
-            "metadata": {**metadata, "similarity_distance": similarity_score},
+
+    if use_both_central_vectorstores or root_folder_ids:
+        folder_ids = _resolve_central_vectorstore_ids(root_folder_ids)
+        source_labels = {
+            DRIVE_IMAGE_VECTORSTORE_V1_ID: "v1",
+            DRIVE_IMAGE_VECTORSTORE_V2_ID: "v2",
         }
-        
-        reference_data_list.append(reference_data)
-    
-    # Filter by relevance threshold 
-    filtered_results = [
-        ref for ref in reference_data_list
-        if ref["metadata"].get("similarity_distance", 999) <= relevance_threshold
-    ]
-    
-    print(f"🎯 After relevance filter (≤{relevance_threshold}): {len(filtered_results)} results")
-    
-    return filtered_results
+        print(
+            f"📚 Searching {len(folder_ids)} Drive image vectorstore(s) "
+            f"and keeping combined top-{k}"
+        )
+
+        ref_lists = []
+        pre_merge_by_source = {"v1": 0, "v2": 0, "single": 0, "unknown": 0}
+        # Search stores in parallel; each still returns up to k before merge.
+        with ThreadPoolExecutor(max_workers=max(1, len(folder_ids))) as executor:
+            futures = {
+                executor.submit(
+                    _search_one_drive_image_vectorstore,
+                    query,
+                    drive,
+                    k,
+                    filters,
+                    folder_id,
+                    source_labels.get(folder_id, folder_id),
+                ): folder_id
+                for folder_id in folder_ids
+            }
+            for future in as_completed(futures):
+                folder_id = futures[future]
+                try:
+                    store_refs = future.result() or []
+                    ref_lists.append(store_refs)
+                    store_counts = _count_refs_by_vectorstore_source(store_refs)
+                    for key, value in store_counts.items():
+                        pre_merge_by_source[key] = pre_merge_by_source.get(key, 0) + value
+                except Exception as e:
+                    print(f"  ❌ {folder_id}: future failed: {e}")
+                    ref_lists.append([])
+
+        merged = _merge_and_rank_drive_image_refs(ref_lists, k=k)
+        final_counts = _count_refs_by_vectorstore_source(merged)
+        print(
+            f"✅ Combined Drive image search: "
+            f"{sum(len(x or []) for x in ref_lists)} pre-merge "
+            f"({_format_vectorstore_source_counts(pre_merge_by_source)}) → "
+            f"{len(merged)} top-{k} "
+            f"({_format_vectorstore_source_counts(final_counts)})"
+        )
+        return merged
+
+    # Single-store path (course reference pool / explicit one folder).
+    return _search_one_drive_image_vectorstore(
+        query=query,
+        drive=drive,
+        k=k,
+        filters=filters,
+        root_folder_id=root_folder_id,
+        source_label="single",
+    )
 
 
 def parse_search_queries_column(search_queries_text):
@@ -174,7 +369,7 @@ def parse_search_queries_column(search_queries_text):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_drive_search_segment(segment_num, queries, drive, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
+def process_drive_search_segment(segment_num, queries, drive, k=search_k, filters=None, root_folder_id=DRIVE_IMAGE_VECTORSTORE_V1_ID, use_both_central_vectorstores=True, root_folder_ids=None):
     """
     Process a single segment: execute queries in parallel, deduplicate, format output.
     
@@ -183,7 +378,9 @@ def process_drive_search_segment(segment_num, queries, drive, k=search_k, filter
     :param drive: Google Drive instance
     :param k: Number of results per query
     :param filters: Optional filters
-    :param root_folder_id: Root folder ID
+    :param root_folder_id: Single-store folder ID when use_both_central_vectorstores is False
+    :param use_both_central_vectorstores: Search central v1+v2 and keep combined top-k (GDv2 default)
+    :param root_folder_ids: Optional explicit multi-store folder list
     :return: Tuple of (segment_num, segment_output_string) or (segment_num, None) if no results
     """
     print(f"\n{'─'*45}")
@@ -192,6 +389,7 @@ def process_drive_search_segment(segment_num, queries, drive, k=search_k, filter
     
     all_results_for_segment = []
     seen_ids = set()  # Deduplicate within segment
+    seen_urls = set()
 
     valid_queries = [q.strip() for q in queries if q and str(q).strip()]
     if not valid_queries:
@@ -205,17 +403,30 @@ def process_drive_search_segment(segment_num, queries, drive, k=search_k, filter
         k=k,
         filters=filters,
         root_folder_id=root_folder_id,
+        use_both_central_vectorstores=use_both_central_vectorstores,
+        root_folder_ids=root_folder_ids,
     )
 
     for query_idx, (query, results) in enumerate(query_results, 1):
         print(f"🔍 Query {query_idx}: \"{query}\"")
         results = results or []
-        print(f"✅ Query {query_idx} returned {len(results)} results")
+        query_counts = _count_refs_by_vectorstore_source(results)
+        print(
+            f"✅ Query {query_idx} returned {len(results)} results "
+            f"({_format_vectorstore_source_counts(query_counts)})"
+        )
         for ref in results:
-            ref_id = ref.get("reference_id")
-            if ref_id and ref_id not in seen_ids:
+            ref_id = (ref.get("reference_id") or "").strip()
+            url_key = _normalize_drive_url(ref.get("url", ""))
+            if ref_id and ref_id in seen_ids:
+                continue
+            if url_key and url_key in seen_urls:
+                continue
+            if ref_id:
                 seen_ids.add(ref_id)
-                all_results_for_segment.append(ref)
+            if url_key:
+                seen_urls.add(url_key)
+            all_results_for_segment.append(ref)
 
     segment_items = []
     for ref in all_results_for_segment:
@@ -224,7 +435,11 @@ def process_drive_search_segment(segment_num, queries, drive, k=search_k, filter
         if url:
             segment_items.append(f"Title: {title} | URL: {url}")
 
-    print(f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results")
+    segment_counts = _count_refs_by_vectorstore_source(all_results_for_segment)
+    print(
+        f"✅ SEGMENT_{segment_num}: Found {len(segment_items)} unique results "
+        f"({_format_vectorstore_source_counts(segment_counts)})"
+    )
 
     if segment_items:
         segment_output = [f"---SEGMENT_{segment_num}---"] + segment_items
@@ -241,7 +456,7 @@ def process_drive_search_segment(segment_num, queries, drive, k=search_k, filter
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def process_drive_search_row(index, row, drive, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH'):
+def process_drive_search_row(index, row, drive, k=search_k, filters=None, root_folder_id=DRIVE_IMAGE_VECTORSTORE_V1_ID, use_both_central_vectorstores=True, root_folder_ids=None):
     """
     Process a single row: parse search queries, execute searches for each segment, deduplicate, format output.
     
@@ -250,7 +465,9 @@ def process_drive_search_row(index, row, drive, k=search_k, filters=None, root_f
     :param drive: Google Drive instance
     :param k: Number of results per query
     :param filters: Optional filters
-    :param root_folder_id: Root folder ID
+    :param root_folder_id: Single-store folder ID when use_both_central_vectorstores is False
+    :param use_both_central_vectorstores: Search central v1+v2 and keep combined top-k (GDv2 default)
+    :param root_folder_ids: Optional explicit multi-store folder list
     :return: Tuple of (index, drive_results_text)
     """
     try:
@@ -270,7 +487,17 @@ def process_drive_search_row(index, row, drive, k=search_k, filters=None, root_f
         with ThreadPoolExecutor(max_workers=len(segments)) as executor:
             # Submit all segments
             futures = {
-                executor.submit(process_drive_search_segment, segment_num, queries, drive, k, filters, root_folder_id): segment_num
+                executor.submit(
+                    process_drive_search_segment,
+                    segment_num,
+                    queries,
+                    drive,
+                    k,
+                    filters,
+                    root_folder_id,
+                    use_both_central_vectorstores,
+                    root_folder_ids,
+                ): segment_num
                 for segment_num, queries in segments
             }
             
@@ -369,15 +596,18 @@ def validate_drive_search_row(row):
         "user_email": st.session_state.get("user_email", "anonymous")
     }
 )
-def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_id='1QS6PmCESfgFWNNEpRJDUB0E-t8iMAatH', max_workers=50, selected_topics=None):
+def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_id=DRIVE_IMAGE_VECTORSTORE_V1_ID, max_workers=50, selected_topics=None, use_both_central_vectorstores=True, root_folder_ids=None):
     """
     Execute drive search for all rows in the Slide Chunks sheet.
     
     :param sheet: The gspread sheet object.
     :param k: Number of results per query (default from settings).
     :param filters: Optional filters for image search.
-    :param root_folder_id: Root folder ID for vector store.
+    :param root_folder_id: Single-store folder ID when use_both_central_vectorstores is False.
     :param max_workers: Number of parallel workers (default 5).
+    :param selected_topics: Optional topic filter.
+    :param use_both_central_vectorstores: Search central v1+v2 and keep combined top-k (GDv2 default).
+    :param root_folder_ids: Optional explicit multi-store folder list.
     :return: None
     """
     worksheet_name = "Slide Chunks"
@@ -387,6 +617,15 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
     if not drive:
         print("❌ Drive instance not available. Cannot execute drive search.")
         return
+
+    if use_both_central_vectorstores or root_folder_ids:
+        store_ids = _resolve_central_vectorstore_ids(root_folder_ids)
+        print(
+            f"📚 Drive image search mode: combined top-{k} from "
+            f"{len(store_ids)} vectorstore(s): {store_ids}"
+        )
+    else:
+        print(f"📚 Drive image search mode: single vectorstore {root_folder_id}")
     
     # Load the worksheet and DataFrame
     worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
@@ -415,7 +654,17 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
                 continue
             
             # Submit task for processing
-            future = executor.submit(process_drive_search_row, index, row, drive, k, filters, root_folder_id)
+            future = executor.submit(
+                process_drive_search_row,
+                index,
+                row,
+                drive,
+                k,
+                filters,
+                root_folder_id,
+                use_both_central_vectorstores,
+                root_folder_ids,
+            )
             futures_map[future] = index
         
         # If no rows to process, return early
@@ -498,7 +747,17 @@ def run_drive_search_for_all_rows(sheet, k=search_k, filters=None, root_folder_i
                 topic_name = str(row.get("Topic", "")).strip()
                 if selected_topics and topic_name not in selected_topics:
                     continue
-                future = executor.submit(process_drive_search_row, index, row, drive, k, filters, root_folder_id)
+                future = executor.submit(
+                    process_drive_search_row,
+                    index,
+                    row,
+                    drive,
+                    k,
+                    filters,
+                    root_folder_id,
+                    use_both_central_vectorstores,
+                    root_folder_ids,
+                )
                 futures_map[future] = index
             
             # Collect results
