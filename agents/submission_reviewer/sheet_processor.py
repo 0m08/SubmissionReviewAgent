@@ -319,8 +319,9 @@ def process_activity_sheet(
             user_name = str(row.get("User Name", "") or row.get("user name", "") or f"User #{row_idx}").strip()
 
             status_val = str(row.get("Status", "") or row.get("status", "")).strip()
-            if status_val.lower() == "no submission":
-                print(f"[REVIEWER LOG] ⏩ SKIP Row {row_idx} ({user_name}) — Status: 'No Submission'")
+            status_clean = status_val.lower()
+            if status_clean == "no submission" or "reopen" in status_clean or status_clean in ("reopened", "reopned"):
+                print(f"[REVIEWER LOG] ⏩ SKIP Row {row_idx} ({user_name}) — Status: '{status_val}'")
                 tab_stats["skipped"] += 1
                 summary_results["skipped_rows"] += 1
                 continue
