@@ -49,6 +49,11 @@ per-caller memory yet (`define_memory(scope="user")` raises), so this is an
 honour system: the id is a label the agent is trusted to respect, not an access
 boundary. See `middleware/editor_identity.py` and the Memory section of
 `instructions.md` for what that does and does not buy.
+
+`select_model` runs a session on the model the user picked in the page, and is
+declared on the editor subagent as well so the whole session uses one model.
+`MODEL` below remains the default and sets the harness profile. See
+`middleware/model_select.py`.
 """
 
 from __future__ import annotations
@@ -58,7 +63,7 @@ from typing import NotRequired, TypedDict
 
 from managed_deepagents import define_deep_agent
 
-from middleware import editor_identity, present_to_client
+from middleware import editor_identity, present_to_client, select_model
 
 
 class EditorContext(TypedDict):
@@ -72,11 +77,15 @@ class EditorContext(TypedDict):
     """
 
     editor_id: NotRequired[str]
+    # The model the user picked for this session, as provider:model. Must be a
+    # key of `_ALLOWED` in `middleware/model_select.py`; absent means MODEL.
+    model: NotRequired[str]
 
 # Change the model by setting CCE_MODEL in `.env` — no code edit, and `mda`
 # forwards it as a deployment secret. Tested on Gemini 3.8 Flash and GPT-5.6
 # Luna; any provider named here also needs its API key present for deploy
-# preflight to pass.
+# preflight to pass. A session can run on another model from the page's picker
+# (`middleware/model_select.py`); this stays the default and the harness profile.
 MODEL = os.environ.get("CCE_MODEL", "google_genai:gemini-3.8-flash")
 
 EDITOR = {
@@ -207,6 +216,9 @@ EDITOR = {
     # skills is that the right one loads on demand. Isolated subagents only —
     # a fork inherits the parent's skills instead.
     "skills": ["/skills/"],
+    # Without this the editor stays on MODEL whatever the user picked, and the
+    # editor is where most of the writing happens.
+    "middleware": [select_model],
 }
 
 agent = define_deep_agent(
@@ -216,7 +228,9 @@ agent = define_deep_agent(
     # `editor_identity` first: it shapes the system message for the run, and
     # everything after it should see the request the model will actually get.
     # The two do not interact — one wraps model calls, the other tool calls.
-    middleware=[editor_identity, present_to_client],
+    # `select_model` last, innermost: it only swaps the model, and the request
+    # it sees already carries the identity block.
+    middleware=[editor_identity, present_to_client, select_model],
     context_schema=EditorContext,
     metadata={"build": "mda", "product": "course-content-editor"},
 )

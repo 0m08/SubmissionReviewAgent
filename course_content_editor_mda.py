@@ -129,6 +129,16 @@ def _client(url: str, key: str):
 SANDBOX_LIFE_DAYS = 14
 SANDBOX_WARN_DAYS = 12
 
+#: Models a session can run on, as provider:model -> label. The keys must match
+#: `_ALLOWED` in the agent's `middleware/model_select.py`, which refuses any
+#: other. The first is the default and should be the deployment's CCE_MODEL.
+MODELS = {
+    "google_genai:gemini-3.8-flash": "Gemini 3.8 Flash",
+    "openai:gpt-6-sol": "GPT-6 Sol",
+    "anthropic:claude-sonnet-5": "Claude Sonnet 5",
+}
+MODEL_PICK = "cce_mda_model"
+
 #: Placeholder for a thread with no human message in it.
 EMPTY_THREAD = "(no messages yet)"
 
@@ -137,21 +147,42 @@ def _current_editor() -> str | None:
     return editor_id(st.session_state.get("user_email"))
 
 
-def _new_thread(client) -> str:
+def _new_thread(client, model: str) -> str:
     """Create a thread tagged with who it belongs to.
 
     The tag is what makes the session picker possible: `threads.search` filters
     on metadata, and without it the only listing available is every thread in
     the deployment — one editor's work shown to another. Threads created before
     this carry no tag and will not be listed; they are still reachable by id.
+
+    The model is tagged too, which is what fixes it for the thread's life: a
+    reopened session reads it back rather than taking whatever the picker says.
     """
-    meta = {"surface": "course-content-editor-mda"}
+    meta = {"surface": "course-content-editor-mda", "model": model}
     who = _current_editor()
     if who:
         meta["editor_id"] = who
     thread_id = client.threads.create(metadata=meta)["thread_id"]
+    st.session_state.setdefault("cce_mda_thread_models", {})[thread_id] = model
     st.query_params["thread"] = thread_id
     return thread_id
+
+
+def _thread_model(client, thread_id: str) -> str | None:
+    """The model a thread was started on, or None for threads that predate the
+    picker (they run on the deployment's default).
+
+    Cached per browser session, so it costs one call per thread opened rather
+    than one per rerun.
+    """
+    known = st.session_state.setdefault("cce_mda_thread_models", {})
+    if thread_id not in known:
+        try:
+            meta = client.threads.get(thread_id).get("metadata") or {}
+        except Exception:
+            return None  # not cached: the next rerun tries again
+        known[thread_id] = meta.get("model")
+    return known[thread_id]
 
 
 def _touch_thread(client, thread_id: str) -> None:
@@ -669,7 +700,8 @@ def _brief_of(call: dict) -> tuple[str, str]:
     return (found.group(0) if found else "one topic"), brief
 
 
-def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
+def stream_turn(client, thread_id: str, text: str, live, progress,
+                model: str | None) -> dict:
     """Run one turn, drawing it into `live` in event order as it happens.
 
     The live shape is the same shape `render_turn` replays afterwards, which is
@@ -746,7 +778,9 @@ def stream_turn(client, thread_id: str, text: str, live, progress) -> dict:
         # trace, which is workspace-private and is where the email belongs.
         # Both are empty for a session with no signed-in user, and the agent
         # then works from team memory alone.
-        context=run_context(email),
+        # `model` is read by `select_model` in both the coordinator and the
+        # editors, so the whole session runs on it.
+        context=run_context(email, model),
         metadata=run_metadata(email),
         # "custom" is how present.py content reaches this page without going
         # through the agent's context. Without it the review cards never arrive.
@@ -1001,6 +1035,20 @@ def main() -> None:
     # call reports it instead, through `_connection_error`.
     thread_id = st.query_params.get("thread")
 
+    with st.sidebar:
+        st.subheader("Model")
+        if thread_id:
+            # Fixed for the thread's life. Switching providers mid-thread can
+            # fail on the previous model's reasoning blocks in the history.
+            model = _thread_model(client, thread_id)
+            st.markdown(f"**{MODELS.get(model, model) if model else 'Deployment default'}**")
+            st.caption("Fixed for this session. Start a new session to use another model.")
+        else:
+            model = st.selectbox(
+                "Model for this session", list(MODELS), format_func=MODELS.get,
+                key=MODEL_PICK, label_visibility="collapsed",
+            )
+
     if st.session_state.get(SHOW_SESSIONS):
         _render_session_picker(client)  # ends the run
 
@@ -1123,8 +1171,8 @@ def main() -> None:
                     # than on page load is what keeps unused threads from
                     # existing at all. `_new_thread` also puts the id in the
                     # URL, so a reload or a shared link finds this session.
-                    thread_id = _new_thread(client)
-                turn = stream_turn(client, thread_id, prompt, live, progress)
+                    thread_id = _new_thread(client, model)
+                turn = stream_turn(client, thread_id, prompt, live, progress, model)
                 _touch_thread(client, thread_id)
                 if not turn["reply"] and not turn["presentations"]:
                     st.info("The agent finished without a closing message.")

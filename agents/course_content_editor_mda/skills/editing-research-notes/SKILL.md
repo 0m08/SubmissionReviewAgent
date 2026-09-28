@@ -136,7 +136,7 @@ So for any request that names a direction, measure it. Before you edit, call
 `present.py --measure` on the file you own:
 
 ```
-python /opt/cce/scripts/present.py --workspace workspace --measure \
+python /opt/cce/scripts/present.py --workspace /workspace --measure \
     context/topic_02_drainage-basics.md
 ```
 

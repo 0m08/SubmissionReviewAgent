@@ -87,6 +87,13 @@ def test_definition() -> None:
     editor = subagents[0]
     check("editor carries its own skills index", editor.get("skills") == ["/skills/"],
           repr(editor.get("skills")))
+    # A picked model must reach both, or the editors — who do most of the
+    # writing — stay on the deploy-time model.
+    editor_names = [getattr(m, "name", type(m).__name__) for m in (editor.get("middleware") or [])]
+    check("select_model on coordinator and editor",
+          any("select_model" in str(n) for n in names)
+          and any("select_model" in str(n) for n in editor_names),
+          f"{names} / {editor_names}")
     check("editor is isolated, so its skills declaration is legal",
           editor.get("mode", "isolated") == "isolated")
     check("editor prompt keeps the sheet boundary",
@@ -195,14 +202,18 @@ def test_scripts() -> None:
 def test_project_shape() -> None:
     section("project shape")
     check("tools/ removed", not (ROOT / "tools").exists())
-    # middleware/ came back for two things, each argued for in agent.py's module
+    # middleware/ came back for three things, each argued for in agent.py's module
     # docstring: present_bridge.py routes present.py output to the user's screen,
-    # editor_identity.py names the signed-in person for the run. The assertion is
-    # that it holds those and nothing else — middleware is where this build grows
-    # accidental machinery, so a third file should have to justify itself here.
+    # editor_identity.py names the signed-in person for the run, and
+    # model_select.py runs the session on the model the user picked — the one
+    # route MDA leaves for that, since `configurable.model` and `context.model`
+    # are both ignored on a deployed run. The assertion is that it holds those
+    # and nothing else — middleware is where this build grows accidental
+    # machinery, so a fourth file should have to justify itself here.
     middleware_files = sorted(p.name for p in (ROOT / "middleware").glob("*.py"))
-    check("middleware/ holds only the two declared middleware",
-          middleware_files == ["__init__.py", "editor_identity.py", "present_bridge.py"],
+    check("middleware/ holds only the three declared middleware",
+          middleware_files == ["__init__.py", "editor_identity.py", "model_select.py",
+                               "present_bridge.py"],
           str(middleware_files))
     for needed in ("instructions.md", "memory.py", "identity.py", "sandbox/__init__.py"):
         check(f"{needed} present", (ROOT / needed).exists())

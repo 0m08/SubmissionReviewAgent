@@ -1,8 +1,8 @@
 """Show the user the real current content of files you have edited.
 
-    python /opt/cce/scripts/present.py --workspace workspace context/topic_01_x.md
-    python /opt/cce/scripts/present.py --workspace workspace --measure topics/topic_02_y.md
-    python /opt/cce/scripts/present.py --workspace workspace --text context/topic_01_x.md
+    python /opt/cce/scripts/present.py --workspace /workspace context/topic_01_x.md
+    python /opt/cce/scripts/present.py --workspace /workspace --measure topics/topic_02_y.md
+    python /opt/cce/scripts/present.py --workspace /workspace --text context/topic_01_x.md
 
 ## Who this output is for
 
@@ -78,7 +78,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("paths", nargs="+", help="Workspace-relative file paths.")
-    ap.add_argument("--workspace", default="workspace")
+    ap.add_argument("--workspace", default="/workspace")
     ap.add_argument("--blocks", default="",
                     help="Comma-separated block IDs. Omit to show every block that changed.")
     ap.add_argument("--note", default="", help="One short line saying what to look at.")

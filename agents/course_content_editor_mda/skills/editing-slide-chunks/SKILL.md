@@ -307,7 +307,7 @@ trim, expand, fewer slides, more slides — measure it:
    running `present.py --measure` on it:
 
    ```
-   python /opt/cce/scripts/present.py --workspace workspace --measure \
+   python /opt/cce/scripts/present.py --workspace /workspace --measure \
        topics/topic_02_drainage-basics.md
    ```
 
