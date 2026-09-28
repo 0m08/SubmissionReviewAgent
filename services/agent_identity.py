@@ -56,25 +56,32 @@ def editor_id(email: str | None) -> str | None:
     return f"{_PREFIX}{digest[:_WIDTH]}"
 
 
-def run_context(email: str | None) -> dict[str, str]:
+def run_context(email: str | None, model: str | None = None) -> dict[str, str]:
     """Runtime context for a run — what the *agent* is allowed to know.
 
     Goes to `client.runs.stream(context=...)`, arrives as `runtime.context` in
-    the deployment, and is read there by the `editor_identity` middleware.
-    Deliberately the id alone: anything added here can end up written into
-    shared memory by a model that thought it was being helpful.
+    the deployment, and is read there by the `editor_identity` and
+    `select_model` middleware. Deliberately the id and the model choice alone:
+    anything added here can end up written into shared memory by a model that
+    thought it was being helpful.
     """
+    context: dict[str, str] = {}
     resolved = editor_id(email)
-    return {"editor_id": resolved} if resolved else {}
+    if resolved:
+        context["editor_id"] = resolved
+    if model:
+        context["model"] = model
+    return context
 
 
-def run_metadata(email: str | None) -> dict[str, str]:
+def run_metadata(email: str | None, surface: str = "course-content-editor-mda") -> dict[str, str]:
     """Trace metadata for a run — what *we* need to debug and attribute.
 
     Goes to `client.runs.stream(metadata=...)` and lands on the LangSmith run,
-    where it is filterable. The email is here and only here.
+    where it is filterable. The email is here and only here. `surface` names
+    the page, so each agent's runs can be told apart in the trace.
     """
-    meta: dict[str, str] = {"app": "streamlit", "surface": "course-content-editor-mda"}
+    meta: dict[str, str] = {"app": "streamlit", "surface": surface}
     if email and email.strip():
         meta["user_email"] = email.strip()
     resolved = editor_id(email)
