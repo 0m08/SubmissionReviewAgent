@@ -57,6 +57,12 @@ window.HFApi = (function () {
         body: JSON.stringify(payload),
       });
     },
+    saveScenePlayerOverrides(payload) {
+      return request("/api/scenes/player-overrides", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
     revert(payload) {
       return request("/api/visuals/revert", {
         method: "POST",

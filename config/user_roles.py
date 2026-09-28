@@ -50,6 +50,7 @@ email_to_role_mapping = {
     "kavya@skillcatapp.com": "Instructional Designer",
     "diksha@skillcatapp.com": "Instructional Designer",
     "pratik.w@skillcatapp.com": "Instructional Designer",
+    "dataentry@skillcatapp.com": "Instructional Designer",
          
     # Visual Designer - Access to graphics-related tools, image search, quality compliance, video search
     "ajay@skillcatapp.com": "Visual Designer",
@@ -75,20 +76,21 @@ default_role = None  # No access for users not in email_to_role_mapping
 role_page_access = {
     "Admin": [
         "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
+        "course_content_editor_mda_page",
         "graphics_definition_page", "graphics_definition_v2_page", "assessments_generation_page",
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page", "model_3d_search_tool_page", "paraphraser_page", "image_translation_page",
         "mcp_ui_page", "slideshow_streamlit_page", "slideshow_manifest_video_page", "image_editing_tool_page", "curriculum_mapping_tool_page", "video_embeddings_page", "aggregation_agent_page", "pptx_exporter_page"
     ],
     "Managers": [
-        "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
+        "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page", "course_content_editor_mda_page",
         "graphics_definition_page", "graphics_definition_v2_page", "assessments_generation_page",
         "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page", "model_3d_search_tool_page",
         "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Instructional Designer": [
-        "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page",
+        "template_sheet_setup_page", "workflow_directory_page", "course_outline_page", "research_notes_page", "slide_chunks_page", "course_content_editor_mda_page",
         "graphics_definition_v2_page", "assessments_generation_page", "vectorstore_page", "get_images_page",
         "video_search_tool_page", "model_3d_search_tool_page", "quality_compliance_scoring_page",
         "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"

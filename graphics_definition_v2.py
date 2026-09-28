@@ -4,7 +4,7 @@ from agent_ui_template import agent_ui
 from agents.graphics_definition_v2.image_graphics_agent.segment_slide import (
     run_segment_slide_from_slide_chunk_for_all_rows,
     delete_segment_slide,
-    ensure_visual_assignment_strategy_column,
+    prepare_slide_chunks_for_layout_plan,
 )
 from agents.graphics_definition_v2.planning_layout.layout_plan import (
     run_layout_planning_agent_for_all_rows,
@@ -49,6 +49,10 @@ from agents.graphics_definition_v2.aggregation_agent.aggregation_agent import (
 from agents.graphics_definition_v2.review_agent.review_and_revise import (
     run_review_and_revise_graphics_definition_v2_for_all_rows,
     delete_review_and_revise_graphics_definition_v2,
+)
+from agents.graphics_definition_v2.review_agent.chooser_results_sheet import (
+    run_populate_chooser_results_sheet,
+    delete_chooser_results_sheet,
 )
 from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_in_other_channels import (
     run_youtube_video_search_other_channels_for_all_rows,
@@ -98,6 +102,10 @@ from agents.graphics_definition_v2.image_editing_for_layout.image_editing_based_
     run_image_editing_execution_for_all_rows,
     delete_image_editing_execution_columns,
 )
+from agents.graphics_definition_v2.image_editing_for_layout.multivisual_animation_decision import (
+    run_overlay_animation_decisions_for_all_rows,
+    delete_overlay_animation_decisions_columns,
+)
 from agents.graphics_definition_v2.image_editing_for_layout.image_edit_results_sheet import (
     run_populate_image_edit_results_sheet,
     delete_image_edit_results_sheet_data,
@@ -122,7 +130,6 @@ TOP_INSTRUCTIONS = (
                     "- **1 Visual for the whole Slide**: One visual gets assigned for the entire slide.\n\n"
                     "Also choose **Asset libraries for this run** below (Drive Images, HVAC YouTube, Google Drive Videos, External References, and Web Images and Videos)."
 )
-
 
 
 pipeline_sections = [
@@ -167,7 +174,7 @@ pipeline_sections = [
             {
                 "name": "Generate Layout Plan for each Slide",
                 "func": run_layout_planning_agent_for_all_rows,
-                "pre_exec_func": ensure_visual_assignment_strategy_column,
+                "pre_exec_func": prepare_slide_chunks_for_layout_plan,
                 "pre_exec_args": {
                     "sheet": "sheet",
                     "worksheet_name": "Slide Chunks"
@@ -175,7 +182,7 @@ pipeline_sections = [
                 "depends_on": ["Index External Reference Assets"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
@@ -196,7 +203,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Layout Plan for each Slide"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_flash_lite",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "2-5 minutes",
@@ -217,7 +224,7 @@ pipeline_sections = [
                 "depends_on": ["Segment Slide into Voiceover Segments"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
@@ -238,7 +245,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Storyboard for each Slide"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_flash_lite",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
@@ -254,7 +261,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Search Queries for Image and Video Retrieval"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "is_llm_step": True,
@@ -297,8 +304,8 @@ pipeline_sections = [
                 "depends_on": ["Generate Image and Video Candidates"],
                 "args": {
                     "sheet": "sheet",
-                    "image_pool_llm": "gemini_3_flash_thinking",
-                    "video_pool_llm": "gemini_3_flash_thinking",
+                    "image_pool_llm": "gemini_3_8_flash_thinking",
+                    "video_pool_llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "is_llm_step": True, 
@@ -320,7 +327,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Image and Video Pools"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "30-60 minutes",
@@ -341,7 +348,7 @@ pipeline_sections = [
                 "depends_on": ["Aggregation Agent"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                     "use_only_drive_and_hvac": True,
                     "enabled_sources": "graphics_v2_enabled_sources",
@@ -365,7 +372,7 @@ pipeline_sections = [
                 "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "10-30 minutes",
@@ -382,7 +389,7 @@ pipeline_sections = [
                 "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-20 minutes",
@@ -399,7 +406,7 @@ pipeline_sections = [
                 "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-25 minutes",
@@ -420,7 +427,7 @@ pipeline_sections = [
                 "depends_on": ["Decide which visual to Use"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-20 minutes",
@@ -432,61 +439,82 @@ pipeline_sections = [
             },
         ]
     },
+    # {
+    #     "section_name": "Section 11: Scene Edit Planning",
+    #     "steps": [
+    #         {
+    #             "name": "Generate Scene Edit Plan",
+    #             "func": run_scene_edit_planning_for_all_rows,
+    #             "depends_on": ["Generate Slideshow Manifest"],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "llm": "gemini_3_flash_thinking",
+    #                 "max_workers": 50,
+    #             },
+    #             "estimated_time": "10-30 minutes",
+    #             "description": "Parses slideshow_manifest scene-by-scene and generates scene_edit_plan output by running the image edit planning agent once per scene with multimodal slot assets.",
+    #             "delete_func": delete_scene_edit_plan_columns,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
+    #   {
+    #     "section_name": "Section 12: Scene Edit Execution",
+    #     "steps": [
+    #         {
+    #             "name": "Run Scene Edit Execution",
+    #             "func": run_image_editing_execution_for_all_rows,
+    #             "depends_on": [],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "max_workers": 50,
+    #             },
+    #             "estimated_time": "20-120 minutes",
+    #             "description": "Per instructional slot, runs an edit -> review -> regenerate loop.",
+    #             "delete_func": delete_image_editing_execution_columns,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
+    # {
+    #     "section_name": "Section 13: Apply edited images to slideshow manifest",
+    #     "steps": [
+    #         {
+    #             "name": "Apply edited asset URLs to slideshow manifest",
+    #             "func": run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
+    #             "depends_on": [],
+    #             "args": {
+    #                 "sheet": "sheet",
+    #                 "max_workers": 30,
+    #             },
+    #             "estimated_time": "1-5 minutes",
+    #             "description": "Replace the Original Image URLs with the Edited Image URLs in the slideshow_manifest and final_graphics_definition columns",
+    #             "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
+    #             "delete_args": {
+    #                 "sheet": "sheet"
+    #             },
+    #         },
+    #     ]
+    # },
     {
-        "section_name": "Section 11: Scene Edit Planning",
+        "section_name": "Section 14: Overlay Animation Decisions",
         "steps": [
             {
-                "name": "Generate Scene Edit Plan",
-                "func": run_scene_edit_planning_for_all_rows,
+                "name": "Decide Overlay Animations",
+                "func": run_overlay_animation_decisions_for_all_rows,
                 "depends_on": ["Generate Slideshow Manifest"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
-                "estimated_time": "10-30 minutes",
-                "description": "Parses slideshow_manifest scene-by-scene and generates scene_edit_plan output by running the image edit planning agent once per scene with multimodal slot assets.",
-                "delete_func": delete_scene_edit_plan_columns,
-                "delete_args": {
-                    "sheet": "sheet"
-                },
-            },
-        ]
-    },
-    {
-        "section_name": "Section 12: Scene Edit Execution",
-        "steps": [
-            {
-                "name": "Run Scene Edit Execution",
-                "func": run_image_editing_execution_for_all_rows,
-                "depends_on": ["Generate Scene Edit Plan"],
-                "args": {
-                    "sheet": "sheet",
-                    "max_workers": 50,
-                },
-                "estimated_time": "20-120 minutes",
-                "description": "Per instructional slot, runs an edit -> review -> regenerate loop.",
-                "delete_func": delete_image_editing_execution_columns,
-                "delete_args": {
-                    "sheet": "sheet"
-                },
-            },
-        ]
-    },
-    {
-        "section_name": "Section 13: Apply edited images to slideshow manifest",
-        "steps": [
-            {
-                "name": "Apply edited asset URLs to slideshow manifest",
-                "func": run_apply_edited_urls_to_slideshow_manifest_for_all_rows,
-                "depends_on": ["Run Scene Edit Execution"],
-                "args": {
-                    "sheet": "sheet",
-                    "max_workers": 30,
-                },
-                "estimated_time": "1-5 minutes",
-                "description": "Replace the Original Image URLs with the Edited Image URLs in the slideshow_manifest and final_graphics_definition columns",
-                "delete_func": delete_apply_edited_urls_to_slideshow_manifest,
+                "estimated_time": "5-20 minutes",
+                "description": "Decides overlay animations: adds instructional overlays/bbox highlights for hero images, and plans text label overlays symmetrically for multi-visual layouts.",
+                "delete_func": delete_overlay_animation_decisions_columns,
                 "delete_args": {
                     "sheet": "sheet"
                 },
@@ -549,27 +577,7 @@ pipeline_sections = [
     #         # },
     #     ]
     # },
-    # {
-    #     "section_name": "Section 8: Layout Agent",
-    #     "steps": [
-    #         {
-    #             "name": "Run Layout Agent",
-    #             "func": run_layout_agent_for_all_rows,
-    #             "depends_on": [],
-    #             "args": {
-    #                 "sheet": "sheet",
-    #                 "llm": "gemini_3_flash_thinking",
-    #                 "max_workers": 50,
-    #             },
-    #             "estimated_time": "15-30 minutes",
-    #             "description": "This function generates presentation-ready layout instructions for each slide based on the final graphics definition. It determines how assets are arranged on the canvas, how they transition, and how visual continuity is maintained.",
-    #             "delete_func": delete_layout_columns,
-    #             "delete_args": {
-    #                 "sheet": "sheet"
-    #             }
-    #         },
-    #     ]
-    # },
+ 
     # {
     #     "section_name": "Section 8: Download Assets to Drive",
     #     "steps": [
@@ -594,13 +602,9 @@ llm_pricing = {
         "output_per_million": 3.00,
     },
     "models": {
-        "gemini_2_5_flash_lite": {
-            "input_per_million": 0.10,  
-            "output_per_million": 0.40, 
-        },
-        "gemini_3_flash_thinking": {
-            "input_per_million": 0.50,
-            "output_per_million": 3.00,
+        "gemini_3_8_flash_thinking": {
+            "input_per_million": 0.75,
+            "output_per_million": 3.75,
         },
     },
 }

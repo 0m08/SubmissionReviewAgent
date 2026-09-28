@@ -2,16 +2,31 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from contextlib import contextmanager
 from typing import Any, Dict, Optional
 
 import streamlit as st
 
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(
+    logging.ERROR
+)
+
 try:
     from streamlit.runtime.scriptrunner import get_script_run_ctx
 except ImportError:
     get_script_run_ctx = None
+
+
+def _script_run_ctx():
+    """Return ScriptRunContext without logging the headless-mode warning."""
+    if get_script_run_ctx is None:
+        return None
+    try:
+        return get_script_run_ctx(suppress_warning=True)
+    except TypeError:
+        return get_script_run_ctx()
 
 
 class ThreadLocalSessionState:
@@ -20,7 +35,7 @@ class ThreadLocalSessionState:
         self._original_state = original_state
 
     def _get_state(self) -> Any:
-        if get_script_run_ctx is not None and get_script_run_ctx() is not None:
+        if _script_run_ctx() is not None:
             return self._original_state
         
         if not hasattr(self._local, "state"):

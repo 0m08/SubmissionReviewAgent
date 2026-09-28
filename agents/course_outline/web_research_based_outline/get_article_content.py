@@ -244,7 +244,7 @@ def run_fetch_article_content(sheet, worksheet_name):
 
         # Collect the results as they complete
         total_tasks = len(futures)
-        save_interval = 5  # how often to save (in number of completed tasks)
+        save_interval = 10  # how often to save (in number of completed tasks)
 
         # Initialize the progress tracker
         progress = SmartProgressBar(total_tasks = total_tasks, description = "Percent complete", save_interval = save_interval)
@@ -254,6 +254,8 @@ def run_fetch_article_content(sheet, worksheet_name):
         # progress_bar = st.progress(0, text="Percent complete: 0%")
 
         pending_save_indices = []
+        import time
+        last_save_time = time.time()
 
         for future in tqdm(as_completed(futures), total=total_tasks):
             index, article_content = future.result()
@@ -271,13 +273,15 @@ def run_fetch_article_content(sheet, worksheet_name):
             progress.update()
 
             # Check if we should save
-            if progress.should_save():
+            current_time = time.time()
+            if len(pending_save_indices) >= save_interval and (current_time - last_save_time) >= 20:
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 _flush_pending_article_saves(
                     preliminary_research_sheet,
                     preliminary_research_df,
                     pending_save_indices,
                 )
+                last_save_time = current_time
 
         _flush_pending_article_saves(
             preliminary_research_sheet,

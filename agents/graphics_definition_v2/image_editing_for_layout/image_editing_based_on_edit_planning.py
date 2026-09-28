@@ -67,6 +67,9 @@ SCENE_IMAGE_EDIT_REVIEW_MODEL = "gemini_3_flash_thinking"
 MAX_EDIT_REVIEW_LOOPS = 3
 
 _NON_INSTRUCTIONAL_EDIT_TYPES = frozenset({"NO_EDIT", "SKIPPED_VIDEO"})
+_SINGLE_HERO_BLOCKED_EDIT_TYPES = frozenset(
+    {"ADD_TEXT_LABEL", "ADD_HIGHLIGHT_CIRCLE_OR_BOX", "ADD_ICON"}
+)
 
 _DIRECT_VIDEO_FILE_SUFFIXES = (".mp4", ".webm", ".mov")
 
@@ -674,13 +677,36 @@ def _edit_type_from_edit_block(edit_xml):
     return re.sub(r"\s+", " ", m.group(1)).strip().upper()
 
 
-def slot_needs_instructional_image_edit(slot_xml):
+def _normalize_scene_template(template):
+    """
+    Normalize scene template labels for robust equality checks.
+
+    :param template: Raw template label.
+    :return: Normalized template token.
+    """
+    return str(template or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _blocked_edit_types_for_scene(scene_template):
+    """
+    Return edit types blocked for the current scene template.
+
+    :param scene_template: Scene template string from slideshow manifest.
+    :return: Set of blocked edit types.
+    """
+    if _normalize_scene_template(scene_template) == "single_visual_hero":
+        return _SINGLE_HERO_BLOCKED_EDIT_TYPES
+    return frozenset()
+
+
+def slot_needs_instructional_image_edit(slot_xml, scene_template=""):
     """
     Determine whether this slot should be sent to the configured image edit backend.
 
     Skips when edit_required is NO, asset is video, or all edits are NO_EDIT/SKIPPED_VIDEO.
 
     :param slot_xml: Inner content of one <slot_edit> block.
+    :param scene_template: Scene template from slideshow manifest.
     :return: True when an instructional image edit should run.
     """
     asset_type = _parse_multiline_field(slot_xml, "Asset Type").lower()
@@ -693,25 +719,31 @@ def slot_needs_instructional_image_edit(slot_xml):
     blocks = _extract_edit_blocks_xml(edits_inner)
     if not blocks:
         return False
+    blocked = _blocked_edit_types_for_scene(scene_template)
     for blk in blocks:
         et = _edit_type_from_edit_block(blk)
+        if et in blocked:
+            continue
         if et and et not in _NON_INSTRUCTIONAL_EDIT_TYPES:
             return True
     return False
 
 
-def build_edit_instructions_payload(slot_xml):
+def build_edit_instructions_payload(slot_xml, scene_template=""):
     """
     Build the inner body for edit_instructions in the execution prompt template.
 
     :param slot_xml: Inner content of one slot_edit block.
+    :param scene_template: Scene template from slideshow manifest.
     :return: String inserted into image_edit_execution_prompt at edit_instructions.
     """
     edits_inner = _extract_edits_section_inner(slot_xml)
     blocks = _extract_edit_blocks_xml(edits_inner)
+    blocked = _blocked_edit_types_for_scene(scene_template)
     instructional = [
         b for b in blocks
         if _edit_type_from_edit_block(b) not in _NON_INSTRUCTIONAL_EDIT_TYPES
+        and _edit_type_from_edit_block(b) not in blocked
     ]
     inner = "\n\n".join(instructional) if instructional else "\n\n".join(blocks)
     return inner
@@ -2373,7 +2405,10 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                 if _r is not None:
                     _slot_ref_cache[_ki] = _r
                     _harm_slots.append((_ki, _r, _a_url))
-            any_needs_instructional = any(slot_needs_instructional_image_edit(sxi) for sxi in slots)
+            any_needs_instructional = any(
+                slot_needs_instructional_image_edit(sxi, scene_template=scene_template)
+                for sxi in slots
+            )
             if any_needs_instructional and len(_harm_slots) >= 2:
                 scene_style_instructions = _generate_style_harmonization_instructions(
                     _harm_slots,
@@ -2392,7 +2427,9 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                 if _is_video_asset_url(asset_url):
                     asset_type = "video"
 
-                needs_instructional_edit = slot_needs_instructional_image_edit(slot_xml)
+                needs_instructional_edit = slot_needs_instructional_image_edit(
+                    slot_xml, scene_template=scene_template
+                )
 
                 # Check aspect ratio target dimensions and deviation
                 target_slot_w, target_slot_h = _get_slot_target_dimensions(manifest_text, scene_id, k)
@@ -2477,7 +2514,9 @@ def process_image_editing_execution_row(index, row, course_name, target_audience
                     continue
 
                 if needs_instructional_edit:
-                    edit_payload = build_edit_instructions_payload(slot_xml)
+                    edit_payload = build_edit_instructions_payload(
+                        slot_xml, scene_template=scene_template
+                    )
                     if harm_instr_for_slot:
                         edit_payload += f"\n\n[Style Harmonization]\n{harm_instr_for_slot}"
                     if needs_ar_adjustment:
@@ -2817,8 +2856,18 @@ def run_image_editing_execution_for_all_rows(sheet, max_workers=50):
         return bool(v) and v != "nan" and not v.startswith("ERROR:")
 
     rows_to_process = []
+    stamped_skip = False
     for index, row in df.iterrows():
         plan = str(row.get("scene_edit_plan", "")).strip()
+        is_transition = str(row.get("Slide Type", "")).strip().lower() == "transition"
+        if is_transition or plan == "-":
+            if not _filled(row.get("image_editing_tracking", "")):
+                df.at[index, "image_editing_tracking"] = "-"
+                stamped_skip = True
+            if not _filled(row.get("edit_review", "")):
+                df.at[index, "edit_review"] = "-"
+                stamped_skip = True
+            continue
         if not plan or plan == "nan" or plan.startswith("ERROR:"):
             continue
         if _filled(row.get("image_editing_tracking", "")) and _filled(
@@ -2828,6 +2877,8 @@ def run_image_editing_execution_for_all_rows(sheet, max_workers=50):
         rows_to_process.append((index, row))
 
     if not rows_to_process:
+        if stamped_skip:
+            save_to_sheet(ws, df)
         print(
             f"Image edit execution: no rows to process "
             f"(edit model={model_id!r}, backend={provider}, "

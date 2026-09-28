@@ -284,7 +284,7 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
 
         # Collect the results as they complete
         total_tasks = len(futures_map)
-        save_interval = 5  # how often to save (in number of completed tasks)
+        save_interval = 10  # how often to save (in number complete tasks)
 
         if total_tasks == 0:
             raise
@@ -294,6 +294,8 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
 
         # Now, pass only the futures (the keys) to as_completed:
         pending_save_indices = []
+        import time
+        last_save_time = time.time()
 
         for future in tqdm(as_completed(futures_map), total=total_tasks):
             index = futures_map[future]  # retrieve the index
@@ -312,13 +314,15 @@ def run_get_relevant_info_from_article(sheet, worksheet_name, course_name, targe
             progress.update()
 
             # Check if we should save
-            if progress.should_save():
+            current_time = time.time()
+            if len(pending_save_indices) >= save_interval and (current_time - last_save_time) >= 20:
                 print(f'Saving partial progress to sheet after {progress.completed_count} tasks completed.')
                 _flush_pending_relevant_info_saves(
                     preliminary_research_sheet,
                     preliminary_research_df,
                     pending_save_indices,
                 )
+                last_save_time = current_time
 
         _flush_pending_relevant_info_saves(
             preliminary_research_sheet,

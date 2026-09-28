@@ -91,7 +91,7 @@ Instructions and Guidelines:
    a) single_visual_hero
       - Description: One dominant visual supports the full scene.
       - Slot role: primary_visual
-      - Editing implication: Edits should help the single visual clearly communicate the main narration idea without cluttering the full-screen composition.
+      - Editing implication: Do not request ADD_TEXT_LABEL, ADD_HIGHLIGHT_CIRCLE_OR_BOX, or ADD_ICON for this layout. These overlays are handled by player animation at runtime. You may still use NO_EDIT and other non-overlay decisions as needed.
 
    b) two_item_split_comparison
       - Description: Two visuals are shown side-by-side for direct comparison or paired explanation.
@@ -177,11 +177,6 @@ Instructions and Guidelines:
       - Use only when a simple symbol would clarify the meaning of the visual.
       - Do not add icons that are decorative or that introduce meaning not present in the narration.
 
-   h) ADD_EMPHASIS
-      - Use when the relevant area needs stronger visual focus, such as zoom emphasis, dimming unrelated background, or subtle visual emphasis.
-      - Use only when the asset is relevant but the important detail may be missed without emphasis.
-      - Do not use emphasis effects that distort the technical meaning of the asset.
-
 6. Purposeful Editing and Clarity Rules
    - Plan edits when they can make the asset clearer, more instructionally useful, or easier to understand during the narration span.
    - Prefer edits that help the learner quickly notice the specific object, part, condition, action, or relationship being described.
@@ -210,12 +205,11 @@ Instructions and Guidelines:
    - Do not use vague target descriptions like "highlight the important part" or "label the relevant area."
    - For ADD_TEXT_LABEL, provide the exact label_text that should appear on the asset, and also state where the label should be placed relative to the target (just above, to the right of, with a leader line from, etc.) so the label does not cover important detail.
    - For ADD_ARROW, describe both what the arrow should point to and, when useful, where the arrow should come from or be placed.
-   - For ADD_HIGHLIGHT_CIRCLE_OR_BOX, specify whether a circle or box would be more appropriate when the choice is clear, and describe the approximate extent so the highlight encloses the right region without covering important neighboring detail or missing the target.
-   - For CROP_IMAGE, describe what should remain visible after cropping and what unnecessary area can be removed, defining the kept region using visible landmarks.
-   - For ADD_ICON, specify the icon meaning, such as warning, safety, airflow, water flow, correct, or incorrect, etc., and where it should be placed relative to the related visible object.
-   - For ADD_EMPHASIS, describe the intended emphasis effect, such as zooming into a component, dimming unrelated background, or visually focusing attention on a specific region, and identify the exact region the emphasis applies to.
+    - For ADD_HIGHLIGHT_CIRCLE_OR_BOX, specify whether a circle or box would be more appropriate when the choice is clear, and describe the approximate extent so the highlight encloses the right region without covering important neighboring detail or missing the target.
+    - For CROP_IMAGE, describe what should remain visible after cropping and what unnecessary area can be removed, defining the kept region using visible landmarks.
+    - For ADD_ICON, specify the icon meaning, such as warning, safety, airflow, water flow, correct, or incorrect, etc., and where it should be placed relative to the related visible object.
 
-   Examples of acceptable target_description detail (for tone and specificity reference only, do not copy):
+Examples of acceptable target_description detail (for tone and specificity reference only, do not copy):
        - Good: "The pressure gauge mounted on the upper-right side of the boiler unit. It is a round dial with a red needle, sitting just above the horizontal pipe that exits the top of the unit. It is the only gauge visible in the upper half of the image."
        - Bad: "The pressure gauge."
        - Good: "The row of blue and orange flames at the center of the image, occupying roughly the middle third horizontally. The flames sit on top of a metal burner bar with circular ports. There are no other flames or fire visible elsewhere in the image."
@@ -269,7 +263,6 @@ Instructions and Guidelines:
           ADD_ARROW
           ADD_HIGHLIGHT_CIRCLE_OR_BOX
           ADD_ICON
-          ADD_EMPHASIS
 
      c) <target_description>
         - Describe the exact visible target or region the edit should apply to.
@@ -279,7 +272,7 @@ Instructions and Guidelines:
         - For NO_EDIT, write: None.
         - For SKIPPED_VIDEO, write: Video asset not edited.
         - For CROP_IMAGE, describe what should remain visible, what unnecessary area can be removed, and the approximate boundaries of the kept region using visible landmarks.
-        - For ADD_TEXT_LABEL, ADD_ARROW, ADD_HIGHLIGHT_CIRCLE_OR_BOX, ADD_ICON, or ADD_EMPHASIS, describe the object, part, condition, or region to target, and where the overlay should be placed relative to it so it does not cover important detail.
+        - For ADD_TEXT_LABEL, ADD_ARROW, ADD_HIGHLIGHT_CIRCLE_OR_BOX, or ADD_ICON, describe the object, part, condition, or region to target, and where the overlay should be placed relative to it so it does not cover important detail.
 
      d) <label_text>
         - Required only for ADD_TEXT_LABEL.
@@ -296,7 +289,7 @@ Instructions and Guidelines:
      f) <must_preserve>
         - Describe any important visual context that must not be cropped out, covered, or obscured during editing.
         - For NO_EDIT or SKIPPED_VIDEO, write: None.
-        - For crop, label, arrow, highlight, icon, or emphasis edits, mention the key object/context that should remain visible.
+        - For crop, label, arrow, highlight, or icon edits, mention the key object/context that should remain visible.
 
    - Do not leave required fields blank.
    - Do not add fields outside the required output schema.
@@ -362,7 +355,7 @@ Execution order for this edit. Use 1, 2, 3, etc. For NO_EDIT or SKIPPED_VIDEO, u
 </priority_order>
 
 <edit_type>
-ADD_TEXT_LABEL | CROP_IMAGE | ADD_ARROW | ADD_HIGHLIGHT_CIRCLE_OR_BOX | ADD_ICON | ADD_EMPHASIS | NO_EDIT | SKIPPED_VIDEO
+ADD_TEXT_LABEL | CROP_IMAGE | ADD_ARROW | ADD_HIGHLIGHT_CIRCLE_OR_BOX | ADD_ICON | NO_EDIT | SKIPPED_VIDEO
 </edit_type>
 
 <target_description>
@@ -731,8 +724,12 @@ def run_scene_edit_planning_for_all_rows(sheet, llm="gemini_3_flash_thinking", m
 
     rows_to_process = []
     for index, row in df.iterrows():
-        manifest = str(row.get("slideshow_manifest", "")).strip()
         existing = str(row.get("scene_edit_plan", "")).strip()
+        if str(row.get("Slide Type", "")).strip().lower() == "transition":
+            if not existing or existing == "nan" or existing.startswith("ERROR:"):
+                df.at[index, "scene_edit_plan"] = "-"
+            continue
+        manifest = str(row.get("slideshow_manifest", "")).strip()
         if not manifest or manifest == "nan" or manifest.startswith("ERROR:"):
             continue
         if existing and existing != "nan" and not existing.startswith("ERROR:"):
@@ -740,6 +737,7 @@ def run_scene_edit_planning_for_all_rows(sheet, llm="gemini_3_flash_thinking", m
         rows_to_process.append((index, row))
 
     if not rows_to_process:
+        save_to_sheet(ws, df)
         print("Scene edit planning: no rows to process.")
         return
 

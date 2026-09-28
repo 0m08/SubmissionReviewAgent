@@ -109,6 +109,7 @@ MAX_REVIEW_ATTEMPTS = 1
 MAX_REGEN_ATTEMPTS = 2
 REGEN_IMAGE_SEARCH_K = 4
 REGEN_VIDEO_SEARCH_K = 3
+CHOOSER_LOG_COLUMN = "chooser_agent_log"
 
 
 # Alingment prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -925,6 +926,89 @@ Repeat one <failure> block per distinct failed case.
 # </review>
 # (Use this exact XML format given above while providing your output)
 # """
+
+
+CHOOSER_AGENT_PROMPT = """You are a Graphics Definition Chooser Agent specializing in the field of HVAC. Your task is to choose the single best on-screen visual for one specific part of the voiceover on an educational e-learning slide.
+
+We are designing e-learning slides. Each slide has spoken voiceover (narration) part(s) and one visual assigned to each of those voiceover parts. A visual may be an image or a short video clip. The visual shown during a given voiceover part should clearly support what is being said at that moment, so a learner can look at the screen and understand the instruction without guesswork.
+
+You will be given the course and slide context, the voiceover text for this moment, and several candidate visuals for that same voiceover moment. Compare the candidates and choose exactly one: the visual that should be shown on screen while this part of the voiceover plays. Do not assume that a later option in the list is better than an earlier one. Every candidate must be judged on its own merit.
+
+Inputs:
+These are the inputs for your evaluation:
+
+<course_information>
+Course name: {course_name}
+Target audience: {target_audience}
+Topic name: {topic_name}
+Subtopic name: {subtopic_name}
+</course_information>
+
+<slide_information>
+Slide title: {slide_title}
+Slide content: "{slide_chunk}"
+</slide_information>
+
+<decision_context>
+This is the voiceover text part that will play while the chosen visual is on screen:
+"{visual_part_for_this_visual}"
+
+Visual Options:
+{options_text}
+</decision_context>
+
+You will receive the visual options as multimodal inputs (images and/or video clips) so you can inspect what each option actually shows. All options are candidates for the same voiceover moment. Choose exactly one.
+
+Instructions:
+Follow the below evaluation rules very strictly to guide your decision:
+
+1) Scope
+   - Choose exactly one visual from the provided options for this voiceover text. Do not invent a visual or pick a URL that is not in the list.
+   - The chosen visual will be displayed on screen as this assigned voiceover text part is narrated.
+   - When interpreting the voiceover, use the surrounding slide content to resolve split sentences, pronouns, continuation phrases, instructional intent, etc. Do not interpret a sentence, phrase, or clause literally in isolation.
+   - Do not judge based only on broad topic relevance. The visual must support the specific meaning of this assigned voiceover text part.
+
+2) What makes an option the "best choice"
+   - Semantic Alignment: The chosen visual must clearly, accurately, and directly show what the voiceover sentence is saying at that moment.
+   - Visual Quality and Professionalism: The visual must be clear, high-resolution, professional, and instructionally useful. Avoid options that are cartoonish, generic, overly cluttered, or confusing.
+   - No ordering bias (CRITICAL): Option labels (Option 1, Option 2, Option 3, etc.) are only identifiers. A later option is not automatically better than an earlier one. Treat every option with equal skepticism and choose strictly on instructional fit and visual quality.
+   - Trade-off Balancing: Prefer a high-quality, professional, clear visual that strongly supports the voiceover over a more literal match that is low quality, generic, cluttered, or cartoonish. Prefer a clearly aligned visual over a prettier one that does not show what is being said.
+   - Usability: The visual must be clean and easy for a learner to interpret without guesswork.
+
+3) Technical Constraints
+   - Do not modify, edit, or hallucinate URLs. The chosen visual URL MUST be copied exactly from the options list.
+   - Keep any associated timestamp parameters (such as start/end seconds) intact.
+
+Output Format:
+Always provide your output strictly in the following format:
+
+<evaluation_breakdown>
+
+Use this section as a structured reasoning and scratchpad space for comparison.
+
+- Segment Understanding: Briefly explain what this narration segment is trying to communicate. Use the slide content to resolve any references, pronouns, or implied meaning if needed.
+- Options Scan: Briefly describe what is visibly shown in each provided option (Option 1, Option 2, etc.) and assess their individual visual quality.
+- Comparative Analysis: Compare the options side-by-side. Reason about which visual candidate is the best fit for this voiceover part in terms of alingment.
+- Selection Logic: Justify why your chosen option is the best visual candidate for this voiceover part.
+
+</evaluation_breakdown>
+
+<decision>
+
+<chosen_option_index>
+(Provide the option number chosen, e.g. 1, 2, or 3)
+</chosen_option_index>
+
+<chosen_visual_url>
+(Provide the exact URL of the chosen option)
+</chosen_visual_url>
+
+<reason>
+(Provide a concise but clear reason why this specific option is the best overall choice for this narration moment.)
+</reason>
+
+</decision>
+"""
 
 
 # Revision prompt to use when we have flexible or 1 visual per sentence visual assingment strategy
@@ -1950,6 +2034,335 @@ def format_revision_tracking(tracking):
     return "\n".join(lines)
 
 
+def _sort_visual_ids(visual_ids):
+    """
+    Sort visual IDs as S1V1, S1V2, S2V1, ...
+    """
+    def _key(visual_id):
+        segment_match = re.search(r"S(\d+)", visual_id or "")
+        step_match = re.search(r"V(\d+)", visual_id or "")
+        return (
+            int(segment_match.group(1)) if segment_match else 0,
+            int(step_match.group(1)) if step_match else 0,
+        )
+
+    return sorted(visual_ids, key=_key)
+
+
+def _segment_num_from_visual_id(visual_id):
+    """
+    Extract segment number from a visual ID like S1V2.
+    """
+    match = re.match(r"^S(\d+)V\d+$", (visual_id or "").strip(), re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def _normalize_chooser_url(url):
+    """
+    Strip snapshot suffix and whitespace for URL comparison.
+    """
+    cleaned = _safe_str(url).strip()
+    cleaned = re.sub(r"\s*\(snapshot\)\s*$", "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned
+
+
+def collect_chooser_candidate_urls(alignment_data):
+    """
+    Collect unique http URLs tried for one visual during alignment review-revise.
+
+    :param alignment_data: tracking[visual_id]["alignment"] map of loop_num -> url
+    :return: Unique URLs in loop order (original first)
+    """
+    total_loops = MAX_REVIEW_ATTEMPTS + MAX_REGEN_ATTEMPTS
+    urls: List[str] = []
+    seen = set()
+    for loop_num in range(0, total_loops + 1):
+        raw = (alignment_data or {}).get(loop_num)
+        if raw is None:
+            continue
+        url = _safe_str(raw).strip()
+        if not url or url.lower() in {"nan", "no replacement"}:
+            continue
+        if not url.lower().startswith("http"):
+            continue
+        key = _normalize_chooser_url(url).lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        urls.append(url)
+    return urls
+
+
+def _parse_chooser_response(response_text, option_urls):
+    """
+    Parse chooser XML. Prefer an exact option URL; otherwise use a valid option index.
+
+    :param response_text: Model response
+    :param option_urls: Candidate URLs in Option 1..N order
+    :return: Tuple of (selected_url or None, reason)
+    """
+    index_raw = _extract_tag(response_text, "chosen_option_index")
+    url_raw = _extract_tag(response_text, "chosen_visual_url").replace("&amp;", "&").strip()
+    reason = _extract_tag(response_text, "reason")
+
+    url_match = None
+    if url_raw:
+        for option_url in option_urls:
+            if url_raw == option_url.strip() or _normalize_chooser_url(url_raw) == _normalize_chooser_url(option_url):
+                url_match = option_url
+                break
+
+    url_by_index = None
+    index_match = re.search(r"(\d+)", index_raw or "")
+    if index_match:
+        index = int(index_match.group(1))
+        if 1 <= index <= len(option_urls):
+            url_by_index = option_urls[index - 1]
+
+    if url_match:
+        return url_match, reason
+    if url_by_index:
+        return url_by_index, reason
+    return None, reason
+
+
+def _build_chooser_replacement_xml(visual_id, step, new_asset_url):
+    """
+    Build replacement XML that changes only the asset URL for one visual.
+    """
+    return (
+        "<replacement_visuals>\n"
+        "<visual>\n"
+        f"<visual_id>{visual_id}</visual_id>\n"
+        f"<voiceover_part>{_safe_str(step.get('voiceover_part', ''))}</voiceover_part>\n"
+        f"<replacement_visual_url>{new_asset_url}</replacement_visual_url>\n"
+        f"<visual_instruction>{_safe_str(step.get('visual_instruction', ''))}</visual_instruction>\n"
+        f"<selection_justification>{_safe_str(step.get('selection_justification', ''))}</selection_justification>\n"
+        "</visual>\n"
+        "</replacement_visuals>"
+    )
+
+
+def _format_chooser_log(entries):
+    """
+    Format per-visual chooser log blocks for the sheet column.
+    """
+    if not entries:
+        return ""
+    blocks = []
+    for entry in entries:
+        visual_id = entry.get("visual_id", "")
+        status = entry.get("status", "")
+        lines = [visual_id, f"Chooser: {status}"]
+        if status == "RAN":
+            lines.append("Candidates:")
+            for url in entry.get("candidates") or []:
+                lines.append(url)
+            selected = entry.get("selected") or ""
+            lines.append(f"Selected: {selected}" if selected else "Selected: (kept current)")
+            reason = (entry.get("reason") or "").strip()
+            if reason:
+                lines.append(f"Reason: {reason}")
+        elif entry.get("reason"):
+            lines.append(f"Reason: {entry['reason']}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _find_step_for_visual_id(segments_map, visual_id):
+    """
+    Find the parsed visual step for a visual ID.
+    """
+    segment_num = _segment_num_from_visual_id(visual_id)
+    if not segment_num:
+        return None, None
+    segment = (segments_map or {}).get(segment_num) or {}
+    for step in segment.get("visual_steps") or []:
+        if _safe_str(step.get("visual_id", "")).strip() == visual_id:
+            return segment_num, step
+    return segment_num, None
+
+
+def run_chooser_for_visual(
+    visual_id,
+    option_urls,
+    voiceover_part,
+    course_name,
+    target_audience,
+    topic_name,
+    subtopic_name,
+    slide_title,
+    slide_chunk,
+    drive,
+    llm,
+):
+    """
+    Run the chooser LLM for one visual and return the selected option URL.
+    """
+    options_text = "\n".join(f"Option {idx}: {url}" for idx, url in enumerate(option_urls, start=1))
+    prompt = CHOOSER_AGENT_PROMPT.format(
+        course_name=course_name,
+        target_audience=target_audience,
+        topic_name=topic_name,
+        subtopic_name=subtopic_name,
+        slide_title=slide_title,
+        slide_chunk=slide_chunk,
+        visual_part_for_this_visual=voiceover_part,
+        options_text=options_text,
+    )
+
+    parts: List[types.Part] = []
+    for idx, url in enumerate(option_urls, start=1):
+        asset_parts = build_asset_parts(f"Option {idx}", url, drive)
+        if asset_parts and getattr(asset_parts[0], "text", None):
+            asset_parts[0] = types.Part(text=f"Option {idx}: {url}")
+        parts.extend(asset_parts)
+    parts.append(types.Part(text=prompt))
+
+    print(f"\n{'='*80}")
+    print(f"FORMATTED CHOOSER AGENT PROMPT ({visual_id}):")
+    print(f"{'='*80}")
+    print(prompt)
+    print(f"{'='*80}\n")
+
+    print(f"Chooser {visual_id}: Multimodal parts to be sent ({len(parts)} total):")
+    for idx, part in enumerate(parts, 1):
+        if hasattr(part, "text") and part.text:
+            if part.text == prompt:
+                print(f"  Part {idx} (text): [FORMATTED PROMPT - printed above]")
+            else:
+                print(f"  Part {idx} (text): {part.text}")
+        elif hasattr(part, "inline_data") and part.inline_data:
+            mime = getattr(part.inline_data, "mime_type", "image/jpeg")
+            print(f"  Part {idx} (visual): inline {mime}")
+        elif hasattr(part, "file_data") and part.file_data:
+            uri = getattr(part.file_data, "file_uri", "")
+            print(f"  Part {idx} (visual): file_data uri={uri}")
+        else:
+            print(f"  Part {idx}: {type(part)}")
+
+    print(f"  Chooser {visual_id}: comparing {len(option_urls)} candidate(s)")
+    response_text, _ = invoke_gemini_multimodal(parts, llm=llm, conversation_history=None)
+    print(f"  Chooser {visual_id} response:\n{response_text}\n")
+    return _parse_chooser_response(response_text, option_urls)
+
+
+def run_chooser_agent_for_row(row_index, row, df, course_name, target_audience, drive, llm, revision_tracking, visual_assignment_strategy):
+    """
+    After review-revise, choose the best URL among tried candidates for each replaced visual.
+
+    :param row_index: The index of the row in the dataframe
+    :param row: The row data
+    :param df: The dataframe
+    :param course_name: The name of the course
+    :param target_audience: The target audience of the course
+    :param drive: The drive object
+    :param llm: The LLM model to use
+    :param revision_tracking: The revision tracking data
+    :param visual_assignment_strategy: The visual assignment strategy
+    :return: The updated final graphics definition and the chooser log
+    """
+    log_entries = []
+    current_fgd = _safe_str(row.get("final_graphics_definition", ""))
+    if not revision_tracking or not current_fgd:
+        return current_fgd, ""
+
+    voiceover_text = _safe_str(row.get("voiceover_segment", ""))
+    slide_chunk = _safe_str(row.get("Slide Chunk", ""))
+    topic_name = _safe_str(row.get("Topic", ""))
+    subtopic_name = _safe_str(row.get("Subtopic", ""))
+    slide_title = _safe_str(row.get("Slide Chunk Title", "")) or "Untitled"
+
+    for visual_id in _sort_visual_ids(revision_tracking.keys()):
+        alignment_data = (revision_tracking.get(visual_id) or {}).get("alignment") or {}
+        option_urls = collect_chooser_candidate_urls(alignment_data)
+        if len(option_urls) < 2:
+            log_entries.append({
+                "visual_id": visual_id,
+                "status": "SKIPPED (no replacement)",
+            })
+            continue
+
+        segments_map = build_segment_visual_map(
+            voiceover_text,
+            current_fgd,
+            visual_assignment_strategy,
+            slide_chunk,
+        )
+        segment_num, step = _find_step_for_visual_id(segments_map, visual_id)
+        if not step:
+            log_entries.append({
+                "visual_id": visual_id,
+                "status": "SKIPPED (visual not found)",
+                "reason": "Visual ID was not present in final_graphics_definition.",
+                "candidates": option_urls,
+            })
+            continue
+
+        voiceover_part = _safe_str(step.get("voiceover_part", ""))
+        current_url = _safe_str(step.get("asset", "")).strip()
+        try:
+            selected_url, reason = run_chooser_for_visual(
+                visual_id=visual_id,
+                option_urls=option_urls,
+                voiceover_part=voiceover_part,
+                course_name=course_name,
+                target_audience=target_audience,
+                topic_name=topic_name,
+                subtopic_name=subtopic_name,
+                slide_title=slide_title,
+                slide_chunk=slide_chunk,
+                drive=drive,
+                llm=llm,
+            )
+        except Exception as chooser_err:
+            print(f"  ERROR: Chooser failed for {visual_id}: {chooser_err}")
+            traceback.print_exc()
+            log_entries.append({
+                "visual_id": visual_id,
+                "status": "RAN",
+                "candidates": option_urls,
+                "selected": current_url,
+                "reason": f"Chooser error; kept current assignment. {chooser_err}",
+            })
+            continue
+
+        if not selected_url:
+            log_entries.append({
+                "visual_id": visual_id,
+                "status": "RAN",
+                "candidates": option_urls,
+                "selected": current_url,
+                "reason": (reason + " " if reason else "") + "Model output did not match an option; kept current assignment.",
+            })
+            continue
+
+        log_entries.append({
+            "visual_id": visual_id,
+            "status": "RAN",
+            "candidates": option_urls,
+            "selected": selected_url,
+            "reason": reason,
+        })
+
+        if _normalize_chooser_url(selected_url) == _normalize_chooser_url(current_url):
+            print(f"  Chooser {visual_id}: kept current URL")
+            continue
+
+        if not segment_num:
+            continue
+
+        replacement_xml = _build_chooser_replacement_xml(visual_id, step, selected_url)
+        current_fgd = update_final_graphics_definition_with_replacements(
+            current_fgd,
+            segment_num,
+            replacement_xml,
+        )
+        print(f"  Chooser {visual_id}: wrote selected URL into final_graphics_definition")
+
+    return current_fgd, _format_chooser_log(log_entries)
+
+
 def _build_segment_text_from_steps(segment_num: int, steps: List[Dict[str, str]]) -> str:
     """
     Build a segment block text from parsed visual steps.
@@ -2671,11 +3084,14 @@ def invoke_gemini_multimodal(parts, llm, temperature=0.1, conversation_history=N
     """
     
     model_mapping = {
+        "gemini_3_8_flash_thinking": "gemini-3.8-flash",
+        "gemini_3_8_flash": "gemini-3.8-flash",
         "gemini_3_flash_thinking": "gemini-3-flash-preview",
         "gemini_3_flash": "gemini-3-flash-preview",
-        "gemini_3_pro": "gemini-3-pro",  
+        "gemini_3_pro": "gemini-3-pro",
         "gemini_2.5_flash": "gemini-2.5-flash",
         "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.8-flash": "gemini-3.8-flash",
     }
     actual_model = model_mapping.get(llm, llm)
     client = genai.Client()
@@ -2688,9 +3104,12 @@ def invoke_gemini_multimodal(parts, llm, temperature=0.1, conversation_history=N
     # Add current user message
     contents.append(types.Content(role="user", parts=parts))
     
-    # Enable thinking mode for gemini_3_flash_thinking using ThinkingConfig
-    if llm == "gemini_3_flash_thinking" and "gemini-3" in actual_model:
-        # Use ThinkingConfig to enable thinking mode for complex review tasks
+    if llm in {"gemini_3_8_flash_thinking", "gemini_3_8_flash"} or actual_model == "gemini-3.8-flash":
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            thinking_config=types.ThinkingConfig(thinking_level="high"),
+        )
+    elif llm == "gemini_3_flash_thinking" and "gemini-3" in actual_model:
         config = types.GenerateContentConfig(
             temperature=temperature,
             thinking_config=types.ThinkingConfig(
@@ -4188,7 +4607,7 @@ def regenerate_failed_segments(row_index, row, df, course_name, target_audience,
         visual_assignment_strategy = "Flexible, let the agent decide"
 
     slide_type = str(row.get("Slide Type", "")).strip().lower()
-    skip_video_candidates = slide_type in ("transition", "transition slide")
+    skip_video_candidates = slide_type == "transition"
     if skip_video_candidates:
         print("Transition slide: skipping video candidate generation and filtering in regeneration loop")
 
@@ -6017,10 +6436,11 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
 
         # Transition slides: skip review-revise; set columns and return
         slide_type = str(row.get("Slide Type", "")).strip().lower()
-        if slide_type in ("transition", "transition slide"):
+        if slide_type == "transition":
             df.at[row_index, "graphics_review_v2_notes"] = "-"
             df.at[row_index, "review_complete"] = "TRUE"
             df.at[row_index, "revision_tracking"] = "-"
+            df.at[row_index, CHOOSER_LOG_COLUMN] = "-"
             if ws is not None:
                 with _sheet_lock:
                     save_to_sheet(ws, df)
@@ -6102,6 +6522,29 @@ def process_review_revise_row(row_index, df, course_name, target_audience, drive
         #     use_only_drive_and_hvac=use_only_drive_and_hvac,
         # )
         
+        print("\n[STEP 1b] Chooser agent: selecting the best visual among review-revise candidates...")
+        try:
+            row = df.loc[row_index]
+            chooser_fgd, chooser_log = run_chooser_agent_for_row(
+                row_index=row_index,
+                row=row,
+                df=df,
+                course_name=course_name,
+                target_audience=target_audience,
+                drive=drive,
+                llm=llm,
+                revision_tracking=revision_tracking,
+                visual_assignment_strategy=visual_assignment_strategy,
+            )
+            if chooser_fgd:
+                df.at[row_index, "final_graphics_definition"] = chooser_fgd
+            df.at[row_index, CHOOSER_LOG_COLUMN] = chooser_log or ""
+            print(f"  Saved chooser log for row {row_index + 1}")
+        except Exception as chooser_row_err:
+            print(f"  ERROR: Chooser step failed for row {row_index + 1}; keeping review-revise assignment. {chooser_row_err}")
+            traceback.print_exc()
+            df.at[row_index, CHOOSER_LOG_COLUMN] = f"ERROR: {chooser_row_err}"
+
         # Format and save revision tracking
         tracking_text = format_revision_tracking(revision_tracking)
         df.at[row_index, "revision_tracking"] = tracking_text
@@ -6213,6 +6656,7 @@ def run_review_and_revise_graphics_definition_v2_for_all_rows(sheet, llm="gemini
         "graphics_review_v2_notes",
         "review_complete",
         "revision_tracking",
+        CHOOSER_LOG_COLUMN,
     ]
     for col in review_cols:
         if col not in df.columns:
@@ -6371,7 +6815,7 @@ def delete_review_and_revise_graphics_definition_v2(sheet):
     
     worksheet_name = "Slide Chunks"
     ws, df = get_sheet_data_and_df(sheet, worksheet_name)
-    cols = ["review_complete", "graphics_review_v2_notes", "revision_tracking"]
+    cols = ["review_complete", "graphics_review_v2_notes", "revision_tracking", CHOOSER_LOG_COLUMN]
     cols = [col for col in cols if col in df.columns]
     if cols:
         df = df.drop(columns=cols)

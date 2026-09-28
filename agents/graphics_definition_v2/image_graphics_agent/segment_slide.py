@@ -69,6 +69,100 @@ def _strip_inline_refs(text: str) -> str:
 
 load_dotenv()
 
+_TITLE_TRANSITION_VAS = "1 Visual for the whole Slide"
+
+
+def _sheet_cell(value):
+    """Strip a sheet cell; treat missing / nan as empty."""
+    text = "" if value is None else str(value).strip()
+    return "" if text.lower() == "nan" else text
+
+
+def _is_transition_slide_type(value):
+    """Return True if Slide Type is Transition."""
+    return _sheet_cell(value).lower() == "transition"
+
+
+def _normalize_topic_chunk(value):
+    """Collapse whitespace and casefold for title-transition matching."""
+    return " ".join(_sheet_cell(value).split()).casefold()
+
+
+def _layout_plan_already_started(df):
+    """True when any row already has a non-empty layout_plan (GDv2 has mutated Slide Chunks)."""
+    if "layout_plan" not in df.columns:
+        return False
+    for value in df["layout_plan"]:
+        text = _sheet_cell(value)
+        if text:
+            return True
+    return False
+
+
+def ensure_title_transition_rows(sheet, worksheet_name="Slide Chunks"):
+    """
+    Insert a topic-name Transition row at the start of each Topic group when missing.
+
+    """
+    worksheet, df = get_sheet_data_and_df(sheet, worksheet_name)
+    if df.empty or "Topic" not in df.columns or "Slide Type" not in df.columns:
+        return
+    if _layout_plan_already_started(df):
+        print("Title transitions: layout_plan already filled; skipping insert.")
+        return
+
+    records = df.to_dict("records")
+    new_records = []
+    inserted = 0
+    i = 0
+    n = len(records)
+    while i < n:
+        topic = _sheet_cell(records[i].get("Topic"))
+        j = i + 1
+        while j < n and _sheet_cell(records[j].get("Topic")) == topic:
+            j += 1
+        group = records[i:j]
+        first = group[0]
+        chunk_matches = _normalize_topic_chunk(first.get("Slide Chunk")) == _normalize_topic_chunk(topic)
+        needs_title = bool(topic) and not (
+            _is_transition_slide_type(first.get("Slide Type")) and chunk_matches
+        )
+        if needs_title:
+            donor = next(
+                (row for row in group if _sheet_cell(row.get("Slide Type")).lower() == "content"),
+                first,
+            )
+            new_row = {col: "" for col in df.columns}
+            new_row["Topic"] = topic
+            if "Subtopic" in df.columns:
+                new_row["Subtopic"] = _sheet_cell(donor.get("Subtopic"))
+            new_row["Slide Type"] = "Transition"
+            if "Slide Chunk Title" in df.columns:
+                new_row["Slide Chunk Title"] = topic
+            if "Slide Chunk" in df.columns:
+                new_row["Slide Chunk"] = topic
+            if "Visual Assignment Strategy" in df.columns:
+                new_row["Visual Assignment Strategy"] = _TITLE_TRANSITION_VAS
+            new_records.append(new_row)
+            inserted += 1
+        new_records.extend(group)
+        i = j
+
+    if not inserted:
+        print("Title transitions: no rows to insert.")
+        return
+
+    new_df = df.__class__(new_records, columns=list(df.columns))
+    save_to_sheet(worksheet=worksheet, df=new_df)
+    format_worksheet(worksheet)
+    print(f"✅ Inserted {inserted} title-transition row(s).")
+
+
+def prepare_slide_chunks_for_layout_plan(sheet, worksheet_name="Slide Chunks"):
+    """pre_exec for Generate Layout Plan: title-transition rows, then VAS column."""
+    ensure_title_transition_rows(sheet, worksheet_name)
+    ensure_visual_assignment_strategy_column(sheet, worksheet_name)
+
 
 def ensure_visual_assignment_strategy_column(sheet, worksheet_name="Slide Chunks"):
     """
@@ -97,7 +191,7 @@ def ensure_visual_assignment_strategy_column(sheet, worksheet_name="Slide Chunks
         if slide_type_col not in df.columns:
             return default_value
         st_val = str(row.get(slide_type_col, "")).strip().lower()
-        if st_val in ("transition", "transition slide"):
+        if st_val == "transition":
             return transition_default
         return default_value
 

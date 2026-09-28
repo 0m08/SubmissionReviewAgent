@@ -294,9 +294,8 @@ def generate_structured_output(prompt, structured_output, model="gemini-3-flash-
             'max_output_tokens': max_tokens,
         }
         
-        # Add thinking_level for Gemini 3 models
         if thinking_level and "gemini-3" in model:
-            config['thinking_level'] = thinking_level
+            config["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
         
         response = client.models.generate_content(
             model=model,
@@ -387,7 +386,7 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
         current_step_name = ""
 
     # List of models that support direct API structured output
-    direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash", "gemini_2_5_flash", "gemini_2_5_flash_lite", "gemini_3_pro", "gemini_3_flash", "gemini_3_flash_thinking"]
+    direct_api_models = ["gemini_2_flash", "gemini_2_flash_thinking", "gemini_flash", "gemini_2_5_flash", "gemini_2_5_flash_lite", "gemini_3_pro", "gemini_3_flash", "gemini_3_flash_thinking", "gemini_3_8_flash", "gemini_3_8_flash_thinking"]
     
     # Use direct API for Gemini models with structured output
     if structured_output and (llm_name in direct_api_models or (llm_name is None and structured_output)):
@@ -404,6 +403,8 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                     "gemini_3_pro": "gemini-3-pro-preview",
                     "gemini_3_flash": "gemini-3-flash-preview",
                     "gemini_3_flash_thinking": "gemini-3-flash-preview",
+                    "gemini_3_8_flash": "gemini-3.8-flash",
+                    "gemini_3_8_flash_thinking": "gemini-3.8-flash",
                     None: "gemini-3-flash-preview"  # Default if no name provided
                 }
                 
@@ -411,6 +412,8 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
                 thinking_level_mapping = {
                     "gemini_3_flash_thinking": "high",
                     "gemini_3_flash": None,  # Default thinking level
+                    "gemini_3_8_flash": None,  # Model default is medium
+                    "gemini_3_8_flash_thinking": "high",
                 }
                 
                 model = model_mapping.get(llm_name, "gemini-3-flash-preview")
@@ -465,6 +468,8 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
             gemini_3_pro = ChatGoogleGenerativeAI(model = "gemini-3-pro-preview", temperature = 1.0, max_tokens = 640000),
             gemini_3_flash = ChatGoogleGenerativeAI(model = "gemini-3-flash-preview", temperature = 0.7, max_tokens = 640000),
             gemini_3_flash_thinking = ChatGoogleGenerativeAI(model = "gemini-3-flash-preview", temperature = 0.7, max_tokens = 640000, model_kwargs={"thinking_level": "high"}),
+            gemini_3_8_flash = ChatGoogleGenerativeAI(model = "gemini-3.8-flash", temperature = 0.7, max_tokens = 640000),
+            gemini_3_8_flash_thinking = ChatGoogleGenerativeAI(model = "gemini-3.8-flash", temperature = 0.7, max_tokens = 640000, model_kwargs={"thinking_config": {"thinking_level": "high"}}),
             gpt5_thinking = ChatOpenAI(model_name = "gpt-5", max_tokens = 127000, reasoning_effort="high", temperature=1),
             gpt5_mini_thinking = ChatOpenAI(model_name = "gpt-5-mini", max_tokens = 127000, temperature=1), # or "minimal", "low", "medium", "high"
             # gpt5 = ChatOpenAI(model_name = "gpt-5", temperature = 0.7, max_tokens = 8192),
@@ -497,6 +502,8 @@ def llm_with_retry(arg, max_retries = 15, structured_output = None, llm_name = N
         "gemini_3_pro",
         "gemini_3_flash",
         "gemini_3_flash_thinking",
+        "gemini_3_8_flash",
+        "gemini_3_8_flash_thinking",
         "gpt5_thinking",
         "gpt5_mini_thinking",
     }

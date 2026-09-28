@@ -42,6 +42,7 @@ def main():
     parser.add_argument('--regen_skip_filled_rows', default='', help='true/false resume flag for regen')
     parser.add_argument('--machine', default='CPU', help='Lightning machine type (e.g., CPU, CPU_X_8). Defaults to CPU.')
     parser.add_argument('--google_oauth_refresh_token_b64', default='', help='Base64-encoded UTF-8 Google OAuth refresh token (browser session) for human-feedback Drive uploads on the job')
+    parser.add_argument('--interruptible', action='store_true', help='Run the job on interruptible (Spot) instances instead of reliable on-demand instances')
     args = parser.parse_args()
 
     # Use GDRIVE_SA_B64 directly if available, otherwise encode GDRIVE_SA_JSON
@@ -156,7 +157,7 @@ def main():
         "human_feedback_review_revise",
     )
     is_gdv2_related_job = any(marker in (agent or "") for marker in gdv2_agent_markers)
-    interruptible = not is_gdv2_related_job
+    interruptible = args.interruptible
 
     print(f"\n[INFO] Submitting job for agent: {agent}")
     print(f"[RUN_ID] {run_id}")

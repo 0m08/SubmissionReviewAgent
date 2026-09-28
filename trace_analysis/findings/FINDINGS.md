@@ -1,0 +1,2016 @@
+# MDA editor — session findings
+
+The durable ledger of behaviour worth changing in the Course Content Editor,
+built by reading `trace_analysis/sessions/` end to end. Written by the
+`analyze-mda-sessions` skill; acted on separately and deliberately.
+
+Every entry separates **what the transcript shows** from **why it might have
+happened**. The first is fact and is cited to a session and step. The second is
+a hypothesis with its alternatives named, because a transcript cannot tell a
+wrong instruction from an unclear file format from plain model error — and a
+finding that asserts the wrong cause sends the fix the wrong way.
+
+Entries are never deleted. A fixed finding is marked fixed and kept, so a
+recurrence can be recognised as one.
+
+**Status key:** `open` · `fixed` · `wontfix` · `needs-evidence`
+**Confidence key:** `verified` (re-checked against raw run data) · `reported`
+(one analyst, cited but not independently re-checked)
+
+---
+
+## Pass 1 — 2026-09-15
+
+15 sessions across 5 threads, 2026-09-11 to 2026-09-15. 511 model steps,
+~16.9M tokens, ~$4.42. One analyst per thread, reading each thread whole and in
+order; findings merged and deduplicated here, with cross-thread recurrence noted.
+Six entries were re-verified against the raw runs before being written down.
+
+---
+
+### F-001 — A search that correctly finds nothing is read as a broken command
+**Status:** open · **Confidence:** verified · **Sessions:** 3 · **Priority: highest**
+
+**Observed.** `01a09034` runs four `rg` searches for first-person drift (SA1
+steps 13–16), each returning `[Command failed with exit code 1]`. The agent
+reformulates the pattern each time, then abandons the question and moves on.
+The same shape recurs in `01a09034` SA3 step 26 and `01a09044` SA1 steps 18–22
+(five consecutive non-productive commands).
+
+**Verified.** All four `rg` calls exited **1, not 127**. `rg` is installed and
+ran correctly; exit 1 means *no matches*, which was the right answer. The
+agent's final report — "First-person plural drift: 0 detected across all
+blocks" — was **correct**. It did not believe its own evidence.
+
+**Cost.** ~11 steps across the thread, plus one user-facing claim that reads as
+unsupported but is in fact sound.
+
+**Cause — not a hypothesis.** The sandbox renders any non-zero exit as
+`[Command failed with exit code N]`. For search tools exit 1 is a meaningful
+negative result, not a failure. The harness is telling the agent that a
+successful "not found" is a broken command.
+
+**Fix.** Special-case exit 1 from `grep`/`rg` in the shell tool's result
+formatting. Corroboration: this tool's own failure detector needed exactly the
+same special case (`render.py:_tool_output`) or it flagged every clean negative
+search as a failure. The agent is making the identical mistake against the
+identical signal, with no special case available to it.
+
+---
+
+### F-002 — Headline count in a user-facing report is wrong and unsourced
+**Status:** open · **Confidence:** verified · **Sessions:** 1
+
+**Observed.** `20260915-133239_01a0a545` step 16 states "**34** of the 57 blocks
+exceed your target limit of 60 words." Its own step-10 script output marks
+19 + 7 + 6 + 4 blocks as `(>60!)`.
+
+**Verified.** Independently recounted from the cached tool output: **36**. The
+denominator 57 is correct. 34 is topic_01's *block count*, which appears both in
+step 5's `--measure` and in step 10's own header line `=== …topic_01… (34 blocks) ===`.
+
+**Cost.** No steps. One wrong number in the only user-facing message of the session.
+
+**Hypothesis.** A nearby salient number was substituted for one that was never
+tallied. Not ruled out: it counted and miscounted; or it applied an unstated
+exclusion (dropping the 4 Summary blocks gives 32, which matches nothing).
+
+**Would confirm.** Have whatever prints per-block counts also print a total, and
+see whether the stated figure tracks it. This is the cheapest fix in the ledger —
+`instructions.md` already forbids estimating a number, but supplies no total for
+the agent to quote.
+
+---
+
+### F-003 — WITHDRAWN. The agent had the standards. The finding was wrong.
+**Status:** withdrawn · **Confidence:** verified wrong · **Sessions:** 3
+
+**The original claim.** That `01a0a521` step 26 cited "our team editorial
+standards" without reading any standards file, because thread 4 makes zero reads
+under `/memories/`.
+
+**Why it is wrong.** `memory.py` defines `scope="agent"`, and
+`/memories/agent/AGENTS.md` is **hot memory — loaded into every run**. I checked
+the system prompt of all 15 traces: the full text of `AGENTS.md` is present in
+every one. The agent held the team standards at all times. It did not need to
+read the file, and the citation was accurate.
+
+**What this invalidates.** The zero memory reads in thread 4 are correct
+behaviour, not an omission. The 7–11 memory reads per session on Sep 11 are the
+unusual case, not the baseline — and they are instructed (see F-019).
+
+**Root cause of the error.** Every analyst read the transcripts against
+`instructions.md` alone. None read `memory.py`, and none checked what the system
+prompt already carried. A transcript shows what the agent *did*; it does not show
+what the agent was *given*. Both are needed. See the methodology note below.
+
+---
+
+### F-004 — Same rule, opposite behaviour: reading a named editor's private memory with no editor resolved
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Contradiction**
+
+**Observed.** `instructions.md`: *"If no editor was named for this session, work
+from `AGENTS.md` alone. Do not guess whose file to read."*
+
+- `01a0904a` / `01a0904c` (Editor `unknown`): never lists `/memories/agent/editors/`,
+  never reads an editor file. **Correct.**
+- `01a09034` (Editor `unknown`): reads `/memories/agent/editors/ed_f84a65233902.md`
+  directly. **Violation.**
+
+**Verified.** Only two traces in the corpus read that path: `01a09034` and
+`01a0a545`. `01a0a545` is the one trace that *does* carry `editor_id=ed_f84a65233902`,
+so its read is correct. `01a09034` carries no `editor_id` and read it anyway.
+
+**Note.** Neither analyst could see this — one praised the compliance, the other
+recorded the read. It only appears holding two threads side by side, which is
+the argument for merging findings centrally rather than per-thread.
+
+---
+
+### F-005 — Editor identity resolves intermittently, and not by build age
+**Status:** open · **Confidence:** verified · **Sessions:** 15
+
+**Observed.** 14 of 15 traces carry no `editor_id`. I had assumed this was the
+identity middleware landing after Sep 11.
+
+**Verified.** It isn't. On Sep 15: `01a0a521` (12:53), `01a0a53a` (13:21) and
+`01a0a53c` (13:23) resolve no editor; `01a0a545` (13:32) — nine minutes later,
+same build — does. Same day, same deployment, different outcome.
+
+**Verified further.** The identity is absent from the system prompt itself, not
+only from the run metadata: searching all 15 system prompts for `ed_[0-9a-f]{12}`
+returns a match in `01a0a545` alone. So `editor_identity` genuinely named nobody
+in the other 14 runs.
+
+**Why it matters — corrected.** An earlier version of this entry said no
+criterion was loaded in those runs. That was wrong: `AGENTS.md` is hot memory and
+was present in all 15 (see F-003). Team standards were always available. What is
+lost when identity fails is only the *per-person* layer — in `01a0a545` that
+layer supplied the 60-word threshold the whole session worked to, and without it
+the request "identify the issues" carries no specific numeric criterion.
+
+**Would confirm.** Check how identity is resolved and whether a failure is
+logged server-side for `01a0a521`.
+
+---
+
+### F-006 — Full skill load, ~40k tokens, that provably never reached the answer
+**Status:** fixed 2026-09-15 — SKILL.md `description` now gates on an imminent file change and explicitly excludes general discussion.
+**Was:** open · **Confidence:** verified · **Sessions:** 1
+
+**Observed.** `20260911-114832_01a0904c`: user asks to *discuss* storytelling
+principles. No workspace open, no file named, no edit requested. The agent reads
+the entire 376-line `editing-slide-chunks/SKILL.md` across steps 1–2, lists
+`references/writing-styles/` at step 3 (6 files), then answers from general
+pedagogy at step 4.
+
+**Verified.** The full 4,725-character answer contains zero mentions of any of
+the six style filenames, zero instances of the word "style", and zero references
+to the skill or house guidance. The listing and the skill text did not reach the
+answer.
+
+**Cost.** ~40k tokens, 3 of 4 steps, on a turn that changed nothing.
+
+**Hypothesis.** Two texts disagree about the trigger. `instructions.md` scopes
+the skill read to *"before your first edit"*; the skill's own frontmatter says
+*"Use for any request about slides, decks, or topics, even when the user doesn't
+say 'edit'."* The agent followed the broader one. Not ruled out: deliberate
+grounding of a domain answer, or plain over-preparation. The transcript cannot
+say which text it was acting on.
+
+**Fix if it recurs.** One-line frontmatter change. Did not recur in the other
+four threads, so this is currently a single observation.
+
+---
+
+### F-007 — `python -c` quoting re-derived from scratch, and failed identically on retry
+**Status:** open · **Confidence:** reported · **Threads:** 1, 2, 4 · **Recurs**
+
+**Observed.**
+- Thread 1: `01a0901f` step 13 (`unexpected EOF`), fixed step 14. `01a09022`
+  SA4 steps 19 **and** 20 — same `SyntaxError: unexpected character after line
+  continuation character` twice, fixed step 21. Step 20 is a true recovery loop.
+- Thread 2: `01a09034` SA2 steps 18–19, identical error twice, fixed step 20.
+- Thread 4: `01a0a521` step 11 FAILED, fixed step 12; step 14 FAILED with the
+  **identical** error, fixed step 15 — after the lesson had already been paid for.
+
+**Cost.** ~9 steps across three threads.
+
+**Hypothesis.** Ad-hoc `python -c` is the default measuring instrument and its
+quoting is regenerated each time. Not ruled out: intervening context compaction;
+plain generation error.
+
+**Fix.** Document a heredoc or temp-script idiom, or supply a first-class
+counting tool (see F-013).
+
+---
+
+### F-008 — `glob` without `path` fails against the sandbox root, repeatedly
+**Status:** open · **Confidence:** reported · **Threads:** 1, 2, 5 · **Recurs**
+
+**Observed.** Identical `cannot glob the sandbox root` error at least seven
+times: `01a09022` SA2/SA3/SA4 step 3–4; `01a09031` step 25; `01a09034` SA1 step 3,
+SA3 step 6; `01a0903b` SA1 step 8; `01a0a545` step 11. Every occurrence recovers
+on the next call with an explicit `path`.
+
+**Cost.** ~7 wasted steps + 7 retries.
+
+**Hypothesis.** `path` is not effectively required by the tool schema, so a
+path-less call is the natural first guess. Not ruled out: the agent knows the
+rule and is guessing at a location because the target path was never given.
+
+**Would confirm.** Check whether `glob`'s schema marks `path` required or
+defaults it to `/workspace`. This is a schema fix, not a prompt fix.
+
+---
+
+### F-009 — The same measurement taken three to four times per file
+**Status:** open · **Confidence:** reported · **Threads:** 1, 4 · **Recurs**
+
+**Observed.** Thread 1, `01a09022`: parent measures all four files at step 4;
+every span then re-measures the *unedited* file before writing (SA1 9, SA2 3,
+SA3 2, SA4 11), all returning identical before==after, 0.0%. Post-write measures
+follow, then the parent measures all four again at step 9. Thread 4,
+`01a0a521` step 25: `--measure` run before any edit existed; `01a0a53a` step 2's
+`--measure` is then superseded by step 3's full `present.py`, which returns the
+same `counts` block.
+
+**Cost.** ~8 steps across both threads.
+
+**Hypothesis.** The parent's measurements are never passed into the worker
+briefs, so each worker re-establishes its own baseline. Not ruled out: the
+post-write measure is correct and only the pre-write one is habit.
+
+**Would confirm.** Put the parent's per-file counts into the brief and see
+whether the pre-edit measure drops.
+
+---
+
+### F-010 — Script source read instead of `--help`, three times over per fan-out
+**Status:** open · **Confidence:** reported · **Threads:** 1, 2, 4 · **Recurs**
+
+**Observed.** Thread 1, `01a09022`: SA2, SA3 and SA4 each independently read
+`present.py`, `_presentation.py` and `commit_workspace.py` to rediscover the
+block-format contract — ~21 steps, roughly a quarter of all subagent steps in
+that session. SA1 did none of it. Thread 2, `01a09034`: same pattern in SA1, SA2
+and SA3; SA4 (the 17-step span) read `parsing-rules.md` once and opened no `.py`
+file at all, reaching the same outcome. Thread 4: `01a0a521` step 7 ran
+`prepare_workspace.py --help`, then read the source anyway at step 10;
+`01a0a53c` read 189 lines of `commit_workspace.py` with no `--help` first.
+
+**Cost.** ~25 steps across three threads; the reads are large (`_common.py` is
+426 lines).
+
+**Hypothesis.** The block schema is documented in
+`skills/working-with-google-sheets/references/parsing-rules.md`, but the worker
+brief does not point at it, so each worker reaches for the implementation. Not
+ruled out: workers distrust the doc; or the SKILL.md block section is buried
+(one span found it at offset 100 of a 344-line file).
+
+**Would confirm.** Check whether `parsing-rules.md` plus the SKILL.md schema
+actually state what the spans went to source for. If yes this is discoverability;
+if no, the docs are missing a rule.
+
+---
+
+### F-011 — Two-call grep: files-with-matches, then the same search for content
+**Status:** open · **Confidence:** reported · **Threads:** 1, 2 · **Recurs**
+
+**Observed.** At least eleven times, always on a single already-known file path,
+so the first call returns only the filename the agent supplied: `01a09031` 16→17;
+`01a09034` SA1 9→10, SA2 5→6, SA3 24→25, SA4 7→8; `01a0903b` SA1 18→19, SA3 14→15;
+`01a09044` SA2 5→6, SA3 10→11 and 12→13.
+
+**Cost.** ~10 steps.
+
+**Hypothesis.** Default `output_mode` is `files_with_matches`, so the first call
+is the agent discovering it asked the wrong question. Recurs in the final fan-out
+after two user corrections, so it is habitual rather than situational.
+
+---
+
+### F-012 — Post-write verification performed by every available instrument
+**Status:** open · **Confidence:** reported · **Threads:** 1, 2 · **Recurs**
+
+**Observed.** Thread 1, `01a09022` SA1: after one `write_file`, seven
+verification steps — grep, `--measure`, full `present.py`, then the whole
+415-line file re-read in four paged calls. SA3: `--measure`, full re-read, then
+`parse_topic_file` twice with overlapping output. Thread 2, `01a0903b` SA1:
+nine consecutive single-pattern greps (seven returning no matches) where sibling
+SA4 ran one `python -c` with four assertions covering the same ground in a
+single step.
+
+**Cost.** ~25–30 steps across both threads. This is the largest single
+contributor to sibling step spread.
+
+**Hypothesis.** "Check your work" names no mechanism, so each span invents one,
+and greps are the cheapest thing to reach for one at a time. Not ruled out: the
+`_presentation.py` docstring (read by several spans) recounts an episode of the
+agent reporting edits it never made, which may read as a mandate for maximal
+verification.
+
+**Would confirm.** Name one canonical post-write check in the brief and measure
+the step delta. The short siblings already demonstrate the target shape.
+
+---
+
+### F-013 — No tool exposes per-block word counts, so the agent writes a second parser
+**Status:** open · **Confidence:** reported · **Threads:** 2, 5
+
+**Observed.** `present.py --measure` returns file-level totals only. To find
+which individual slides breach a word limit, `01a0a545` step 10 writes a 20-line
+Python script re-implementing the block parser that `parsing-rules.md` says the
+commit scripts already contain. `--blocks 3,7` exists but selects blocks to
+*display*, not to count.
+
+**Cost.** 1 step, plus a second parser whose agreement with the canonical one is
+unverified — and it is the source of F-002's wrong number.
+
+**Note.** The same script computed a paragraph count it never printed, while the
+report asserts "nearly all slides are a single wall of text" — a claim whose
+measurement was taken and discarded.
+
+**Fix.** A per-block count mode on `present.py` would close F-002, F-013 and part
+of F-007 at once.
+
+---
+
+### F-014 — The coordinator does the delegatee's reading, against an explicit instruction
+**Status:** partly fixed 2026-09-15 — the five words that forced it are gone: "Every turn" item 1 now asks for the block count only when already known, and says never to read every topic to fill it in. "Do not pre-diagnose" is unchanged and correct. Whether the coordinator still over-reads is now an open question for the next pass.
+**Was:** open · **Confidence:** reported · **Sessions:** 1 · **Highest cost in its thread**
+
+**Observed.** `instructions.md` §"Delegating large sweeps": *"any request
+spanning 2+ topic files. Spawn one editor per topic… Do not pre-diagnose a topic
+you are delegating: don't build its edit list… Read only as far as you need to
+confirm which topics are in scope."* `01a0a545` step 4 read `manifest.json`,
+which already confirmed scope. The agent then read all four topic files to the
+last line (steps 6–9, ~790 lines), ran a per-block diagnosis across all four
+(step 10), and handed back a finished per-topic edit list at step 16.
+
+**Cost.** 5 of 16 steps, 8 of 24 tool calls, reading content four parallel
+editors would each have read anyway.
+
+**Hypothesis.** Two instructions pull opposite ways. §"Every turn" requires the
+before→after block count and a yes *before* delegating — which cannot be stated
+without knowing what each topic needs — while §"Delegating large sweeps" forbids
+building exactly that. The agent resolved toward the approval requirement. Not
+ruled out: the session ends before any delegation decision is observable, so it
+may have intended to delegate next; but the forbidden pre-diagnosis has already
+happened either way.
+
+**This is the only finding that looks structural rather than incidental** — two
+instructions that cannot both be satisfied.
+
+---
+
+### F-015 — Writing style chosen silently where the skill says to ask
+**Status:** open · **Confidence:** reported · **Sessions:** 1
+
+**Observed.** `editing-slide-chunks/SKILL.md` "Which style applies, in order":
+user names one → a default in `AGENTS.md` → *"Otherwise, ask. Name the labels and
+ask which to write in, before rewriting prose. Inferring silently produces a
+different answer on different runs of the same sheet."* In `01a0a545` the user
+named no style and no `AGENTS.md` default was loaded, so rule 3 applied. The
+agent read one of six guides (step 15) and asserted it at step 16, asking only
+the composite "Shall I proceed with this sweep?" The other five labels were never
+shown.
+
+**Cost.** Risk, not steps: a wrong voice means the whole 4-topic sweep is redone.
+
+**Related.** `01a09039` surveyed 3 of 6 available styles before recommending one,
+and that recommendation drove the next 99-step session.
+
+---
+
+### F-016 — Subagent step count tracks neither file size nor work required
+**Status:** open · **Confidence:** reported · **Sessions:** 1
+
+**Observed.** `01a09022` spans: 20 / 25 / 22 / 23 steps (spread 1.2x) against
+jobs differing ~5.7x. SA1's topic_01 has 34 blocks and 8 of the 10 em dashes;
+SA4's topic_04 has 6 blocks and — as SA4 itself measured — **zero** em dashes,
+i.e. nothing to do for half its brief. It spent 23 steps anyway. Tokens *do*
+track size (788k/687k/572k/447k), so the flat step count is not a context artifact.
+
+**Hypothesis.** The brief is a fixed 5-point checklist executed at full ceremony
+regardless of what the first measurement shows. Not ruled out: a minimum
+verification ritual at model level; or the brief's per-file content mandates it.
+
+**Would confirm.** Re-run with a brief that says "if the first scan finds nothing
+to change, stop and report that."
+
+---
+
+### F-017 — A self-run check flagged missing terms; the report claimed 100% integrity
+**Status:** needs-evidence · **Confidence:** reported · **Sessions:** 1
+
+**Observed.** `01a09042` step 1's own term-presence script printed
+`topic_01: 71/72 … Missing: ['TPI']`, `topic_02: 10/12 … Missing: ['retracted',
+'waterproof base']`, `topic_03: 15/16 … Missing: ['box beam']`. Step 2 resolved
+TPI. Step 5 answered "**Yes, all informational integrity is 100% maintained**…
+No technical specifications… were dropped." The three remaining flags are never
+mentioned.
+
+**Hypothesis.** Probably false positives from exact-string matching (topic_02
+does contain "Always retract razor knives"). Not ruled out: resolved in
+non-visible reasoning; or dropped.
+
+**Regardless of the answer, the behaviour to flag is:** a measurement that
+contradicted the headline claim was not surfaced.
+
+---
+
+### F-018 — Duplicate `present.py` for the same file — do not treat as waste yet
+**Status:** needs-evidence · **Confidence:** reported · **Threads:** 1, 2
+
+**Observed.** `01a09034` step 6 chains present for topic_01 `&&` topic_02, then
+step 7 presents topic_02 again alone. `01a09044` step 5 chains 02 `&&` 03 `&&` 04,
+then steps 6–7 present 03 and 04 again. ~47k chars of duplicated JSON.
+
+**Why this is not yet a finding.** `present.py` output is intercepted by
+middleware that renders cards to the user. If that middleware handles only the
+first JSON payload per `execute`, the chained call showed the user one file and
+**the re-runs were necessary**.
+
+**Would confirm.** Test whether chained `present.py` calls in one `execute`
+render multiple card sets. If they do not, the skill should say "one
+`present.py` per `execute`" — and this becomes a documentation fix, not an agent
+fix.
+
+---
+
+## Working well — do not regress these
+
+Recorded because a later change that breaks one of these should be recognisable
+as a regression.
+
+1. **No fabricated counts, with two exceptions.** Across 511 steps, every number
+   in the user-facing reports traces to a measurement — except F-002 and F-017.
+   Block censuses are invariant across sessions and across two independent
+   instruments (raw split and parser both give 34/8/9/6 = 57).
+2. **No block loss.** Every write in thread 1 and thread 2 preserved block count
+   and slide-type census exactly; the commit wrote exactly 57 rows, 0 malformed.
+3. **Read-before-judge held everywhere.** No span edited a file it had not read
+   first, in 511 steps.
+4. **Write gates held on open-ended requests.** `01a0901f` stopped and asked
+   rather than editing on a review request. `01a0a545` made zero edits on
+   "identify and fix the issues" and ended with a stated block delta and an
+   approval request. `01a0a521` proposed before acting, then showed the diff
+   before committing.
+5. **Measure-then-correct works.** `01a0903b` SA1/SA2/SA4 each caught word
+   inflation (+27.1%, +21.1%, +29.1%) in `--measure` and rewrote to +4.7%,
+   +15.5%, +3.3%. The second write is not waste.
+6. **An honest zero.** `01a09022` SA4 reported "0 em dashes were present" rather
+   than manufacturing replacements to match the brief's expectation.
+7. **Corrections do sometimes stick.** After a user complaint about formulaic
+   openings, the next fan-out measured the defect *before* dispatching, put
+   per-file counts into each brief, and re-ran the identical census after. That
+   fan-out is the cheapest of three (88 steps vs 109 and 99) with the tightest
+   siblings — the best-calibrated behaviour in the corpus.
+8. **Sensible unprompted judgement.** `01a0a53c` overrode a `manifest.json`
+   target tab that would have clobbered an unrelated tab, and committed to the
+   correct one instead.
+9. **Exemplary calibration exists.** `01a09048`: 2 steps, 1 tool call, $0.04 for
+   "write to the sheet" — one commit, then report, nothing re-verified.
+10. **`write_file` for whole-file overhauls** per `AGENTS.md`, with zero failed
+    string replacements in 511 steps.
+
+---
+
+## Ranked by what to do next
+
+| | Finding | Why first |
+|---|---|---|
+| 1 | **F-001** | Verified, one-line fix in tool-result formatting, explains behaviour across 3 sessions |
+| 2 | **F-008** | Verified pattern, schema fix not prompt fix, 7 occurrences |
+| 3 | **F-013 + F-002** | One per-block count mode closes a wrong user-facing number and a duplicate parser |
+| 4 | **F-014** | The only structural one: two instructions that cannot both be satisfied |
+| 5 | **F-005** | If identity is silently optional, per-editor memory is dead weight for most runs |
+| 6 | **F-012 + F-010** | Largest recoverable step cost (~50 steps), but needs a brief redesign, not a one-liner |
+
+Bringing each fan-out's outlier down to its shortest sibling in thread 2 alone
+would save ~42 steps and ~2.6M tokens (~19% of that thread, ~$0.70).
+
+**Caveat on the whole pass.** One editor, four days, 15 sessions, all of it
+authoring-and-testing rather than production use. Recurrence counts here mean
+"this agent did it repeatedly", not "this happens at rate X in production".
+Re-run this pass once real editors are using the tool before treating any
+frequency as stable.
+
+---
+
+### F-019 — Repeated AGENTS.md reads are instructed, not agent error
+**Status:** open · **Confidence:** verified · **Sessions:** 4
+
+**Observed.** Sessions on Sep 11 read `/memories/` 7 to 11 times each. An earlier
+draft of this ledger counted these as redundancy.
+
+**Verified.** They are instructed. `editing-slide-chunks/SKILL.md` says: *"Before
+your first edit in a session, read every memory file"*, then `read_file
+/memories/agent/AGENTS.md`, then — in the same paragraph — *"it is loaded into
+every run — so as the coordinator you already have it. A delegated editor should
+read it anyway rather than assume the brief carried it."*
+
+So the skill states the file is already in context and directs a read anyway. The
+agent complied. The behaviour is correct against the instruction.
+
+**The real question is whether the instruction is correct.** The skill gives a
+reason: a measured run where two of three delegated editors read no memory and
+produced prose contradicting team standards. That is a real failure the rule
+prevents. But a delegated editor inherits the same system prompt, so `AGENTS.md`
+is hot for it too — which would make the read redundant for subagents as well.
+
+**Would confirm.** Check a subagent span's system prompt for `AGENTS.md` text. If
+it is present, the instruction costs a step per span for nothing, and the earlier
+failure it cites had some other cause. If it is absent, the instruction is right
+and this entry closes.
+
+---
+
+## Methodology note — added after pass 1 was reviewed
+
+Pass 1 was run against `instructions.md` only. That was not enough, and it
+produced at least one inverted finding (F-003) and one wrong rationale (F-005).
+
+**A transcript shows what the agent did. It does not show what the agent was
+given.** Before calling any behaviour redundant, unsourced, or excessive, check:
+
+1. **`memory.py`** — what is hot memory, loaded into every run without a read.
+2. **The system prompt itself** — it is in the raw runs at
+   `inputs.messages[0]` as the `SystemMessage`, ~30k characters here, and it
+   already contains `AGENTS.md`, the skill index and the identity block. An agent
+   that does not read a file may already hold it.
+3. **The skill files**, not only `instructions.md` — `SKILL.md` and
+   `instructions.md` sometimes disagree, and the agent may be following the other
+   one (see F-006, F-019).
+4. **What the user actually asked for in that turn.** Work that looks excessive
+   may be the literal request. `01a0a545` was asked to "identify and fix"; the
+   identify half may legitimately belong to the coordinator (see F-014).
+
+The `analyze-mda-sessions` skill has been updated to require these four checks
+before any finding is written.
+
+---
+
+## Pass 2 — 2026-09-15 · warrant, not efficiency
+
+Pass 1 asked whether a step was efficient. Pass 2 asks whether the user or the
+instructions asked for it. Four analysts, each required to read `REQUESTS.md`,
+its system-prompt variant, `instructions.md` and the skill files before writing
+anything. Every verdict is one of: warranted by request · warranted by
+instruction · agent's own invention · skipped.
+
+**Headline result: nothing the user asked for was left undone, in any of the 15
+sessions.** Every gap is against an instruction. Most behaviour pass 1 called
+waste turns out to be instructed. The defects are in the documents.
+
+---
+
+### F-020 — Two memory policies in the same prompt give opposite orders
+**Status:** fixed 2026-09-15 — instructions.md Memory now names the harness policy and overrides it, and tells an unidentified session not to write to AGENTS.md by default.
+**Was:** open · **Confidence:** verified · **Priority: highest of pass 2**
+
+**Observed.** `01a09044` step 10 wrote a new team-wide standard ("Avoid
+Formulaic Slide Openings") into `/memories/agent/AGENTS.md`, mid-turn, without
+asking. The correction had been made once, by an unidentified editor, about
+prose the agent itself wrote two turns earlier.
+
+`instructions.md` Memory section: *"Write here only for something the whole team
+would expect to still apply next session … or the same correction made more than
+once"*, *"A one-off fix is not memory-worthy"*, and *"When a correction could go
+in either place, ask which."*
+
+**Verified.** The system prompt carries a `memory_guidelines` block at lines
+383-442 which says the opposite:
+
+- line 392 — *"Learning from your interactions with the user is a top priority."*
+- line 395 — *"Each correction is a chance to improve permanently - don't just
+  fix the immediate issue, update your instructions."*
+- line 408 — *"When the user gives feedback on your work - capture what was wrong
+  and how to improve"*
+
+The agent obeyed the injected block over `instructions.md`. Both were in front of
+it. The two cannot both be followed.
+
+**Cost.** Plus 302 characters on the system prompt of every run of this
+deployment, for every caller, forever — recorded as a team standard from one
+person's single comment.
+
+**Second problem in the same rule.** "Ask which — team or yours?" assumes an
+identified editor. This session had `Editor unknown`, so there was no second
+branch to offer. The rule has no guidance for an anonymous session, which is
+14 of 15 sessions in this corpus (see F-005).
+
+**Note.** The write itself is visible in the prompt diff:
+`system_prompt_3f3b4af7` to `3d54e0b5` differs by exactly this rule. The memory
+path works correctly. The question is whether it should have fired.
+
+---
+
+### F-021 — The style picking order was skipped entirely, then a topic was rewritten and committed
+**Status:** fixed 2026-09-15 — REGRADED. The user confirms the silent default was wanted: AGENTS.md is the evolved house voice and the labelled guides are a reserve. The skill's picking order now says so, and asking is reserved for a voice AGENTS.md does not cover. The agent's behaviour was right; the document was stale.
+**Was:** open · **Confidence:** verified · **Sessions:** 3
+
+**Observed.** `editing-slide-chunks/SKILL.md` gives an order: the user names a
+style, or `AGENTS.md` states a default, or *"Otherwise, ask. Name the labels and
+ask which to write in, before rewriting prose. Inferring silently produces a
+different answer on different runs of the same sheet."*
+
+**Verified.** Across all 31 tool calls of thread 4's three sessions there are
+**zero** reads under `references/writing-styles/`. No style label appears in any
+message. The user was never asked. `01a0a53a` then rewrote a whole topic —
+15 blocks to 10, minus 29.7% words — and `01a0a53c` committed it.
+
+Rung 2 does not apply: the deployed `AGENTS.md` describes a voice ("On-the-Job
+Coach", short paragraphs) but names none of the six labels. Rung 3 was live.
+
+**The instruction problem.** Rung 2 asks the agent to tell "a stated default
+style" from "editorial principles about voice" with no test for doing so. The
+`AGENTS.md` actually deployed reads like the former and is the latter.
+
+**Contrast.** Thread 2 did this correctly. `01a09039` read three style guides
+and recommended one, which let every later brief name the label.
+
+---
+
+### F-022 — Raw gspread calls against an explicit prohibition
+**Status:** fixed 2026-09-15 — REFRAMED. The user was pasting a sheet link, not naming a tab; the gid was copy-paste noise. The sheets skill now says to ignore the gid outright. The earlier suggestion to print gids from list_tabs.py was REJECTED — it would teach the agent the gid matters.
+**Was:** open · **Confidence:** verified · **Sessions:** 1
+
+**Observed.** `working-with-google-sheets/SKILL.md`: *"Never touch the sheet
+except through these scripts. Don't call gspread yourself … If you need to
+inspect the sheet … that's `check_auth.py` / `list_tabs.py`, not a one-off script
+you write."*
+
+**Verified.** `01a0a521` made **9** hand-rolled gspread calls against 7
+sanctioned script calls. Two failed on shell quoting. Their result ("Total
+diffs: 7") is never used again in any of the three sessions.
+
+**This raises pass 1's verdict.** Pass 1 called these steps unproductive. They
+are a rule violation.
+
+**The instruction problem — and the real fix.** The user's URL ended in
+`#gid=1672887275`. No sanctioned script converts a gid to a tab name;
+`list_tabs.py` prints names only. The agent had a question the toolkit cannot
+answer, and a prohibition alone did not stop it improvising. Either
+`list_tabs.py` should print gids, or the skill should say plainly that the gid is
+not needed because `--source-tab` takes a name.
+
+---
+
+### F-023 — The coordinator pre-diagnosed files it was delegating, in the briefs
+**Status:** open · **Confidence:** reported · **Sessions:** 2 · **Recurs**
+
+**Observed.** `instructions.md` Delegating section: *"Delegate the judgment, not
+the typing … Do not pre-diagnose a topic you are delegating: don't build its edit
+list … Read only as far as you need to confirm which topics are in scope."*
+
+`01a09034` briefs name specific blocks: *"notably in Block 7 (Summary) which
+opens with 'We've covered how to choose the right carrier'"*. `01a09044` step 1
+scanned the first 8 words of every `Content:` line across all four files before
+fanning out, then put per-file defect counts in each brief.
+
+**The measurable symptom.** In `01a09034`, subagent 4 got a file the coordinator
+had already cleared. It ran 17 steps and reported point 3 as "Confirmed… no
+drift" — it verified the coordinator's finding instead of reviewing
+independently.
+
+**But the instruction fights the user here.** The same briefs pin "verify block
+count remains exactly 34 / 8 / 9 / 6", and that pin is what correctly enforced
+the user's "hold on the 4th point" exclusion (F-024). Pre-diagnosis and
+constraint-passing are hard to separate in practice.
+
+---
+
+### F-024 — Point 4 was correctly excluded
+**Status:** working as intended · **Confidence:** reported
+
+User said *"hold on the 4th point but implement 1,2,3"*. Point 4 was a
+consolidation and merge proposal. `01a09034` step 2 measured 34/8/9/6 blocks
+after the sweep — identical to the baseline. No brief mentions merging. Recorded
+so a later regression is recognisable.
+
+---
+
+### F-025 — Two slide titles replaced with "Intro", unreported, under a prose-only request
+**Status:** open · **Confidence:** verified · **Sessions:** 1
+
+**Diagnosis superseded by F-046 (2026-09-16):** the fixed labels are instructed by the writing-style reference, not an agent defect. The unreported-change half of this entry stands.
+
+**Observed.** User said *"Okay works. Implement this style"*.
+`editing-slide-chunks`: *"Style governs prose only. It never overrides the format
+contract above, a loaded standard, or an explicit instruction from the user."*
+
+**Verified** from `present.py` output in `01a0903b`:
+
+```
+"[Transition] The Power of Hand Tools"  ->  "[Transition] Intro"
+"[Transition] Carrying Your Gear"       ->  "[Transition] Intro"
+```
+
+Topics 03 and 04 kept their titles. The coordinator's step-12 summary lists five
+bullets for topic 01 and mentions no title change, against Every turn item 3
+which requires reporting what was edited. The change reached the sheet.
+
+**Cost.** Two informative opening titles replaced with the least informative
+possible string.
+
+---
+
+### F-026 — Transition slides expanded about 3x against a loaded standard
+**Status:** open · **Confidence:** reported · **Sessions:** 1
+
+**Observed.** `AGENTS.md` section 3, in the system prompt on every turn: *"No
+Forced Expansion on Transitions: Never force-expand transition slides or pad them
+with artificial throat-clearing."* The skill agrees: *"Sharpen, not lengthen …
+Padding one to reach a length is the defect, not the fix."*
+
+`01a0903b` step 3: topic 02 block 0 went from one 22-word sentence to three
+paragraphs closing *"Let's look at how different toolboxes and bags keep your
+gear protected…"*. The same "Let's look at / Let's see how" closer was added to
+all four topic openers. Topic 02 plus 15.5% words, topic 03 plus 9.9%.
+
+**Hypothesis.** Four parallel editors each reached for the same three-beat
+template from the style guide, and no single context saw all four to notice they
+were identical. Not ruled out: the guide's worked examples model that shape.
+
+**Note the likely chain.** This is plausibly what produced the "every slide opens
+the same way" monotony the user complained about two turns later — which in turn
+triggered the unasked memory write in F-020.
+
+---
+
+### F-027 — Verification questions answered without the instructed tool
+**Status:** open · **Confidence:** verified · **Threads:** 1, 2 · **Recurs**
+
+**Observed.** `instructions.md`: *"Run it again whenever they ask to see, read,
+check, or confirm anything"* and *"do not restate a number from memory a turn
+later."*
+
+**Verified.** `01a0901f` — a "review and check formatting" turn — made 15 tool
+calls. Exactly one mentions `present.py`, and it is `cat /opt/cce/scripts/present.py`:
+the agent read the source and never ran the tool. It then reported "57 blocks,
+9 Transition, 44 Content, 4 Summary" from hand-written scripts.
+
+`01a09042` — user asked *"all informational integrity is maintained as per LO?"*
+— made four tool calls, none of them `present.py`. Its own checker printed gaps
+(`Missing: ['TPI']`, `['retracted', 'waterproof base']`, `['box beam']`). The
+answer was *"Yes, all informational integrity is 100% maintained."* Two gaps were
+chased; `'waterproof base'` was never resolved in the transcript; none were
+mentioned to the user.
+
+**Why it matters.** Both sets of numbers were later shown correct. That is
+exactly the failure the instruction names: *"An unverified count reads exactly
+like a verified one to the person trusting it."*
+
+---
+
+### F-028 — The fourth editor ran serially, against the parallel-spawn rule
+**Status:** open · **Confidence:** verified · **Sessions:** 1
+
+**Verified** from timestamps in `01a09022`:
+
+```
+task 1   start 11:02:49.540   end 11:04:26
+task 2   start 11:02:49.542   end 11:04:10
+task 3   start 11:02:49.546   end 11:04:07
+task 4   start 11:04:32.669   end 11:05:34
+```
+
+Three spawn within 6 milliseconds. The fourth starts 103 seconds later, after all
+three finish. `instructions.md`: *"Spawn one editor per topic, in parallel, in a
+single turn."*
+
+**Hypothesis.** A three-way parallel cap in the harness. Not ruled out: the model
+emitted three and re-planned. The step-6 brief uses the same template as the
+others, which argues against a deliberate follow-up.
+
+**Cost.** About 100 seconds of a 681-second session, serialised for no stated
+reason.
+
+---
+
+### F-029 — manifest.json "every session" is skipped whenever a workspace persists
+**Status:** fixed 2026-09-15 — now scoped to "whenever a workspace is opened or reopened, and before your first edit in a thread".
+**Was:** open · **Confidence:** reported · **Threads:** 1, 2, 4 · **Recurs**
+
+**Observed.** `instructions.md` Getting oriented item 3: *"Read
+`/workspace/manifest.json` every session."* Thread 2 read it once, in session 1,
+and in none of sessions 2 to 7. Thread 1 read it in neither session. Thread 4
+read it in session 1 only.
+
+**But on a bare greeting the rule fires and guarantees a failure.** `01a0904a`
+step 1 read it, got `file_not_found`, and correctly asked for a sheet URL. The
+probe is instructed and its failure is designed in.
+
+**The instruction problem.** "Every session" is both over- and under-applied. The
+suggested repair from two analysts: *"every session that opens or re-opens a
+workspace"*, or gate it on an imminent edit.
+
+---
+
+### Scope discipline — what pass 2 found to be clean
+
+- **No edit was ever made without authorisation.** `01a0901f` reviewed without
+  touching a file and asked. `01a0a521` proposed and asked. `01a0a545` made zero
+  edits on "identify and fix" and asked. Every commit traces to the user's own
+  words.
+- **The deletion pass 1 flagged was correct.** `01a0a53a` removed a transition
+  block; it was named in advance (`01a0a521` step 26), licensed by `AGENTS.md`
+  section 3 "Avoid Subtopic Transition Bloat", answered with *"yes please"*, and
+  reported after with the verified 15 to 10 count. The five missing blocks
+  reconcile exactly: four merges plus one deletion.
+- **Briefs transmitted the user's words verbatim**, typo included, to all four
+  editors in `01a09022`.
+- **Edit scope did not widen.** Editors audited en dashes, double hyphens and
+  hyphen-minus and changed none. Titles, slide types and block counts held —
+  except F-025.
+- **A subagent's own report was more honest than the coordinator's summary.**
+  `01a09044` subagent 1 disclosed "After: exactly 2 slides open with 'When…'
+  (5.9%)"; the coordinator relayed "replaced" without the caveat.
+
+---
+
+## Pass 2 conclusion
+
+The agent follows its documents. The documents disagree with each other.
+
+| Conflict | Sides |
+|---|---|
+| **F-020** memory | `instructions.md` "a one-off is not memory-worthy" against injected `memory_guidelines` "each correction is a chance to improve permanently" |
+| **F-021** style | Rung 2 points at `AGENTS.md`, which describes a voice without naming a label |
+| **F-006** skill trigger | `SKILL.md` description fires on topic; `instructions.md` fires on imminent edit |
+| **F-022** sheets | The rule forbids raw gspread but the toolkit cannot answer the gid question |
+| **F-029** manifest | "Every session" guarantees a failed probe on greetings and is ignored on continuations |
+| **F-023** delegation | "Do not pre-diagnose" against the need to pass the user's constraints into a brief |
+
+Fix the documents before you tune the agent. Five of these six are text edits.
+
+---
+
+## Pass 3 — 2026-09-16
+
+6 sessions across 3 threads, all 2026-09-16 10:40–11:15. 177 model steps,
+~4.9M tokens, ~$1.58. One session (`01a0a9ed`) is 121 steps and $1.15 on its
+own — 73% of the pass. Read whole and in order; every claim below re-checked
+against the raw runs.
+
+---
+
+### F-030 — A per-block word limit with no per-block measurement tool
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: highest**
+
+**Fixed 2026-09-16.** `measure()` keeps per-block counts as `per_block` (id, words, label); both skills point at it.
+
+**Observed.** In `01a0a9ed`, 25 of the 42 `execute` calls are ad-hoc
+`python -c` scripts. Every one of them computes the same two things: the word
+count of each block, and whether an em dash is present. Four subagents each
+wrote their own counter, and each wrote it differently: topic_01 splits the raw
+text on `###Block ID:`; topic_02 and topic_03 import `_presentation.parse_blocks`;
+topic_04 imports `commit_workspace.parse_topic_file`. Subagent 3 additionally
+ran its own draft sentences through the counter one at a time before writing
+them (steps 14–17, 19, 20).
+
+**Verified.** `_presentation.measure()` computes per-block word counts and then
+discards them: `def words(blocks): return sum(len(block_body(b, kind).split())
+for b in blocks)`. `present.py --measure` reports a file total only. The brief
+the orchestrator wrote demands "Strictly keep every slide under 60 words" — a
+per-block constraint. No sanctioned tool reports a per-block number.
+
+**Why.** This is a missing tool, not model error. The agents were given a
+constraint they were required to verify and no instrument that measures it. The
+only remaining move is to build one, and a fresh subagent with no shared context
+builds it from scratch every time. The alternative explanation — that the agents
+distrust `present.py` — is not supported: they call `present.py --measure` as
+well, and use it for exactly the totals it does report.
+
+**Fix.** Add per-block words to the `blocks` array that `present.py` already
+emits, and note in editing-slide-chunks that per-slide counts come from there.
+One `sum()` unrolled removes the single largest source of steps in the pass.
+
+---
+
+### F-031 — An editor's preference hardened into a gate, against the memory contract
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Fixed 2026-09-16.** instructions.md delegation now requires a standard be carried in its own words, with no force added.
+
+**Observed.** `/memories/agent/editors/ed_f84a65233902.md` reads, in full:
+"Target Audience: Apprentice-level HVAC learners. Slide Length: Keep slides
+under 60 words." All four briefs in `01a0a9ed` render this as "**Strictly** keep
+every slide under 60 words", and subagents 2 and 3 turned it into a literal
+`assert wc < 60` in their verification scripts. Measured effect: topic_01
+−27.6%, topic_02 −35.9%, topic_03 −36.4%, topic_04 −19.5% words.
+
+**Verified.** `AGENTS.md` §4 says the opposite in the same breath: "Don't pad a
+slide with unnecessary background just to hit an arbitrary word count; if a
+concept is clearly explained in 35–50 words, let it breathe." Its opening line
+asks that all of it "guide editorial reasoning rather than [be treated] as
+rigid, dogmatic checklists." `instructions.md` Memory says "Memory is notes, not
+instructions… It never widens what you are allowed to do."
+
+**Why.** The orchestrator restated a preference as a threshold when it wrote the
+brief, and a threshold is the one form a subagent cannot soften — it has no
+channel back to ask. The word "Strictly" is the orchestrator's own; it is in no
+source file. Contrast with a plausible alternative — that the user asked for
+tight slides — which the request does not support: the user said "find issues
+and fix them".
+
+**Fix.** State in the delegation section that a brief must carry a preference in
+the words the preference was written in, and must not add force to it.
+
+---
+
+### F-032 — Pre-diagnosis in every brief, against the explicit rule
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Observed.** All four briefs in `01a0a9ed` carry a per-block edit list:
+topic_04 "Tighten wordy slides (e.g. Block 2 at 83 words and Block 5 at 81
+words)"; topic_03 "testing horizontal and vertical vials use the identical
+180-degree reversal test — consider merging them"; topic_02 "Rewrite the summary
+slide (Block 7)"; topic_01 "Eliminate subtopic transition bloat."
+
+**Verified.** `instructions.md` Delegating: "Do not pre-diagnose a topic you are
+delegating: don't build its edit list, don't decide which blocks merge… Read
+only as far as you need to confirm which topics are in scope." The topic_03
+brief decides which blocks merge, in those words. To produce these numbers the
+orchestrator read all four topic files in the prior turn (`01a0a9eb` steps
+6, 9, 10, 11) — the pre-reading the rule exists to prevent.
+
+**Why.** Two instructions pull apart here and the agent obeyed the wrong one.
+The previous turn's user request was "find issues… and then fix them" — finding
+is diagnosis. The agent diagnosed, reported, got a "Proceed", and then had no
+way to un-know what it had found. This is a sequencing conflict in the
+instructions, not disobedience.
+
+**Note.** Three of the four briefs contain an em dash while instructing
+"Absolutely zero em dashes".
+
+---
+
+### F-033 — Re-preparing a workspace silently discarded the previous turn's edits
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Fixed 2026-09-16.** Both prepare scripts refuse to overwrite a workspace that differs from `.baseline` (exit 3), naming the drifted files and three ways forward: a second workspace, commit first, or `--discard-local`.
+
+**Observed.** In `01a0a9d2` (turn 3) the agent ran `prepare_workspace.py …
+--source-tab "Topic 1: Pipe Preparation"` at step 7. The previous turn
+(`01a0a9cf`) had rewritten `/workspace/topics/topic_01_pipe-preparation.md`,
+raising it from 411 to 456 words. After step 7 the same path measures 548 words
+and 10 blocks — the sheet's content, not the edit. The edit is gone. The agent
+did not mention this in its reply.
+
+**Verified.** Step 7 output reads "Baseline snapshot: 10 file(s) copied to
+workspace/.baseline", so the baseline was overwritten too: the before/after
+comparison that would have exposed the loss was destroyed in the same command.
+
+**Why.** `prepare_workspace.py` overwrites without warning and the skill does
+not say that re-preparing destroys local edits. The agent had no reason to
+expect it. This is a missing guard, not a judgment error.
+
+**Fix.** Make `prepare_workspace.py` refuse to overwrite a workspace whose files
+differ from `.baseline` unless given an explicit flag, and name the drifted
+files in the error.
+
+---
+
+### F-034 — Four ways to fail at a shell one-liner, each one repeated
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+**Observed.** 15 tool failures in `01a0a9ed`, in four families:
+
+| family | count | example |
+|---|---|---|
+| backslash-escaped quotes inside a single-quoted `python -c` | 4 | `f"Block {b[\"_id\"]}"` gives `SyntaxError: unexpected character after line continuation character` |
+| `present.py` at the `/skills/` path, which the shell cannot see | 2 | `python3 /skills/working-with-google-sheets/scripts/present.py` gives `No such file or directory` |
+| `glob` with no `path`, walking the sandbox root | 3 | `glob(pattern=*direct-address*)` gives `cannot glob the sandbox root` |
+| `git` in a sandbox that is not a repository | 3 | `git status` gives `fatal: not a git repository` |
+
+**Verified.** The `/skills/` path failure happens although `instructions.md`
+states the rule plainly: "/skills/ is a mount the shell cannot see. The sheet
+skill's scripts are baked into the image at `/opt/cce/scripts/`." Both offending
+subagents had read the file that says so.
+
+**Why.** Each family has a different cause and they should not be fixed
+together. The escaping errors are model error and unfixable by instruction. The
+`/skills/` path error is a stated rule that did not survive into a subagent's
+working set, which argues for putting the path in the brief rather than
+restating the rule. The `glob` and `git` failures are the tool teaching the
+agent its own shape, and cost 2 steps each to learn — acceptable, and cheaper to
+leave than to document.
+
+---
+
+### F-035 — Chained present.py works; the agent re-ran it anyway
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Resolves:** F-018
+
+**Observed.** `01a0a9ed` step 4 chains three `present.py` calls with `&&`. Its
+output contains `cce_present_v1` three times, once per topic: the chain renders
+all three card sets. The agent then re-ran topic_03 alone (step 5) and topic_04
+alone (step 6). Both were duplicates. The user saw those two topics twice.
+
+**Verified.** Counted on the raw output: 44,276 characters, three
+`cce_present_v1` keys, one per topic file.
+
+**Note.** This answers F-018, which was open pending evidence. Chaining is safe.
+
+---
+
+### F-036 — Present called twice for one look, in five of six sessions
+**Status:** open · **Confidence:** verified · **Sessions:** 5 · **Priority: medium**
+
+**Observed.** The pattern is `present.py --measure <file>` followed immediately
+by `present.py <file>`: `01a0a9cd` steps 10–11, `01a0a9cf` steps 2 and 6,
+`01a0a9d2` steps 9–10, `01a0a9d7` steps 11–12, `01a0a9ed` steps 2–3.
+
+**Verified.** The full `present.py` output already contains a `counts` object
+identical to what `--measure` prints. The first call is never needed.
+
+**Why.** `instructions.md` names the two separately — "Every number you state
+must come from that output, or from `--measure`" — which reads as two sources
+rather than one that subsumes the other.
+
+**Fix.** Say that the full output already carries the counts, and that
+`--measure` is for when the content is not wanted.
+
+---
+
+### F-037 — A real title replaced with "Intro", unreported
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Recurrence of:** F-025
+
+**Diagnosis superseded by F-046 (2026-09-16):** the fixed labels are instructed by the writing-style reference, not an agent defect. The unreported-change half of this entry stands.
+
+**Observed.** In `01a0a9ed`, topic_01 block 0 went from
+`[Transition] The Power of Hand Tools` to `[Transition] Intro`. Seven titles
+changed in the session; six are reasonable rewrites. The orchestrator's report
+mentions no retitling at all.
+
+**Verified.** Read from the `label` / `old_label` pair in the `present.py`
+output, which reports the change correctly. The agent had the evidence on screen
+and did not read it.
+
+**Why.** This is the second occurrence of the same specific failure — a titled
+slide flattened to the word "Intro" — recorded in F-025. Two occurrences of one
+word is unlikely to be chance. Worth checking whether a style reference uses
+"Intro" as a placeholder.
+
+---
+
+### F-038 — Probing for a workspace that cannot exist yet
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Recurrence of:** F-029
+
+**Observed.** `01a0a9d7` step 4 calls `ls(path=/workspace)` in a fresh thread,
+before any prepare has run, and gets `path_not_found`.
+
+**Verified.** `instructions.md` Getting oriented anticipates this in as many
+words: "probing for it before any workspace exists just produces a
+`file_not_found` you already expected." The sentence is about `manifest.json`;
+the agent probed the directory instead.
+
+**Why.** The rule was written against one path and the agent used another. A
+rule that names a file does not generalise to its directory.
+
+---
+
+### F-039 — Per-block word counts stated without measuring them
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Fixed 2026-09-16.** Same fix as F-030.
+
+**Observed.** `01a0a9eb` step 12 reports to the user: "in Topic 2, several
+slides reach 75–114 words (Block 1 is 114 words, Block 5 is 84 words)."
+
+**Verified.** The only measurement in that session is
+`present.py --measure`, which reported topic_02 at 607 words for the whole file.
+No per-block number was computed. The figures were counted by eye.
+
+**Why.** Same root as F-030: the constraint is per-block, the instrument is
+per-file. Here it produced an unverified number in front of the user, which
+`instructions.md` names as the specific thing to avoid: "An unverified count
+reads exactly like a verified one to the person trusting it." Fixing F-030 fixes
+this.
+
+---
+
+### F-040 — Four calls spent rediscovering a flag already on screen
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: low**
+
+**Observed.** In `01a0a9d2` the user asked to check one named tab. Step 2 ran
+`prepare_workspace.py --help`, whose output includes `--source-tab SOURCE_TAB`.
+Steps 3–6 then read `_common.py` twice and wrote two ad-hoc scripts that import
+`open_sheet` to read the tab directly. Step 7 finally used `--source-tab`.
+
+**Verified.** `--source-tab` is the second line of the step 2 output.
+
+**Why.** The flag was visible and not used for four steps. The `--help` text
+lists it in a usage block without saying what it is for, and the skill's own
+prose describes source tabs in terms of mode selection rather than "read a
+different tab". Plain model error is also possible; one session is not enough to
+separate them.
+
+---
+
+### F-041 — The default source tab taken silently, on a sheet split into per-topic tabs
+**Status:** fixed · **Confidence:** verified · **Sessions:** 3 · **Priority: high**
+
+**Fixed 2026-09-16.** `list_tabs.py` classifies every tab by its header row and
+names the candidates when more than one real source tab exists; the sheets skill
+requires the agent to ask rather than take the default.
+
+**Observed.** In `01a0a9cd` the user pasted a sheet and asked about "Topic 1:
+Pipe Preparation". Step 2 ran `list_tabs.py`, whose output included `Slide
+Chunks`, `Topic 1: Pipe Preparation`, `Topic 2: Threaded Joints` and `Topic 2:
+Threaded Joints (Revised)`. Step 3 ran `prepare_workspace.py` with no
+`--source-tab`, taking the default `Slide Chunks`. The agent then reviewed and
+(in `01a0a9cf`) edited content from the wrong tab. Two turns were spent before
+`01a0a9d2` reached the tab the user meant.
+
+**Verified.** Reported by the user, who confirmed the intent was the topic tab:
+the team had split the slide chunks into per-topic tabs. Re-checked against the
+live sheet: five tabs carry the slide-chunk header signature, three of them real
+sources. The second sheet in the same session (`01a0a9eb`) has exactly one, so
+the condition distinguishes the two cases rather than firing everywhere.
+
+**Why.** Not model error and not a missing instruction — the skill already said
+tab names vary and to confirm with `list_tabs.py`, and the agent *did* run it.
+The output was a bare list of 21 names in which nothing marked `Slide Chunks` as
+one of several equally valid choices. A list that does not distinguish its
+entries reads as one obvious answer plus noise. The fix belongs where the agent
+already looks, which is the same shape as F-030.
+
+**Note.** Detection is exact rather than a name heuristic: a tab holds slide
+chunks if its header row carries a Topic column and a Slide Chunk column, the
+same test `prepare_workspace.py` applies when reading it. Backups and
+`(Revised)` tabs carry that header too and are excluded from the count by name,
+because counting them made the warning fire on a sheet with one real source.
+Cost is one batched API call, measured at 0.42s for 21 tabs.
+
+---
+
+### F-042 — The editor subagent was told to "count with the shell"
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: highest**
+
+**Fixed 2026-09-16.** The editor system prompt in `agent.py` now names
+`present.py --measure` and `per_block` as the only source of counts, and says
+not to write a counter.
+
+**Observed.** Subagent 4 in `01a0a9ed` made 37 tool calls against the smallest
+file in the session — 6 blocks, 399 words — and 2 of them changed it. It was
+the largest span in the fan-out; the largest file, at 34 blocks, took 23.
+
+**Verified.** The editor's own `system_prompt` said, in Editing mechanics:
+
+> Count with the shell before and after any request that names a direction
+
+and in the report spec:
+
+> What you changed — block by block, with before -> after counts you measured.
+
+The two together require a per-block count and point at the shell to get it.
+The subagents complied exactly. Calls 13–21 are nine consecutive calls reading
+`commit_workspace.py`, `present.py` and `_presentation.py` — twice each for the
+last — to find `block_body()` and copy how it counts words. Calls 24, 25, 36 and
+37 then build the counter, two of them failing on backslash-escaped quotes.
+
+**Why.** This is the stronger half of F-030. The missing `per_block` left the
+agent without the number; this line told it where to go instead, and it went
+there. A tool gap and an instruction pointing away from the tool compound: the
+agent read the measuring tool's source rather than its output.
+
+**Note.** F-030 was recorded as "the single largest source of steps in the
+pass", which over-credited it. On this span the two fixes together account for
+13 of 37 calls. The rest is F-043 and F-044.
+
+---
+
+### F-043 — Six greps to re-check an edit already read back
+**Status:** fixed · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+**Fixed 2026-09-16.** Step 5 of the editor prompt now says to re-read once and
+not to grep the file for what was just written.
+
+**Observed.** Subagent 4 calls 26–31 are six greps of its own file, four
+returning "No matches found", followed by a full re-read at 34. The same shape
+appears in the orchestrator's own turn: `01a0a9cf` steps 3–5 grep the file it
+had just written for an em dash and for `**`.
+
+**Verified.** Call 22 wrote the file; call 23 measured it; call 34 read all 71
+lines back. Every grep between them searched text the agent had authored in
+that same turn.
+
+**Why.** Step 5 of the editor prompt requires confirming "every change you
+intend to report is actually present", and does not say that one read satisfies
+it. A per-item confirmation loop is a reasonable reading of it. Compounded by
+F-001: a grep that correctly finds nothing is rendered as a failed command, so
+a negative result reads as something to retry rather than an answer.
+
+---
+
+### F-044 — An editor reading outside its own brief
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Fixed 2026-09-16.** The editor prompt now names what it may open, and forbids
+looking in `/memories/`.
+
+**Observed.** Subagent 4, owner of topic 04, opened: `/memories/agent/AGENTS.md`
+(call 4), `ls /memories/agent` (5), `ls /memories/agent/editors` (6),
+`/memories/agent/editors/ed_f84a65233902.md` (7), the sheets SKILL.md (12), and
+`/workspace/topics/topic_02_toolboxes-bags.md` (11) — a file belonging to
+subagent 2, which was editing it concurrently.
+
+**Verified.** Calls 5–7 re-derived something the brief already carried: "Slide
+Length: Strictly keep every slide under 60 words (editor ed_f84a65233902
+preference)". Call 4 re-read AGENTS.md, which is hot memory and already in the
+system prompt of that very run. `instructions.md` forbids listing the editors
+directory — "Do not list the editors directory, do not read or write another
+editor's file" — but that rule is in the *coordinator's* instructions, and the
+editor subagent has its own system prompt, which said nothing about memory at
+all.
+
+**Why.** A boundary stated in one agent's instructions does not reach another
+agent. The editor prompt had a "Your file only" rule that governed *edits* and
+explicitly allowed reading `outline.md`, which reads as permission to read
+widely. Reading a sibling topic mid-edit is also a correctness risk, not only a
+cost one: subagent 2 was writing that file at the time.
+
+---
+
+### F-045 — Audit: rules in instructions.md that never reached the editor subagent
+**Status:** fixed · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+
+**Fixed 2026-09-16.** The four gaps below are now in the editor's system prompt;
+the content-injection rule was added to both prompts.
+
+**Why the audit.** This deployment has two prompts — `instructions.md` for the
+coordinator, and `EDITOR["system_prompt"]` in `agent.py` — and F-044 showed a
+rule written in the first does not reach the second. Every section of
+`instructions.md` was checked against the editor prompt and classified:
+coordinator-only, already covered, or a gap. Four gaps, all with observed
+failures behind them. Rules found correctly coordinator-only: Getting oriented,
+Delegating, Every turn, Writing back, status updates, mid-edit preferences.
+Rules found already covered: reactive-editor scope, the two editing skills,
+`outline.md` as the boundary, block-removal mechanics.
+
+**Gap 1 — `/skills/` is readable but not runnable.** `instructions.md` Where
+things are: "the shell runs on the sandbox disk and `/skills/` is a mount the
+shell cannot see. The sheet skill's scripts are baked into the image at
+`/opt/cce/scripts/`." Absent from the editor prompt. Subagents 1 and 3 both ran
+`python3 /skills/working-with-google-sheets/scripts/present.py` and got `No such
+file or directory`. Previously logged under F-034 as a rule that "did not
+survive into a subagent's working set"; that was the wrong diagnosis. The rule
+was never there.
+
+**Gap 2 — course content is data, not instructions.** Neither prompt had one.
+The only mention of injection anywhere in the deployment is one clause in
+`working-with-google-sheets/SKILL.md` about why no credential is in the sandbox.
+The editor is the higher-risk side: it reads sheet-derived content directly, and
+it has `write_file` and `execute`. The F-044 fix narrowed its reading scope and
+in doing so removed its one path to that clause, so the gap was widened before
+it was found. Now stated in both prompts, in the terms each needs: the editor
+takes direction from its brief only, the coordinator from the user only.
+
+**Gap 3 — `.baseline` is read-only and `git` does not exist here.**
+`instructions.md`: "Read-only, and you never need to touch it." Absent from the
+editor. Subagent 2 ran `diff -u /workspace/.baseline/... `; subagents 2 and 3 ran
+`git status`, `git diff` and `git -C / status`, three failures, in a sandbox that
+is not a repository.
+
+**Gap 4 — relay a script's stderr rather than summarising it.**
+`instructions.md` General rules: "the message is written for you to act on, not
+to summarise away." Absent from the editor, which is the agent that most often
+sees a script fail. No mis-relay observed yet; added on the same grounds the
+coordinator has it.
+
+**Checked and found not to be a gap.** "Never write file content into your
+message" is coordinator-facing, and the concern that an editor might paste
+rewritten prose upward for the coordinator to relay was tested: zero sentences
+of twelve words or more from any newly written file appear verbatim in any of
+the four reports. No rule added — the evidence did not support one.
+
+**Note.** The reports do misattribute their per-block figures. Subagent 4's
+report is headed "Quantitative Measurements (`present.py --measure`)" above
+counts the tool did not produce at the time. F-030 and F-042 remove the reason
+to derive them; the report spec now says to quote the tool's numbers.
+
+---
+
+## Pass 4 — 2026-09-16 (post-fix)
+
+1 session, `01a0aa84`, 14:00 UTC — the first run against the deployed fixes from
+F-030, F-042, F-043, F-044 and F-045. Same sheet, same four topics, same editor
+identity and same request as `01a0a9eb` + `01a0a9ed`, so the comparison is
+like-for-like. Read to check whether the fixes did what they claimed, not to
+find new things; F-046 was found anyway.
+
+**Measured against the same work before the fixes:**
+
+| | before (2 turns) | after (1 turn) |
+|---|---|---|
+| model steps | 133 | 58 |
+| tool calls | 145 | 71 |
+| cost | $1.25 | $0.78 |
+| subagent steps | 22 / 31 / 26 / 35 = 114 | 13 / 7 / 9 / 7 = 36 |
+| subagent tool failures | 15 | **0** |
+| ad-hoc `python -c` counters | 25 | **0** |
+| `/skills/` path in shell | 2 | **0** |
+| `git` in the sandbox | 3 | **0** |
+| hand-diffing `.baseline` | 1 | **0** |
+| `ls /memories/...` | 6 | **0** |
+
+The editor loop is now read, measure, write, measure, verify. `per_block`
+appears in 21 tool outputs and the coordinator's final report quotes it as a
+per-block range for every topic — a per-block claim it can now substantiate,
+which F-039 was about.
+
+---
+
+### F-046 — The placeholder titles are the style guide's instruction, not a defect
+**Status:** open · **Confidence:** verified · **Sessions:** 3 · **Supersedes the
+diagnosis in:** F-025, F-037 · **Priority: high — needs a decision, not a fix**
+
+**Observed.** In `01a0aa84`, five of the six title changes replace a written
+title with a fixed generic one, across three subagents independently:
+
+| file | before | after |
+|---|---|---|
+| topic_03 | `Precision Alignment` | `Intro` |
+| topic_04 | `Matching the Blade to the Job` | `Intro` |
+| topic_02 | `Organizing for Success` | `Topic Summary` |
+| topic_03 | `Level Basics Summary` | `Topic Summary` |
+| topic_04 | `Hacksaw Blade Selection Summary` | `Topic Summary` |
+
+The sixth, `Testing Horizontal Accuracy` -> `Testing Level Accuracy`, is a
+correct consequence of merging two slides.
+
+**Verified.** `skills/editing-slide-chunks/references/writing-styles/direct-address-field-guide.md`
+line 98 says, in full:
+
+> "Intro" is the fixed title for a topic's opening Transition slide; "Topic
+> Summary" (or "Summary") is the fixed title for the closing Summary slide —
+> reuse these exact labels rather than inventing new ones.
+
+Lines 89–90 repeat it, and `plain-sequential-descriptive.md` line 88 says the
+same for Summary slides. The coordinator selected Direct-Address Field Guide as
+the style and named it in all four briefs. The editors read the style file and
+complied exactly.
+
+**Why this entry corrects two earlier ones.** F-025 recorded two titles
+"silently changed to Intro" and F-037 recorded a third as a regression the agent
+should have caught. Both framed it as agent error. It is not: it is the
+documented house style being applied. F-037 guessed the cause correctly ("worth
+checking whether a style reference uses 'Intro' as a placeholder") and that
+guess is now confirmed. Three sessions of consistent behaviour across at least
+five different subagents is compliance, not drift.
+
+**What is still a real problem.** The retitling is never reported. The word
+"title" does not appear anywhere in the `01a0aa84` final report, which otherwise
+runs to per-block word ranges for all four topics. `present.py` reports the
+change correctly in `old_label` / `label`; nobody reads it. A user who did not
+want `Intro` would have no way to notice from the report.
+
+**The decision.** Whether these fixed labels are wanted is the user's call, not
+a defect to fix. Relevant: the user has said the `AGENTS.md` house style is now
+the most evolved one and the skill style files are "kind of obsolete", kept in
+case something in them is not yet captured. `AGENTS.md` says nothing about
+titles, so nothing currently contradicts the style file. Three options, none
+taken yet:
+
+1. Drop the fixed-label rule from the style files, and let titles be written.
+2. Keep it, and require the report to state retitles so the user sees them.
+3. Keep it and say so in `AGENTS.md`, making it the house rule rather than one
+   style's rule.
+
+Option 2 is worth doing whichever of 1 and 3 is chosen: a title change reaching
+the sheet unmentioned is the same class of problem as an unreported deletion.
+
+---
+
+## Pass 5 — 2026-09-16 16:01 (controlled repeat)
+
+`01a0aaf4`, same sheet, same request, same code as `01a0aa84` two hours earlier.
+Run to settle whether the 14:00 latency was transient. It was.
+
+| | 11:15 old code (2 turns) | 14:00 new code | 16:01 new code |
+|---|---|---|---|
+| wall | 266s | 463s | **180s** |
+| model steps | 133 | 58 | 54 |
+| tool calls | 145 | 71 | 64 |
+| cost | $1.25 | $0.78 | $0.71 |
+| subagent failures | 15 | 0 | 0 |
+| median LLM latency | 2.14s | 8.05s | **2.83s** |
+| median small-call latency | 1.52s | 5.82s | **2.15s** |
+| median `read_file` | 0.35s | 0.36s | 0.35s |
+
+### F-047 — The 14:00 slowdown was provider-side and transient
+**Status:** closed · **Confidence:** verified · **Sessions:** 3
+
+Median LLM latency at 16:01 is 2.83s, inside the range measured across the
+fourteen prior sessions (1.60–4.66s). The 14:00 run's 8.05s was roughly double
+the previous worst. Code, model (`gemini-3.8-flash`), prompt sizes and
+`cache_read` (~40,950 tokens) are identical across the two new-code runs, and
+tool latency never moved in any of the three. Nothing in the deployment
+explains it and nothing needed changing.
+
+The phase breakdown confirms it: pre-spawn 155s -> 70s, subagent phase 162s ->
+85s, verification 147s -> 25s, with the same work in each phase.
+
+### F-048 — The 14:00 coordinator grep storm did not recur
+**Status:** closed · **Confidence:** verified · **Sessions:** 2
+
+At 14:00 the coordinator made 12 calls after its subagents returned, 8 of them
+greps of the workspace, costing ~121s. At 16:01 it made 4, all `present.py`,
+and 1 grep in the whole session against 8.
+
+Recorded because a fix was proposed for it — carrying the F-043 "do not grep
+what you just read" rule into `instructions.md`. That proposal was premature:
+one run showed the behaviour and one run showed its absence, which establishes
+variance, not a systematic fault. No change made. If it appears again, it is
+worth the rule.
+
+### F-049 — Two runs of one brief disagree on how much to cut
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+Same file, same brief, same style, two hours apart:
+
+| | 14:00 | 16:01 |
+|---|---|---|
+| topic_01 blocks | 34 -> 34 | 34 -> **28** |
+| topic_01 words | -21.4% | **-38.4%** |
+| topic_03 words | -32.7% | -27.9% |
+
+One run kept every block in topic_01; the other merged six away and cut nearly
+twice as many words. Both reported themselves as complete and compliant, and
+both are defensible readings of "find issues and fix them" — the brief sets a
+per-slide ceiling and a style, and says nothing about how much consolidation is
+wanted. The variance is in the instruction, not the model: nothing in the brief
+distinguishes a 21% cut from a 38% one.
+
+Worth deciding whether that latitude is wanted. If it is not, the lever is the
+brief — a stated block-count expectation, or an explicit "do not merge unless
+the LO makes a block redundant".
+
+### F-046 — further evidence, and an inconsistency
+**Status:** open (unchanged) · **Sessions:** 4
+
+Six generic retitles this run: `Precision Alignment`, `Carrying Your Gear` and
+`Matching the Blade to the Job` all to `Intro`; three summaries to `Topic
+Summary`. Eleven other retitles are ordinary rewrites.
+
+New: one editor went the other way. Topic_01's summary, already titled `Topic
+Summary` in the source, was renamed to `Field Mastery with Hand Tools` — the
+exact label the style file says to reuse, replaced with an invented one, while
+three sibling editors were replacing invented labels with it. Same style, same
+run, opposite directions. That strengthens the case for deciding the rule
+explicitly rather than leaving it in a style reference.
+
+Still unreported: 17 titles changed and the final report does not tell the user
+any of them changed.
+
+---
+
+## Pass 6 — 2026-09-17 — model comparison, GPT-5.6-sol vs Gemini 3.8 Flash
+
+A second deployment, `course-content-editor-mda-gpt`, built from the same source
+with `CCE_MODEL=openai:gpt-5.6-sol`. Same sheet, same request verbatim, same
+editor identity, same fresh-thread turn 1.
+
+**Validity.** The first attempt (`01a0ae43`) is void: a new deployment starts
+with an empty memory tree, so `AGENTS.md` was blank and
+`editors/ed_f84a65233902.md` did not exist. Every brief GPT wrote said so in as
+many words. After the memory was seeded by hand, the seeded run's system prompt
+measures 35,704 characters and carries the AGENTS.md doctrine — byte-identical
+in size to Gemini's. That is what makes `01a0ae50` comparable and `01a0ae43`
+not.
+
+| | Gemini 3.8 Flash | GPT-5.6-sol (seeded) | GPT (unseeded, void) |
+|---|---|---|---|
+| **cost** | **$0.71** | **$1.67** | $1.17 |
+| wall | 180s | 246s | 208s |
+| model steps | 54 | 61 | 36 |
+| tool calls | 60 | 82 | 59 |
+| subagents | 4 | **8** | 4 |
+| input tokens | 1,299,729 | 899,491 | 607,513 |
+| cache read | 61% | **83%** | 81% |
+| output tokens | 74,072 | 30,894 | 20,201 |
+| reasoning tokens | 56,266 | 9,043 | 7,112 |
+| median LLM latency | 2.83s | 4.13s | 5.00s |
+| **slides ≥60 words** | **0** | **0** | 30 |
+| word reduction | −18.8% to −38.4% | −32.9% to −41.4% | −9.2% to −25.3% |
+| titles changed | 17 (6 generic) | 54 (**0 generic**) | 24 (7 generic) |
+
+### F-050 — Memory is per-deployment, so any model test starts blank
+**Status:** open · **Confidence:** verified · **Priority: high**
+
+`memory.py` sets `scope="agent"`, and its own comment notes deploys never
+overwrite what earlier runs learned. The consequence, not noticed until a run
+was spent on it: a second deployment has an empty memory tree. Production's
+`AGENTS.md` is 7,154 characters written by earlier runs; the local seed at
+`.mda/__contexthub__/memories/agent/AGENTS.md` is 0 bytes.
+
+Any future model comparison must seed memory first and verify it landed. The
+check is cheap: the system prompt is 35,704 characters with the doctrine and
+28,394 without. A snapshot of both files is kept at
+`trace_analysis/context/memory_snapshot/` for that purpose.
+
+Seeding through `.mda/__contexthub__/` and redeploying is the wrong route —
+`--context-strategy overwrite` could then clobber production's learned memory.
+Seed through the running agent instead.
+
+### F-051 — GPT's coordinator reviewed its editors; Gemini's never has
+**Status:** open · **Confidence:** verified · **Priority: high — this is the
+finding worth acting on**
+
+GPT spawned 8 subagents in two rounds. Round 1 at t+45.6s was the ordinary
+fan-out. Round 2 at t+162.0s sent every one of the four files back, each brief
+opening "Revisit exactly … after coordinator review. Do not broaden or rewrite
+the substantive edit. Focus only on these verified misses" and naming them.
+
+That is what `instructions.md` Delegating asks for and has never once been
+observed from the Gemini build across twenty sessions:
+
+> Read every report as a reviewer, not a mailbox… Send it back with a specific
+> question rather than accepting it.
+> Verify before you report. Spot-check the files yourself. A report is a claim,
+> not evidence.
+
+The second round is where GPT's compliance came from: round 1 left slides over
+the limit, the coordinator measured, caught it, and fixed it. Gemini reaches the
+same end state in one round, but by its editors getting it right first time
+rather than by the coordinator checking — so the same instruction is satisfied
+by accident on Gemini and on purpose on GPT.
+
+This is the half of the comparison worth keeping regardless of which model is
+chosen: the review loop is a behaviour the instructions already require, and its
+absence on Gemini is invisible whenever the editors happen to comply.
+
+### F-052 — The two models disagree about the fixed-label title rule
+**Status:** open · **Confidence:** verified · **Relates to:** F-046
+
+Gemini changed 17 titles, 6 of them to the fixed generic labels `Intro` and
+`Topic Summary` that `direct-address-field-guide.md` line 98 instructs.
+
+GPT changed 54 titles — nearly every block in the course — and **none** to a
+generic label. It read the same style file and did not apply that line.
+
+Neither is wrong against the documents; the style file says to reuse the fixed
+labels, and the AGENTS.md doctrine says to write for field competence. It does
+mean the pending F-046 decision now changes the output materially depending on
+which model runs, and that GPT retitles at roughly three times the rate — a
+scope difference the reports do not mention on either model.
+
+---
+
+## Session continuity — 2026-09-17
+
+Triggered by a hosted Streamlit session timing out mid-edit and the work
+appearing to be lost. It was not lost. What follows is measured against the live
+deployment rather than inferred, because every part of it was previously either
+undocumented or assumed.
+
+### F-053 — How long a session's workspace actually survives
+**Status:** open (reference) · **Confidence:** verified · **Priority: high —
+this is the number nobody had**
+
+**Measured.** Read off the live sandboxes via `langsmith.sandbox.SandboxClient`,
+identical across all 34 of them:
+
+| field | value | meaning |
+|---|---|---|
+| `idle_ttl_seconds` | 600 | stopped 10 minutes after the last turn |
+| `delete_after_stop_seconds` | 1209600 | deleted 14 days after stopping |
+
+**A stop is not a deletion, and this was verified rather than assumed.** The
+sandbox for thread `01a0ab3f` (last active 2026-09-16 17:37, stopped 17:48) was
+restarted on 2026-09-17:
+
+```
+cold start           3.9s
+/workspace           .baseline/  context/  topics/  manifest.json  outline.md
+present.py --measure blocks 34 -> 26, words 2044 -> 1096 (-46.4%)
+```
+
+Every file was intact, including the edits made the previous day, and
+`present.py` reported them correctly. The sandbox was returned to `stopped`
+afterwards.
+
+**So the window is 14 days, not 10 minutes.** A conversation resumed within it
+restarts its own box and finds its own files. The oldest sandbox on the
+deployment was from 2026-09-07 — 10 days — and still present. Nothing has been
+reclaimed.
+
+**Why the mechanism works.** `sandbox.py` enforces `scope="thread"`, so the
+sandbox name is deterministic per deployment and thread
+(`_managed_sandbox_name`). On resume, `_resolve_sandbox_instance` looks that
+name up; `_adopt_sandbox` adopts a `ready` or `running` box as-is, and calls
+`_restart_sandbox` on a `stopped` one. Only when the box is gone does it create
+a fresh, empty one.
+
+**What this costs.** Sandbox charges are the small part of the bill: 20,017 vCPU
+seconds and 80,070 GiB-seconds month-to-date, $0.73 combined against $10.99 of
+deployment uptime. Keeping stopped sandboxes around is close to free; it is the
+always-on deployment that costs money.
+
+**What it means for the product.** Two states fail differently and should be
+told apart:
+
+- **Within 14 days** — messages and files both return. Resuming is complete.
+- **After 14 days** — the thread outlives its sandbox, so the conversation comes
+  back and the workspace does not. That reads as the agent having lost the
+  files, which is the worst possible presentation of it.
+
+`course_content_editor_mda.py` warns from day 12 and hides rows past day 14 for
+that reason.
+
+**Note.** `disconnecttest.py` was cited as verifying that a thread survives the
+client going away, and it does — but it tests minutes, inside one session. It
+says nothing about hours or days, and the 14-day figure was not known until it
+was measured here.
+
+### F-054 — Nothing was lost; the pointer was
+**Status:** fixed · **Confidence:** verified
+
+`_thread_id()` read `?thread=` from the URL and, finding nothing, created a new
+thread without saying so. An empty chat is indistinguishable from deleted work.
+The module docstring had already named this exact failure — "intact work you
+cannot address looks exactly like lost work" — and then rested the whole
+recovery path on one query parameter.
+
+Fixed by listing the editor's recent sessions instead of silently creating one
+(commit `2576696`). Threads are tagged `{surface, editor_id}` on create so
+`threads.search` can scope to one person; the `owner` field already present on
+every thread is the shared API key's LangSmith user and is the same for
+everyone, so it cannot be used for this.
+
+**Unfixed and deliberately so:** signing in still destroys `?thread=`. The
+redirect returns only `code` and `state`, and the success path calls
+`st.query_params.clear()`. Carrying the value through the OAuth `state`
+parameter works and was implemented, but does not help: `streamlit_app.py` is an
+`st.navigation` app whose pages are registered from `user_pages`, which exists
+only after sign-in — so a signed-out visitor to that page gets "Page not found"
+and lands on Home regardless of any parameter. Fixing it properly means carrying
+the page as well and calling `st.switch_page` after auth, which is a change to
+navigation and page gating. Reverted (`f8a3739`) as not worth that risk. The
+picker makes a lost link recoverable instead of fatal.
+
+---
+
+## Pass 7 — 2026-09-21 — per-editor memory, across every session on the deployment
+
+Prompted by moving to a free-tier deployment: before deleting the old one, every
+trace was exported, and the question asked of them was whether the per-editor
+memory feature has ever caused a user-facing problem — particularly for editors
+other than the one who built it.
+
+Scope: all root runs on the tracing project, 2026-09-07 to 2026-09-21. Five
+editor identities appear: `ed_f84a65233902` (35 sessions), `ed_6fe63a7d902e`
+(6), `ed_0b8aacc0fcff` (3), `ed_4b9a18618b3a` (1), and one `../../AGENTS` probe
+(F-045). The 54 sessions with no identity also carry no `app`/`surface`
+metadata, which the page always sets, so they are test scripts and Studio rather
+than users falling through unidentified — **every one of the 40 sessions that
+came from the Streamlit page carries an editor id.** The identity plumbing
+works.
+
+### F-056 — A personal memory file is only ever created if someone asks in words
+**Status:** open · **Confidence:** verified · **Priority: medium — a decision,
+not a defect**
+
+**Observed.** Across 100 traces, `/memories/agent/editors/*.md` was read 16
+times and written **once**:
+
+| file | reads | of which "not found" | writes |
+|---|---|---|---|
+| `ed_f84a65233902.md` | 14 | 1 | **1** |
+| `ed_0b8aacc0fcff.md` | 1 | 1 | 0 |
+| `ed_4b9a18618b3a.md` | 1 | 1 | 0 |
+
+The single write, 125 characters, followed a request that left nothing to infer:
+
+> "A preference for you to keep, just mine and not the team's: I write for
+> apprentice-level HVAC learners, and I like slides kept under 60 words. Save
+> that for next time. Don't do anything else."
+
+**Verified.** The lifecycle works end to end for that editor: first read missed,
+the file was written when asked for, and the next thirteen reads found it. It
+has never fired for anyone else, and never without being asked.
+
+**Why.** This is close to what `instructions.md` specifies. Writing requires a
+preference that is durable, clearly personal rather than the team's, and the
+Memory section says to ask which file it belongs in when that is unclear. A
+one-off correction is explicitly not memory-worthy. On that reading, zero
+spontaneous writes may be correct — nobody else stated a qualifying preference.
+
+**But the effect is a feature that is inert and silent.** A second editor's file
+does not exist, nothing will create it, and nothing tells them it could. The
+first session reads, misses, and carries on; there is no moment where the
+capability becomes visible. It works for the person who knew to ask.
+
+**The decision.** Whether a first session should leave a stub — or say once that
+preferences can be kept — is a product call, not a fix. Against it: the Memory
+section is deliberately conservative, and the `AGENTS.md` house style is the
+evolved one. For it: a capability nobody can discover is indistinguishable from
+one that does not exist.
+
+### F-057 — The editor's own file is read only some of the time
+**Status:** open · **Confidence:** verified · **Priority: medium** ·
+**Recurrence of:** F-005
+
+**Observed.** `ed_6fe63a7d902e` ran six sessions on 2026-09-18. The
+`editor_identity` middleware put that editor's id and file path into the system
+prompt of **every one of them**, and the file was never read in any:
+
+```
+01a0b57a   8 steps   identity block present   memory calls: 0
+01a0b57e   1 step    identity block present   memory calls: 0
+01a0b580   2 steps   identity block present   memory calls: 0
+01a0b580   7 steps   identity block present   memory calls: 0
+01a0b59c   2 steps   identity block present   memory calls: 0
+01a0b59d   3 steps   identity block present   memory calls: 0
+```
+
+Two of those did real editing work. The other two editors read theirs on their
+first session, so the instruction is followed sometimes and not others.
+
+**Verified.** The block was confirmed present by searching each run's system
+message for the editor id, not inferred from the middleware being enabled.
+
+**Why.** `instructions.md` says to read the file "near the start, before your
+first edit", and the identity block repeats it. Nothing in these six sessions
+distinguishes them from the two where it was read. Independent of F-056 and
+worth more: a preference that exists but is not consulted is worse than one that
+was never written, because the user has been told it is kept.
+
+### Not findings — checked and clear
+
+- **No memory error has ever reached a user.** Both first-session misses
+  returned `File not found` to the agent and neither appeared in a reply; those
+  turns answered about the actual work. The "a missing file just means it is
+  their first session" instruction is being followed.
+- **F-041 was observed working in production.** In `01a0afa4`, for a different
+  editor, the agent hit an ambiguous sheet, named the candidates — `Slide
+  Chunks` and `Copy of SC` — and asked which to use.
+
+---
+
+## Pass 8 — 2026-09-25 — first user traffic on `course-content-editor-mda-free`
+
+Scope: every root run on the `course-content-editor-mda-free` tracing project
+from 2026-09-21 to 2026-09-25. Logs are in `sessions/course-content-editor-mda-free/`.
+Sessions with editor `unknown` from 2026-09-24 12:31 to 14:00 are the model eval
+(`C:\cce\eval`), not users. They are cited only as extra evidence of
+deployment-level behaviour. Sessions with editor `unknown` on 2026-09-23 08:23
+and 2026-09-24 12:11 are smoke tests. Four editors appear:
+- `ed_f84a65233902`: one thread of 6 turns on 2026-09-21. This editor built
+  the feature (see pass 7).
+- `ed_fe3a2c5ee8d7`: one thread of 4 turns on 2026-09-23.
+- `ed_102a840654f4`: one thread of 4 turns on 2026-09-24.
+- `ed_204fb6be72c8`: 5 threads, 20 turns, on 2026-09-25.
+
+Every user turn ran on `gemini-3.8-flash`.
+
+### F-058 — On the free deployment every prepare lands in `/root/workspace`
+**Status:** fixed · deployed 2026-09-28 and verified live. Every `--workspace`
+in the three skills and the cheatsheet generator is now the absolute
+`/workspace`, and `present.py` defaults to `/workspace`. The
+"two path spaces" section, which told the agent the shell started at `/` and
+warned against absolute paths in `execute`, was replaced with "one filesystem,
+use absolute paths". `setup.sh` was regenerated and selftest passes. In the live
+check, `deployedtest.py` ran the prepare with `--workspace /workspace` and went
+straight to `present.py`. That was 3 shell commands in the turn, with no `pwd`,
+`ls` or `ln -s`. The prepare, edit, commit and cleanup checks all passed. ·
+**Confidence:** verified · **Sessions:** 14 of 14 prepares, from the first user session on 2026-09-21 ·
+**Priority: high: it costs steps at the start of every session, and only on the new deployment**
+
+**Observed.** Every `prepare_*workspace.py --workspace workspace` on this
+deployment wrote to `/root/workspace`, because the shell's cwd is `/root`. The
+next `read_file(/workspace/manifest.json)` fails with `file_not_found` in all
+of them, and the agent goes looking for the files:
+
+| session | recovery | steps lost |
+|---|---|---|
+| `20260925-081844_01a0d7a5` | glob `/` refused, `pwd; ls`, `ls /workspace` fails, `ln -s /root/workspace /workspace` | steps 4–10 (7 of 17 coordinator steps) |
+| `20260925-122534_01a0d887` | `ls` fails, `pwd`, `ls /root/workspace`, `ls /`, `ln -s` | steps 4–9 |
+| `20260924-132554_01a0d398` | `ls /`, `pwd`, `ln -s` | steps 2–7 |
+| `20260924-123147_01a0d366` (eval) | no symlink; every later path switched to `/root/workspace/…` | 3 failed calls + 1 |
+
+The same happens in `082720_01a0d7ad`, `083425_01a0d7b3`, `084611_01a0d7be` and
+the other eval sessions. It is also in the first real session on the deployment
+(`20260921-140144_01a0c445`) and in `20260923-150848_01a0cecf`, where steps 2–7
+went on glob, `pwd`, `ls` and `ln -s`. It also happens in the graphics-definition MDA
+(`20260923-175257_01a0cf66`). **It never happened in the 150+ sessions on the
+old deployment**: `/root/workspace` appears nowhere in `sessions/*.md`.
+
+**Why it matters beyond steps.** `working-with-google-sheets/SKILL.md` calls
+`--workspace workspace` "the one directory `present.py` reads from" and says
+nothing warns when it is wrong. The agent now rescues itself each time with an
+improvised symlink. That has worked so far, but no instruction mentions it. In
+the sessions without a symlink, the editors were briefed with `/root/workspace`
+paths the skills never mention.
+
+**Hypothesis.** The new deployment's sandbox starts the shell in `/root`. The
+old one started it in `/`, so the relative `workspace` now resolves somewhere
+else. Not ruled out: a change in the sandbox image or the deepagents version
+moved the default cwd.
+
+**Would confirm.** Run `pwd` in a fresh sandbox of this deployment, and read the
+sandbox cwd settings in `sandbox.py`. The likely fix is an absolute
+`--workspace /workspace` in the skill, or `cd /` in the execute wrapper. Verify
+it with one live prepare.
+
+### F-059 — A commit to an existing tab name wipes that tab silently
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+· **Related:** F-033
+
+**Observed.** On sheet `1IstTfl2…` the editor ran the same "tighten the research
+notes" request twice, in two threads (`083425_01a0d7b3`, then `084611_01a0d7be`).
+Each thread ended with "save in (a) separate tab x":
+
+- `083744_01a0d7b6` step 7: wrote 14 rows to tab `x`, `gid=152621202`.
+- `085008_01a0d7c1` step 3: wrote 14 rows to tab `x`, **the same `gid=152621202`**.
+
+The second commit cleared the first run's tab and replaced it. The reply said
+"committed to tab `x`". It did not say that `x` already existed or that anything
+was replaced. In step 2 of that turn the agent had read lines 181–261 of
+`commit_context.py`, and those lines contain `target_ws.clear()`.
+
+**Instructed?** Partly. SKILL.md warns that "a second commit overwrites the
+first", but only for the case where the flag is left off. The agent passed the
+name the user gave, which is what that section tells it to do. No instruction
+says to check whether the named tab already exists.
+
+**Hypothesis.** The user may have wanted the replacement. They had re-run the
+request, so they may have wanted the newer result in `x`. "Separate" may also
+have meant "not the source tab" rather than "a new tab". Either way, the first
+run's output cannot be recovered, and the user did not choose that knowingly.
+
+**Would confirm.** Ask the editor. A structural fix would be for `commit_*.py`
+to refuse an existing tab unless `--replace` is passed. The agent would then
+put that choice to the user, as F-033's fix did for prepare.
+
+### F-060 — Literal `\n` escapes in sheet research notes cost editors 5–7 steps each
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+**Observed.** On 2026-09-25, two of the 17 editor spans ran about twice as long
+as their siblings, for the same reason:
+
+- `081844_01a0d7a5` subagent 4: 14 steps, against 6–9 for its siblings. In
+  steps 4–10 it ran four `python3 -c` probes that counted literal backslash-n in
+  its file, in the baseline and in every other topic. It also read `topic_02`
+  and `topic_05`, which were outside its brief. Its topic had 39 literal `\n`
+  plus escaped `\"`, and `topic_05` had 10.
+- `082720_01a0d7ad` subagent 1: 14 steps, against 4–7 for its siblings. Steps
+  4–9 were `repr()` probes of its lines and two reads of
+  `working-with-google-sheets/SKILL.md`. Line 8 of its research notes was one
+  physical line containing `\\n\\n###…`.
+
+Both editors removed the escapes as part of the rewrite. Subagent 4 says so in
+its report ("Removed literal `\n` characters"), so the output was correct.
+
+**Verified.** The escapes are already in `.baseline/`, so they come from the
+sheet, not from an edit.
+
+**Hypothesis.** Some upstream generator stores research notes JSON-escaped in
+some cells. `prepare_*` does not normalise them and no skill mentions them, so
+each editor rediscovers the problem. Not ruled out: the escapes are
+intentional. That is unlikely, since they show literally to anyone reading the
+sheet.
+
+**Would confirm.** Count the cells with literal `\n` across the course sheets.
+If it is common, unescape them in `prepare_*`, or add one line about them to
+editing-research-notes.
+
+### F-061 — "In exact words — don't rephrase anything" got a paraphrase
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Observed.** In `105955_01a0d838` the user asked two things: what overlap had
+been removed, and whether any overlap remained across the topics. They added
+"in exact words - dont rephrase anything". The agent did three things:
+- ran `diff … | head -n 40` on topic 1 only;
+- read topic 4's baseline;
+- ran `present.py` on topic 4 only.
+
+It then answered with summary bullets in its own words ("Callback definitions
+and customer cost framing; Sink deck mounting, rim gaps…"). It also said no
+overlap remained across all topics, without opening topics 2 and 3 that turn.
+
+**Instructed?** Two instructions conflict. SKILL.md says: "**Never write file
+content into your message.** … Run `present.py` instead." The user asked for
+verbatim text. Presenting topic 4 was the agent's attempt to meet both. Topics
+1–3 were neither presented nor quoted.
+
+**Hypothesis.** The no-quoting rule won over the user's explicit request, and
+the compromise was a paraphrase, which is the one output the user had ruled
+out. An alternative: `present.py` shows before and after for each file, so
+presenting all four files would have answered the request. The agent may not
+have realised that the removed text shows on the before side.
+
+**Would confirm.** Check whether `present.py` shows the removed text of a
+context block. If it does, the rule should say that an exact-words request is
+answered by presenting every file concerned.
+
+### F-040 — recurrence: the commit command re-derived when the skill already documents it
+**Sessions added:** 3
+
+The user asked to save to a separate tab `x` four times, and there was one
+further commit later in the day. In two turns the agent ran
+`commit_context.py --outline-target-tab "x"` straight away (`082338_01a0d7a9`,
+`083250_01a0d7b2`, one step each). In the other three commit turns it first
+worked out the invocation again:
+
+- `083744_01a0d7b6`: `--help`, `grep /skills`, two reads of the script source,
+  then `grep(path=/, pattern="separate x tab")`, which **timed out after 35s**.
+  That was steps 1–6, before the one command it needed.
+- `085008_01a0d7c1`: `--help` and one read of the source, steps 1–2.
+- `133011_01a0d8c2`: two reads of the source, steps 2–3.
+
+The command did not differ between the fast turns and the slow ones. This is
+the same shape as the original F-040: the answer was on screen, and the agent
+worked it out again anyway.
+
+### F-062 — Two new users' sessions ended at a confirmation question, with no edit made
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority:
+high: two of the three new editors never saw an edit**
+
+**Observed, second case (earlier).** `ed_fe3a2c5ee8d7` had one thread on
+2026-09-23 (`01a0cecd`), which went like this:
+- Turn 1 was the bare sheet URL. The agent asked which of three slide-chunk
+  tabs to use.
+- Turn 2 was the URL again, plus "I want the hook to be better, check … repetition
+  … within topic and also course level". The agent ran `prepare_workspace.py
+  --help` and asked about the tab again.
+- Turn 3 was "yes". It failed on a Gemini 503 (F-063).
+- Turn 4 was "i want full . all topics". The agent prepared the workspace, spent
+  steps 2–7 on F-058, measured all four topics and replied "Shall I go ahead
+  with these edits?".
+
+The user never answered. It is the same ending as `ed_102a840654f4`'s session
+the next day, described below. In both cases a new editor gave a full brief,
+got a plan and a question back, and left without seeing a single edit.
+
+**Observed.** This was `ed_102a840654f4`'s first session, on 2026-09-24 (thread
+`01a0d397`). The agent spent turns 1–3 settling the source tab. It asked twice,
+both times correctly, since `Slide Chunks` and `Topic 1` were both candidates.
+In turn 4 the user gave a full brief for topic 1 ("good, catchy intro … simple
+language … graphic representable"). The agent measured the file, read it and
+replied "Shall I go ahead with these edits?". The user never answered, and the
+session ended there.
+
+**Instructed?** No. Neither `instructions.md` nor editing-slide-chunks asks for
+approval before an edit of this size. The only "confirm" rule is about which
+topics are in scope. The eval script needed a scripted "Yes, go ahead" turn,
+which suggests Gemini asks this out of habit. The same model went straight to
+editing in all five of the other editor's fresh threads on 2026-09-25, so it
+does not always ask.
+
+**Hypothesis.** Each user may have stopped for unrelated reasons. Still, the
+pattern now covers two of the three editors who are new to the tool. In
+2026-09-21 `01a0c445` the builder answered the same question with "Proceed",
+because they knew to expect it. Two things weigh on new users. First, the
+question comes at the end of a long turn and reads like a result. Second, the
+tab-disambiguation turns before it have already used up their patience.
+Another possibility: the question works when the brief is vague ("regular
+changes") and costs a turn when the brief is specific.
+
+**Would confirm.** Check whether the Streamlit page makes an unanswered
+question visible, and whether either editor came back in a new thread. It is
+also worth a product decision: a specific single-topic request could go straight
+to editing, since the baseline makes every edit reversible before commit.
+
+### F-063 — A Gemini 503 lost the user's turn, and nothing retried it
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Observed.** In `20260923-150721_01a0cece` (turn 3, the user's "yes"), the
+first model call failed with `GoogleAPIError 503 UNAVAILABLE — This model is
+currently experiencing high demand`. The error propagated through every
+middleware wrapper, and the run ended as `error` after 36.5s with 0 tokens. No
+retry was attempted. The user's next message, 87s later, restated the request
+in different words ("i want full . all topics").
+
+**Why it matters.** It happened in F-062's session, and it cost a turn in a
+thread that already had too many. F-047 recorded a provider-side slowdown on
+the old deployment, but this is the first hard provider error to reach a user.
+
+**Hypothesis.** `ChatGoogleGenerativeAI` has no retry configured for 503 on
+this deployment, or the MDA runtime does not retry model errors. Not checked:
+what the Streamlit page showed the user at that point.
+
+**Would confirm.** Read the model construction in `agent.py` and
+`middleware/model_select.py` for `max_retries`. Then check how the page renders
+a run that ended in `error`.
+
+### Not findings — checked and clear (pass 8)
+
+- **F-057 did not recur.** Both new editors' first turns read
+  `/memories/agent/editors/<id>.md` at step 1, and both got "not found". Both
+  are first sessions, so that is correct.
+- **The multi-pass analysis thread held up well** (`122534_01a0d887`, turns
+  2–7). The user escalated the evidence standard across six analysis-only turns.
+  The agent retracted its own external-knowledge claims when asked (turn 2), and
+  it reconciled its earlier passes explicitly (turn 4). It modified no file until
+  the user switched to editing in turn 8.
+- **Research-notes delegation was tight.** In the four fresh "tighten the notes"
+  runs, 15 of 17 editor spans took 4–9 steps, and the two outliers are
+  explained by F-060. Topics were cut by 25–58% while the numbers were kept.
+- **The 19-step editor in `20260921-140304_01a0c447` (siblings 7–10) is mostly
+  file size.** Its topic file was 408 lines. It read the file in `limit=100`
+  pages three times: before the write, around one fix-up `edit_file`, and a
+  full re-read at the end. That is about 10 of its 19 steps. The pages were
+  chosen by the agent, not forced, so it is noted here rather than filed.
