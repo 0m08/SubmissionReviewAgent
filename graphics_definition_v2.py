@@ -50,6 +50,10 @@ from agents.graphics_definition_v2.review_agent.review_and_revise import (
     run_review_and_revise_graphics_definition_v2_for_all_rows,
     delete_review_and_revise_graphics_definition_v2,
 )
+from agents.graphics_definition_v2.review_agent.chooser_results_sheet import (
+    run_populate_chooser_results_sheet,
+    delete_chooser_results_sheet,
+)
 from agents.graphics_definition_v2.video_graphics_agent.youtube_video_search_in_other_channels import (
     run_youtube_video_search_other_channels_for_all_rows,
     delete_video_pool_other_channels,
@@ -178,7 +182,7 @@ pipeline_sections = [
                 "depends_on": ["Index External Reference Assets"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
@@ -199,7 +203,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Layout Plan for each Slide"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_flash_lite",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "2-5 minutes",
@@ -220,7 +224,7 @@ pipeline_sections = [
                 "depends_on": ["Segment Slide into Voiceover Segments"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
@@ -241,7 +245,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Storyboard for each Slide"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_2_5_flash_lite",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-10 minutes",
@@ -257,7 +261,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Search Queries for Image and Video Retrieval"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "is_llm_step": True,
@@ -300,8 +304,8 @@ pipeline_sections = [
                 "depends_on": ["Generate Image and Video Candidates"],
                 "args": {
                     "sheet": "sheet",
-                    "image_pool_llm": "gemini_3_flash_thinking",
-                    "video_pool_llm": "gemini_3_flash_thinking",
+                    "image_pool_llm": "gemini_3_8_flash_thinking",
+                    "video_pool_llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "is_llm_step": True, 
@@ -323,7 +327,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Image and Video Pools"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "30-60 minutes",
@@ -344,7 +348,7 @@ pipeline_sections = [
                 "depends_on": ["Aggregation Agent"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                     "use_only_drive_and_hvac": True,
                     "enabled_sources": "graphics_v2_enabled_sources",
@@ -368,7 +372,7 @@ pipeline_sections = [
                 "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "10-30 minutes",
@@ -385,7 +389,7 @@ pipeline_sections = [
                 "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-20 minutes",
@@ -402,7 +406,7 @@ pipeline_sections = [
                 "hide_if_web_disabled": True,
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-25 minutes",
@@ -423,7 +427,7 @@ pipeline_sections = [
                 "depends_on": ["Decide which visual to Use"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-20 minutes",
@@ -505,7 +509,7 @@ pipeline_sections = [
                 "depends_on": ["Generate Slideshow Manifest"],
                 "args": {
                     "sheet": "sheet",
-                    "llm": "gemini_3_flash_thinking",
+                    "llm": "gemini_3_8_flash_thinking",
                     "max_workers": 50,
                 },
                 "estimated_time": "5-20 minutes",
@@ -598,13 +602,9 @@ llm_pricing = {
         "output_per_million": 3.00,
     },
     "models": {
-        "gemini_2_5_flash_lite": {
-            "input_per_million": 0.10,  
-            "output_per_million": 0.40, 
-        },
-        "gemini_3_flash_thinking": {
-            "input_per_million": 0.50,
-            "output_per_million": 3.00,
+        "gemini_3_8_flash_thinking": {
+            "input_per_million": 0.75,
+            "output_per_million": 3.75,
         },
     },
 }

@@ -2776,29 +2776,29 @@ def invoke_gemini_multimodal(parts, llm="gemini_3_flash_thinking", temperature=0
     """
     # Map model identifier to actual model name
     model_mapping = {
+        "gemini_3_8_flash_thinking": "gemini-3.8-flash",
+        "gemini_3_8_flash": "gemini-3.8-flash",
         "gemini_3_flash_thinking": "gemini-3-flash-preview",
         "gemini_3_flash": "gemini-3-flash-preview",
         "gemini_3_pro": "gemini-2-pro",
         "gemini_2_5_flash": "gemini-2.5-flash",
         "gemini_2_5_flash_lite": "gemini-2.5-flash-lite",
         "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.8-flash": "gemini-3.8-flash",
     }
-    actual_model = model_mapping.get(llm, llm)  # Default to llm if not in mapping
-    
+    actual_model = model_mapping.get(llm, llm)
 
     client = genai.Client()
 
-    # === Thinking controls ===
-    # Per Gemini docs: Gemini 2.5 models support thinking via `thinkingBudget`.
-    # - thinking_budget = -1 => dynamic thinking (recommended default)
-    # - thinking_budget = 0  => disable thinking
     thinking_config = None
-    if "gemini-2.5" in str(actual_model):
+    if llm in {"gemini_3_8_flash_thinking", "gemini_3_8_flash"} or actual_model == "gemini-3.8-flash":
+        thinking_config = types.ThinkingConfig(thinking_level="high")
+        print(f"🧠 Thinking enabled for model {actual_model} (thinking_level=high)")
+    elif "gemini-2.5" in str(actual_model):
         try:
             thinking_config = types.ThinkingConfig(thinking_budget=-1)
             print(f"🧠 Thinking enabled for model {actual_model} (dynamic budget)")
         except Exception as tc_err:
-            # If the SDK surface changes, fall back to default behavior.
             print(f"⚠️ Could not enable thinking config: {tc_err}")
             thinking_config = None
 

@@ -24,5 +24,5 @@ OAUTH_REDIRECT_URI = (
 SESSION_SECRET = os.getenv("HUMAN_FEEDBACK_SESSION_SECRET", "change-me-in-production")
 SESSION_COOKIE = "hf_session_id"
 
-LLM_DEFAULT = os.getenv("HUMAN_FEEDBACK_LLM", "gemini_3_flash_thinking")
+LLM_DEFAULT = os.getenv("HUMAN_FEEDBACK_LLM", "gemini_3_8_flash_thinking")
 REVISE_MAX_WORKERS = 2
