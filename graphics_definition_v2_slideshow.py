@@ -301,7 +301,7 @@ def _auto_decide_visual_choice(slide, segment_num, step, drive):
     )
     response_text, _ = invoke_gemini_multimodal(
         parts,
-        llm="gemini_3_flash_thinking",
+        llm="gemini_3_8_flash_thinking",
         conversation_history=None,
     )
     chosen, reason = _parse_decision_response(response_text)
@@ -3682,7 +3682,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                         if reject_count > 0:
                             run_human_feedback_review_revise_for_all_rows(
                                 sheet=sheet,
-                                llm="gemini_3_flash_thinking",
+                                llm="gemini_3_8_flash_thinking",
                                 max_workers=50,
                                 use_only_drive_and_hvac=False,
                                 human_feedback_column=round_feedback_col,
@@ -3730,7 +3730,7 @@ def render_inspector(slides, column_map, drive, sheet=None, worksheet_name=None,
                             "--human_review_actions_column",
                             round_actions_col,
                             "--llm",
-                            "gemini_3_flash_thinking",
+                            "gemini_3_8_flash_thinking",
                             "--max_workers",
                             "50",
                             "--machine",

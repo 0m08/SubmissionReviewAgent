@@ -2552,7 +2552,7 @@ Output only the classification key (either EDIT or SCRATCH), with no other text,
     try:
         response_text, _ = invoke_gemini_multimodal(
             parts=[types.Part(text=prompt)],
-            llm="gemini_3_flash",
+            llm="gemini_3_8_flash_thinking",
             temperature=0.0
         )
         verdict = response_text.strip().upper()

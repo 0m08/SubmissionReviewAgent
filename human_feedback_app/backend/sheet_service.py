@@ -1139,7 +1139,7 @@ def _regenerate_manifest_for_row(
     row,
     *,
     final_graphics_definition: str,
-    llm: str = "gemini_3_flash_thinking",
+    llm: str = "gemini_3_8_flash_thinking",
 ) -> Tuple[Optional[str], str]:
     slide_title = safe_str(row.get("Slide Chunk Title", "")).strip()
     slide_chunk = safe_str(row.get("Slide Chunk", "")).strip()
