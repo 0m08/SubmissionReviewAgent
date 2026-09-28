@@ -14,27 +14,18 @@ Forked from the checklist agent's `working-with-google-sheets` skill. The
 slide-chunk half is unchanged. The research-notes half is new — the checklist
 agent never had to write research notes back, only read them for context.
 
-## Two path spaces, and how they line up
+## One filesystem — use absolute paths everywhere
 
 Your file tools (`read_file`, `edit_file`, `write_file`, `ls`, `glob`, `grep`)
-address a **virtual** filesystem rooted at `/`. Your `execute` tool runs a real
-shell whose working directory is that same root. So every virtual absolute path
-is the same location as the shell-relative path with the leading `/` dropped:
+and your `execute` shell see the same sandbox disk, so `/workspace/topics/topic_01.md`
+is the same file in both. Always write the absolute form, in `execute` too.
 
-| virtual path (file tools)        | shell path (`execute`)          |
-|----------------------------------|---------------------------------|
-| `/workspace/topics/topic_01.md`  | `workspace/topics/topic_01.md`  |
-| `/workspace/context/topic_01.md` | `workspace/context/topic_01.md` |
+Never rely on the shell's working directory. It is not `/` — it is whatever the
+sandbox image sets (currently `/root`), so a relative `workspace` in a command
+lands somewhere your file tools will not find it.
 
-Use the virtual form with file tools and the relative form in `execute`. Never
-pass a virtual absolute path to `execute` — a leading `/` there means the root
-of the host disk, not the agent root, and the command will fail or, worse, hit
-the wrong file.
-
-This skill's scripts are the exception to that table: they live at
-`/opt/cce/scripts/`, an absolute path on the sandbox's own disk, and are called
-with that path from `execute`. They do not care what directory you run them
-from.
+This skill's scripts live at `/opt/cce/scripts/` and are called with that path
+from `execute`.
 
 They are deliberately **not** under `/skills/`. That path is a Context Hub
 mount, which `read_file` can see and the shell cannot — a script you can read is
@@ -53,12 +44,12 @@ write.
 
 ## Always use this workspace path
 
-**Always pass `--workspace workspace`** to whichever prepare script you run —
-never anywhere else. That is the one directory `present.py` reads
-from, so a workspace built somewhere else cannot be shown to the user, and its
-`before -> after` counts cannot be measured. Every script here works
-identically regardless of path, so nothing warns you when this is wrong; the
-user simply gets shown nothing.
+**Always pass `--workspace /workspace`** — absolute, with the leading slash —
+to every script here, and never any other path. It is where your file tools
+expect the files and the directory `present.py` reads by default, so a workspace
+built somewhere else cannot be read, shown to the user, or measured. Every
+script here works identically regardless of path, so nothing warns you when
+this is wrong; the files simply are not where you look.
 
 ## When to use
 
@@ -161,7 +152,7 @@ that row's notes — it means no change was requested for it. See
 ```bash
 python /opt/cce/scripts/prepare_workspace.py \
   --sheet-url "<URL>" \
-  --workspace workspace \
+  --workspace /workspace \
   [--source-tab "Slide Chunks"] \
   [--outline-tab "Final Outline"] \
   [--target-tab "Slide Chunks (Revised)"] \
@@ -183,7 +174,7 @@ This matters because a prepare replaces the baseline as well as the files, so an
 overwrite would destroy the edit *and* the only record that there was one.
 
 The error names three ways forward: prepare into a second workspace
-(`--workspace workspace_2`) and keep both, commit the edits first, or discard
+(`--workspace /workspace_2`) and keep both, commit the edits first, or discard
 them on purpose with `--discard-local`. Relay it and let the user pick. A second
 workspace is self-contained — pass the same `--workspace` to `present.py` and
 the commit scripts and it behaves exactly like the first.
@@ -196,7 +187,7 @@ the destructive option, and it is there to be chosen deliberately.
 ```bash
 python /opt/cce/scripts/prepare_context_workspace.py \
   --sheet-url "<URL>" \
-  --workspace workspace \
+  --workspace /workspace \
   [--outline-tab "Final Outline"] \
   [--outline-target-tab "Final Outline (Revised)"]
 ```
@@ -210,7 +201,7 @@ against either workspace.
 ### `commit_workspace.py`
 
 ```bash
-python /opt/cce/scripts/commit_workspace.py --workspace workspace [--target-tab "Slide Chunks (Revised)"]
+python /opt/cce/scripts/commit_workspace.py --workspace /workspace [--target-tab "Slide Chunks (Revised)"]
 ```
 
 Parses `topics/*.md`, writes a **new** tab. The source slide-chunks tab is
@@ -219,7 +210,7 @@ never modified.
 ### `commit_context.py`
 
 ```bash
-python /opt/cce/scripts/commit_context.py --workspace workspace [--outline-target-tab "Final Outline (Revised)"]
+python /opt/cce/scripts/commit_context.py --workspace /workspace [--outline-target-tab "Final Outline (Revised)"]
 ```
 
 Re-reads the *live* `Final Outline` tab fresh, overwrites only the matched
@@ -269,32 +260,32 @@ python /opt/cce/scripts/list_tabs.py --sheet-url "<SHEET_URL>"
 
 # 2a. Research notes only. No slide-chunks tab needed.
 python /opt/cce/scripts/prepare_context_workspace.py \
-    --sheet-url "<SHEET_URL>" --workspace workspace \
+    --sheet-url "<SHEET_URL>" --workspace /workspace \
     [--outline-tab "Final Outline"] \
     [--outline-target-tab "Final Outline (Revised)"]
 
 # 2b. Slide chunks, and the research notes alongside them.
 python /opt/cce/scripts/prepare_workspace.py \
-    --sheet-url "<SHEET_URL>" --workspace workspace \
+    --sheet-url "<SHEET_URL>" --workspace /workspace \
     [--source-tab "Slide Chunks"] [--outline-tab "Final Outline"] \
     [--target-tab "Slide Chunks (Revised)"] \
     [--outline-target-tab "Final Outline (Revised)"]
 
 # 3. Show the user what you changed. Run this after editing, unprompted.
-python /opt/cce/scripts/present.py --workspace workspace \
+python /opt/cce/scripts/present.py --workspace /workspace \
     context/topic_01_<slug>.md [--blocks 3,7] [--note "what to look at"]
 
 # 4. Counts only — this output is for you, before and after a
 #    tighten / trim / expand request.
-python /opt/cce/scripts/present.py --workspace workspace --measure \
+python /opt/cce/scripts/present.py --workspace /workspace --measure \
     topics/topic_02_<slug>.md
 
 # 5a. Write research notes to a new tab.
-python /opt/cce/scripts/commit_context.py --workspace workspace \
+python /opt/cce/scripts/commit_context.py --workspace /workspace \
     [--outline-target-tab "<NEW_TAB_NAME>"]
 
 # 5b. Write slide chunks to a new tab.
-python /opt/cce/scripts/commit_workspace.py --workspace workspace \
+python /opt/cce/scripts/commit_workspace.py --workspace /workspace \
     [--target-tab "<NEW_TAB_NAME>"]
 
 # 6. If a sheet call fails, confirm access before retrying anything.
@@ -314,7 +305,7 @@ before/after pair, not a block quote of a research note. Run `present.py`
 instead:
 
 ```
-python /opt/cce/scripts/present.py     --workspace workspace context/topic_01_<slug>.md     [--blocks 3,7] [--note "what to look at"]
+python /opt/cce/scripts/present.py     --workspace /workspace context/topic_01_<slug>.md     [--blocks 3,7] [--note "what to look at"]
 ```
 
 **Its output goes to the user's screen, not to you.** The client renders it as
@@ -342,7 +333,7 @@ script to count words; this is that script, and one already ran.
 `--measure` gives the counts alone, with no diff:
 
 ```
-python /opt/cce/scripts/present.py     --workspace workspace --measure topics/topic_02_<slug>.md
+python /opt/cce/scripts/present.py     --workspace /workspace --measure topics/topic_02_<slug>.md
 ```
 
 Run it before and after any request naming a direction — tighten, trim, expand,

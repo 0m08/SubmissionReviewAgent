@@ -68,32 +68,32 @@ python /opt/cce/scripts/list_tabs.py --sheet-url "<SHEET_URL>"
 
 # 2a. Research notes only. No slide-chunks tab needed.
 python /opt/cce/scripts/prepare_context_workspace.py \\
-    --sheet-url "<SHEET_URL>" --workspace workspace \\
+    --sheet-url "<SHEET_URL>" --workspace /workspace \\
     {optional("--outline-tab", "Final Outline")} \\
     {optional("--outline-target-tab", "Final Outline (Revised)")}
 
 # 2b. Slide chunks, and the research notes alongside them.
 python /opt/cce/scripts/prepare_workspace.py \\
-    --sheet-url "<SHEET_URL>" --workspace workspace \\
+    --sheet-url "<SHEET_URL>" --workspace /workspace \\
     {optional("--source-tab", "Slide Chunks")} {optional("--outline-tab", "Final Outline")} \\
     {optional("--target-tab", "Slide Chunks (Revised)")} \\
     {optional("--outline-target-tab", "Final Outline (Revised)")}
 
 # 3. Show the user what you changed. Run this after editing, unprompted.
-python /opt/cce/scripts/present.py --workspace workspace \\
+python /opt/cce/scripts/present.py --workspace /workspace \\
     context/topic_01_<slug>.md [--blocks 3,7] [--note "what to look at"]
 
 # 4. Counts only — this output is for you, before and after a
 #    tighten / trim / expand request.
-python /opt/cce/scripts/present.py --workspace workspace --measure \\
+python /opt/cce/scripts/present.py --workspace /workspace --measure \\
     topics/topic_02_<slug>.md
 
 # 5a. Write research notes to a new tab.
-python /opt/cce/scripts/commit_context.py --workspace workspace \\
+python /opt/cce/scripts/commit_context.py --workspace /workspace \\
     [--outline-target-tab "<NEW_TAB_NAME>"]
 
 # 5b. Write slide chunks to a new tab.
-python /opt/cce/scripts/commit_workspace.py --workspace workspace \\
+python /opt/cce/scripts/commit_workspace.py --workspace /workspace \\
     [--target-tab "<NEW_TAB_NAME>"]
 
 # 6. If a sheet call fails, confirm access before retrying anything.

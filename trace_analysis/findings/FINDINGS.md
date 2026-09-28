@@ -1747,3 +1747,270 @@ was never written, because the user has been told it is kept.
 - **F-041 was observed working in production.** In `01a0afa4`, for a different
   editor, the agent hit an ambiguous sheet, named the candidates — `Slide
   Chunks` and `Copy of SC` — and asked which to use.
+
+---
+
+## Pass 8 — 2026-09-25 — first user traffic on `course-content-editor-mda-free`
+
+Scope: every root run on the `course-content-editor-mda-free` tracing project
+from 2026-09-21 to 2026-09-25. Logs are in `sessions/course-content-editor-mda-free/`.
+Sessions with editor `unknown` from 2026-09-24 12:31 to 14:00 are the model eval
+(`C:\cce\eval`), not users. They are cited only as extra evidence of
+deployment-level behaviour. Sessions with editor `unknown` on 2026-09-23 08:23
+and 2026-09-24 12:11 are smoke tests. Four editors appear:
+- `ed_f84a65233902`: one thread of 6 turns on 2026-09-21. This editor built
+  the feature (see pass 7).
+- `ed_fe3a2c5ee8d7`: one thread of 4 turns on 2026-09-23.
+- `ed_102a840654f4`: one thread of 4 turns on 2026-09-24.
+- `ed_204fb6be72c8`: 5 threads, 20 turns, on 2026-09-25.
+
+Every user turn ran on `gemini-3.8-flash`.
+
+### F-058 — On the free deployment every prepare lands in `/root/workspace`
+**Status:** fixed · deployed 2026-09-28 and verified live. Every `--workspace`
+in the three skills and the cheatsheet generator is now the absolute
+`/workspace`, and `present.py` defaults to `/workspace`. The
+"two path spaces" section, which told the agent the shell started at `/` and
+warned against absolute paths in `execute`, was replaced with "one filesystem,
+use absolute paths". `setup.sh` was regenerated and selftest passes. In the live
+check, `deployedtest.py` ran the prepare with `--workspace /workspace` and went
+straight to `present.py`. That was 3 shell commands in the turn, with no `pwd`,
+`ls` or `ln -s`. The prepare, edit, commit and cleanup checks all passed. ·
+**Confidence:** verified · **Sessions:** 14 of 14 prepares, from the first user session on 2026-09-21 ·
+**Priority: high: it costs steps at the start of every session, and only on the new deployment**
+
+**Observed.** Every `prepare_*workspace.py --workspace workspace` on this
+deployment wrote to `/root/workspace`, because the shell's cwd is `/root`. The
+next `read_file(/workspace/manifest.json)` fails with `file_not_found` in all
+of them, and the agent goes looking for the files:
+
+| session | recovery | steps lost |
+|---|---|---|
+| `20260925-081844_01a0d7a5` | glob `/` refused, `pwd; ls`, `ls /workspace` fails, `ln -s /root/workspace /workspace` | steps 4–10 (7 of 17 coordinator steps) |
+| `20260925-122534_01a0d887` | `ls` fails, `pwd`, `ls /root/workspace`, `ls /`, `ln -s` | steps 4–9 |
+| `20260924-132554_01a0d398` | `ls /`, `pwd`, `ln -s` | steps 2–7 |
+| `20260924-123147_01a0d366` (eval) | no symlink; every later path switched to `/root/workspace/…` | 3 failed calls + 1 |
+
+The same happens in `082720_01a0d7ad`, `083425_01a0d7b3`, `084611_01a0d7be` and
+the other eval sessions. It is also in the first real session on the deployment
+(`20260921-140144_01a0c445`) and in `20260923-150848_01a0cecf`, where steps 2–7
+went on glob, `pwd`, `ls` and `ln -s`. It also happens in the graphics-definition MDA
+(`20260923-175257_01a0cf66`). **It never happened in the 150+ sessions on the
+old deployment**: `/root/workspace` appears nowhere in `sessions/*.md`.
+
+**Why it matters beyond steps.** `working-with-google-sheets/SKILL.md` calls
+`--workspace workspace` "the one directory `present.py` reads from" and says
+nothing warns when it is wrong. The agent now rescues itself each time with an
+improvised symlink. That has worked so far, but no instruction mentions it. In
+the sessions without a symlink, the editors were briefed with `/root/workspace`
+paths the skills never mention.
+
+**Hypothesis.** The new deployment's sandbox starts the shell in `/root`. The
+old one started it in `/`, so the relative `workspace` now resolves somewhere
+else. Not ruled out: a change in the sandbox image or the deepagents version
+moved the default cwd.
+
+**Would confirm.** Run `pwd` in a fresh sandbox of this deployment, and read the
+sandbox cwd settings in `sandbox.py`. The likely fix is an absolute
+`--workspace /workspace` in the skill, or `cd /` in the execute wrapper. Verify
+it with one live prepare.
+
+### F-059 — A commit to an existing tab name wipes that tab silently
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: high**
+· **Related:** F-033
+
+**Observed.** On sheet `1IstTfl2…` the editor ran the same "tighten the research
+notes" request twice, in two threads (`083425_01a0d7b3`, then `084611_01a0d7be`).
+Each thread ended with "save in (a) separate tab x":
+
+- `083744_01a0d7b6` step 7: wrote 14 rows to tab `x`, `gid=152621202`.
+- `085008_01a0d7c1` step 3: wrote 14 rows to tab `x`, **the same `gid=152621202`**.
+
+The second commit cleared the first run's tab and replaced it. The reply said
+"committed to tab `x`". It did not say that `x` already existed or that anything
+was replaced. In step 2 of that turn the agent had read lines 181–261 of
+`commit_context.py`, and those lines contain `target_ws.clear()`.
+
+**Instructed?** Partly. SKILL.md warns that "a second commit overwrites the
+first", but only for the case where the flag is left off. The agent passed the
+name the user gave, which is what that section tells it to do. No instruction
+says to check whether the named tab already exists.
+
+**Hypothesis.** The user may have wanted the replacement. They had re-run the
+request, so they may have wanted the newer result in `x`. "Separate" may also
+have meant "not the source tab" rather than "a new tab". Either way, the first
+run's output cannot be recovered, and the user did not choose that knowingly.
+
+**Would confirm.** Ask the editor. A structural fix would be for `commit_*.py`
+to refuse an existing tab unless `--replace` is passed. The agent would then
+put that choice to the user, as F-033's fix did for prepare.
+
+### F-060 — Literal `\n` escapes in sheet research notes cost editors 5–7 steps each
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority: medium**
+
+**Observed.** On 2026-09-25, two of the 17 editor spans ran about twice as long
+as their siblings, for the same reason:
+
+- `081844_01a0d7a5` subagent 4: 14 steps, against 6–9 for its siblings. In
+  steps 4–10 it ran four `python3 -c` probes that counted literal backslash-n in
+  its file, in the baseline and in every other topic. It also read `topic_02`
+  and `topic_05`, which were outside its brief. Its topic had 39 literal `\n`
+  plus escaped `\"`, and `topic_05` had 10.
+- `082720_01a0d7ad` subagent 1: 14 steps, against 4–7 for its siblings. Steps
+  4–9 were `repr()` probes of its lines and two reads of
+  `working-with-google-sheets/SKILL.md`. Line 8 of its research notes was one
+  physical line containing `\\n\\n###…`.
+
+Both editors removed the escapes as part of the rewrite. Subagent 4 says so in
+its report ("Removed literal `\n` characters"), so the output was correct.
+
+**Verified.** The escapes are already in `.baseline/`, so they come from the
+sheet, not from an edit.
+
+**Hypothesis.** Some upstream generator stores research notes JSON-escaped in
+some cells. `prepare_*` does not normalise them and no skill mentions them, so
+each editor rediscovers the problem. Not ruled out: the escapes are
+intentional. That is unlikely, since they show literally to anyone reading the
+sheet.
+
+**Would confirm.** Count the cells with literal `\n` across the course sheets.
+If it is common, unescape them in `prepare_*`, or add one line about them to
+editing-research-notes.
+
+### F-061 — "In exact words — don't rephrase anything" got a paraphrase
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Observed.** In `105955_01a0d838` the user asked two things: what overlap had
+been removed, and whether any overlap remained across the topics. They added
+"in exact words - dont rephrase anything". The agent did three things:
+- ran `diff … | head -n 40` on topic 1 only;
+- read topic 4's baseline;
+- ran `present.py` on topic 4 only.
+
+It then answered with summary bullets in its own words ("Callback definitions
+and customer cost framing; Sink deck mounting, rim gaps…"). It also said no
+overlap remained across all topics, without opening topics 2 and 3 that turn.
+
+**Instructed?** Two instructions conflict. SKILL.md says: "**Never write file
+content into your message.** … Run `present.py` instead." The user asked for
+verbatim text. Presenting topic 4 was the agent's attempt to meet both. Topics
+1–3 were neither presented nor quoted.
+
+**Hypothesis.** The no-quoting rule won over the user's explicit request, and
+the compromise was a paraphrase, which is the one output the user had ruled
+out. An alternative: `present.py` shows before and after for each file, so
+presenting all four files would have answered the request. The agent may not
+have realised that the removed text shows on the before side.
+
+**Would confirm.** Check whether `present.py` shows the removed text of a
+context block. If it does, the rule should say that an exact-words request is
+answered by presenting every file concerned.
+
+### F-040 — recurrence: the commit command re-derived when the skill already documents it
+**Sessions added:** 3
+
+The user asked to save to a separate tab `x` four times, and there was one
+further commit later in the day. In two turns the agent ran
+`commit_context.py --outline-target-tab "x"` straight away (`082338_01a0d7a9`,
+`083250_01a0d7b2`, one step each). In the other three commit turns it first
+worked out the invocation again:
+
+- `083744_01a0d7b6`: `--help`, `grep /skills`, two reads of the script source,
+  then `grep(path=/, pattern="separate x tab")`, which **timed out after 35s**.
+  That was steps 1–6, before the one command it needed.
+- `085008_01a0d7c1`: `--help` and one read of the source, steps 1–2.
+- `133011_01a0d8c2`: two reads of the source, steps 2–3.
+
+The command did not differ between the fast turns and the slow ones. This is
+the same shape as the original F-040: the answer was on screen, and the agent
+worked it out again anyway.
+
+### F-062 — Two new users' sessions ended at a confirmation question, with no edit made
+**Status:** open · **Confidence:** verified · **Sessions:** 2 · **Priority:
+high: two of the three new editors never saw an edit**
+
+**Observed, second case (earlier).** `ed_fe3a2c5ee8d7` had one thread on
+2026-09-23 (`01a0cecd`), which went like this:
+- Turn 1 was the bare sheet URL. The agent asked which of three slide-chunk
+  tabs to use.
+- Turn 2 was the URL again, plus "I want the hook to be better, check … repetition
+  … within topic and also course level". The agent ran `prepare_workspace.py
+  --help` and asked about the tab again.
+- Turn 3 was "yes". It failed on a Gemini 503 (F-063).
+- Turn 4 was "i want full . all topics". The agent prepared the workspace, spent
+  steps 2–7 on F-058, measured all four topics and replied "Shall I go ahead
+  with these edits?".
+
+The user never answered. It is the same ending as `ed_102a840654f4`'s session
+the next day, described below. In both cases a new editor gave a full brief,
+got a plan and a question back, and left without seeing a single edit.
+
+**Observed.** This was `ed_102a840654f4`'s first session, on 2026-09-24 (thread
+`01a0d397`). The agent spent turns 1–3 settling the source tab. It asked twice,
+both times correctly, since `Slide Chunks` and `Topic 1` were both candidates.
+In turn 4 the user gave a full brief for topic 1 ("good, catchy intro … simple
+language … graphic representable"). The agent measured the file, read it and
+replied "Shall I go ahead with these edits?". The user never answered, and the
+session ended there.
+
+**Instructed?** No. Neither `instructions.md` nor editing-slide-chunks asks for
+approval before an edit of this size. The only "confirm" rule is about which
+topics are in scope. The eval script needed a scripted "Yes, go ahead" turn,
+which suggests Gemini asks this out of habit. The same model went straight to
+editing in all five of the other editor's fresh threads on 2026-09-25, so it
+does not always ask.
+
+**Hypothesis.** Each user may have stopped for unrelated reasons. Still, the
+pattern now covers two of the three editors who are new to the tool. In
+2026-09-21 `01a0c445` the builder answered the same question with "Proceed",
+because they knew to expect it. Two things weigh on new users. First, the
+question comes at the end of a long turn and reads like a result. Second, the
+tab-disambiguation turns before it have already used up their patience.
+Another possibility: the question works when the brief is vague ("regular
+changes") and costs a turn when the brief is specific.
+
+**Would confirm.** Check whether the Streamlit page makes an unanswered
+question visible, and whether either editor came back in a new thread. It is
+also worth a product decision: a specific single-topic request could go straight
+to editing, since the baseline makes every edit reversible before commit.
+
+### F-063 — A Gemini 503 lost the user's turn, and nothing retried it
+**Status:** open · **Confidence:** verified · **Sessions:** 1 · **Priority: medium**
+
+**Observed.** In `20260923-150721_01a0cece` (turn 3, the user's "yes"), the
+first model call failed with `GoogleAPIError 503 UNAVAILABLE — This model is
+currently experiencing high demand`. The error propagated through every
+middleware wrapper, and the run ended as `error` after 36.5s with 0 tokens. No
+retry was attempted. The user's next message, 87s later, restated the request
+in different words ("i want full . all topics").
+
+**Why it matters.** It happened in F-062's session, and it cost a turn in a
+thread that already had too many. F-047 recorded a provider-side slowdown on
+the old deployment, but this is the first hard provider error to reach a user.
+
+**Hypothesis.** `ChatGoogleGenerativeAI` has no retry configured for 503 on
+this deployment, or the MDA runtime does not retry model errors. Not checked:
+what the Streamlit page showed the user at that point.
+
+**Would confirm.** Read the model construction in `agent.py` and
+`middleware/model_select.py` for `max_retries`. Then check how the page renders
+a run that ended in `error`.
+
+### Not findings — checked and clear (pass 8)
+
+- **F-057 did not recur.** Both new editors' first turns read
+  `/memories/agent/editors/<id>.md` at step 1, and both got "not found". Both
+  are first sessions, so that is correct.
+- **The multi-pass analysis thread held up well** (`122534_01a0d887`, turns
+  2–7). The user escalated the evidence standard across six analysis-only turns.
+  The agent retracted its own external-knowledge claims when asked (turn 2), and
+  it reconciled its earlier passes explicitly (turn 4). It modified no file until
+  the user switched to editing in turn 8.
+- **Research-notes delegation was tight.** In the four fresh "tighten the notes"
+  runs, 15 of 17 editor spans took 4–9 steps, and the two outliers are
+  explained by F-060. Topics were cut by 25–58% while the numbers were kept.
+- **The 19-step editor in `20260921-140304_01a0c447` (siblings 7–10) is mostly
+  file size.** Its topic file was 408 lines. It read the file in `limit=100`
+  pages three times: before the write, around one fix-up `edit_file`, and a
+  full re-read at the end. That is about 10 of its 19 steps. The pages were
+  chosen by the agent, not forced, so it is noted here rather than filed.
