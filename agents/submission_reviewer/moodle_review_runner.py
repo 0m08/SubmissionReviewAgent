@@ -287,7 +287,7 @@ def evaluate_and_update_worksheet(
             user_comment=combined_text,
             images=images,
             videos=videos,
-            primary_model_choice=primary_model or os.getenv("REVIEWER_PRIMARY_MODEL", "gemini-3.5-flash"),
+            primary_model_choice=primary_model,
         )
 
         # Normalize grade for Moodle "Fail   Pass" scale
@@ -611,7 +611,7 @@ def main():
         "--model",
         type=str,
         default=None,
-        help="LLM to use (defaults to gemini-3.5-flash or REVIEWER_PRIMARY_MODEL).",
+        help="LLM to use (defaults to reviewer.py configuration: gpt-5.6-luna or gemini for video).",
     )
     parser.add_argument(
         "--no-drive-sync",
