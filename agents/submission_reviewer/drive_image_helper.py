@@ -1,6 +1,9 @@
 import re
 import io
-import streamlit as st
+try:
+    import streamlit as st
+except ImportError:
+    st = None
 from typing import List, Tuple, Dict, Any, Optional
 from PIL import Image
 from googleapiclient.discovery import build
