@@ -5,27 +5,16 @@ from agents.submission_reviewer.schemas import (
 from agents.submission_reviewer.reviewer import review_single_submission
 from agents.submission_reviewer.image_identifier import identify_media
 
-try:
-    from agents.submission_reviewer.sheet_processor import (
-        process_activity_sheet,
-        parse_activity_instructions_tab,
-        parse_guardrails_tab,
-    )
-except ImportError:
-    pass
-
-try:
-    from agents.submission_reviewer.drive_image_helper import (
-        fetch_images_from_drive_links,
-        extract_all_drive_ids,
-    )
-except ImportError:
-    pass
-
-try:
-    from agents.submission_reviewer.submission_reviewer_ui import render_submission_reviewer_ui
-except ImportError:
-    pass
+from agents.submission_reviewer.sheet_processor import (
+    process_activity_sheet,
+    parse_activity_instructions_tab,
+    parse_guardrails_tab,
+)
+from agents.submission_reviewer.drive_image_helper import (
+    fetch_images_from_drive_links,
+    extract_all_drive_ids,
+)
+from agents.submission_reviewer.submission_reviewer_ui import render_submission_reviewer_ui
 
 __all__ = [
     "ChecklistResultItem",
