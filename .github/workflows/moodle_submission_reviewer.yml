@@ -1,0 +1,148 @@
+name: Moodle Submission Reviewer Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      assignment_url:
+        description: "Moodle Assignment URL (or numeric ID)"
+        required: false
+        default: "https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading"
+        type: string
+      activity_name:
+        description: "Name of the activity being evaluated"
+        required: false
+        default: "System Identification"
+        type: string
+      primary_model:
+        description: "Primary LLM for evaluation"
+        required: false
+        default: "gpt-5.6-luna"
+        type: choice
+        options:
+          - "gpt-5.6-luna"
+          - "gemini-3.5-flash"
+          - "gemini-2.5-pro"
+      upload_to_moodle:
+        description: "Upload graded worksheet back to Moodle"
+        required: false
+        default: true
+        type: boolean
+      instructions_doc:
+        description: "Google Doc ID/URL for Activity Instructions"
+        required: false
+        default: "1whICRKo83X7djnfZOwTe9QoRxGmfrsKV_KnBHv-1Na8"
+        type: string
+      guardrails_doc:
+        description: "Google Doc ID/URL for Guardrails"
+        required: false
+        default: "1_XTnq0HmCfLFNjJy_tUzj9a6-S5uEbaNGS0SupXDaeY"
+        type: string
+
+  # Scheduled automated run: Everyday at 2:00 AM UTC
+  schedule:
+    - cron: "0 2 * * *"
+
+concurrency:
+  group: moodle-reviewer-pipeline
+  cancel-in-progress: false
+
+jobs:
+  review_and_grade:
+    name: Ingest, Review & Upload Submissions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      # Moodle Credentials
+      MOODLE_USER: ${{ secrets.MOODLE_USER }}
+      MOODLE_PASS: ${{ secrets.MOODLE_PASS }}
+      MOODLE_ASSIGNMENT_URL: ${{ github.event.inputs.assignment_url || secrets.MOODLE_ASSIGNMENT_URL || 'https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading' }}
+
+      # Gmail IMAP Credentials for Adaptive MFA / OTP
+      GMAIL_USER: ${{ secrets.GMAIL_USER }}
+      GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+
+      # Google Drive User OAuth (om@skillcatapp.com)
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+      MOODLE_DRIVE_FOLDER_ID: ${{ secrets.MOODLE_DRIVE_FOLDER_ID || '1jR5JP3aTKt8u_X57Z31IS71ZGBX-zfeu' }}
+
+      # AI Models
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGCHAIN_TRACING_V2: "true"
+      LANGCHAIN_PROJECT: "moodle-submission-reviewer"
+
+      # Playwright & Execution Flags
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 📦 Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r agents/submission_reviewer/requirements-reviewer.txt
+
+      - name: 🎭 Install Playwright Chromium with system dependencies
+        run: |
+          playwright install chromium --with-deps
+
+      - name: 🚀 Run Submission Reviewer Pipeline
+        shell: bash
+        run: |
+          set -e
+
+          # Construct runner command
+          CMD="python -m agents.submission_reviewer.moodle_review_runner --ingest"
+
+          # Upload flag (defaults to true if not specified)
+          UPLOAD="${{ github.event.inputs.upload_to_moodle }}"
+          if [ -z "$UPLOAD" ] || [ "$UPLOAD" = "true" ]; then
+            CMD="$CMD --upload-moodle"
+          fi
+
+          # Activity Name
+          ACTIVITY="${{ github.event.inputs.activity_name }}"
+          if [ -n "$ACTIVITY" ]; then
+            CMD="$CMD --activity-name \"$ACTIVITY\""
+          fi
+
+          # Model choice
+          MODEL="${{ github.event.inputs.primary_model }}"
+          if [ -n "$MODEL" ]; then
+            CMD="$CMD --model \"$MODEL\""
+          fi
+
+          # Custom docs
+          INSTRUCTIONS="${{ github.event.inputs.instructions_doc }}"
+          if [ -n "$INSTRUCTIONS" ]; then
+            CMD="$CMD --instructions-doc \"$INSTRUCTIONS\""
+          fi
+
+          GUARDRAILS="${{ github.event.inputs.guardrails_doc }}"
+          if [ -n "$GUARDRAILS" ]; then
+            CMD="$CMD --guardrails-doc \"$GUARDRAILS\""
+          fi
+
+          echo "Executing: $CMD"
+          eval $CMD
+
+      - name: 💾 Archive Run Artifacts (Grading Worksheet & Downloads)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: moodle-review-artifacts-${{ github.run_id }}
+          path: |
+            downloads/moodle_submissions/
+            ./MyDrive/Moodle_Automated_Downloads/
+          retention-days: 7

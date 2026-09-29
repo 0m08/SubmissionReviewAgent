@@ -1,0 +1,20 @@
+{
+  "skills": ["editing-course-content", "working-with-google-sheets"],
+  "scenario": "multi_topic_batch_sweep_regression",
+  "source": "Live quality-test round 1 case 'batch_all' (research notes) and round 2 case 'batch_all' (slide chunks), both run against the real Course - Plumbing System Fundamentals sheet. Both independently reproduced the same failure shape — this is a confirmed regression case, not a hypothetical one.",
+  "query_research_notes": "Here's our course sheet: <SHEET_URL>. Please review all nine research notes in the Final Outline tab and tighten each one so it sticks strictly to what its learning objective (including the parenthetical scope note) actually requires. Cut any trailing sections on maintenance, installation, troubleshooting, or \"why it matters\" framing that goes past the objective; drop content that really belongs to a neighboring lesson; and remove field-training language (tech tips, callback/reputation framing) or jargon/specs the LO doesn't call for. Apply this consistently across all nine notes, not just the most obvious one.",
+  "query_slide_chunks": "Here's our course sheet: <SHEET_URL>. Please review the slide chunks for all three topics (Water Supply Basics, Drainage Basics, Air and Water Protection) and tighten the deck. Merge slides that split one idea across multiple thin slides; fix any slides where components or concepts are introduced out of physical/logical order; cut any slide whose content really belongs to a different lesson/topic; give every intro/transition slide a real hook; and replace catchy/metaphor slide titles with plain functional titles. Apply this consistently across all three topics, not just the most obvious one.",
+  "known_failure_agent_version_3_and_4": [
+    "Research notes: Service Entry and Main Controls (Water Supply Basics) was left at 3,621 of 3,622 original characters — essentially untouched — despite the agent's own turn-1 plan explicitly identifying what needed to be cut from it.",
+    "Research notes: the turn committed to the 'Final Outline (Revised)' sheet tab without being asked, violating the skill's own 'writing back: only when asked' rule.",
+    "Slide chunks: Drainage Basics (the topic needing the most dramatic cut per ground truth, 12→34 slides) ended at 11 of 12 original blocks — almost no reduction — while Water Supply Basics and Air and Water Protection each saw only modest, partial cuts.",
+    "Slide chunks: jargon/metaphor titles the request explicitly asked to replace ('Self-Scouring Velocity' and similar) survived unchanged in the under-edited topic."
+  ],
+  "expected_behavior": [
+    "Every named topic/row shows a measurable, non-trivial change toward what was requested — not just the first topic worked on.",
+    "For the research-notes version: Service Entry and Main Controls shows real cuts (character count materially below the ~3,622 original), matching the same quality achieved on this row in isolation (eval_research_notes_directive.json).",
+    "For the slide-chunks version: Drainage Basics shows a real slide-count reduction proportional to the other two topics, not left at or near its original count.",
+    "The agent does not report the turn as done while a named target row/topic is objectively still unedited or barely edited — per the skill's step-3 re-read-and-confirm rule for multi-block turns, it either fixes the gap before reporting, or explicitly tells the user which item didn't land and why.",
+    "No write-back to the sheet happens unless a separate, explicit follow-up turn asks for it."
+  ]
+}

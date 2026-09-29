@@ -1,0 +1,58 @@
+import os
+from googleapiclient.discovery import build
+from utils.decorator_helpers import cycle_api_keys_decorator
+
+
+gcloud_yt_search_api_keys = [
+    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_1"),
+    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_2"),
+    os.environ.get("GCLOUD_YT_SEARCH_API_KEY_3")
+]
+
+@cycle_api_keys_decorator(gcloud_yt_search_api_keys)
+def search_youtube_videos(query, max_results=5, developer_key=None):
+    """
+    Searches YouTube for video links based on a query from two specific channels.
+    :param query: Search query string.
+    :param max_results: Maximum number of results to return.
+    :param developer_key: YouTube Data API developer key.
+    :return: List of video details dictionaries.
+    """
+    # Hardcoded channel IDs
+    channel_ids = [
+        "UCdLlUhD9LUGm0-NTYDASPFA",
+        "UCIoD-SEdUWMA74tWXRMyCZQ"
+    ]
+
+    youtube = build('youtube', 'v3', developerKey=developer_key)
+    video_details = []
+
+    for channel_id in channel_ids:
+        # Prepare search parameters
+        search_params = {
+            'q': query,
+            'part': 'snippet',
+            'type': 'video',
+            'maxResults': max_results,
+            'channelId': channel_id
+        }
+
+        # Perform the search
+        search_response = youtube.search().list(**search_params).execute()
+
+        # Extract video details from the response
+        for item in search_response.get('items', []):
+            video_id = item['id']['videoId']
+            snippet = item['snippet']
+            video_detail = {
+                'search_query': query,
+                'video_id': video_id,
+                'video_url': f"https://www.youtube.com/watch?v={video_id}",
+                'title': snippet.get('title'),
+                'description': snippet.get('description'),
+                'channel_title': snippet.get('channelTitle'),
+                'published_at': snippet.get('publishedAt')
+            }
+            video_details.append(video_detail)
+
+    return video_details

@@ -1,0 +1,752 @@
+# Player Styles Configuration & Schema
+
+primitives:
+  slide_title:
+    name: "Slide Title Box"
+    sample_text: "Overview of the Refrigeration Cycle"
+    sample_label: "Sample Slide Title:"
+    sections:
+      typography:
+        title: "Typography"
+        properties:
+          slide_title_font:
+            label: "Font Family"
+            type: "select"
+            options: ["Fira Sans", "Public Sans", "Open Sans", "Inter", "Roboto", "Montserrat", "Arial"]
+            default: "Fira Sans"
+            help: "The typeface used for the slide title text at the top of the video."
+          slide_title_font_weight:
+            label: "Font Weight"
+            type: "select"
+            col: 2
+            options: ["Regular", "Medium", "Semibold", "Bold", "ExtraBold"]
+            default: "Bold"
+            help: "How thick or bold the slide title text appears."
+          slide_title_font_size:
+            label: "Font Size"
+            type: "select"
+            col: 2
+            options: ["14", "16", "18", "20", "22", "24", "26", "28", "32"]
+            default: "20"
+            help: "The size of the slide title letters on the video in pixels."
+          slide_title_text_color:
+            label: "Text Color"
+            type: "color"
+            default: "#f35a1f"
+            help: "The color of the slide title text."
+      box_surface:
+        title: "Box Surface & Layout"
+        properties:
+          slide_title_bg:
+            label: "Background Fill"
+            type: "color"
+            default: "rgba(255, 255, 255, 0.8)"
+            help: "The background color or translucent frosted glass behind the title text."
+            placeholder: "e.g. rgba(255, 255, 255, 0.8) or linear-gradient(...)"
+          slide_title_height:
+            label: "Box Height"
+            type: "select"
+            col: 2
+            options: ["auto", "28", "32", "36", "40", "44"]
+            default: "32"
+            help: "The vertical height of the title box container."
+          slide_title_blur:
+            label: "Backdrop Blur"
+            type: "select"
+            col: 2
+            options: ["0", "2", "4", "8", "12", "16"]
+            default: "4"
+            help: "Frosted glass blur effect applied to the video content beneath this box."
+          slide_title_radius:
+            label: "Corner Radius"
+            type: "text"
+            col: 2
+            default: "0"
+            help: "How rounded or sharp the corners of the title box appear."
+            placeholder: "e.g. 0, 4, 8, or 0 4px 20px 0"
+          slide_title_padding:
+            label: "Padding"
+            type: "text"
+            col: 2
+            default: "0 12px 0 10px"
+            help: "The inner spacing around the title text inside the box."
+            placeholder: "e.g. 0 12px 0 10px or 7px 35px 7px 10px"
+      accent:
+        title: "Accent & Chip"
+        properties:
+          slide_title_accent:
+            label: "Accent Chip Color"
+            type: "color"
+            default: "#ff5a17"
+            help: "Color of the vertical decorative accent chip block on the left."
+          slide_title_chip_width:
+            label: "Chip Width"
+            type: "select"
+            col: 2
+            options: ["0", "16", "28", "42", "54"]
+            default: "42"
+            help: "Width of the decorative colored accent chip (0 hides the chip)."
+          slide_title_shadow:
+            label: "Drop Shadow"
+            type: "text"
+            col: 2
+            default: "0 1px 1px rgba(0, 0, 0, 0.05)"
+            help: "Elevation shadow cast behind the slide title badge."
+            placeholder: "e.g. 0 1px 1px rgba(0,0,0,0.05) or none"
+
+  caption:
+    name: "Subtitles / Captions"
+    sample_text: "The refrigerant enters the compressor as a low-pressure vapor."
+    sample_label: "Sample Subtitle:"
+    sections:
+      typography:
+        title: "Typography"
+        properties:
+          caption_font:
+            label: "Font Family"
+            type: "select"
+            options: ["Open Sans", "Fira Sans", "Public Sans", "Inter", "Roboto", "Montserrat", "Arial"]
+            default: "Open Sans"
+            help: "The typeface used for subtitles displayed at the bottom of the video."
+          caption_font_weight:
+            label: "Font Weight"
+            type: "select"
+            col: 2
+            options: ["Regular", "Medium", "Semibold", "Bold"]
+            default: "Regular"
+            help: "The thickness or heaviness of the subtitle letters."
+          caption_font_size:
+            label: "Font Size"
+            type: "select"
+            col: 2
+            options: ["12", "13", "14", "15", "16", "18"]
+            default: "13"
+            help: "The size of the subtitle letters in pixels."
+          caption_text_color:
+            label: "Text Color"
+            type: "color"
+            default: "#FFFFFF"
+            help: "The color of the subtitle text."
+          caption_line_height:
+            label: "Line Height"
+            type: "select"
+            col: 2
+            options: ["1.2", "1.35", "1.5", "1.65"]
+            default: "1.5"
+            help: "Vertical line spacing multiplier for multi-line subtitles."
+          caption_text_shadow:
+            label: "Text Shadow"
+            type: "text"
+            col: 2
+            default: "-1px 0 #000, 0 1px #000, 1px 0 #000, 0 -1px #000"
+            help: "High-contrast outline or shadow around subtitle text for readability."
+            placeholder: "e.g. -1px 0 #000, 0 1px #000 or none"
+      box_surface:
+        title: "Box Surface & Position"
+        properties:
+          caption_bg:
+            label: "Background Fill"
+            type: "color"
+            default: "#31373a"
+            help: "The translucent dark background backing the subtitles."
+            placeholder: "e.g. #31373a or rgba(0,0,0,0.7)"
+          caption_radius:
+            label: "Corner Radius"
+            type: "select"
+            col: 2
+            options: ["0", "4", "8", "12", "99"]
+            default: "4"
+            help: "Rounding applied to the corners of the subtitle pill in pixels."
+          caption_padding:
+            label: "Padding"
+            type: "text"
+            col: 2
+            default: "10px"
+            help: "Inner padding surrounding the subtitle text."
+            placeholder: "e.g. 10px or 8px 16px"
+          caption_max_width:
+            label: "Max Width"
+            type: "select"
+            options: ["50%", "60%", "70%", "80%", "90%"]
+            default: "60%"
+            help: "Maximum width percentage of the video canvas subtitles may occupy before wrapping."
+
+  topic_card:
+    name: "Topic Name Card"
+    sample_text: "Refrigeration Cycle Fundamentals"
+    sample_label: "Sample Topic Name:"
+    sections:
+      typography:
+        title: "Typography"
+        properties:
+          topic_card_font:
+            label: "Font Family"
+            type: "select"
+            options: ["Public Sans", "Fira Sans", "Open Sans", "Inter", "Montserrat", "Roboto"]
+            default: "Public Sans"
+            help: "The typeface used for large topic announcement titles."
+          topic_card_font_weight:
+            label: "Font Weight"
+            type: "select"
+            col: 2
+            options: ["Semibold", "Bold", "ExtraBold", "Black"]
+            default: "ExtraBold"
+            help: "Thickness of the topic title lettering."
+          topic_card_font_size:
+            label: "Font Size"
+            type: "select"
+            col: 2
+            options: ["32", "36", "40", "44", "48", "54", "60"]
+            default: "44"
+            help: "The size of the topic title text in pixels."
+          topic_card_text_color:
+            label: "Text Color"
+            type: "color"
+            default: "#FFFFFF"
+            help: "The color of the topic title text."
+          topic_card_text_align:
+            label: "Text Alignment"
+            type: "select"
+            col: 2
+            options: ["center", "left", "right"]
+            default: "center"
+            help: "Horizontal alignment of the topic title inside its card."
+          topic_card_text_transform:
+            label: "Text Transform"
+            type: "select"
+            col: 2
+            options: ["none", "uppercase", "capitalize"]
+            default: "none"
+            help: "Letter casing for the title text (e.g. UPPERCASE or standard)."
+          topic_card_line_height:
+            label: "Line Height"
+            type: "select"
+            options: ["1.05", "1.15", "1.25", "1.4"]
+            default: "1.15"
+            help: "Vertical line height multiplier for multi-line topic titles."
+      card_surface:
+        title: "Card Surface & Border"
+        properties:
+          topic_card_bg:
+            label: "Background Fill"
+            type: "color"
+            default: "#000066"
+            help: "Background color or gradient fill of the topic announcement card."
+            placeholder: "e.g. #000066 or linear-gradient(...)"
+          topic_card_radius:
+            label: "Corner Radius"
+            type: "select"
+            col: 2
+            options: ["12", "18", "22", "32", "48"]
+            default: "22"
+            help: "Curvature of the card corners in pixels."
+          topic_card_padding:
+            label: "Padding"
+            type: "text"
+            col: 2
+            default: "24px 32px"
+            help: "Inner spacing around the topic title text."
+            placeholder: "e.g. 24px 32px or 36px 48px"
+          topic_card_max_width:
+            label: "Max Width"
+            type: "select"
+            col: 2
+            options: ["420px", "480px", "520px", "640px", "720px"]
+            default: "520px"
+            help: "Maximum width constraint for the centered announcement card."
+          topic_card_shadow:
+            label: "Drop Shadow"
+            type: "text"
+            col: 2
+            default: "0 10px 30px rgba(0, 0, 0, 0.4)"
+            help: "Elevation shadow cast behind the topic card."
+            placeholder: "e.g. 0 10px 30px rgba(0,0,0,0.4) or none"
+
+  hero_label:
+    name: "Hero Text Label"
+    sample_text: "Condenser Coil"
+    sample_label: "Sample Label Text:"
+    sections:
+      typography:
+        title: "Typography"
+        properties:
+          hero_label_font:
+            label: "Font Family"
+            type: "select"
+            options: ["Public Sans", "Fira Sans", "Open Sans", "Inter", "Montserrat", "Roboto"]
+            default: "Public Sans"
+            help: "Typeface used for the hero label badge text."
+          hero_label_font_weight:
+            label: "Font Weight"
+            type: "select"
+            col: 2
+            options: ["Semibold", "Bold", "ExtraBold", "Black"]
+            default: "Bold"
+            help: "Thickness of the hero label text."
+          hero_label_font_size:
+            label: "Font Size"
+            type: "select"
+            col: 2
+            options: ["20", "24", "26", "30", "34", "40"]
+            default: "26"
+            help: "Size of the hero label text in pixels."
+          hero_label_text_color:
+            label: "Text Color"
+            type: "color"
+            default: "#FFFFFF"
+            help: "Color of the hero label text."
+          hero_label_text_align:
+            label: "Text Alignment"
+            type: "select"
+            col: 2
+            options: ["center", "left", "right"]
+            default: "center"
+            help: "Text alignment inside the hero badge."
+          hero_label_line_height:
+            label: "Line Height"
+            type: "select"
+            col: 2
+            options: ["1.15", "1.25", "1.35"]
+            default: "1.25"
+            help: "Line spacing multiplier for hero label badges."
+      badge_surface:
+        title: "Badge Surface"
+        properties:
+          hero_label_bg:
+            label: "Background Color"
+            type: "color"
+            default: "#f05725"
+            help: "Background color of the hero label badge."
+          hero_label_radius:
+            label: "Corner Radius"
+            type: "select"
+            col: 2
+            options: ["8", "16", "24", "32", "99"]
+            default: "24"
+            help: "Curvature of the hero badge corners in pixels."
+          hero_label_padding:
+            label: "Padding"
+            type: "select"
+            col: 2
+            options: ["12px 24px", "18px 36px", "24px 48px"]
+            default: "18px 36px"
+            help: "Inner padding surrounding the label text."
+          hero_label_shadow:
+            label: "Drop Shadow"
+            type: "text"
+            default: "0 8px 24px rgba(0, 0, 0, 0.28)"
+            help: "Shadow cast behind the hero badge for visual separation."
+            placeholder: "e.g. 0 8px 24px rgba(0,0,0,0.28) or none"
+
+  panel_label:
+    name: "Panel Label Badge"
+    sample_text: "Step 1: Intake"
+    sample_label: "Sample Badge Text:"
+    sections:
+      typography:
+        title: "Typography"
+        properties:
+          panel_label_font:
+            label: "Font Family"
+            type: "select"
+            options: ["Public Sans", "Fira Sans", "Open Sans", "Inter", "Roboto", "Montserrat"]
+            default: "Public Sans"
+            help: "Typeface used for badges positioned inside multi-panel grid slots."
+          panel_label_font_weight:
+            label: "Font Weight"
+            type: "select"
+            col: 2
+            options: ["Medium", "Semibold", "Bold", "ExtraBold"]
+            default: "Bold"
+            help: "Font weight of the panel badge letters."
+          panel_label_font_size:
+            label: "Font Size"
+            type: "select"
+            col: 2
+            options: ["14", "16", "18", "20", "22"]
+            default: "18"
+            help: "Font size in pixels for the panel badge text."
+          panel_label_text_color:
+            label: "Text Color"
+            type: "color"
+            default: "#FFFFFF"
+            help: "Color of the panel badge text."
+          panel_label_text_transform:
+            label: "Text Transform"
+            type: "select"
+            col: 2
+            options: ["none", "uppercase", "capitalize"]
+            default: "none"
+            help: "Text casing (e.g. UPPERCASE or normal)."
+          panel_label_letter_spacing:
+            label: "Letter Spacing"
+            type: "select"
+            col: 2
+            options: ["0", "0.5px", "1px", "1.5px"]
+            default: "0"
+            help: "Horizontal spacing between letters."
+      badge_surface:
+        title: "Badge Surface & Position"
+        properties:
+          panel_label_bg:
+            label: "Background Color"
+            type: "color"
+            default: "#f05725"
+            help: "Background color of the panel badge."
+          panel_label_radius:
+            label: "Corner Radius"
+            type: "select"
+            col: 2
+            options: ["6", "10", "14", "20", "99"]
+            default: "10"
+            help: "Curvature of the badge corners in pixels."
+          panel_label_padding:
+            label: "Padding"
+            type: "select"
+            col: 2
+            options: ["6px 14px", "10px 22px", "14px 28px"]
+            default: "10px 22px"
+            help: "Inner padding around badge text."
+          panel_label_bottom:
+            label: "Bottom Distance"
+            type: "select"
+            col: 2
+            options: ["10", "15", "20", "28"]
+            default: "15"
+            help: "Distance from the bottom edge of the panel frame in pixels."
+          panel_label_shadow:
+            label: "Drop Shadow"
+            type: "text"
+            col: 2
+            default: "0 4px 12px rgba(0, 0, 0, 0.3)"
+            help: "Shadow cast behind badge for contrast against images."
+            placeholder: "e.g. 0 4px 12px rgba(0,0,0,0.3) or none"
+
+  callout_card:
+    name: "Callout Card"
+    sample_text: "Compressor Function"
+    sample_label: "Sample Header:"
+    sections:
+      header_typography:
+        title: "Header Typography"
+        properties:
+          callout_card_header_font:
+            label: "Header Font Family"
+            type: "select"
+            options: ["Fira Sans", "Public Sans", "Open Sans", "Inter", "Roboto", "Montserrat"]
+            default: "Fira Sans"
+            help: "The typeface used for the callout card headline."
+          callout_card_header_font_weight:
+            label: "Header Font Weight"
+            type: "select"
+            col: 2
+            options: ["Semibold", "Bold", "ExtraBold", "Black"]
+            default: "Bold"
+            help: "Thickness of the callout header letters."
+          callout_card_header_font_size:
+            label: "Header Font Size"
+            type: "select"
+            col: 2
+            options: ["24", "28", "32", "36"]
+            default: "32"
+            help: "Font size for the callout card header in pixels."
+          callout_card_header_text_color:
+            label: "Header Color"
+            type: "color"
+            default: "#FF5C26"
+            help: "Color of the callout card header text."
+          callout_card_header_text_transform:
+            label: "Header Text Transform"
+            type: "select"
+            options: ["none", "uppercase", "capitalize"]
+            default: "uppercase"
+            help: "Casing for the header text."
+      body_typography:
+        title: "Body Typography"
+        properties:
+          callout_card_body_font:
+            label: "Body Font Family"
+            type: "select"
+            options: ["Fira Sans", "Public Sans", "Open Sans", "Inter", "Roboto"]
+            default: "Fira Sans"
+            help: "Typeface used for the callout explanatory description."
+          callout_card_body_font_weight:
+            label: "Body Font Weight"
+            type: "select"
+            col: 2
+            options: ["Regular", "Medium", "Semibold", "Bold"]
+            default: "Semibold"
+            help: "Thickness of the callout body text."
+          callout_card_body_font_size:
+            label: "Body Font Size"
+            type: "select"
+            col: 2
+            options: ["18", "20", "22", "26", "32", "36"]
+            default: "36"
+            help: "Font size for the body text in pixels."
+          callout_card_body_text_color:
+            label: "Body Color"
+            type: "color"
+            default: "#FFFFFF"
+            help: "Color of the explanatory body text."
+      card_surface:
+        title: "Card Surface & Accents"
+        properties:
+          callout_card_bg:
+            label: "Background Fill"
+            type: "color"
+            default: "linear-gradient(90deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.12) 100%)"
+            help: "Background translucency or gradient fill of the callout card container."
+            placeholder: "linear-gradient(...)"
+          callout_card_border_width:
+            label: "Border Width"
+            type: "select"
+            col: 2
+            options: ["0", "2", "4", "6"]
+            default: "4"
+            help: "Thickness of the glowing accent border around the card in pixels."
+          callout_card_radius:
+            label: "Corner Radius"
+            type: "select"
+            col: 2
+            options: ["16", "22", "30", "40"]
+            default: "30"
+            help: "Curvature of the card corners in pixels."
+          callout_card_border_gradient:
+            label: "Border Gradient"
+            type: "text"
+            default: "linear-gradient(135deg, #FF5C26 0%, #FF5C26 28%, rgba(255,92,38,0.55) 70%, rgba(255,92,38,0.4) 100%)"
+            help: "Gradient stroke applied to the card border."
+            placeholder: "linear-gradient(...)"
+          callout_card_padding:
+            label: "Padding"
+            type: "text"
+            default: "18px 22px 28px"
+            help: "Inner padding inside the callout card."
+            placeholder: "e.g. 18px 22px 28px"
+          callout_card_divider_thickness:
+            label: "Divider Line"
+            type: "select"
+            col: 2
+            options: ["0", "1", "2", "3"]
+            default: "2"
+            help: "Thickness of the accent divider line separating header from body in pixels."
+          callout_card_shadow:
+            label: "Drop Shadow"
+            type: "text"
+            col: 2
+            default: "0 8px 24px rgba(0, 0, 0, 0.35)"
+            help: "Elevation shadow behind the callout card."
+            placeholder: "e.g. 0 8px 24px rgba(0,0,0,0.35) or none"
+
+  bbox:
+    name: "Bounding Box Highlight"
+    sample_text: "Main Suction Valve"
+    sample_label: "Sample Target Label:"
+    sections:
+      general:
+        title: "Highlight Style Type"
+        properties:
+          bbox_treatment:
+            label: "Style"
+            type: "select"
+            options:
+              - value: "bbox_spotlight"
+                label: "Spotlight Veil Cutout"
+              - value: "bbox_draw"
+                label: "Drawn Bounding Box"
+            default: "bbox_spotlight"
+            help: "Choose between a darkened spotlight cutout or a hand-drawn bounding box stroke."
+      spotlight:
+        title: "Spotlight Cutout Controls"
+        when:
+          bbox_treatment: "bbox_spotlight"
+        properties:
+          bbox_spotlight_border_color:
+            label: "Border Color"
+            type: "color"
+            default: "#F9E400"
+            help: "Color of the border stroke around the highlighted zone."
+          bbox_spotlight_border_width:
+            label: "Border Width"
+            type: "select"
+            col: 2
+            options: ["2", "3", "4", "6"]
+            default: "3"
+            help: "Thickness of the glowing border stroke around the highlighted area."
+          bbox_spotlight_corner_radius:
+            label: "Corner Radius"
+            type: "select"
+            col: 2
+            options: ["16", "22", "28", "36"]
+            default: "28"
+            help: "Rounded corner radius of the highlight cutout zone."
+          bbox_spotlight_border_dash:
+            label: "Border Dash"
+            type: "select"
+            col: 2
+            options: ["18 10", "10 6", "none"]
+            default: "18 10"
+            help: "Dashed line pattern for the moving spotlight border."
+          bbox_spotlight_veil_opacity:
+            label: "Veil Darkness"
+            type: "select"
+            col: 2
+            options: ["0.5", "0.65", "0.75", "0.85"]
+            default: "0.75"
+            help: "Opacity of the dark overlay outside the highlight zone (0.5 = soft, 0.85 = dramatic)."
+      draw:
+        title: "Drawn Stroke Controls"
+        when:
+          bbox_treatment: "bbox_draw"
+        properties:
+          bbox_draw_stroke_color:
+            label: "Stroke Color"
+            type: "color"
+            default: "#f05523"
+            help: "Color of the hand-drawn bounding box stroke."
+          bbox_draw_stroke_width:
+            label: "Stroke Width"
+            type: "select"
+            options: ["3", "4.5", "6", "8"]
+            default: "4.5"
+            help: "Thickness of the hand-drawn border line in pixels."
+
+animations:
+  layout_anims_hero:
+    name: "Hero Stills Layout"
+    help: "Animations used for single-image full-screen slides."
+    options:
+      - value: "zoom_in"
+        label: "Zoom In"
+      - value: "still"
+        label: "Static Still"
+      - value: "center_split"
+        label: "Center Split"
+    default: "zoom_in, still, center_split"
+
+  layout_anims_split:
+    name: "Two Item Split Layout"
+    help: "Animations used for side-by-side split screen slides."
+    options:
+      - value: "hold_and_reveal"
+        label: "Hold & Reveal"
+      - value: "scale_emphasis"
+        label: "Scale Emphasis"
+      - value: "slide_in"
+        label: "Slide In"
+      - value: "wipe_reveal"
+        label: "Wipe Reveal"
+      - value: "slide_up"
+        label: "Slide Up"
+      - value: "center_then_split"
+        label: "Center then Split"
+    default: "hold_and_reveal, scale_emphasis, slide_in, wipe_reveal, slide_up, center_then_split"
+
+  layout_anims_inset:
+    name: "Inset Layout"
+    help: "Animations used for main + supporting inset panel slides (left main, right inset)."
+    options:
+      - value: "keep_main_reveal"
+        label: "Fade Main then Inset"
+      - value: "inset_slide"
+        label: "Inset Slide"
+    default: "keep_main_reveal, inset_slide"
+
+  layout_anims_multi_panel_3:
+    name: "Three Panel Grid Layout"
+    help: "Animations used for 3 grid panel slides."
+    options:
+      - value: "scale_emphasis"
+        label: "Scale Emphasis"
+      - value: "reveal"
+        label: "Reveal"
+      - value: "slide_in"
+        label: "Slide In"
+    default: "scale_emphasis, reveal, slide_in"
+
+  layout_anims_multi_panel_4:
+    name: "Four Panel Grid Layout"
+    help: "Animations used for 4 grid panel slides."
+    options:
+      - value: "scale_emphasis"
+        label: "Scale Emphasis"
+      - value: "reveal"
+        label: "Reveal"
+      - value: "slide_in"
+        label: "Slide In"
+    default: "scale_emphasis, reveal, slide_in"
+
+  layout_anims_topic:
+    name: "Topic Name Card Entrance"
+    help: "Entrance animations for the topic name card over the hero visual."
+    options:
+      - value: "fade_in_right"
+        label: "Slide From Right"
+      - value: "fade_in_top_right"
+        label: "Slide From Top Right"
+      - value: "fade_in_bottom_right"
+        label: "Slide From Bottom Right"
+      - value: "fade_in_only"
+        label: "Fade In Only"
+    default: "fade_in_right, fade_in_top_right, fade_in_bottom_right, fade_in_only"
+
+  label_anims_split:
+    name: "Label Badge (Two Item Split Layout)"
+    help: "Entrance animations for the text labels on split screen slides."
+    options:
+      - value: "label_slide"
+        label: "Label Slide"
+      - value: "label_fade"
+        label: "Label Fade"
+    default: "label_slide, label_fade"
+
+  label_anims_inset:
+    name: "Label Badge (Inset Layout)"
+    help: "Entrance animations for the text labels on inset slides."
+    options:
+      - value: "label_slide"
+        label: "Label Slide"
+      - value: "label_fade"
+        label: "Label Fade"
+    default: "label_slide, label_fade"
+
+  label_anims_multi_panel_3:
+    name: "Label Badge (3-Panel Layout)"
+    help: "Entrance animations for text labels on 3-panel slides."
+    options:
+      - value: "label_slide_up"
+        label: "Label Slide Up"
+      - value: "label_fade"
+        label: "Label Fade"
+    default: "label_slide_up, label_fade"
+
+  label_anims_multi_panel_4:
+    name: "Label Badge (4-Panel Layout)"
+    help: "Entrance animations for text labels on 4-panel slides."
+    options:
+      - value: "label_corner_slide"
+        label: "Label Corner Slide"
+      - value: "label_fade"
+        label: "Label Fade"
+    default: "label_corner_slide, label_fade"
+
+  callout_anims:
+    name: "Callout Card Entrance"
+    help: "Entrance animations for callout explanation cards."
+    options:
+      - value: "callout_slide"
+        label: "Callout Slide"
+      - value: "callout_fade"
+        label: "Callout Fade"
+    default: "callout_slide, callout_fade"
+
+  bbox_anims:
+    name: "Bounding Box Style Pool"
+    help: "Highlight treatment animations cycled for bounding boxes."
+    options:
+      - value: "bbox_draw"
+        label: "Drawn Stroke"
+      - value: "bbox_spotlight"
+        label: "Spotlight Veil Cutout"
+    default: "bbox_draw, bbox_spotlight"

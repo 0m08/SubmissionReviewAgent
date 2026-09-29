@@ -1,0 +1,85 @@
+window.HFApi = (function () {
+  async function request(path, options) {
+    const res = await fetch(path, {
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", ...(options && options.headers) },
+      ...options,
+    });
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (_) {}
+    if (!res.ok) {
+      const detail = data && (data.detail || data.message);
+      throw new Error(typeof detail === "string" ? detail : text || res.statusText);
+    }
+    return data;
+  }
+
+  return {
+    loadSlides() {
+      return request("/api/slides");
+    },
+    approve(payload) {
+      return request("/api/visuals/approve", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    selectPool(payload) {
+      return request("/api/visuals/select-pool", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    revise(payload) {
+      return request("/api/visuals/revise", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    replace(payload) {
+      return request("/api/visuals/replace", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    reviseSegmentation(payload) {
+      return request("/api/slides/revise-segmentation", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    reviseLayout(payload) {
+      return request("/api/slides/revise-layout", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    saveScenePlayerOverrides(payload) {
+      return request("/api/scenes/player-overrides", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    revert(payload) {
+      return request("/api/visuals/revert", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    getJob(jobId) {
+      return request("/api/jobs/" + encodeURIComponent(jobId));
+    },
+    listJobs() {
+      return request("/api/jobs");
+    },
+    getManifestSync() {
+      return request("/api/manifest-sync");
+    },
+    ttsUrl(voiceover) {
+      return "/api/tts?voiceover=" + encodeURIComponent(voiceover || "");
+    },
+  };
+})();

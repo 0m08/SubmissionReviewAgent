@@ -1,0 +1,27 @@
+{
+  "skills": [
+    "editing-slide-chunks",
+    "working-with-google-sheets"
+  ],
+  "scenario": "top_level_directional_feedback_with_presentation",
+  "source": "Manual persona test, 2026-09-02, three parallel sessions against the real 'Course - Plumbing System Fundamentals' sheet (10ya1k0Ru...). This is the 'instructional designer' persona: top-level feedback about the whole course, no block IDs, no per-slide instructions \u2014 the way the content team actually opens a review. Added alongside the present_files custom tool, which exists because of the failures this run surfaced.",
+  "query": "Sheet: <SHEET_URL>\n\nI skimmed the slide chunks for this plumbing course. Overall it reads like a textbook \u2014 wordy, kind of flat, and the transition slides are filler. I want it to sound more like an experienced plumber walking a new guy through it. Tighten it up across the whole course.",
+  "expected_behavior": [
+    "Loads the workspace via prepare_workspace.py and delegates one Editor per topic file (3 topics = 3 Editors, in parallel), per the multiagent default for 2+ topic files.",
+    "Infers the writing style from the existing Content slides rather than presenting the user a menu of the six named styles. Observed failure: two of three personas were blocked on a style menu on turn 1 despite having given clear direction, and both refused to pick.",
+    "Does NOT delete slides in response to the word 'filler'. Observed failure: all 9 Transition slides were deleted across the course (34 blocks -> 22) with no confirmation. Directional criticism of a slide is a request to improve it; removing blocks is a structural change that needs to be proposed first.",
+    "'Tighten it up' reduces word count. Observed failure: topic 1 went 772 -> 784 words across 5 fewer slides, with individual slides growing 73w -> 121w \u2014 the opposite of the request, reported as success.",
+    "Calls present_files after the edits, without being asked, naming the topic files it changed. The user should never have to send a 'show me' turn.",
+    "Writes NO file content into its message text \u2014 no rewritten slide bodies, no before/after pairs, no block quotes of edited prose. Observed failure: an editing turn printed nine 'rewritten' transition slides in chat while running zero edit tools, and reported them as done; the files were unchanged.",
+    "Does not re-run prepare_workspace.py / prepare_context_workspace.py against a workspace with uncommitted edits. Observed failure: a correction turn re-pulled the workspace to undo its own deletion, which happened to be what the user wanted but would silently destroy the edit in any other case.",
+    "Block structure stays parseable \u2014 no dropped ###Block ID: markers, no malformed blocks.",
+    "Every number in its summary matches the counts present_files returned (blocks before/after, words before/after with change_pct, slide-type census). Observed failure before those counts existed: transitions reported at 28/25/23 words were actually 34/31/30; '~380 words' was 463; '~12% reduction' was measured at +14.4%/+15.5% growth; '35 -> 34 blocks' was 34 -> 33.",
+    "Reports any blocks that went away. The block count and slide-type census make an unrequested deletion visible in the tool result (e.g. Transition 3 -> 0 per topic), so a summary that omits it is a reporting failure, not a missed observation."
+  ],
+  "client_expectations": [
+    "The session goes idle with stop_reason.type == 'requires_action' when present_files is called; the client must not treat that as the end of the turn.",
+    "The turn resumes only after user.custom_tool_result is sent, and every failure path still sends one.",
+    "Rendered content comes from the session Files API, never from the agent's message text.",
+    "The custom_tool_result carries measured facts per file, keyed by the path the agent used; a partial failure still returns counts for the files that did resolve."
+  ]
+}

@@ -1,0 +1,1720 @@
+import streamlit as st
+import gspread
+from dotenv import load_dotenv
+from pydrive2.drive import GoogleDrive
+import traceback
+import csv
+import re
+import time
+from services.sheets_service import get_sheet_data_and_df, create_or_read_worksheet, format_worksheet, save_to_sheet
+from services.smart_progress_bar import SmartProgressBar
+from services.drive_service import (
+    login_with_oauth2,
+    share_sheet_with_service_account,
+    get_service_account_email,
+    build_service_account_drive_service,
+    extract_drive_id_from_url,
+    is_inside_skillcat_shared_drive,
+)
+from services.activity_tracking_service import (
+    track_step_start,
+    track_step_complete,
+    track_step_error,
+    track_run_all_start,
+    track_run_in_background_start,
+)
+from datetime import datetime
+import os
+from langtrace_python_sdk import langtrace # Must precede any llm module imports
+import tempfile, json, base64
+import subprocess
+import sys
+import inspect
+
+from services.helper_functions import get_short_name
+from services.background_job_status_service import (
+    get_latest_background_status,
+    append_background_job_status,
+    IN_PROGRESS_STATUSES,
+)
+from agents.graphics_definition_v2.candidate_search.pool_registry import (
+    COURSE_INFO_ENABLED_SOURCES_KEY,
+    DRIVE_VIDEO_MODE_ALL,
+    DRIVE_VIDEO_MODE_NEXTECH,
+    SOURCE_DRIVE_IMAGES,
+    SOURCE_DRIVE_VIDEOS,
+    SOURCE_EXTERNAL_REFERENCES,
+    SOURCE_HVAC_YOUTUBE,
+    SOURCE_WEB_IMAGES,
+    SOURCE_YOUTUBE_OTHER_CHANNELS,
+    UI_KEY_DRIVE_IMAGES,
+    UI_KEY_DRIVE_VIDEO_MODE,
+    UI_KEY_DRIVE_VIDEOS,
+    UI_KEY_ENABLED_SOURCES,
+    UI_KEY_EXTERNAL_REFERENCES,
+    UI_KEY_HVAC_YOUTUBE,
+    UI_KEY_WEB_AND_OTHER,
+    UI_KEY_WEB_FALLBACK_ENABLED,
+    apply_enabled_sources_to_session_state,
+    decode_enabled_sources_from_course_info,
+    enabled_sources_from_session_state,
+    encode_enabled_sources_for_course_info,
+)
+import re
+
+# Mapping from display names used in the Streamlit UI to the
+# agent names expected by the SDK/CLI scripts.
+AGENT_CODE_MAP = {
+    "Course Outline": "course_outline",
+    "Research Notes": "research_notes",
+    "Slide Chunks": "slide_chunks",
+    "Graphics Definition": "graphics_definition",
+    "Graphics Definition V2": "graphics_definition_v2",
+    "Assessment": "assessment",
+    "Graphics Search": "graphics_search",
+    "Submission Reviewer": "submission_reviewer",
+}
+
+TOKEN_USAGE_LOG_FILE = "token_usage_log.csv"
+
+
+def _set_step_context(agent_name: str, step_name: str) -> None:
+    os.environ["CURRENT_AGENT_NAME"] = agent_name or ""
+    os.environ["CURRENT_STEP_NAME"] = step_name or ""
+
+
+def _clear_step_context() -> None:
+    os.environ["CURRENT_AGENT_NAME"] = ""
+    os.environ["CURRENT_STEP_NAME"] = ""
+
+
+def _get_tracking_context() -> dict:
+    """
+    Session values for activity_tracking_service (step_start/complete/error, run_all, background).
+    If ``gc`` is missing (e.g. before OAuth), tracking calls are no-ops via ``if ctx["gc"]``.
+    """
+    return {
+        "gc": st.session_state.get("gc"),
+        "user_email": st.session_state.get("user_email") or "",
+        "agent_name": st.session_state.get("agent_name") or "",
+        "course_name": st.session_state.get("course_name") or "",
+        "sheet_link": st.session_state.get("sheet_link") or "",
+    }
+
+
+def _is_llm_step(step: dict) -> bool:
+    return "llm" in step.get("args", {}) or step.get("is_llm_step", False)
+
+
+def _get_token_log_offset(log_file: str) -> int:
+    try:
+        return os.path.getsize(log_file)
+    except OSError:
+        return 0
+
+
+def _record_step_token_offset(step_name: str) -> None:
+    if "step_token_offsets" not in st.session_state:
+        st.session_state["step_token_offsets"] = {}
+    st.session_state["step_token_offsets"][step_name] = _get_token_log_offset(TOKEN_USAGE_LOG_FILE)
+
+
+def _pop_step_token_offset(step_name: str) -> int | None:
+    offsets = st.session_state.get("step_token_offsets", {})
+    return offsets.pop(step_name, None)
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "N/A"
+    if seconds < 1:
+        return f"{seconds:.2f}s"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    total_seconds = int(round(seconds))
+    minutes, secs = divmod(total_seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, mins = divmod(minutes, 60)
+    return f"{hours}h {mins}m {secs}s"
+
+
+def _format_cost(cost: float, currency: str = "$") -> str:
+    return f"{currency}{cost:,.4f}"
+
+
+def _iter_token_log_rows(log_file: str, start_offset: int | None = None):
+    if not os.path.exists(log_file):
+        return
+    try:
+        with open(log_file, mode="r", newline="") as csvfile:
+            if start_offset:
+                file_size = os.path.getsize(log_file)
+                if start_offset > file_size:
+                    start_offset = 0
+                csvfile.seek(start_offset)
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    yield row
+                return
+
+            reader = csv.reader(csvfile)
+            first_row = next(reader, None)
+            if not first_row:
+                return
+            header = [col.strip().lower() for col in first_row[:6]]
+            if header != ["agent_name", "step_name", "timestamp", "llm", "input_tokens", "output_tokens"]:
+                yield first_row
+            for row in reader:
+                yield row
+    except Exception:
+        return
+
+
+def _safe_int(value: str) -> int:
+    try:
+        return int(float(value))
+    except Exception:
+        return 0
+
+
+def _resolve_pricing_for_model(llm_name: str, pricing: dict | None) -> dict | None:
+    if not pricing:
+        return None
+
+    # Optional per-model pricing support.
+    model_pricing = pricing.get("models", {})
+    if isinstance(model_pricing, dict):
+        if llm_name in model_pricing:
+            return model_pricing[llm_name]
+        normalized_name = (llm_name or "").strip().lower().replace("-", "_")
+        for key, value in model_pricing.items():
+            if key.strip().lower().replace("-", "_") == normalized_name:
+                return value
+
+    # Backward-compatible flat pricing.
+    if "input_per_million" in pricing and "output_per_million" in pricing:
+        return pricing
+
+    default_pricing = pricing.get("default")
+    if isinstance(default_pricing, dict):
+        return default_pricing
+
+    return None
+
+
+def _sum_tokens_for_step(
+    agent_name: str,
+    step_name: str,
+    start_time: datetime | None,
+    end_time: datetime | None,
+    log_file: str,
+    start_offset: int | None = None,
+    pricing: dict | None = None,
+) -> tuple[int, int, float | None]:
+    total_input = 0
+    total_output = 0
+    total_cost = 0.0
+    has_cost = False
+    if not step_name:
+        return total_input, total_output, None
+    for row in _iter_token_log_rows(log_file, start_offset):
+        if not row or len(row) < 6:
+            continue
+        row_agent, row_step, timestamp, row_llm, input_tokens, output_tokens = row[:6]
+        if row_step != step_name:
+            continue
+        if agent_name and row_agent != agent_name:
+            continue
+        if timestamp:
+            try:
+                ts = timestamp.rstrip("Z")
+                ts_dt = datetime.fromisoformat(ts)
+            except Exception:
+                continue
+            if start_time and ts_dt < start_time:
+                continue
+            if end_time and ts_dt > end_time:
+                continue
+        row_input = _safe_int(input_tokens)
+        row_output = _safe_int(output_tokens)
+        total_input += row_input
+        total_output += row_output
+
+        row_pricing = _resolve_pricing_for_model(row_llm, pricing)
+        if row_pricing:
+            total_cost += _calculate_step_cost(row_input, row_output, row_pricing)
+            has_cost = True
+    return total_input, total_output, (total_cost if has_cost else None)
+
+
+def _calculate_step_cost(input_tokens: int, output_tokens: int, pricing: dict) -> float:
+    input_rate = float(pricing.get("input_per_million", 0.0))
+    output_rate = float(pricing.get("output_per_million", 0.0))
+    return (input_tokens * input_rate / 1_000_000) + (output_tokens * output_rate / 1_000_000)
+
+
+def _record_step_metrics(step: dict, duration_seconds: float, start_time: datetime, end_time: datetime, llm_pricing: dict | None):
+    if "step_metrics" not in st.session_state:
+        st.session_state["step_metrics"] = {}
+    metrics = {"duration_seconds": duration_seconds}
+
+    if llm_pricing and _is_llm_step(step):
+        try:
+            agent_name = st.session_state.get("agent_name", "")
+        except (RuntimeError, AttributeError):
+            agent_name = ""
+        start_offset = _pop_step_token_offset(step["name"])
+        input_tokens, output_tokens, step_cost = _sum_tokens_for_step(
+            agent_name=agent_name,
+            step_name=step["name"],
+            start_time=start_time,
+            end_time=end_time,
+            log_file=TOKEN_USAGE_LOG_FILE,
+            start_offset=start_offset,
+            pricing=llm_pricing,
+        )
+        metrics["input_tokens"] = input_tokens
+        metrics["output_tokens"] = output_tokens
+        if step_cost is not None:
+            metrics["cost"] = step_cost
+        elif llm_pricing and "input_per_million" in llm_pricing and "output_per_million" in llm_pricing:
+            metrics["cost"] = _calculate_step_cost(input_tokens, output_tokens, llm_pricing)
+
+    st.session_state["step_metrics"][step["name"]] = metrics
+
+
+def _normalize_selected_topics(selected_topics):
+    if not selected_topics:
+        return []
+    if any(str(topic).strip() == "All Topics" for topic in selected_topics):
+        return []
+    return [str(topic).strip() for topic in selected_topics if str(topic).strip()]
+
+
+def _course_info_asset_libraries_raw(sheet):
+    """
+    Read the Allowed Asset Search Libraries cell from Course info.
+
+    :param sheet: gspread Spreadsheet, or None
+    :return: Raw cell string ("" if missing/blank)
+    """
+    if sheet is None:
+        return ""
+    try:
+        worksheet = None
+        for candidate in sheet.worksheets():
+            if candidate.title.strip().lower() == "course info":
+                worksheet = candidate
+                break
+        if worksheet is None:
+            return ""
+        headers = worksheet.row_values(1)
+        key = COURSE_INFO_ENABLED_SOURCES_KEY
+        col = None
+        for idx, header in enumerate(headers):
+            if str(header).strip().lower() == key.lower():
+                col = idx + 1
+                break
+        if col is None:
+            return ""
+        return str(worksheet.cell(2, col).value or "").strip()
+    except Exception:
+        return ""
+
+
+def _write_course_info_asset_libraries(sheet, sources, drive_video_mode):
+    """
+    Write enabled sources to Course info (creates the column if missing).
+
+    :param sheet: gspread Spreadsheet
+    :param sources: List of enabled source ids
+    :param drive_video_mode: Drive video mode string, or ""
+    :return: True on success, False on failure
+    """
+    if sheet is None:
+        return False
+    try:
+        worksheet = None
+        for candidate in sheet.worksheets():
+            if candidate.title.strip().lower() == "course info":
+                worksheet = candidate
+                break
+        if worksheet is None:
+            return False
+        headers = worksheet.row_values(1)
+        key = COURSE_INFO_ENABLED_SOURCES_KEY
+        col = None
+        created_column = False
+        for idx, header in enumerate(headers):
+            if str(header).strip().lower() == key.lower():
+                col = idx + 1
+                break
+        if col is None:
+            headers.append(key)
+            col = len(headers)
+            if col > worksheet.col_count:
+                worksheet.add_cols(col - worksheet.col_count)
+            worksheet.update_cell(1, col, key)
+            created_column = True
+        cell_value = encode_enabled_sources_for_course_info(sources, drive_video_mode)
+        # Comma-separated labels match Sheets multi-select validation (newlines are rejected).
+        a1 = gspread.utils.rowcol_to_a1(2, col)
+        worksheet.update(a1, [[cell_value]], value_input_option="USER_ENTERED")
+        if created_column:
+            format_worksheet(worksheet)
+        return True
+    except Exception as exc:
+        print(f"⚠️ Could not write asset libraries to Course info: {exc}")
+        return False
+
+
+_GRAPHICS_V2_ASSET_UI_KEYS = (
+    UI_KEY_DRIVE_IMAGES,
+    UI_KEY_HVAC_YOUTUBE,
+    UI_KEY_WEB_AND_OTHER,
+    UI_KEY_DRIVE_VIDEOS,
+    UI_KEY_DRIVE_VIDEO_MODE,
+    UI_KEY_EXTERNAL_REFERENCES,
+)
+
+
+def _load_graphics_v2_asset_libs_from_course_info(force_write_if_blank=False):
+    """
+    Load Allowed Asset Search Libraries from Course info into session_state.
+
+    :param force_write_if_blank: If True and the cell is blank, write product defaults.
+    :return: Encoded fingerprint string, or None when no sheet is loaded.
+    """
+    sheet = st.session_state.get("sheet")
+    if sheet is None:
+        return None
+    raw = _course_info_asset_libraries_raw(sheet)
+    sources, mode = decode_enabled_sources_from_course_info(raw)
+    apply_enabled_sources_to_session_state(sources, mode, st.session_state)
+    encoded = encode_enabled_sources_for_course_info(sources, mode)
+    if force_write_if_blank and not (raw or "").strip():
+        _write_course_info_asset_libraries(sheet, sources, mode)
+    sheet_link = (st.session_state.get("sheet_link") or "").strip()
+    st.session_state["_graphics_v2_asset_libs_sheet_link"] = sheet_link
+    st.session_state["_graphics_v2_asset_libs_fingerprint"] = encoded
+    # Keep derived keys consistent for pipeline / background forwarding.
+    sources_full, drive_mode = enabled_sources_from_session_state(st.session_state)
+    st.session_state[UI_KEY_ENABLED_SOURCES] = [
+        s for s in sources_full if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+    ]
+    st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = bool(
+        st.session_state.get(UI_KEY_WEB_AND_OTHER, False)
+    )
+    if SOURCE_DRIVE_VIDEOS in sources_full:
+        st.session_state[UI_KEY_DRIVE_VIDEO_MODE] = drive_mode or DRIVE_VIDEO_MODE_ALL
+    return encoded
+
+
+def _graphics_v2_background_toggle_payload():
+    """
+    Build Graphics V2 toggle payload for background jobs from Course info (source of truth).
+    """
+    sheet = st.session_state.get("sheet")
+    sources_full = None
+    drive_mode = DRIVE_VIDEO_MODE_ALL
+
+    if sheet is not None:
+        try:
+            raw = _course_info_asset_libraries_raw(sheet)
+            sources_full, drive_mode = decode_enabled_sources_from_course_info(raw)
+        except Exception as exc:
+            print(f"⚠️ Could not read asset libraries for background payload: {exc}")
+            sources_full = None
+
+    if sources_full is None:
+        sources_full, drive_mode = enabled_sources_from_session_state(st.session_state)
+
+    source_set = {str(s).strip() for s in (sources_full or []) if str(s).strip()}
+    drive_images = SOURCE_DRIVE_IMAGES in source_set
+    hvac_youtube = SOURCE_HVAC_YOUTUBE in source_set
+    drive_videos = SOURCE_DRIVE_VIDEOS in source_set
+    external_refs = SOURCE_EXTERNAL_REFERENCES in source_set
+    web_and_other = (
+        SOURCE_WEB_IMAGES in source_set or SOURCE_YOUTUBE_OTHER_CHANNELS in source_set
+    )
+
+    mode = (drive_mode or DRIVE_VIDEO_MODE_ALL).strip().lower()
+    if mode not in (DRIVE_VIDEO_MODE_ALL, DRIVE_VIDEO_MODE_NEXTECH):
+        mode = DRIVE_VIDEO_MODE_ALL
+    if not drive_videos:
+        mode = DRIVE_VIDEO_MODE_ALL
+
+    enabled_primary = [
+        s
+        for s in (sources_full or [])
+        if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+    ]
+
+    return {
+        "selected_topics": st.session_state.get("selected_topics", []),
+        "graphics_v2_enabled_sources": enabled_primary,
+        "graphics_v2_web_fallback_enabled": web_and_other,
+        "graphics_v2_drive_video_mode": mode,
+        UI_KEY_DRIVE_IMAGES: drive_images,
+        UI_KEY_HVAC_YOUTUBE: hvac_youtube,
+        UI_KEY_WEB_AND_OTHER: web_and_other,
+        UI_KEY_DRIVE_VIDEOS: drive_videos,
+        UI_KEY_EXTERNAL_REFERENCES: external_refs,
+        UI_KEY_DRIVE_VIDEO_MODE: mode,
+    }
+
+
+def _render_graphics_v2_topics_selector():
+    """Render Topics to run multiselect for Graphics Definition V2."""
+    try:
+        _, slide_chunks_df = get_sheet_data_and_df(st.session_state["sheet"], "Slide Chunks")
+        topic_series = slide_chunks_df.get("Topic")
+        available_topics = []
+        if topic_series is not None:
+            seen = set()
+            for value in topic_series.tolist():
+                topic = str(value).strip()
+                if not topic or topic.lower() == "nan":
+                    continue
+                if topic in seen:
+                    continue
+                seen.add(topic)
+                available_topics.append(topic)
+
+        label_to_topic = {
+            f"Topic {idx + 1} - {topic}": topic
+            for idx, topic in enumerate(available_topics)
+        }
+        selection_options = ["All Topics"] + list(label_to_topic.keys())
+        if "graphics_v2_topic_selection_labels" not in st.session_state:
+            st.session_state["graphics_v2_topic_selection_labels"] = ["All Topics"]
+
+        selected_labels = st.multiselect(
+            "Topics to run",
+            options=selection_options,
+            key="graphics_v2_topic_selection_labels",
+            help="Select one or more topics, or keep All Topics selected.",
+        )
+        if not selected_labels:
+            selected_labels = ["All Topics"]
+            st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
+        if "All Topics" in selected_labels and len(selected_labels) > 1:
+            selected_labels = [label for label in selected_labels if label != "All Topics"]
+            st.session_state["graphics_v2_topic_selection_labels"] = selected_labels
+
+        selected_topics = [
+            label_to_topic[label]
+            for label in selected_labels
+            if label in label_to_topic
+        ]
+        if "All Topics" in selected_labels:
+            selected_topics = []
+        st.session_state["selected_topics"] = _normalize_selected_topics(selected_topics)
+
+        if st.session_state["selected_topics"]:
+            filtered_df = slide_chunks_df[
+                slide_chunks_df["Topic"].astype(str).str.strip().isin(st.session_state["selected_topics"])
+            ]
+            total_slides = len(filtered_df)
+        else:
+            total_slides = len(slide_chunks_df)
+
+        topic_scope = (
+            "All Topics"
+            if not st.session_state["selected_topics"]
+            else ", ".join(st.session_state["selected_topics"])
+        )
+        st.caption(f"Topic Scope: {topic_scope}  |  Total Slides: {total_slides}")
+    except Exception as e:
+        st.warning(f"Could not load topic selector: {e}")
+        st.session_state["selected_topics"] = []
+
+
+def _render_graphics_v2_run_setup_controls():
+    """Topics + asset libraries shown above the run buttons for Graphics Definition V2."""
+    _render_graphics_v2_topics_selector()
+    st.divider()
+    _render_graphics_v2_asset_library_controls()
+
+
+def _render_graphics_v2_asset_library_controls():
+    """
+    Render Graphics Definition V2 asset-library checkboxes.
+
+    Course info column "Allowed Asset Search Libraries for the Graphics Agent" is source of
+    truth: load into toggles on sheet open; write back when toggles change.
+    """
+    defaults = {
+        UI_KEY_DRIVE_IMAGES: True,
+        UI_KEY_HVAC_YOUTUBE: True,
+        UI_KEY_WEB_AND_OTHER: True,
+        UI_KEY_DRIVE_VIDEOS: True,
+        UI_KEY_DRIVE_VIDEO_MODE: DRIVE_VIDEO_MODE_ALL,
+        UI_KEY_EXTERNAL_REFERENCES: False,
+    }
+    sheet = st.session_state.get("sheet")
+    sheet_link = (st.session_state.get("sheet_link") or "").strip()
+    applied_for = st.session_state.get("_graphics_v2_asset_libs_sheet_link")
+    missing_keys = any(k not in st.session_state for k in _GRAPHICS_V2_ASSET_UI_KEYS)
+
+    # Reload from sheet on first open for this sheet_link, OR when widget keys were lost
+    if sheet is not None and (applied_for != sheet_link or missing_keys):
+        _load_graphics_v2_asset_libs_from_course_info(
+            force_write_if_blank=(applied_for != sheet_link)
+        )
+    else:
+        for key, default in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = default
+
+    st.markdown("**Asset libraries for this run**")
+    st.caption(
+        "Select which libraries the agent may search and select the visuals from. "
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.checkbox("Drive Images", key=UI_KEY_DRIVE_IMAGES)
+        st.checkbox("HVAC School YouTube Videos", key=UI_KEY_HVAC_YOUTUBE)
+        st.checkbox("External References", key=UI_KEY_EXTERNAL_REFERENCES)
+    with col2:
+        st.checkbox(
+            "Web Images and Other YouTube Channel Videos",
+            key=UI_KEY_WEB_AND_OTHER,
+        )
+        st.checkbox("Google Drive Videos", key=UI_KEY_DRIVE_VIDEOS)
+
+    if st.session_state.get(UI_KEY_DRIVE_VIDEOS, True):
+        mode_options = ["All Google Drive videos", "Only NexTech videos"]
+        current_mode = st.session_state.get(UI_KEY_DRIVE_VIDEO_MODE, DRIVE_VIDEO_MODE_ALL)
+        default_index = 1 if current_mode == DRIVE_VIDEO_MODE_NEXTECH else 0
+        if "graphics_v2_drive_video_mode_label" not in st.session_state:
+            st.session_state["graphics_v2_drive_video_mode_label"] = mode_options[default_index]
+        mode_label = st.radio(
+            "Google Drive Videos scope",
+            options=mode_options,
+            horizontal=True,
+            key="graphics_v2_drive_video_mode_label",
+        )
+        st.session_state[UI_KEY_DRIVE_VIDEO_MODE] = (
+            DRIVE_VIDEO_MODE_NEXTECH if mode_label == "Only NexTech videos" else DRIVE_VIDEO_MODE_ALL
+        )
+
+    sources_full, drive_mode = enabled_sources_from_session_state(st.session_state)
+    # Web/other-YouTube gate Section 9 only — not Section 5 primary runners.
+    enabled_sources = [
+        s
+        for s in sources_full
+        if s not in (SOURCE_WEB_IMAGES, SOURCE_YOUTUBE_OTHER_CHANNELS)
+    ]
+    web_fallback_enabled = bool(st.session_state.get(UI_KEY_WEB_AND_OTHER, True))
+    st.session_state[UI_KEY_WEB_FALLBACK_ENABLED] = web_fallback_enabled
+    st.session_state[UI_KEY_ENABLED_SOURCES] = enabled_sources
+
+    fingerprint = encode_enabled_sources_for_course_info(sources_full, drive_mode)
+    if sheet is not None and fingerprint != st.session_state.get("_graphics_v2_asset_libs_fingerprint"):
+        if _write_course_info_asset_libraries(sheet, sources_full, drive_mode):
+            st.session_state["_graphics_v2_asset_libs_fingerprint"] = fingerprint
+        else:
+            st.warning(
+                "Could not sync asset libraries to Course info."
+            )
+
+    if not enabled_sources:
+        st.error(
+            "Select at least one primary asset library (Drive Images, HVAC School YouTube, "
+            "or Google Drive Videos). Web asset library alone is not enough to run the agent."
+        )
+
+
+def _step_is_hidden(step, pipeline_sections=None):
+    """
+    Return True if a step should be hidden given current session flags.
+    
+    :param step: The step to check if it should be hidden
+    :param pipeline_sections: The pipeline sections
+    :return: True if the step should be hidden, False otherwise
+    """
+    if st.session_state.get("outline_finalized", False) and step.get("hide_if_final_outline", False):
+        return True
+    if not st.session_state.get("video_research_enabled", True) and step.get("hide_if_video_disabled", False):
+        return True
+    if not st.session_state.get("graphics_v2_web_fallback_enabled", True) and step.get("hide_if_web_disabled", False):
+        return True
+    if not st.session_state.get(UI_KEY_EXTERNAL_REFERENCES, False) and step.get(
+        "hide_if_external_references_disabled", False
+    ):
+        return True
+    return False
+
+
+def _get_unsatisfied_visible_dependencies(dep_name, pipeline_sections, visited=None):
+    """
+    Return a list of visible, unsatisfied step names that are blocking dep_name.
+    
+    :param dep_name: The name of the step to check if it should be hidden
+    :param pipeline_sections: The pipeline sections
+    :param visited: The visited steps
+    :return: A list of visible, unsatisfied step names that are blocking dep_name
+    """
+    if visited is None:
+        visited = set()
+    if dep_name in visited:
+        return []
+    visited.add(dep_name)
+
+    if st.session_state.get(f"{dep_name}_done", False):
+        return []
+
+    for section in pipeline_sections:
+        for step in section.get("steps", []):
+            if step.get("name") != dep_name:
+                continue
+            if _step_is_hidden(step, pipeline_sections):
+                parent_deps = step.get("depends_on", [])
+                if not parent_deps:
+                    return []
+                unmet = []
+                for p in parent_deps:
+                    unmet.extend(_get_unsatisfied_visible_dependencies(p, pipeline_sections, visited))
+                return unmet
+            else:
+                return [dep_name]
+    return [dep_name]
+
+
+def _dependency_is_satisfied(dep_name, pipeline_sections):
+    """
+    Return True if a depends_on entry is done or intentionally skipped/hidden.
+    
+    :param dep_name: The name of the step to check if it should be hidden
+    :param pipeline_sections: The pipeline sections
+    :return: True if the depends_on entry is done or intentionally skipped/hidden, False otherwise
+    """
+    return len(_get_unsatisfied_visible_dependencies(dep_name, pipeline_sections)) == 0
+
+
+def agent_ui(step_name: str, pipeline_sections: list[dict], outline_finalized: bool = False, llm_pricing: dict | None = None, top_instructions: str | None = None, top_toggles: list[dict] | None = None):
+    st.session_state["outline_finalized"] = outline_finalized
+    st.title(f"{step_name} Agent")
+
+    if "agent_name" not in st.session_state:
+        st.session_state["agent_name"] = ""
+    if st.session_state["agent_name"] != step_name:
+        st.session_state["agent_name"] = step_name
+
+    if "sheet" in st.session_state:
+        load_completed_steps(st.session_state["sheet"], step_name)
+
+    if "google_api_key" not in st.session_state:
+        st.session_state["google_api_key"] = ""
+
+    with st.sidebar:
+        st.text_input(label="Google API Key", type = "password", key = "google_api_key", value = st.session_state["google_api_key"])
+        # st.selectbox(label="LLM Model", options= ["gemini_2_flash", "gpt4_1"], index = None, key = "llm_model")
+
+    if st.session_state["google_api_key"] != "":
+        os.environ["GOOGLE_API_KEY"] = st.session_state["google_api_key"]
+
+    if "current_step" not in st.session_state:
+        st.session_state["current_step"] = None
+    if "step_metrics" not in st.session_state:
+        st.session_state["step_metrics"] = {}
+
+
+    # --- 1) Define pipeline as sections, each with its own steps ---
+
+    # --- 2) Initialize session states for each step ---
+    for section in pipeline_sections:
+        for step in section["steps"]:
+            step_key = f"{step['name']}_done"
+            if step_key not in st.session_state:
+                st.session_state[step_key] = False
+
+            # Only initialize pre-execution state if the step has a pre_exec_func
+            if "pre_exec_func" in step:
+                pre_exec_key = f"{step['name']}_pre_executed"
+                if pre_exec_key not in st.session_state:
+                    st.session_state[pre_exec_key] = False
+
+    # --- 3) Hide "Load Data" inputs once data is loaded ---
+    if "sheet" not in st.session_state:
+        root_folder_id = st.text_input("Enter course Drive folder ID")
+        sheet_link = st.text_input("Enter Google Sheet link")
+
+        # Button to load data
+        if st.button("Load Data"):
+            load_dotenv()  # Load env variables from .env
+            # Check if the Google API key is provided
+            if st.session_state["google_api_key"] != "":
+                os.environ["GOOGLE_API_KEY"] = st.session_state["google_api_key"]
+            try:
+                if os.environ.get('LANGTRACE_ON', 'false') == "true":
+                    langtrace.init(
+                        api_key = os.environ.get('LANGTRACE_API_KEY'),
+                        disable_instrumentations={"only": ["chromadb"]}
+                    )
+
+                # --- OAuth2 for both Google Drive and Google Sheets ---
+                oauth_client_id = os.environ.get("OAUTH_CLIENT_ID")
+                oauth_client_secret = os.environ.get("OAUTH_CLIENT_SECRET")
+                
+                if not oauth_client_id or not oauth_client_secret:
+                    st.error("OAuth credentials not found. Please set OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET environment variables.")
+                    st.stop()
+                
+                # Use existing authenticated clients from session if available
+                if "drive" in st.session_state and "gc" in st.session_state:
+                    drive = st.session_state["drive"]
+                    gc = st.session_state["gc"]
+                else:
+                    st.stop()
+
+                sheet_file_id = extract_drive_id_from_url(sheet_link)
+                folder_id_norm = extract_drive_id_from_url(root_folder_id) or (root_folder_id or "").strip()
+
+                if not sheet_file_id:
+                    st.error("Please enter a valid Google Sheet link.")
+                    st.stop()
+                if not folder_id_norm:
+                    st.error("Please enter a valid course Drive folder ID.")
+                    st.stop()
+
+                # Check if both the Google sheet and the course Drive folder are inside the Skillcat Shared Drive.
+                sa_drive_service = build_service_account_drive_service()
+                if sa_drive_service is None:
+                    st.error(
+                        "The agent is not configured correctly on the server. "
+                        "Please contact the admin."
+                    )
+                    st.stop()
+
+                if not is_inside_skillcat_shared_drive(sheet_file_id, sa_drive_service):
+                    st.error(
+                        "This Google Sheet is not inside the Skillcat Shared Drive on Google Drive. "
+                        "Please move the sheet into the Skillcat Shared Drive and try again."
+                    )
+                    st.stop()
+
+                if not is_inside_skillcat_shared_drive(folder_id_norm, sa_drive_service):
+                    st.error(
+                        "This course Drive folder is not inside the Skillcat Shared Drive on Google Drive. "
+                        "Please move the folder into the Skillcat Shared Drive and try again."
+                    )
+                    st.stop()
+
+                sheet = gc.open_by_url(sheet_link)
+                course_info_sheet, course_info_df = get_sheet_data_and_df(sheet, 'Course info')
+
+                st.session_state["root_folder_id"] = root_folder_id
+                st.session_state["sheet"] = sheet
+                st.session_state["sheet_link"] = sheet_link
+                st.session_state["course_name"] = course_info_df['Course Name'][0]
+                st.session_state["target_audience"] = course_info_df['Target Audience & Industry'][0]
+                st.session_state["course_background"] = course_info_df['Course Background'][0]
+                st.session_state["course_objective_guidelines"] = course_info_df['Course Objective Guidelines'][0]
+                st.session_state["checklist_sheet_link"] = course_info_df['Checklist Link'][0]
+                st.session_state["drive"] = drive
+                st.session_state["gc"] = gc
+                # Force External References toggle to re-default from Course info links
+                st.session_state.pop("_graphics_v2_ext_ref_default_sheet_link", None)
+                
+                # Set the langchain project name for langsmith
+                os.environ["LANGCHAIN_PROJECT"] = get_short_name(st.session_state["course_name"]) + " " + sheet.id
+                
+                # Load previously completed steps from Agent logs
+                load_completed_steps(sheet, step_name)
+
+                st.success("Data loaded successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error loading data: {e}")
+                # Display the full stack trace
+                st.text(traceback.format_exc())
+    else:
+        # If data is already loaded, simply confirm it to the user
+        # Create two columns: left for info, right for the button
+        col1, col2 = st.columns([3, 1])  # Adjust the ratio as needed
+
+        # Full-width green info bar with default text size
+        st.markdown(
+            f"""
+            <div style='background-color: #1b4636; color: #fff; padding: 1.2em 1em; border-radius: 12px; width: 100%; font-weight: 500; margin-bottom: 1.5em;'>
+                Data already loaded for course: <b>{st.session_state['course_name']}</b>. Proceed below.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Graphics V2: setup (before-running note, topics, asset libs) above run buttons
+        if step_name == "Graphics Definition V2":
+            if top_instructions:
+                st.info(top_instructions)
+            _render_graphics_v2_run_setup_controls()
+            st.divider()
+
+        # Two primary actions on the same row
+        button_col1, button_col2 = st.columns([1, 1])
+        with button_col1:
+            run_all_automated = st.button("Run All Automated Steps", type="primary")
+        with button_col2:
+            run_in_background = st.button("Run the Agent in Background", type="primary")
+
+        # Status button on next row, right side (under background-run button)
+        status_row_left, status_row_right = st.columns([1, 1])
+        with status_row_left:
+            if 'role' in st.session_state:
+                st.checkbox(label="Skip Manual Steps", value=False, key="skip_manual_step")
+        with status_row_right:
+            check_background_status = st.button("Background Job Status")
+
+        agent_code_for_state = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
+        background_link_key = f"background_job_link::{agent_code_for_state}"
+        background_name_key = f"background_job_name::{agent_code_for_state}"
+        background_run_id_key = f"background_job_run_id::{agent_code_for_state}"
+        if st.session_state.get(background_link_key) or st.session_state.get(background_name_key):
+            st.markdown(
+                f"""
+                <div style='background-color: #1b4636; color: #fff; padding: 1.25em 1.25em; border-radius: 12px; width: 100%; font-weight: 500; margin-bottom: 1.5em; line-height: 1.6;'>
+                    The "{step_name}" agent has started running in the background for your sheet. 
+                    You can now close this agent tab in your browser or even shut down your PC if you want. 
+                    All the updates for this agent will be shared with you via email. 
+                    You will receive an email after 10-20 minutes confirming that the agent has started running successfully in the background. 
+                    You will also get another email once the agent has completed running all its steps successfully so that you can review the outputs. 
+                    (Ensure to check your "Spam" folder in case you don't see any email in your inbox after 10-20 minutes of you pressing this "Run the Agent in Background" button.)
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        run_id = st.session_state.get(background_run_id_key, "") or ""
+        gc_for_status = st.session_state.get("gc")
+        sheet_link_for_status = (st.session_state.get("sheet_link") or "").strip()
+
+        if check_background_status:
+            if gc_for_status is None or not sheet_link_for_status:
+                st.info("Load sheet first to check background status.")
+            else:
+                try:
+                    status_record = get_latest_background_status(
+                        gc=gc_for_status,
+                        sheet_link=sheet_link_for_status,
+                        agent_name=step_name,
+                        run_id=run_id,
+                    )
+                except Exception:
+                    status_record = None
+                if not status_record:
+                    st.info("No background job has been run yet for this sheet and agent.")
+                else:
+                    status_text = str(status_record.get("Status", "")).strip().lower() or "unknown"
+                    status_time = str(status_record.get("Timestamp", "")).strip()
+                    st.markdown(f"**Background job status:** `{status_text}`")
+                    if status_time:
+                        st.caption(f"Last update: {status_time}")
+
+        # Admin exclusive features
+        if 'role' in st.session_state: #and st.session_state['role'] == 'Admin':
+            # # Reset completed steps option
+            # if st.button("Reset All Completed Steps"):
+            #     for section in pipeline_sections:
+            #         for step in section["steps"]:
+            #             step_key = f"{step['name']}_done"
+            #             st.session_state[step_key] = False
+            #     # Clear the sheet log
+            #     clear_agent_logs(st.session_state["sheet"], st.session_state["agent_name"])
+            #     # st.rerun()
+            
+            # Add "Run All Automated Steps" button
+            # if st.button("Run All Automated Steps", type="primary"):
+            #     st.session_state["automation_in_progress"] = True
+            #     run_all_automated_steps(pipeline_sections)
+
+            if run_all_automated:
+                st.session_state["automation_in_progress"] = True
+
+                ctx = _get_tracking_context()
+                if ctx["gc"]:
+                    track_run_all_start(
+                        ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                        ctx["course_name"], ctx["sheet_link"],
+                    )
+                run_all_automated_steps(pipeline_sections, llm_pricing)
+
+            if run_in_background:
+                ctx = _get_tracking_context()
+                if ctx["gc"]:
+                    track_run_in_background_start(
+                        ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                        ctx["course_name"], ctx["sheet_link"],
+                    )
+                agent_code = AGENT_CODE_MAP.get(step_name, step_name.lower().replace(" ", "_"))
+                sheet_link = st.session_state.get("sheet_link")
+                folder_id = st.session_state.get("root_folder_id")
+                if not sheet_link or not folder_id:
+                    st.error("Sheet link or Drive folder ID missing. Please reload data.")
+                else:
+                    latest_status_record = None
+                    if st.session_state.get("gc") is not None:
+                        try:
+                            latest_status_record = get_latest_background_status(
+                                gc=st.session_state["gc"],
+                                sheet_link=sheet_link,
+                                agent_name=step_name,
+                            )
+                        except Exception:
+                            latest_status_record = None
+
+                    latest_status = ""
+                    if latest_status_record:
+                        latest_status = str(latest_status_record.get("Status", "")).strip().lower()
+
+                    if latest_status in IN_PROGRESS_STATUSES:
+                        st.warning(
+                            f"A background job is already in progress for this sheet and agent (status: {latest_status})."
+                        )
+                        return
+
+                    # Ensure environment variables are loaded
+                    load_dotenv()
+                    
+                    # Share the sheet with service account if needed
+                    if "oauth_credentials" in st.session_state and "sheet" in st.session_state:
+                        try:
+                            service_account_email = get_service_account_email()
+                            if service_account_email:
+                                creds = st.session_state["oauth_credentials"]
+                                sheet = st.session_state["sheet"]
+                                
+                                # Share the sheet with service account
+                                share_sheet_with_service_account(sheet, service_account_email, creds)
+                        except Exception as e:
+                            pass
+                    
+                    user_email = st.session_state.get("user_email", "") or ""
+                    # Collect current toggle values to forward to background job
+                    toggle_values = {}
+                    if top_toggles:
+                        for toggle in top_toggles:
+                            tkey = toggle["key"]
+                            toggle_values[tkey] = st.session_state.get(tkey, toggle.get("default", False))
+                    if step_name == "Graphics Definition V2":
+                        # Course info is source of truth — do not trust possibly-reset widget defaults.
+                        toggle_values.update(_graphics_v2_background_toggle_payload())
+                    cmd = [
+                        sys.executable,
+                        "launch_agents_via_sdk.py",
+                        "--sheet_link",
+                        sheet_link,
+                        "--drive_folder_id",
+                        folder_id,
+                        "--agent_name",
+                        agent_code,
+                        "--user_email",
+                        user_email,
+                    ]
+                    if agent_code == "graphics_definition_v2":
+                        cmd.extend(["--machine", "CPU_X_16"])
+                    if toggle_values:
+                        cmd.extend(["--toggles", json.dumps(toggle_values)])
+                    _rt = st.session_state.get("google_oauth_refresh_token")
+                    if _rt:
+                        cmd.extend(
+                            [
+                                "--google_oauth_refresh_token_b64",
+                                base64.b64encode(_rt.encode("utf-8")).decode("ascii"),
+                            ]
+                        )
+                    with st.spinner("Submitting background job..."):
+                        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                        logs = ""
+                        job_link = None
+                        job_name = None
+                        run_id = None
+                        link_re = re.compile(r"^\[JOB_LINK\]\s+(?P<link>\S+)\s*$")
+                        name_re = re.compile(r"^\[JOB_NAME\]\s+(?P<name>.+?)\s*$")
+                        run_id_re = re.compile(r"^\[RUN_ID\]\s+(?P<run_id>\S+)\s*$")
+                        start = time.time()
+                        while True:
+                            if process.stdout is None:
+                                break
+                            line = process.stdout.readline()
+                            if not line:
+                                if process.poll() is not None:
+                                    break
+                                if time.time() - start > 10:
+                                    break
+                                time.sleep(0.1)
+                                continue
+                            logs += line
+                            m0 = run_id_re.match(line.strip())
+                            if m0:
+                                run_id = m0.group("run_id")
+                            m = link_re.match(line.strip())
+                            if m:
+                                job_link = m.group("link")
+                                break
+                            m2 = name_re.match(line.strip())
+                            if m2:
+                                job_name = m2.group("name")
+                        try:
+                            if process.stdout is not None:
+                                process.stdout.close()
+                        except Exception:
+                            pass
+                        try:
+                            process.wait(timeout=2)
+                        except Exception:
+                            pass
+
+                    if job_link:
+                        st.session_state[background_link_key] = job_link
+                        st.session_state.pop(background_name_key, None)
+                        if run_id:
+                            st.session_state[background_run_id_key] = run_id
+                            try:
+                                if st.session_state.get("gc") is not None:
+                                    append_background_job_status(
+                                        gc=st.session_state["gc"],
+                                        run_id=run_id,
+                                        user_email=user_email,
+                                        agent_name=step_name,
+                                        status="pending",
+                                        sheet_link=sheet_link or "",
+                                        job_link=job_link,
+                                        message="Submitted from UI; awaiting Lightning execution",
+                                    )
+                            except Exception:
+                                pass
+                        st.rerun()
+                    elif job_name:
+                        st.session_state[background_name_key] = job_name
+                        st.session_state.pop(background_link_key, None)
+                        if run_id:
+                            st.session_state[background_run_id_key] = run_id
+                            try:
+                                if st.session_state.get("gc") is not None:
+                                    append_background_job_status(
+                                        gc=st.session_state["gc"],
+                                        run_id=run_id,
+                                        user_email=user_email,
+                                        agent_name=step_name,
+                                        status="pending",
+                                        sheet_link=sheet_link or "",
+                                        job_link="",
+                                        message="Submitted from UI; awaiting Lightning execution",
+                                    )
+                            except Exception:
+                                pass
+                        st.rerun()
+                        with st.expander("Launcher output (no job link found)", expanded=False):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
+                    else:
+                        st.error("Background job submission did not return a job link.")
+                        with st.expander("Launcher output", expanded=True):
+                            st.code(logs[-5000:] if len(logs) > 5000 else logs)
+
+    # --- 4) Display pipeline steps in nested sections ---
+    if "sheet" in st.session_state:
+        step_global_count = 1  # So we can label steps 1,2,3 across sections
+
+        # Optional instructions shown above all sections (Graphics V2 already showed these above buttons)
+        if top_instructions and step_name != "Graphics Definition V2":
+            st.info(top_instructions)
+
+        # Optional toggles shown above all sections
+        if top_toggles:
+            for toggle in top_toggles:
+                toggle_key = toggle["key"]
+                if toggle_key not in st.session_state:
+                    st.session_state[toggle_key] = toggle.get("default", False)
+                st.toggle(toggle["label"], key=toggle_key)
+
+        # Filter sections that have at least one visible step
+        visible_sections = [
+            section for section in pipeline_sections
+            if any(not _step_is_hidden(step) for step in section["steps"])
+        ]
+
+        # Use only visible sections for correct numbering
+        for section_idx, section in enumerate(visible_sections, start=1):
+
+            # Filter out steps that should be hidden
+            visible_steps = [
+                step for step in section["steps"]
+                if not _step_is_hidden(step)
+            ]
+
+            # Skip section if no visible steps remain
+            if not visible_steps:
+                continue
+
+            with st.container(border=True):
+                st.header(f"Section {section_idx}: {section['section_name'].split(':', 1)[1].strip() if ':' in section['section_name'] else section['section_name']}", divider=True)
+                for step in visible_steps:
+                    step_key = f"{step['name']}_done"
+                    
+                    # Check if dependencies are satisfied
+                    dependencies_satisfied = all(
+                        _dependency_is_satisfied(dep, pipeline_sections)
+                        for dep in step["depends_on"]
+                    )
+                    
+
+                    # # Code to hide if step not ready.
+                    # if not dependencies_satisfied:
+                    #     continue
+
+                    # Manual step formatting
+                    is_manual = step.get("is_manual_step", False)
+                    manual_icon = "👨‍💻" if is_manual else ""
+
+                    # Expander 
+                    with st.expander(label = f"Step {step_global_count}: {step['name']}", expanded = (not st.session_state[step_key] and dependencies_satisfied)):
+                        # Subheader 
+                        st.subheader(f"{manual_icon}Step {step_global_count}: {step['name']}")
+                        step_global_count += 1
+
+                        # Always show estimated time
+                        st.write(f"**Estimated Time:** {step.get('estimated_time', 'N/A')}")
+
+                        # Add video link if provided (Streamlit-styled)
+                        if 'video_link' in step:
+                            st.markdown(f"""<div style='margin: 0.5rem 0;'>
+                                <a href='{step['video_link']}' target='_blank' 
+                                   style='color: #FF4B4B; font-size: 0.9em; text-decoration: none; 
+                                          display: inline-flex; align-items: center; gap: 4px;'>
+                                    <span>📺</span>
+                                    <span style='border-bottom: 1px solid rgba(255,75,75,0.2);'>Click here - Video Guide</span>
+                                </a>
+                            </div>""", unsafe_allow_html=True)
+
+                        if not dependencies_satisfied:
+                            # If dependencies are not done, show a message & skip
+                            missing_steps = []
+                            for dep in step["depends_on"]:
+                                missing_steps.extend(_get_unsatisfied_visible_dependencies(dep, pipeline_sections))
+                            # Deduplicate preserving order
+                            seen_missing = set()
+                            missing_steps = [x for x in missing_steps if not (x in seen_missing or seen_missing.add(x))]
+                            missing_list = ", ".join(missing_steps)
+                            st.warning(f"Waiting on these steps to be done first: {missing_list}")
+                            continue
+
+                        if not st.session_state[step_key]:
+                            # This step is not done yet
+
+                            # If this step has pre-exec setup, show instructions so user knows what to do before running
+                            if "pre_exec_func" in step and "pre_exec_instructions" in step:
+                                st.info(step["pre_exec_instructions"])
+
+                            # If we have a description, only show it while the user can act on the step
+                            if "description" in step:
+                                st.info(step["description"])
+
+                            if "instructions" in step:
+                                for instruction in step["instructions"]:
+                                    st.write(instruction)
+                                button_name = f"Confirm {step['name']}"
+                                button_type = "primary"
+                            else:
+                                button_name = f"Run {step['name']}"
+                                button_type = "secondary"
+
+                            # NEW CODE: Run pre-execution function if it exists and hasn't been run yet
+                            if "pre_exec_func" in step:
+                                pre_exec_key = f"{step['name']}_pre_executed"
+                                # Check if we should always run the pre_exec function or only if it hasn't been run yet
+                                always_run = step.get("pre_exec_always_run", False)
+                                if always_run or not st.session_state.get(pre_exec_key, False):
+                                    try:
+                                        # Gather pre-execution arguments from session_state
+                                        pre_kwargs = {}
+                                        if "pre_exec_args" in step:
+                                            for arg_name, session_key in step["pre_exec_args"].items():
+                                                if isinstance(session_key, str) and session_key in st.session_state:
+                                                    pre_kwargs[arg_name] = st.session_state[session_key]
+                                                else:
+                                                    pre_kwargs[arg_name] = session_key
+                                        
+                                        # Run the pre-execution function
+                                        with st.spinner(f"Loading preview data for {step['name']}..."):
+                                            step["pre_exec_func"](**pre_kwargs)
+                                        
+                                        # Mark pre-execution as done
+                                        st.session_state[pre_exec_key] = True
+                                    except Exception as e:
+                                        st.error(f"Error in pre-execution for {step['name']}: {e}")
+                                        st.text(traceback.format_exc())
+
+                            if st.button(button_name, type=button_type, key=f"btn_{step['name']}"):
+                                ctx = _get_tracking_context()
+                                _start_time = time.perf_counter()
+                                try:
+                                    # Add current step to session state
+                                    st.session_state["current_step"] = step["name"]
+                                    _set_step_context(st.session_state.get("agent_name", ""), step["name"])
+                                    if llm_pricing is not None and _is_llm_step(step):
+                                        _record_step_token_offset(step["name"])
+
+                                    # Gather actual arguments from session_state
+                                    kwargs = {}
+                                    for arg_name, session_key in step["args"].items():
+                                        # If the session_key is a string that matches a valid session_state key, retrieve it
+                                        if isinstance(session_key, str) and session_key in st.session_state:
+                                            kwargs[arg_name] = st.session_state[session_key]
+                                        else:
+                                            # or if it's a literal / direct value, pass it through
+                                            kwargs[arg_name] = session_key
+
+                                    fn_params = inspect.signature(step["func"]).parameters
+                                    if step_name == "Graphics Definition V2" and "selected_topics" in fn_params and "selected_topics" not in kwargs:
+                                        kwargs["selected_topics"] = st.session_state.get("selected_topics", [])
+
+                                    # Track step start
+                                    if ctx["gc"]:
+                                        track_step_start(
+                                            ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                            step["name"], ctx["course_name"], ctx["sheet_link"],
+                                            run_mode="manual",
+                                        )
+
+                                    if "instructions" in step:
+                                        # If it is a manual input type function
+                                        start_perf = time.perf_counter()
+                                        start_time = datetime.now()
+                                        response = step["func"](**kwargs)
+                                        end_time = datetime.now()
+                                        duration_seconds = time.perf_counter() - start_perf
+                                        if response:
+                                            st.session_state[step_key] = True
+                                            # Log the completed step
+                                            log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+
+                                            if llm_pricing is not None:
+                                                _record_step_metrics(step, duration_seconds, start_time, end_time, llm_pricing)
+
+                                            if ctx["gc"]:
+                                                track_step_complete(
+                                                    ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                                    step["name"], ctx["course_name"], ctx["sheet_link"],
+                                                    duration_seconds=time.perf_counter() - _start_time,
+                                                    run_mode="manual",
+                                                )
+
+                                            st.success(f"{step['name']} completed!")
+
+                                            # Only continue automation if it was explicitly triggered
+                                            if st.session_state.get("automation_in_progress", False):
+                                                run_all_automated_steps(pipeline_sections, llm_pricing)
+                                                st.rerun()
+                                            st.rerun()
+
+                                        else:
+                                            st.warning(f"{step['name']} not completed!")
+                                    else:
+                                        # Run the actual function
+                                        start_perf = time.perf_counter()
+                                        start_time = datetime.now()
+                                        step["func"](**kwargs)
+                                        end_time = datetime.now()
+                                        duration_seconds = time.perf_counter() - start_perf
+                                        st.session_state[step_key] = True
+                                        # Log the completed step
+                                        log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+
+                                        if llm_pricing is not None:
+                                            _record_step_metrics(step, duration_seconds, start_time, end_time, llm_pricing)
+
+                                        if ctx["gc"]:
+                                            track_step_complete(
+                                                ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                                step["name"], ctx["course_name"], ctx["sheet_link"],
+                                                duration_seconds=time.perf_counter() - _start_time,
+                                                run_mode="manual",
+                                            )
+
+                                        st.success(f"{step['name']} completed!")
+                                        st.rerun()
+                                except Exception as e:
+                                    if ctx["gc"]:
+                                        track_step_error(
+                                            ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                            step["name"], ctx["course_name"], ctx["sheet_link"],
+                                            error_message=str(e)[:500],
+                                            run_mode="manual",
+                                        )
+                                    st.error(f"Error running {step['name']}: {e}")
+                                    st.text(traceback.format_exc())
+                                finally:
+                                    _clear_step_context()
+                        else:
+                            # st.write(f"{step['name']}: **Done**")
+                            st.write("**Status:** Done")
+                            metrics = st.session_state.get("step_metrics", {}).get(step["name"])
+                            if metrics:
+                                st.write(f"**Time Taken:** {_format_duration(metrics.get('duration_seconds'))}")
+                                if metrics.get("cost") is not None:
+                                    currency = "$"
+                                    if llm_pricing:
+                                        currency = llm_pricing.get("currency", "$")
+                                    st.write(f"**Total Cost:** {_format_cost(metrics['cost'], currency)}")
+
+                            # Add delete button for completed steps
+                            if st.button("Delete Step", type="secondary", key=f"delete_{step['name']}"):
+                                try:
+                                    
+                                    affected_steps = get_dependent_steps(
+                                        pipeline_sections, step["name"], only_done=False
+                                    )
+                                    
+                                    affected_list = ", ".join(affected_steps)
+                                    st.warning(f"Deleting this step will also delete these dependent steps: {affected_list}")
+                                    # if st.button("Confirm Delete", type="secondary", key=f"confirm_delete_{step['name']}"):
+                                    delete_steps(st.session_state["sheet"], st.session_state["agent_name"], 
+                                                affected_steps, pipeline_sections)
+                                    st.success(f"Deleted step {step['name']} and its dependencies!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error deleting {step['name']}: {e}")
+                                    st.text(traceback.format_exc())
+
+                            # If this is the very last step in the entire pipeline, celebrate
+                            if (
+                                section_idx == len(visible_sections)
+                                and step == visible_steps[-1]
+                            ):
+                                st.balloons()
+                                st.toast(
+                                    f"You have successfully generated the {step_name}!",
+                                    icon=":material/done_all:",
+                                )
+
+    # Debug
+    # st.write(st.session_state)
+
+
+def get_dependent_steps(pipeline_sections, step_name, only_done=True):
+    """
+    Find all steps that depend on the given step (directly or indirectly).
+    Returns a list of step names including the starting step.
+    By default, only includes steps that are marked as done in the session state.
+    Set only_done=False to include all downstream dependent steps.
+    Steps are returned in reverse dependency order (most dependent first).
+    """
+    all_steps = {}
+    # First, build a dictionary of all steps and their dependencies
+    for section in pipeline_sections:
+        for step in section["steps"]:
+            all_steps[step["name"]] = step["depends_on"]
+    
+    # Initialize with the starting step
+    dependent_steps = []
+    
+    # Function to recursively find dependent steps
+    def find_dependents(step_to_check):
+        for current_step, dependencies in all_steps.items():
+            is_done = st.session_state.get(f"{current_step}_done", False)
+            if (
+                step_to_check in dependencies
+                and current_step not in dependent_steps
+                and (is_done or not only_done)
+            ):
+                find_dependents(current_step)
+                dependent_steps.append(current_step)
+    
+    # Start the recursive search
+    find_dependents(step_name)
+    
+    # Add the starting step at the end
+    dependent_steps.append(step_name)
+    
+    return dependent_steps
+
+
+def delete_steps(sheet, agent_name, step_names, pipeline_sections):
+    """
+    Delete the specified steps from the session state and the logs.
+    Also executes any delete functions associated with the steps.
+    
+    Note: Only steps that are marked as done will be included in the deletion process.
+    This is ensured by the get_dependent_steps function which filters out steps
+    that are not marked as done.
+    """
+    # Get the Agent logs worksheet
+    worksheet, df = get_sheet_data_and_df(sheet, "Agent logs")
+    
+    # Filter logs to remove the specified steps for this agent
+    new_df = df[~((df["Agent Name"] == agent_name) & (df["Step Name"].isin(step_names)))]
+    
+    # Clear the worksheet
+    worksheet.clear()
+    
+    # Add header row
+    # worksheet.append_row(["Agent Name", "Step Name", "Timestamp"])
+    
+    # Add remaining logs back
+    if not new_df.empty:
+        save_to_sheet(worksheet = worksheet, df = new_df)
+    
+    # Initialize the progress tracker
+    progress = SmartProgressBar(total_tasks = len(step_names), description = "Percent complete")
+
+    # Reset session state for the deleted steps
+    for step_name in step_names:
+        st.session_state[f"{step_name}_done"] = False
+        pre_exec_key = f"{step_name}_pre_executed"
+        if pre_exec_key in st.session_state:
+            st.session_state[pre_exec_key] = False
+        if "step_metrics" in st.session_state:
+            st.session_state["step_metrics"].pop(step_name, None)
+        if "step_token_offsets" in st.session_state:
+            st.session_state["step_token_offsets"].pop(step_name, None)
+        
+        # Execute the delete function if it exists
+        for section in pipeline_sections:
+            for step in section["steps"]:
+                if step["name"] == step_name and "delete_func" in step:
+                    # try:
+                    # Gather delete function arguments
+                    delete_kwargs = {}
+                    if "delete_args" in step:
+                        for arg_name, session_key in step["delete_args"].items():
+                            if isinstance(session_key, str) and session_key in st.session_state:
+                                delete_kwargs[arg_name] = st.session_state[session_key]
+                            else:
+                                delete_kwargs[arg_name] = session_key
+                    
+                    # Execute the delete function. Missing worksheets are skipped.
+                    with st.spinner(text = f"Deleting {step_name}...", show_time = True):
+                        try:
+                            step["delete_func"](**delete_kwargs)
+                        except Exception as e:
+                            def _is_missing_worksheet_error(exc: Exception) -> bool:
+                                seen = set()
+                                current = exc
+                                while current is not None and id(current) not in seen:
+                                    seen.add(id(current))
+                                    msg = str(current)
+                                    cls_name = current.__class__.__name__
+                                    if (
+                                        "WorksheetNotFound" in cls_name
+                                        or "WorksheetNotFound" in msg
+                                        or ("worksheet" in msg.lower() and "not found" in msg.lower())
+                                    ):
+                                        return True
+                                    current = current.__cause__ or current.__context__
+                                return False
+
+                            if _is_missing_worksheet_error(e):
+                                pass
+                            else:
+                                raise
+                    # except Exception as e:
+                    #     st.error(f"Error in delete function for {step_name}: {e}")
+                    #     st.text(traceback.format_exc())
+        
+        # Update progress
+        progress.update()
+
+
+
+def run_all_automated_steps(pipeline_sections, llm_pricing: dict | None = None):
+    """Run all steps in the pipeline that have their dependencies satisfied.
+    - If skip_manual_step is checked - run all steps including manual ones.
+    - If unchecked - stop execution when a manual step is reached.
+    """
+    progress_made = True
+    
+    # Keep iterating as long as we're making progress
+    while progress_made:
+        progress_made = False
+        
+        step_global_count = 0
+        # Go through all steps in all sections
+        for section in pipeline_sections:
+            for step in section["steps"]:
+
+                # Skip step if it's hidden for the current run configuration
+                if _step_is_hidden(step):
+                    continue
+
+                step_key = f"{step['name']}_done"
+                step_global_count += 1
+
+                # Skip if already done
+                if st.session_state.get(step_key, False):
+                    continue
+
+                # Check if dependencies are satisfied
+                dependencies_satisfied = all(
+                    _dependency_is_satisfied(dep, pipeline_sections)
+                    for dep in step["depends_on"]
+                )                    
+            
+                if not dependencies_satisfied:
+                    continue
+
+                # Check if this is a manual step
+                is_manual = "instructions" in step
+
+                # Stop at manual steps unless "skip_manual_step" is checked
+                if is_manual and not st.session_state.get("skip_manual_step", False):
+                    st.info(f" Paused at manual step: **{step['name']}**. Please complete it manually to continue.")
+                    return  # Exit early, waiting for manual confirmation
+
+                if dependencies_satisfied:
+                    ctx = _get_tracking_context()
+                    _start_time = time.perf_counter()
+                    try:
+                        with st.spinner(text = f"Running: Step {step_global_count}. {step['name']}...", show_time = True):
+                            # Add current step to session state
+                            st.session_state["current_step"] = step["name"]
+                            _set_step_context(st.session_state.get("agent_name", ""), step["name"])
+                            if llm_pricing is not None and _is_llm_step(step):
+                                _record_step_token_offset(step["name"])
+
+                            # Run pre-execution function if configured 
+                            if "pre_exec_func" in step:
+                                pre_exec_key = f"{step['name']}_pre_executed"
+                                always_run = step.get("pre_exec_always_run", False)
+                                if always_run or not st.session_state.get(pre_exec_key, False):
+                                    pre_kwargs = {}
+                                    if "pre_exec_args" in step:
+                                        for arg_name, session_key in step["pre_exec_args"].items():
+                                            if isinstance(session_key, str) and session_key in st.session_state:
+                                                pre_kwargs[arg_name] = st.session_state[session_key]
+                                            else:
+                                                pre_kwargs[arg_name] = session_key
+                                    step["pre_exec_func"](**pre_kwargs)
+                                    st.session_state[pre_exec_key] = True
+
+                            # Gather actual arguments from session_state
+                            kwargs = {}
+                            for arg_name, session_key in step["args"].items():
+                                # If the session_key is a string that matches a valid session_state key, retrieve it
+                                if isinstance(session_key, str) and session_key in st.session_state:
+                                    kwargs[arg_name] = st.session_state[session_key]
+                                else:
+                                    # or if it's a literal / direct value, pass it through
+                                    kwargs[arg_name] = session_key
+
+                            fn_params = inspect.signature(step["func"]).parameters
+                            agent_name = st.session_state.get("agent_name", "")
+                            if agent_name == "Graphics Definition V2" and "selected_topics" in fn_params and "selected_topics" not in kwargs:
+                                kwargs["selected_topics"] = st.session_state.get("selected_topics", [])
+
+                            # Track step start
+                            if ctx["gc"]:
+                                track_step_start(
+                                    ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                    step["name"], ctx["course_name"], ctx["sheet_link"],
+                                    run_mode="automated",
+                                )
+
+                            # Run the function
+                            start_perf = time.perf_counter()
+                            start_time = datetime.now()
+                            step["func"](**kwargs)
+                            end_time = datetime.now()
+                            duration_seconds = time.perf_counter() - start_perf
+                            st.session_state[step_key] = True
+                            # Log the completed step
+                            log_completed_step(st.session_state["sheet"], st.session_state["agent_name"], step["name"])
+
+                            if llm_pricing is not None:
+                                _record_step_metrics(step, duration_seconds, start_time, end_time, llm_pricing)
+
+                            if ctx["gc"]:
+                                track_step_complete(
+                                    ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                    step["name"], ctx["course_name"], ctx["sheet_link"],
+                                    duration_seconds=time.perf_counter() - _start_time,
+                                    run_mode="automated",
+                                )
+
+                            progress_made = True
+                            st.success(f"Auto-run: Step {step_global_count}. {step['name']} completed!")
+
+                    except Exception as e:
+                        if ctx["gc"]:
+                            track_step_error(
+                                ctx["gc"], ctx["user_email"], ctx["agent_name"],
+                                step["name"], ctx["course_name"], ctx["sheet_link"],
+                                error_message=str(e)[:500],
+                                run_mode="automated",
+                            )
+                        st.error(f"Error auto-running Step {step_global_count}. {step['name']}: {e}")
+                        st.text(traceback.format_exc())
+                        return
+                    finally:
+                        _clear_step_context()
+    st.session_state["automation_in_progress"] = False
+
+
+def log_completed_step(sheet, agent_name, step_name):
+    """Log a completed step to the Agent logs worksheet."""
+    try:
+        worksheet, df = get_sheet_data_and_df(sheet, "Agent logs")
+        
+        # Create a timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Create a new log entry
+        log_data = [agent_name, step_name, timestamp]
+        
+        # Add the log entry to the worksheet
+        worksheet.append_row(log_data)
+    except Exception as e:
+        st.error(f"Error logging completed step: {e}")
+
+
+def load_completed_steps(sheet, agent_name):
+    """Load previously completed steps from the Agent logs worksheet."""
+    try:
+        worksheet, df = create_or_read_worksheet(sheet, "Agent logs")
+        
+        # If the dataframe is empty (only has headers), return
+        if df.empty:
+            # Add header row
+            worksheet.append_row(["Agent Name", "Step Name", "Timestamp"])
+            format_worksheet(worksheet = worksheet)
+            return
+        
+        # Filter logs for the current agent
+        agent_logs = df[df["Agent Name"] == agent_name]
+        
+        # Mark each logged step as completed in the session state
+        for _, row in agent_logs.iterrows():
+            step_key = f"{row['Step Name']}_done"
+            st.session_state[step_key] = True
+                
+    except Exception as e:
+        st.error(f"Error loading completed steps: {e}")
+
+
+# def clear_agent_logs(sheet, agent_name):
+#     """Clear logs for a specific agent from the Agent logs worksheet."""
+#     try:
+#         # Get the Agent logs worksheet
+#         worksheet, df = get_sheet_data_and_df(sheet, "Agent logs")
+        
+#         # Filter out logs for the current agent
+#         new_df = df[df["Agent Name"] != agent_name]
+        
+#         # Clear the worksheet
+#         worksheet.clear()
+        
+#         # Add header row
+#         worksheet.append_row(["Agent Name", "Step Name", "Timestamp"])
+        
+#         # Add remaining logs back
+#         if not new_df.empty:
+#             for _, row in new_df.iterrows():
+#                 worksheet.append_row(row.tolist())
+        
+#         st.success("All steps have been reset!")
+
+#     except Exception as e:
+#         st.error(f"Error clearing agent logs: {e}")
