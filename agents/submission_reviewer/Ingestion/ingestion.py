@@ -380,9 +380,9 @@ def get_user_oauth_drive_service():
     account (e.g. om@skillcatapp.com) using OAuth credentials.
     Explicitly refuses to use a service account.
     """
-    refresh = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
-    client_id = os.environ.get("OAUTH_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("OAUTH_CLIENT_SECRET", "").strip()
+    refresh = (os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN") or os.environ.get("OAUTH_REFRESH_TOKEN", "")).strip()
+    client_id = (os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or os.environ.get("OAUTH_CLIENT_ID", "")).strip()
+    client_secret = (os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET") or os.environ.get("OAUTH_CLIENT_SECRET", "")).strip()
 
     if not refresh:
         raise ValueError(
@@ -392,7 +392,7 @@ def get_user_oauth_drive_service():
             "    python scripts/authenticate_user_drive.py"
         )
     if not client_id or not client_secret:
-        raise ValueError("Missing OAUTH_CLIENT_ID or OAUTH_CLIENT_SECRET in .env.")
+        raise ValueError("Missing GOOGLE_OAUTH_CLIENT_ID / OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_SECRET / OAUTH_CLIENT_SECRET in .env.")
 
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
