@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkillCat · Submission Review Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css?v=20261005_09" />
+</head>
+<body>
+
+  <!-- ====================================================================== -->
+  <!-- VIEW 1: Activities Dashboard View                                      -->
+  <!-- ====================================================================== -->
+  <div id="activities-dashboard-view" class="activities-dashboard-view">
+    <!-- Dashboard Top Header -->
+    <header class="dashboard-header">
+      <div class="header-left">
+        <div class="studio-logo">
+          <img src="/brand-assets/Skillcat-Helmet.png" class="sc-mark" alt="SkillCat" onerror="this.onerror=null; this.src='/brand-assets/SkillCat-Logo.png';" />
+        </div>
+        <div class="studio-title-wrap">
+          <div class="sc-eyebrow">SKILLCAT</div>
+          <div class="studio-title">Review Studio</div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button id="dash-refresh-btn" class="btn btn-secondary btn-sm" title="Refresh activities from Google Sheet">
+          <svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          <span>Refresh</span>
+        </button>
+
+        <a id="dash-sheet-link-btn" href="#" target="_blank" class="icon-btn" title="Open central Google Sheet">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+
+        <button id="dash-theme-toggle-btn" class="icon-btn" title="Toggle light/dark theme" aria-label="Toggle theme">
+          <svg class="ic dash-theme-icon-sun" style="display: none;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="ic dash-theme-icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+
+        <div class="user-chip">
+          <div class="user-avatar" id="dash-user-avatar">OA</div>
+          <span class="user-name" id="dash-mentor-name-display">Om Aryan</span>
+        </div>
+
+        <a href="/auth/logout" class="icon-btn" title="Sign out" style="text-decoration: none;" aria-label="Sign out">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- Dashboard Main Content -->
+    <main class="dashboard-main-content">
+      <div class="dashboard-hero-section">
+        <div class="hero-header-row">
+          <div class="hero-text-wrap">
+            <h1 class="hero-title">Assignment Activities</h1>
+            <p class="hero-subtitle">Select an assignment activity to review student submissions, inspect media evidence, and verify grades.</p>
+          </div>
+          <div class="hero-summary-pill" id="dashboard-hero-summary">
+            <span class="summary-dot" id="hero-summary-dot"></span>
+            <span class="summary-text" id="hero-summary-text">Loading overview...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls & Search -->
+      <div class="dashboard-controls-bar">
+        <div class="search-input-wrap">
+          <svg class="ic search-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="dash-activity-search" class="dash-search-input" placeholder="Search activities by name..." />
+        </div>
+
+        <div class="dash-filter-tabs">
+          <button class="dash-tab is-active" data-filter="all" id="dash-tab-all">All Activities</button>
+          <button class="dash-tab" data-filter="pending" id="dash-tab-pending">Pending Grading</button>
+          <button class="dash-tab" data-filter="completed" id="dash-tab-completed">Completed</button>
+        </div>
+      </div>
+
+      <!-- Activities Grid -->
+      <div class="activities-grid" id="activities-cards-grid">
+        <!-- Injected dynamically by app.js -->
+      </div>
+    </main>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- VIEW 2: Reviewer Studio View (Active Activity Reviewer)               -->
+  <!-- ====================================================================== -->
+  <div id="reviewer-studio-view" class="reviewer-studio-view" style="display: none;">
+
+    <!-- Top App Navigation -->
+    <header class="studio-header">
+      <div class="header-left">
+        <!-- Back to Activities Button -->
+        <button id="back-to-activities-btn" class="btn back-to-dash-btn" title="Back to Activities Dashboard">
+          <svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>All Activities</span>
+        </button>
+
+        <div class="studio-logo">
+          <img src="/brand-assets/Skillcat-Helmet.png" class="sc-mark" alt="SkillCat" onerror="this.onerror=null; this.src='/brand-assets/SkillCat-Logo.png';" />
+        </div>
+        <div class="studio-title-wrap">
+          <div class="sc-eyebrow">SKILLCAT</div>
+          <div class="studio-title">Review Studio</div>
+        </div>
+
+        <div class="activity-selector-wrap">
+          <span class="activity-label">ACTIVITY</span>
+          <select id="activity-select" class="activity-dropdown" title="Select Activity">
+            <!-- Dynamically populated activities -->
+          </select>
+        </div>
+      </div>
+
+      <!-- Center Progress Ring / Metric -->
+      <div class="header-center">
+        <div class="progress-pill">
+          <div class="progress-track">
+            <div class="progress-fill" id="header-progress-fill" style="width: 0%;"></div>
+          </div>
+          <span class="progress-label" id="header-progress-text">0 / 0 Approved</span>
+        </div>
+      </div>
+
+      <!-- Right Header Controls -->
+      <div class="header-right">
+        <button id="batch-approve-btn" class="btn btn-secondary btn-sm" title="Batch approve all confident passing submissions">
+          <svg class="ic" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>Batch Approve Passes</span>
+        </button>
+
+        <button id="sync-local-btn" class="btn btn-secondary btn-sm" title="Sync folder from Moodle downloads">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Sync</span>
+        </button>
+
+        <a id="sheet-link-btn" href="#" target="_blank" class="icon-btn" title="Open central Google Sheet">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+
+        <button id="theme-toggle-btn" class="icon-btn" title="Toggle light/dark theme" aria-label="Toggle theme">
+          <svg id="theme-icon-sun" class="ic" style="display: none;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg id="theme-icon-moon" class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+
+        <div class="user-chip">
+          <div class="user-avatar" id="user-avatar">OA</div>
+          <span class="user-name" id="mentor-name-display">Om Aryan</span>
+        </div>
+
+        <a href="/auth/logout" class="icon-btn" title="Sign out" style="text-decoration: none;" aria-label="Sign out">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- Master-Detail Split Workspace -->
+    <div class="studio-workspace" id="studio-workspace">
+
+    <!-- LEFT ROSTER COLUMN: Student Queue -->
+    <aside class="roster-panel" id="roster-panel">
+      <!-- 1. Collapsed Side Banner (Click anywhere to uncollapse) -->
+      <div class="roster-collapsed-banner" id="roster-collapsed-banner" title="Expand student queue ([)" role="button" tabindex="0">
+        <div class="banner-top-icon">
+          <svg class="ic" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        <div class="banner-vertical-label">
+          <span>Student Queue</span>
+        </div>
+        <div class="banner-count-badge" id="banner-count-badge">0</div>
+      </div>
+
+      <!-- 2. Full Expanded Roster Content -->
+      <div class="roster-expanded-content" id="roster-expanded-content">
+        <!-- Search & Filters -->
+        <div class="roster-toolbar">
+          <div class="roster-search-row">
+            <div class="search-input-wrap">
+              <svg class="search-icon ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="roster-search" class="search-input" placeholder="Search students..." />
+            </div>
+            <button id="sidebar-collapse-btn" class="icon-btn" title="Collapse queue ([)" aria-label="Collapse queue">
+              <svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          </div>
+
+          <div class="roster-filter-pills" id="roster-filters">
+            <button class="filter-pill is-active" data-filter="pass">
+              <span>Pass</span>
+              <span class="pill-badge" id="badge-pass">0</span>
+            </button>
+            <button class="filter-pill" data-filter="fail">
+              <span>Fail</span>
+              <span class="pill-badge" id="badge-fail">0</span>
+            </button>
+            <button class="filter-pill" data-filter="unsure">
+              <span>Unsure</span>
+              <span class="pill-badge" id="badge-unsure">0</span>
+            </button>
+            <button class="filter-pill" data-filter="approved">
+              <span>Approved</span>
+              <span class="pill-badge" id="badge-approved">0</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Metrics Ribbon with In-Roster Navigation -->
+        <div class="roster-summary-bar">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="roster-count-text">0 students</span>
+            <span class="meta-dot">·</span>
+            <span class="summary-pass-rate" id="summary-pass-rate">Pass: 0%</span>
+          </div>
+          <div class="roster-nav-mini">
+            <button id="roster-prev-btn" class="mini-nav-btn" title="Previous student">‹</button>
+            <span id="roster-pos-badge" class="roster-pos-badge">1/5</span>
+            <button id="roster-next-btn" class="mini-nav-btn" title="Next student">›</button>
+          </div>
+        </div>
+
+        <!-- Scrollable Student List -->
+        <div class="roster-list" id="roster-list">
+          <!-- Injected Student List Items -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- RIGHT MAIN STAGE: Focused Review Workspace -->
+    <main class="review-stage" id="review-stage">
+      <!-- Empty state when no student is selected -->
+      <div class="stage-placeholder" id="stage-placeholder">
+        <div class="placeholder-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+            <path d="M9 12h6m-6 4h4"/>
+          </svg>
+        </div>
+        <h3>Select a student from the queue</h3>
+        <p>Choose a submission from the roster on the left to begin reviewing.</p>
+      </div>
+
+      <!-- Active Student Workspace (Injected dynamically) -->
+      <div class="stage-content" id="stage-content" style="display: none;">
+        <!-- Top Stage Banne        <!-- Top Stage Banner (Slim) -->
+        <div class="stage-header">
+          <div class="stage-student-info">
+            <div class="student-avatar-lg" id="stage-avatar">JD</div>
+            <div class="student-headline">
+              <h1 class="student-name-title" id="stage-student-name">Student Name</h1>
+              <span class="badge badge-attempt" id="stage-attempt-badge">Attempt #1</span>
+              <span class="badge" id="stage-agent-grade-badge">AI: Pass</span>
+              <span class="badge badge-override" id="stage-override-badge" style="display: none;">
+                <svg class="ic-xs" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Override Active
+              </span>
+              <span class="badge badge-unsaved" id="stage-unsaved-badge" style="display: none;">Unsaved Edits</span>
+            </div>
+          </div>
+
+          <div class="stage-nav-actions">
+            <div class="stage-pagination">
+              <button id="prev-student-btn" class="icon-btn" title="Previous student">
+                <svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <span class="pagination-pos" id="pagination-pos">1 of 7</span>
+              <button id="next-student-btn" class="icon-btn" title="Next student">
+                <svg class="ic" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2-Card Evaluation Body -->
+        <div class="stage-body-grid">
+          <!-- Left: Evidence & Online Text -->
+          <div class="content-panel evidence-panel">
+            <div class="panel-header">
+              <span class="panel-title">
+                <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                Student Submission
+              </span>
+            </div>
+            <div class="evidence-body">
+              <div class="quote-container">
+                <div class="quote-text" id="stage-online-text">No text submitted.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Submission Media Preview Carousel -->
+          <div class="content-panel media-preview-panel" id="stage-media-panel">
+            <div class="media-loading-bar" id="media-loading-bar"></div>
+            <div class="panel-header">
+              <span class="panel-title">
+                <svg class="ic" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                Submission Media
+              </span>
+              <div class="media-header-actions">
+                <span class="badge" id="media-counter-badge">0 items</span>
+              </div>
+            </div>
+
+            <div class="media-preview-body">
+              <!-- Loading State -->
+              <div class="media-state-wrap" id="media-loading-state" style="display: none;">
+                <div class="media-spinner"></div>
+                <span>Loading media from Drive...</span>
+              </div>
+
+              <!-- Empty State -->
+              <div class="media-state-wrap" id="media-empty-state">
+                <svg class="ic-empty" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <span id="media-empty-text">No media found in Drive folder.</span>
+              </div>
+
+              <!-- Active Image / Video / Audio Carousel Viewport -->
+              <div class="media-carousel-viewport" id="media-carousel-viewport" style="display: none;">
+                <!-- Left Nav Arrow Button -->
+                <button type="button" class="media-nav-btn media-nav-prev" id="media-nav-prev-btn" title="Previous media (←)" aria-label="Previous media">
+                  <svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+
+                <!-- Centered Media Container (Image, Video, Audio) -->
+                <div class="media-img-frame" id="media-content-frame">
+                  <div class="media-canvas-wrap" id="media-canvas-wrap">
+                    <div class="media-skeleton-loader" id="media-skeleton-loader" style="display: none;">
+                      <div class="skeleton-shimmer"></div>
+                    </div>
+                    <img id="media-preview-img" src="" alt="Submission media" class="media-preview-img" style="display: none;" />
+                    <img id="media-staging-img" src="" alt="Submission media" class="media-preview-img media-staging-img" style="display: none;" />
+                  </div>
+                  <video id="media-preview-video" src="" controls playsinline class="media-preview-video" style="display: none;"></video>
+                  <div id="media-preview-audio-wrap" class="media-audio-player-wrap" style="display: none;">
+                    <div class="audio-icon-disc">
+                      <svg class="ic-lg" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                    </div>
+                    <audio id="media-preview-audio" src="" controls class="media-preview-audio"></audio>
+                  </div>
+                  <div id="media-preview-file-wrap" class="media-file-doc-wrap" style="display: none;">
+                    <svg class="ic-xl" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span class="file-name" id="media-doc-filename">document.pdf</span>
+                  </div>
+                </div>
+
+                <!-- Right Nav Arrow Button -->
+                <button type="button" class="media-nav-btn media-nav-next" id="media-nav-next-btn" title="Next media (→)" aria-label="Next media">
+                  <svg class="ic" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pinned Bottom Decision Dock (Consolidated 2-Column Form Flow) -->
+        <div class="decision-dock">
+          <!-- Left Column: Final Grade Selector & Status Summary Box -->
+          <div class="dock-grade-col">
+            <label class="dock-label">Final Grade for Moodle:</label>
+            <div class="segmented-grade-control">
+              <button type="button" class="grade-toggle-btn" id="btn-grade-pass">
+                <span class="dot-pass"></span> Pass
+              </button>
+              <button type="button" class="grade-toggle-btn" id="btn-grade-fail">
+                <span class="dot-fail"></span> Fail
+              </button>
+            </div>
+            <button type="button" class="dock-rule-btn" id="btn-manual-add-rule" title="Add an Edge Case or Guideline for this activity to Google Sheet">
+              <svg class="ic-xs" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+              <span>+ Add Edge Case / Rule</span>
+            </button>
+
+            <!-- Review Status Card (Contextual Overview) -->
+            <div class="dock-status-summary">
+              <div class="status-summary-header">
+                <span class="status-summary-label">REVIEW STATUS</span>
+                <span class="status-indicator-dot" id="dock-status-dot"></span>
+              </div>
+              <div class="status-summary-val" id="dock-review-status-val">Pending Review</div>
+              <div class="status-summary-mentor" id="dock-reviewed-by-val">Awaiting Mentor Review</div>
+            </div>
+          </div>
+
+          <!-- Right Column: Feedback Textarea + Form Action Buttons directly attached -->
+          <div class="dock-feedback-col">
+            <div class="dock-label-row">
+              <label class="dock-label" for="stage-feedback-input">Feedback to Student:</label>
+              <div class="dock-textarea-tools">
+                <span class="char-count" id="stage-char-count">0 chars</span>
+                <button type="button" class="btn-ghost btn-xs" id="stage-revert-btn">Revert to AI</button>
+              </div>
+            </div>
+            <textarea
+              id="stage-feedback-input"
+              class="dock-textarea"
+              placeholder="Enter feedback note to student..."
+              rows="4"
+            ></textarea>
+
+            <!-- Consolidated Form Submission Footer -->
+            <div class="dock-form-footer">
+              <div class="dock-unsaved-msg" id="dock-unsaved-msg">
+                <span id="dock-unsaved-indicator" style="display: none; color: var(--sc-warning); font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                  <svg class="ic-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Unsaved changes — click Save Override or Approve & Next
+                </span>
+              </div>
+              <div class="dock-form-buttons">
+                <button type="button" class="btn btn-secondary" id="stage-override-btn">
+                  <span>Save Override</span>
+                </button>
+                <button type="button" class="btn btn-primary btn-lg" id="stage-approve-next-btn">
+                  <span>Approve & Next ➔</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+ 
+    <!-- RIGHT EVALUATION COLUMN: Collapsible AI Agent Evaluation Panel -->
+    <aside class="eval-panel" id="eval-panel">
+      <!-- 1. Collapsed Side Banner (Click anywhere to uncollapse) -->
+      <div class="eval-collapsed-banner" id="eval-collapsed-banner" title="Expand AI evaluation (])" role="button" tabindex="0">
+        <div class="banner-top-icon">
+          <svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </div>
+        <div class="banner-vertical-label">
+          <span>AI Evaluation</span>
+        </div>
+        <div class="banner-count-badge" id="eval-banner-verdict-badge">AI</div>
+      </div>
+
+      <!-- 2. Full Expanded Evaluation Content -->
+      <div class="eval-expanded-content" id="eval-expanded-content">
+        <div class="eval-toolbar">
+          <div class="eval-header-title">
+            <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4m-4 5h0m8 0h0"/></svg>
+            <span>AI Evaluation</span>
+          </div>
+          <div class="eval-header-actions">
+            <span class="badge" id="stage-agent-verdict-pill">Pass</span>
+            <button id="eval-collapse-btn" class="icon-btn" title="Collapse AI evaluation (])" aria-label="Collapse AI evaluation">
+              <svg class="ic" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable checklist rubric area -->
+        <div class="checklist-scroll-area" id="stage-checklist-container">
+          <!-- Injected dynamically -->
+        </div>
+      </div>
+    </aside>
+
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Edge Case & Guideline Prompt Modal -->
+  <div class="modal-overlay" id="rule-prompt-modal" style="display: none;" aria-hidden="true" role="dialog" aria-labelledby="rule-modal-title">
+    <div class="modal-backdrop" id="rule-modal-backdrop"></div>
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="modal-header-icon">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        </div>
+        <div class="modal-header-text">
+          <div class="modal-badge-row">
+            <span class="badge" id="rule-modal-grade-change-badge">Grade Override</span>
+            <span class="badge badge-subtle" id="rule-modal-activity-badge">Activity</span>
+          </div>
+          <h3 class="modal-title" id="rule-modal-title">Teach the AI Reviewer</h3>
+          <p class="modal-subtitle">
+            You changed this submission's grade. Add an Edge Case or Guideline to the review sheet so the AI will evaluate similar submissions correctly in the future.
+          </p>
+        </div>
+        <button type="button" class="modal-close-btn" id="rule-modal-close-btn" aria-label="Close modal">
+          <svg class="ic-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Option Tabs: Both / Edge Case / Guideline -->
+        <div class="rule-tabs">
+          <button type="button" class="rule-tab-btn is-active" id="tab-btn-both" data-target="both">Both</button>
+          <button type="button" class="rule-tab-btn" id="tab-btn-edge" data-target="edge">Edge Case Only</button>
+          <button type="button" class="rule-tab-btn" id="tab-btn-guide" data-target="guide">Guideline Only</button>
+        </div>
+
+        <!-- Edge Case Field Section -->
+        <div class="rule-field-group" id="group-edge-case">
+          <div class="rule-field-header">
+            <label class="rule-label" for="rule-edge-case-input">
+              <span class="rule-type-tag tag-edge">Edge Case</span>
+              <span class="rule-label-desc">Allowed exceptions, acceptable variations, or alternative setups</span>
+            </label>
+          </div>
+          <textarea
+            id="rule-edge-case-input"
+            class="rule-textarea"
+            placeholder="e.g., Allow close-up shots of nameplate if the entire outdoor condenser cannot fit into the frame..."
+            rows="3"
+          ></textarea>
+        </div>
+
+        <!-- Guideline Field Section -->
+        <div class="rule-field-group" id="group-guideline">
+          <div class="rule-field-header">
+            <label class="rule-label" for="rule-guideline-input">
+              <span class="rule-type-tag tag-guide">Guideline</span>
+              <span class="rule-label-desc">Strict quality requirements, safety standards, or verification criteria</span>
+            </label>
+          </div>
+          <textarea
+            id="rule-guideline-input"
+            class="rule-textarea"
+            placeholder="e.g., Require that the service disconnect switch is visible in the frame and in the OFF position..."
+            rows="3"
+          ></textarea>
+        </div>
+
+        <!-- Existing Rules Toggle / Preview -->
+        <details class="existing-rules-accordion" id="existing-rules-accordion">
+          <summary class="existing-rules-summary">
+            <svg class="ic-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span id="existing-rules-summary-label">View Current Activity Details & Rules</span>
+          </summary>
+          <div class="existing-rules-content" id="existing-rules-content">
+            <div class="existing-rule-block">
+              <strong>Current Edge Cases:</strong>
+              <pre id="preview-existing-edge-cases">(None recorded yet)</pre>
+            </div>
+            <div class="existing-rule-block">
+              <strong>Current Guidelines:</strong>
+              <pre id="preview-existing-guidelines">(None recorded yet)</pre>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="rule-modal-skip-btn">
+          Skip & Keep Grade
+        </button>
+        <button type="button" class="btn btn-primary" id="rule-modal-save-btn">
+          <svg class="ic-xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          <span>Save to Activity Details Tab</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/js/api.js?v=20261005_12"></script>
+  <script src="/js/app.js?v=20261005_12"></script>
+</body>
+</html>

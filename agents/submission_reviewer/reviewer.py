@@ -235,21 +235,23 @@ def _call_gemini_reviewer(
     prompt_text: str,
     images: Optional[List[Image.Image]] = None,
     videos: Optional[List[dict]] = None,
+    model_name: Optional[str] = None,
 ) -> Optional[SubmissionReviewOutput]:
     """
-    Reviewer call using Gemini 3.5 Flash via google.genai SDK (preferred)
+    Reviewer call using Gemini via google.genai SDK (preferred)
     or LangChain ChatGoogleGenerativeAI. Supports text, PIL images, and raw video bytes.
     """
     images = images or []
     videos = videos or []
+    target_model = model_name or _FALLBACK_MODEL
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
     # Attempt 1: google.genai SDK (native PIL image + video bytes support)
     if api_key:
         try:
-            print(f"  [REVIEWER LOG] Invoking google.genai SDK ({_FALLBACK_MODEL}) with {len(images)} image(s) and {len(videos)} video(s)...")
+            print(f"  [REVIEWER LOG] Invoking google.genai SDK ({target_model}) with {len(images)} image(s) and {len(videos)} video(s)...")
             client = genai.Client(api_key=api_key)
-            contents = [system_prompt, prompt_text]
+            contents = [prompt_text]
             contents.extend(images)
 
             for vid in videos:
@@ -259,9 +261,10 @@ def _call_gemini_reviewer(
                     contents.append(types.Part.from_bytes(data=vid_bytes, mime_type=mime_type))
 
             response = client.models.generate_content(
-                model=_FALLBACK_MODEL,
+                model=target_model,
                 contents=contents,
                 config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
                     response_mime_type="application/json",
                     response_schema=SubmissionReviewOutput,
                     temperature=0.2,
@@ -274,29 +277,30 @@ def _call_gemini_reviewer(
         except Exception as e:
             print(f"  [REVIEWER LOG] google.genai error: {e}. Trying LangChain...")
 
-    # Attempt 2: LangChain ChatGoogleGenerativeAI (fallback for image/text)
-    try:
-        print(f"  [REVIEWER LOG] Fallback: LangChain ChatGoogleGenerativeAI ({_FALLBACK_MODEL})...")
-        llm = ChatGoogleGenerativeAI(
-            model=_FALLBACK_MODEL,
-            temperature=0.2,
-            max_tokens=8192
-        ).with_structured_output(SubmissionReviewOutput)
+    # Attempt 2: LangChain ChatGoogleGenerativeAI (fallback for image/text only)
+    if not videos:
+        try:
+            print(f"  [REVIEWER LOG] Fallback: LangChain ChatGoogleGenerativeAI ({target_model})...")
+            llm = ChatGoogleGenerativeAI(
+                model=target_model,
+                temperature=0.2,
+                max_tokens=8192
+            ).with_structured_output(SubmissionReviewOutput)
 
-        user_content = [{"type": "text", "text": prompt_text}]
-        for img in images:
-            user_content.append({"type": "image_url", "image_url": {"url": _pil_to_base64_url(img)}})
+            user_content = [{"type": "text", "text": prompt_text}]
+            for img in images:
+                user_content.append({"type": "image_url", "image_url": {"url": _pil_to_base64_url(img)}})
 
-        result = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_content)
-        ])
-        if isinstance(result, SubmissionReviewOutput):
-            return result
-        elif isinstance(result, dict):
-            return SubmissionReviewOutput(**result)
-    except Exception as e:
-        print(f"  [REVIEWER LOG] ❌ LangChain error: {e}")
+            result = llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_content)
+            ])
+            if isinstance(result, SubmissionReviewOutput):
+                return result
+            elif isinstance(result, dict):
+                return SubmissionReviewOutput(**result)
+        except Exception as e:
+            print(f"  [REVIEWER LOG] ❌ LangChain error: {e}")
 
     return None
 
@@ -498,35 +502,54 @@ Return your structured evaluation in the required JSON schema, populating `check
     # ROUTING DECISION:
     primary_choice = (primary_model_choice or os.environ.get("REVIEWER_PRIMARY_MODEL", "gpt-5.6-luna")).lower()
     is_gemini_primary = "gemini" in primary_choice
+    gemini_model_to_use = primary_choice if is_gemini_primary else _FALLBACK_MODEL
 
     if has_video or is_gemini_primary:
-        model_label = "Gemini 3.5 Flash (High Thinking)" if is_gemini_primary else "Gemini 3.5 Flash (Video Primary)"
+        model_label = f"{gemini_model_to_use} (Selected Primary)" if is_gemini_primary else f"{_FALLBACK_MODEL} (Video Primary)"
         print(f"  [REVIEWER LOG] 🚀 Primary Model Selected: {model_label}")
+        result = None
         try:
-            result = _call_gemini_reviewer(system_prompt, prompt_text, images=images, videos=videos)
+            result = _call_gemini_reviewer(system_prompt, prompt_text, images=images, videos=videos, model_name=gemini_model_to_use)
             if result:
                 print(f"  [REVIEWER LOG] ✅ Gemini Evaluation done. Grade: '{result.agent_grade}'")
                 return result
         except Exception as e:
-            print(f"  [REVIEWER LOG] ❌ Gemini Evaluation failed: {e}. Falling back to GPT-5.6 Luna...")
-            try:
-                result = _call_gpt_luna(system_prompt, prompt_text, images)
-                if result:
-                    return result
-            except Exception as gpt_err:
-                print(f"  [REVIEWER LOG] ❌ GPT-5.6 Luna fallback failed: {gpt_err}")
+            print(f"  [REVIEWER LOG] ❌ Gemini Evaluation raised exception: {e}")
+
+        if not result:
+            if has_video:
+                print(f"  [REVIEWER LOG] ⚠️ Gemini failed for video submission — cannot fallback to GPT-5.6 Luna without video support.")
+                return SubmissionReviewOutput(
+                    checklist_evaluations=[],
+                    agent_comment="Submitted video could not be processed by the AI reviewer. Flagged for manual mentor review.",
+                    agent_grade="Fail (Unsure)"
+                )
+            else:
+                print(f"  [REVIEWER LOG] ⚠️ Gemini returned no result. Falling back to GPT-5.6 Luna...")
+                try:
+                    result = _call_gpt_luna(system_prompt, prompt_text, images)
+                    if result:
+                        print(f"  [REVIEWER LOG] ✅ GPT-5.6 Luna fallback done. Grade: '{result.agent_grade}'")
+                        return result
+                except Exception as gpt_err:
+                    print(f"  [REVIEWER LOG] ❌ GPT-5.6 Luna fallback failed: {gpt_err}")
     else:
         print(f"  [REVIEWER LOG] 🚀 Primary Model Selected: GPT-5.6 Luna (high reasoning)")
+        result = None
         try:
             result = _call_gpt_luna(system_prompt, prompt_text, images)
             if result:
                 print(f"  [REVIEWER LOG] ✅ GPT-5.6 Luna done. Grade: '{result.agent_grade}'")
                 return result
         except Exception as e:
-            print(f"  [REVIEWER LOG] ❌ GPT-5.6 Luna failed: {e}. Falling back to Gemini...")
+            print(f"  [REVIEWER LOG] ❌ GPT-5.6 Luna raised exception: {e}")
+
+        if not result:
+            print(f"  [REVIEWER LOG] ⚠️ GPT-5.6 Luna returned no result. Falling back to Gemini...")
             try:
-                result = _call_gemini_reviewer(system_prompt, prompt_text, images=images, videos=videos)
+                result = _call_gemini_reviewer(system_prompt, prompt_text, images=images, videos=videos, model_name=_FALLBACK_MODEL)
                 if result:
+                    print(f"  [REVIEWER LOG] ✅ Gemini fallback done. Grade: '{result.agent_grade}'")
                     return result
             except Exception as g_err:
                 print(f"  [REVIEWER LOG] ❌ Gemini fallback failed: {g_err}")

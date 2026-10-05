@@ -61,7 +61,7 @@ def extract_assignment_id(url_or_id: str) -> str:
     digits = re.search(r'^\d+$', url_or_id.strip())
     if digits:
         return digits.group(0)
-    return "11922"
+    return ""
 
 
 def build_upload_worksheet_url(target_url: str) -> str:
@@ -70,6 +70,10 @@ def build_upload_worksheet_url(target_url: str) -> str:
     https://{host}/mod/assign/view.php?id={dynamic_id}&plugin=offline&pluginsubtype=assignfeedback&action=viewpluginpage&pluginaction=uploadgrades
     """
     assign_id = extract_assignment_id(target_url)
+    if not assign_id:
+        raise ValueError(
+            f"Cannot build Moodle upload URL: could not extract a valid assignment ID from '{target_url}'."
+        )
     parsed = urlparse(target_url)
 
     scheme = parsed.scheme if parsed.scheme else "https"

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       assignment_url:
-        description: "Moodle Assignment URL (or numeric ID)"
+        description: "Moodle Assignment URL"
         required: false
         default: "https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading"
         type: string
@@ -21,21 +21,30 @@ on:
         options:
           - "gpt-5.6-luna"
           - "gemini-3.5-flash"
-          - "gemini-2.5-pro"
       upload_to_moodle:
         description: "Upload graded worksheet back to Moodle"
         required: false
         default: true
         type: boolean
-      instructions_doc:
-        description: "Google Doc ID/URL for Activity Instructions"
+      review_sheet_url:
+        description: "Moodle Submission Review Sheet URL (Activity Details tab)"
         required: false
-        default: "1whICRKo83X7djnfZOwTe9QoRxGmfrsKV_KnBHv-1Na8"
+        default: "https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing"
+        type: string
+      instructions_doc:
+        description: "Optional fallback Google Doc ID/URL for Activity Instructions"
+        required: false
+        default: ""
         type: string
       guardrails_doc:
         description: "Google Doc ID/URL for Guardrails"
         required: false
         default: "1_XTnq0HmCfLFNjJy_tUzj9a6-S5uEbaNGS0SupXDaeY"
+        type: string
+      edge_cases_doc:
+        description: "Google Doc ID/URL for Edge Cases & Guidelines (fallback)"
+        required: false
+        default: "1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U"
         type: string
 
   # Scheduled automated run: Everyday at 2:00 AM UTC
@@ -126,7 +135,13 @@ jobs:
             CMD="$CMD --model \"$MODEL\""
           fi
 
-          # Custom docs
+          # Moodle Submission Review Sheet (Activity Details tab)
+          REVIEW_SHEET="${{ github.event.inputs.review_sheet_url }}"
+          if [ -n "$REVIEW_SHEET" ]; then
+            CMD="$CMD --review-sheet \"$REVIEW_SHEET\""
+          fi
+
+          # Custom fallback docs
           INSTRUCTIONS="${{ github.event.inputs.instructions_doc }}"
           if [ -n "$INSTRUCTIONS" ]; then
             CMD="$CMD --instructions-doc \"$INSTRUCTIONS\""
@@ -135,6 +150,11 @@ jobs:
           GUARDRAILS="${{ github.event.inputs.guardrails_doc }}"
           if [ -n "$GUARDRAILS" ]; then
             CMD="$CMD --guardrails-doc \"$GUARDRAILS\""
+          fi
+
+          EDGE_CASES="${{ github.event.inputs.edge_cases_doc }}"
+          if [ -n "$EDGE_CASES" ]; then
+            CMD="$CMD --edge-cases-doc \"$EDGE_CASES\""
           fi
 
           echo "Executing: $CMD"
