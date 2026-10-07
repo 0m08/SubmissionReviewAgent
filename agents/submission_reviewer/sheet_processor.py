@@ -20,12 +20,21 @@ def parse_activity_instructions_tab(sheet: gspread.Spreadsheet) -> Dict[str, Dic
     Reads the 'Activity Instructions' tab from the given Google Sheet.
     Returns dict mapping tab_name -> {'instructions': ..., 'checklist': ..., 'edge_cases': ..., 'guidelines': ...}
     """
-    print("[REVIEWER LOG] Fetching 'Activity Instructions' tab from spreadsheet...")
-    try:
-        ws, df = get_sheet_data_and_df(sheet, "Activity Instructions")
-    except Exception as err:
-        print(f"[REVIEWER LOG] ❌ Error reading 'Activity Instructions' tab: {err}")
-        raise ValueError(f"Could not open 'Activity Instructions' tab: {err}")
+    print("[REVIEWER LOG] Fetching 'Activity Details' (or 'Activity Instructions') tab from spreadsheet...")
+    ws = None
+    df = None
+    last_err = None
+    for tab_name in ["Activity Details", "Activity Instructions"]:
+        try:
+            ws, df = get_sheet_data_and_df(sheet, tab_name)
+            break
+        except Exception as err:
+            last_err = err
+            continue
+
+    if df is None:
+        print(f"[REVIEWER LOG] ❌ Error reading 'Activity Details' / 'Activity Instructions' tab: {last_err}")
+        raise ValueError(f"Could not open 'Activity Details' or 'Activity Instructions' tab: {last_err}")
 
     cols = {str(c).strip().lower(): c for c in df.columns}
     tab_col = cols.get("tab name") or cols.get("tab_name") or cols.get("activity name")

@@ -55,6 +55,40 @@ DEFAULT_GUARDRAILS_DOC_ID = os.getenv(
     "MOODLE_GUARDRAILS_DOC_ID",
     "1_XTnq0HmCfLFNjJy_tUzj9a6-S5uEbaNGS0SupXDaeY"
 )
+DEFAULT_EDGE_CASES_DOC_ID = os.getenv(
+    "MOODLE_EDGE_CASES_DOC_ID",
+    "1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U"
+)
+DEFAULT_REVIEW_SHEET_URL = os.getenv(
+    "MOODLE_SUBMISSION_REGISTRY_SHEET_URL",
+    "https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing"
+)
+
+
+def fetch_activity_instructions_from_sheet(
+    activity_name: str,
+    sheet_id_or_url: str = DEFAULT_REVIEW_SHEET_URL,
+) -> Dict[str, str]:
+    """
+    Fetches activity instructions, edge cases, and guidelines for the given activity
+    from the 'Activity Details' tab in the Moodle Submission Review sheet.
+
+    Expected columns in 'Activity Details' tab:
+      - 'Activity Name' or 'Tab Name'
+      - 'Activity Instructions' or 'Instructions'
+      - 'Edge Cases'
+      - 'Guidelines'
+
+    Returns:
+        {
+            "activity_name": str,
+            "instructions": str,
+            "edge_cases": str,
+            "guidelines": str,
+        }
+    """
+    from agents.submission_reviewer.central_sheet_manager import get_activity_instructions
+    return get_activity_instructions(activity_name=activity_name, sheet_id_or_url=sheet_id_or_url)
 
 
 # ==============================================================================
@@ -101,6 +135,84 @@ def fetch_google_doc_text(doc_id_or_url: str, drive_service=None) -> str:
     except Exception as err:
         logger.error(f"❌ Failed to export Google Doc '{doc_id}': {err}")
         raise RuntimeError(f"Could not fetch Google Doc '{doc_id}': {err}") from err
+
+
+def fetch_edge_cases_and_guidelines_doc(
+    doc_id_or_url: str,
+    drive_service=None
+) -> Tuple[str, str]:
+    """
+    Fetches edge cases and guidelines from a Google Doc.
+    Supports:
+    1. Multi-tab Google Docs (Tabs titled 'Edge Cases' and 'Guidelines').
+    2. Fallback to Drive plain-text export with header splitting.
+    Returns: (edge_cases_text, guidelines_text)
+    """
+    doc_id = extract_google_doc_id(doc_id_or_url)
+    if not doc_id:
+        return "", ""
+
+    edge_cases_text = ""
+    guidelines_text = ""
+
+    # 1. Try Google Docs API with document tabs support
+    try:
+        from agents.submission_reviewer.drive_image_helper import get_user_oauth_credentials
+        from googleapiclient.discovery import build
+
+        creds = get_user_oauth_credentials()
+        docs_service = build("docs", "v1", credentials=creds, cache_discovery=False)
+        doc = docs_service.documents().get(documentId=doc_id, includeTabsContent=True).execute()
+
+        tabs = doc.get("tabs", [])
+        if tabs:
+            for tab in tabs:
+                tab_props = tab.get("tabProperties", {})
+                tab_title = tab_props.get("title", "").strip().lower()
+                doc_tab = tab.get("documentTab", {})
+                body = doc_tab.get("body", {})
+                pieces = []
+                for elem in body.get("content", []):
+                    p = elem.get("paragraph")
+                    if p:
+                        for pe in p.get("elements", []):
+                            tr = pe.get("textRun")
+                            if tr and "content" in tr:
+                                pieces.append(tr["content"])
+                text = "".join(pieces).strip()
+                if "edge" in tab_title:
+                    edge_cases_text = text
+                elif "guide" in tab_title:
+                    guidelines_text = text
+
+            if edge_cases_text or guidelines_text:
+                return edge_cases_text, guidelines_text
+    except Exception as api_err:
+        logger.debug(f"Docs API tabs fetch skipped ({api_err}); falling back to Drive plain text export.")
+
+    # 2. Fallback to Drive plain text export
+    try:
+        raw_text = fetch_google_doc_text(doc_id, drive_service=drive_service)
+        if not raw_text:
+            return "", ""
+
+        lower_text = raw_text.lower()
+        if "guideline" in lower_text and "edge case" in lower_text:
+            parts = re.split(r'(?i)(?:^|\n)(?:#+\s*)?(edge cases?|guidelines?):?', raw_text)
+            for i in range(1, len(parts), 2):
+                sec_name = parts[i].lower()
+                sec_content = parts[i+1].strip() if i+1 < len(parts) else ""
+                if "edge" in sec_name:
+                    edge_cases_text = sec_content
+                elif "guide" in sec_name:
+                    guidelines_text = sec_content
+        else:
+            edge_cases_text = raw_text
+
+        return edge_cases_text, guidelines_text
+    except Exception as err:
+        logger.warning(f"Failed to fetch edge cases doc '{doc_id}': {err}")
+        return "", ""
 
 
 # ==============================================================================
@@ -211,6 +323,8 @@ def evaluate_and_update_worksheet(
     assignment_folder: str,
     instructions_text: str,
     guardrails_text: str,
+    edge_cases_text: str = "",
+    guidelines_text: str = "",
     activity_name: str = "System Identification",
     primary_model: Optional[str] = None,
     only_unmarked: bool = False,
@@ -238,8 +352,28 @@ def evaluate_and_update_worksheet(
     # Guardrails structured format for reviewer
     guardrail_list = [{"name": "Standard Guardrails", "description": guardrails_text}] if guardrails_text else []
 
+    # Map student drive folder URLs from manifest if available
+    student_drive_map: Dict[str, str] = {}
+    run_drive_folder = ""
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as mf:
+                mdata = json.load(mf)
+                run_drive_folder = mdata.get("drive_folder_url", "")
+                for s in mdata.get("students", []):
+                    s_id = (s.get("identifier") or "").strip().lower()
+                    s_name = (s.get("full_name") or "").strip().lower()
+                    df_url = s.get("drive_folder_url") or run_drive_folder
+                    if s_id:
+                        student_drive_map[s_id] = df_url
+                    if s_name:
+                        student_drive_map[s_name] = df_url
+        except Exception:
+            pass
+
     evaluated_count = 0
     evaluation_summaries = []
+    registry_records = []
 
     for row in rows:
         identifier = row.get("Identifier", "")
@@ -284,6 +418,8 @@ def evaluate_and_update_worksheet(
             activity_name=activity_name,
             activity_instructions=instructions_text,
             guardrails=guardrail_list,
+            activity_edge_cases=edge_cases_text,
+            activity_guidelines=guidelines_text,
             user_comment=combined_text,
             images=images,
             videos=videos,
@@ -308,6 +444,15 @@ def evaluate_and_update_worksheet(
         row["Feedback comments"] = feedback_comment
 
         evaluated_count += 1
+        checklist_items_data = [
+            {
+                "instruction_or_condition": item.instruction_or_condition,
+                "followed": item.followed,
+                "comment": getattr(item, "comment", ""),
+            }
+            for item in review_result.checklist_evaluations
+        ]
+
         evaluation_summaries.append({
             "identifier": identifier,
             "full_name": full_name,
@@ -315,6 +460,26 @@ def evaluate_and_update_worksheet(
             "raw_agent_grade": grade_str,
             "feedback_comments": feedback_comment,
             "checklist_count": len(review_result.checklist_evaluations),
+            "checklist_evaluations": checklist_items_data,
+        })
+
+        # Student Drive folder link & submission timestamp for registry
+        media_folder = (
+            student_drive_map.get(identifier.lower())
+            or student_drive_map.get(full_name.lower())
+            or run_drive_folder
+        )
+        last_modified = (row.get("Last modified (submission)") or row.get("Last modified") or "").strip()
+
+        registry_records.append({
+            "name": full_name,
+            "status": status,
+            "grade": grade_str,
+            "online_text": combined_text,
+            "media_folder": media_folder,
+            "last_modified": last_modified,
+            "feedback_comment": feedback_comment,
+            "checklist_evaluations": review_result.checklist_evaluations,
         })
 
     # Write back strictly to grading_worksheet.csv preserving existing schema
@@ -341,11 +506,29 @@ def evaluate_and_update_worksheet(
         except Exception as man_err:
             logger.warning(f"Could not update manifest: {man_err}")
 
+    # Synchronize to Central Google Sheet Registry
+    registry_sync_result = None
+    if registry_records:
+        try:
+            from agents.submission_reviewer.central_sheet_manager import sync_evaluations_to_registry
+            logger.info(f"📊 Syncing {len(registry_records)} evaluation(s) to Central Google Sheet Registry...")
+            registry_sync_result = sync_evaluations_to_registry(
+                activity_name=activity_name,
+                evaluated_records=registry_records,
+            )
+            sheet_link = registry_sync_result.get("sheet_url")
+            added_n = registry_sync_result.get("added", 0)
+            updated_n = registry_sync_result.get("updated", 0)
+            logger.info(f"✅ Central Sheet Registry updated: {sheet_link} ({added_n} added, {updated_n} updated)")
+        except Exception as reg_err:
+            logger.warning(f"⚠️ Failed to sync evaluations to Central Sheet Registry: {reg_err}")
+
     return {
         "assignment_folder": assignment_folder,
         "csv_path": csv_path,
         "evaluated_count": evaluated_count,
         "evaluations": evaluation_summaries,
+        "registry_sync": registry_sync_result,
     }
 
 
@@ -453,9 +636,11 @@ def find_latest_assignment_folder(base_dir: Optional[str] = None) -> Optional[st
 
 def run_review_pipeline(
     assignment_folder: Optional[str] = None,
-    instructions_doc: str = DEFAULT_INSTRUCTIONS_DOC_ID,
+    instructions_doc: Optional[str] = None,
     guardrails_doc: str = DEFAULT_GUARDRAILS_DOC_ID,
+    edge_cases_doc: Optional[str] = DEFAULT_EDGE_CASES_DOC_ID,
     activity_name: str = "System Identification",
+    review_sheet: str = DEFAULT_REVIEW_SHEET_URL,
     primary_model: Optional[str] = None,
     sync_to_drive: bool = True,
     upload_to_moodle: bool = False,
@@ -475,21 +660,73 @@ def run_review_pipeline(
 
     logger.info(f"🚀 Starting Review Pipeline on: {target_folder}")
 
-    # 1. Fetch Knowledge from Google Docs
-    drive_service = get_user_oauth_drive_service()
-    logger.info(f"📖 Fetching Activity Instructions from Google Doc: {instructions_doc}...")
-    instructions_text = fetch_google_doc_text(instructions_doc, drive_service=drive_service)
-    logger.info(f"   ✅ Instructions loaded ({len(instructions_text)} characters)")
+    # 1. Fetch Knowledge: Primary source is Moodle Submission Review Sheet ('Activity Details' tab)
+    instructions_text = ""
+    edge_cases_text = ""
+    guidelines_text = ""
+    drive_service = None
 
-    logger.info(f"🛡️ Fetching Guardrails from Google Doc: {guardrails_doc}...")
-    guardrails_text = fetch_google_doc_text(guardrails_doc, drive_service=drive_service)
-    logger.info(f"   ✅ Guardrails loaded ({len(guardrails_text)} characters)")
+    # Step 1A: Attempt to fetch Activity Instructions from Moodle Review Sheet ('Activity Details' tab)
+    if review_sheet:
+        try:
+            logger.info(f"📊 Fetching Activity Details from Moodle Review Sheet for '{activity_name}'...")
+            sheet_details = fetch_activity_instructions_from_sheet(
+                activity_name=activity_name,
+                sheet_id_or_url=review_sheet,
+            )
+            if sheet_details.get("instructions"):
+                instructions_text = sheet_details["instructions"]
+                logger.info(f"   ✅ Instructions loaded from Sheet tab 'Activity Details' ({len(instructions_text)} characters)")
+            if sheet_details.get("edge_cases"):
+                edge_cases_text = sheet_details["edge_cases"]
+                logger.info(f"   ✅ Edge Cases loaded from Sheet ({len(edge_cases_text)} characters)")
+            if sheet_details.get("guidelines"):
+                guidelines_text = sheet_details["guidelines"]
+                logger.info(f"   ✅ Guidelines loaded from Sheet ({len(guidelines_text)} characters)")
+        except Exception as s_err:
+            logger.warning(f"⚠️ Could not fetch activity instructions from sheet '{review_sheet}': {s_err}")
+
+    # Step 1B: Fallback to Google Doc if instructions not found in sheet or if custom instructions_doc provided
+    if not instructions_text:
+        target_doc = instructions_doc or DEFAULT_INSTRUCTIONS_DOC_ID
+        if target_doc:
+            drive_service = get_user_oauth_drive_service()
+            logger.info(f"📖 Falling back to Activity Instructions from Google Doc: {target_doc}...")
+            instructions_text = fetch_google_doc_text(target_doc, drive_service=drive_service)
+            logger.info(f"   ✅ Instructions loaded from Google Doc ({len(instructions_text)} characters)")
+
+    if not instructions_text:
+        raise RuntimeError(f"Could not load activity instructions for '{activity_name}' from Sheet or Google Doc.")
+
+    # Step 1C: Guardrails from Google Doc
+    if guardrails_doc:
+        if drive_service is None:
+            drive_service = get_user_oauth_drive_service()
+        logger.info(f"🛡️ Fetching Guardrails from Google Doc: {guardrails_doc}...")
+        guardrails_text = fetch_google_doc_text(guardrails_doc, drive_service=drive_service)
+        logger.info(f"   ✅ Guardrails loaded ({len(guardrails_text)} characters)")
+    else:
+        guardrails_text = ""
+
+    # Step 1D: Edge Cases & Guidelines fallback from Google Doc if not in sheet
+    if (not edge_cases_text or not guidelines_text) and edge_cases_doc:
+        if drive_service is None:
+            drive_service = get_user_oauth_drive_service()
+        logger.info(f"📋 Fetching Edge Cases & Guidelines fallback from Google Doc: {edge_cases_doc}...")
+        doc_edge, doc_guide = fetch_edge_cases_and_guidelines_doc(edge_cases_doc, drive_service=drive_service)
+        if not edge_cases_text:
+            edge_cases_text = doc_edge
+        if not guidelines_text:
+            guidelines_text = doc_guide
+        logger.info(f"   ✅ Edge Cases ({len(edge_cases_text)} chars) | Guidelines ({len(guidelines_text)} chars)")
 
     # 2. Evaluate Submissions & Update CSV in-place
     review_summary = evaluate_and_update_worksheet(
         assignment_folder=target_folder,
         instructions_text=instructions_text,
         guardrails_text=guardrails_text,
+        edge_cases_text=edge_cases_text,
+        guidelines_text=guidelines_text,
         activity_name=activity_name,
         primary_model=primary_model,
     )
@@ -519,15 +756,20 @@ def run_review_pipeline(
                 target_url=target_url,
             )
             review_summary["moodle_uploaded"] = moodle_uploaded
+            if not moodle_uploaded:
+                raise RuntimeError("Moodle worksheet upload failed or confirmation was not verified.")
         except Exception as m_err:
             logger.error(f"❌ Failed to upload worksheet to Moodle: {m_err}")
             review_summary["moodle_uploaded"] = False
+            raise
 
     logger.info(f"\n🎉 Review Pipeline finished successfully!")
     logger.info(f"   Students evaluated: {review_summary['evaluated_count']}")
     logger.info(f"   Updated CSV: {review_summary['csv_path']}")
     if drive_csv_url:
         logger.info(f"   ☁️ Drive Worksheet URL: {drive_csv_url}")
+    if review_summary.get("registry_sync") and review_summary["registry_sync"].get("sheet_url"):
+        logger.info(f"   📊 Central Registry Sheet: {review_summary['registry_sync']['sheet_url']}")
     if review_summary.get("moodle_uploaded"):
         logger.info(f"   🏫 Moodle Upload Status: Successfully Applied to Moodle Gradebook!")
 
@@ -536,9 +778,11 @@ def run_review_pipeline(
 
 def run_full_ingest_and_review(
     moodle_config: Optional[MoodleConfig] = None,
-    instructions_doc: str = DEFAULT_INSTRUCTIONS_DOC_ID,
+    instructions_doc: Optional[str] = None,
     guardrails_doc: str = DEFAULT_GUARDRAILS_DOC_ID,
+    edge_cases_doc: Optional[str] = DEFAULT_EDGE_CASES_DOC_ID,
     activity_name: str = "System Identification",
+    review_sheet: str = DEFAULT_REVIEW_SHEET_URL,
     primary_model: Optional[str] = None,
     upload_to_moodle: bool = False,
 ) -> Dict[str, Any]:
@@ -558,7 +802,9 @@ def run_full_ingest_and_review(
         assignment_folder=ingestion_result.assignment_folder,
         instructions_doc=instructions_doc,
         guardrails_doc=guardrails_doc,
+        edge_cases_doc=edge_cases_doc,
         activity_name=activity_name,
+        review_sheet=review_sheet,
         primary_model=primary_model,
         sync_to_drive=True,
         upload_to_moodle=upload_to_moodle,
@@ -590,16 +836,28 @@ def main():
         help="Upload the graded CSV back to Moodle gradebook after review.",
     )
     parser.add_argument(
+        "--review-sheet",
+        type=str,
+        default=DEFAULT_REVIEW_SHEET_URL,
+        help="Google Sheet URL or ID for Moodle Submission Review Sheet with 'Activity Details' tab.",
+    )
+    parser.add_argument(
         "--instructions-doc",
         type=str,
-        default=DEFAULT_INSTRUCTIONS_DOC_ID,
-        help="Google Doc ID or URL for Activity Instructions.",
+        default=None,
+        help="Optional fallback Google Doc ID or URL for Activity Instructions.",
     )
     parser.add_argument(
         "--guardrails-doc",
         type=str,
         default=DEFAULT_GUARDRAILS_DOC_ID,
         help="Google Doc ID or URL for Guardrails.",
+    )
+    parser.add_argument(
+        "--edge-cases-doc",
+        type=str,
+        default=DEFAULT_EDGE_CASES_DOC_ID,
+        help="Google Doc ID or URL for Edge Cases & Guidelines (defaults to 1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U).",
     )
     parser.add_argument(
         "--activity-name",
@@ -626,7 +884,9 @@ def main():
             run_full_ingest_and_review(
                 instructions_doc=args.instructions_doc,
                 guardrails_doc=args.guardrails_doc,
+                edge_cases_doc=args.edge_cases_doc,
                 activity_name=args.activity_name,
+                review_sheet=args.review_sheet,
                 primary_model=args.model,
                 upload_to_moodle=args.upload_moodle,
             )
@@ -635,7 +895,9 @@ def main():
                 assignment_folder=args.folder,
                 instructions_doc=args.instructions_doc,
                 guardrails_doc=args.guardrails_doc,
+                edge_cases_doc=args.edge_cases_doc,
                 activity_name=args.activity_name,
+                review_sheet=args.review_sheet,
                 primary_model=args.model,
                 sync_to_drive=not args.no_drive_sync,
                 upload_to_moodle=args.upload_moodle,

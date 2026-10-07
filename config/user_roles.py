@@ -96,7 +96,7 @@ role_page_access = {
         "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],
     "Visual Designer": [
-        "template_sheet_setup_page", "workflow_directory_page", "graphics_definition_page", "graphics_definition_v2_page", "submission_reviewer_page", "graphics_search_page", "vectorstore_page", "get_images_page",
+        "template_sheet_setup_page", "workflow_directory_page", "graphics_definition_page", "graphics_definition_v2_page", "graphics_search_page", "vectorstore_page", "get_images_page",
         "quality_compliance_scoring_page", "video_search_tool_page", "model_3d_search_tool_page",
         "paraphraser_page", "image_translation_page", "image_editing_tool_page", "pptx_exporter_page", "aggregation_agent_page", "slideshow_manifest_video_page"
     ],

@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In · SkillCat Submission Review Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --sc-font-display: "Fira Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --sc-font-mono: "IBM Plex Mono", ui-monospace, Menlo, Monaco, monospace;
+      --sc-primary: #F05523;
+      --sc-primary-hover: #E44515;
+    }
+
+    /* Dark theme (default for SkillCat Studio) */
+    html[data-theme="dark"], :root {
+      --sc-surface-0: #0D0D0D;
+      --sc-surface-1: #171717;
+      --sc-surface-2: #1E1D1D;
+      --sc-surface-sunken: #080808;
+      --sc-border-hairline: #484747;
+      --sc-border-subtle: rgba(255, 255, 255, 0.08);
+      --sc-text-strong: #F0F0F0;
+      --sc-text-body: #D9D9D9;
+      --sc-text-muted: #A8A8A8;
+      --sc-text-disabled: #737373;
+      --sc-shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.7);
+      --sc-glow: radial-gradient(60% 60% at 18% 12%, rgba(240, 85, 35, 0.18), transparent 60%);
+      --sc-cta-fill: radial-gradient(rgba(228, 69, 21, 0.85) 29%, rgba(138, 49, 20, 0.85) 100%), #0D0D0D;
+      --sc-cta-shadow: 0 0 0 1px rgba(240, 85, 35, 0.4), inset 0 0 16px rgba(138, 49, 20, 0.75);
+      color-scheme: dark;
+    }
+
+    /* Light theme (Warm Sand) */
+    html[data-theme="light"] {
+      --sc-surface-0: #ECE7DE;
+      --sc-surface-1: #F6F2EB;
+      --sc-surface-2: #FFFFFF;
+      --sc-surface-sunken: #E8E1D6;
+      --sc-border-hairline: #E4DCD0;
+      --sc-border-subtle: rgba(43, 39, 34, 0.1);
+      --sc-text-strong: #2B2722;
+      --sc-text-body: #403B33;
+      --sc-text-muted: #797161;
+      --sc-text-disabled: #A99F8C;
+      --sc-shadow-lg: 0 12px 28px rgba(60, 48, 36, 0.14);
+      --sc-glow: radial-gradient(60% 60% at 18% 12%, rgba(240, 85, 35, 0.12), transparent 60%);
+      --sc-cta-fill: radial-gradient(rgba(240, 85, 35, 1) 28%, rgba(228, 69, 21, 1) 100%);
+      --sc-cta-shadow: 0 0 0 1px rgba(228, 69, 21, 0.45), inset 0 0 16px rgba(138, 49, 20, 0.5), 0 4px 12px rgba(240, 85, 35, 0.22);
+      color-scheme: light;
+    }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--sc-surface-0);
+      background-image: var(--sc-glow);
+      font-family: var(--sc-font-display);
+      color: var(--sc-text-body);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .top-bar {
+      position: fixed;
+      top: 20px;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .helmet-logo {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 10px rgba(240, 85, 35, 0.35));
+    }
+
+    .theme-toggle {
+      background: var(--sc-surface-2);
+      border: 1px solid var(--sc-border-hairline);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--sc-text-strong);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--sc-font-display);
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    .theme-toggle:hover {
+      background: var(--sc-surface-sunken);
+      border-color: var(--sc-text-disabled);
+    }
+
+    .ic {
+      width: 15px;
+      height: 15px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 440px;
+      background: var(--sc-surface-2);
+      border: 1px solid var(--sc-border-subtle);
+      border-radius: 16px;
+      padding: 40px 32px;
+      box-shadow: var(--sc-shadow-lg);
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand-logo {
+      height: 44px;
+      width: auto;
+      max-width: 200px;
+      margin: 0 auto 20px;
+      display: block;
+      object-fit: contain;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-family: var(--sc-font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      background: rgba(240, 85, 35, 0.1);
+      color: var(--sc-primary);
+      border: 1px solid rgba(240, 85, 35, 0.4);
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--sc-text-strong);
+      margin-bottom: 10px;
+      line-height: 1.25;
+    }
+
+    .subtitle {
+      font-size: 13.5px;
+      color: var(--sc-text-muted);
+      line-height: 1.5;
+      margin-bottom: 28px;
+    }
+
+    .auth-box {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .google-img-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 6px 12px;
+      border: 1px solid var(--sc-border-hairline);
+      border-radius: 8px;
+      background: #ffffff;
+      text-decoration: none;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .google-img-link:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    .google-img-link img {
+      height: 52px;
+      width: auto;
+      max-width: 100%;
+      border-radius: 4px;
+      display: block;
+    }
+
+    .google-fallback-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      min-height: 52px;
+      padding: 10px 20px;
+      border: 1px solid var(--sc-border-hairline);
+      border-radius: 8px;
+      background: #ffffff;
+      color: #1f2937;
+      font-family: var(--sc-font-display);
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .google-fallback-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .is-hidden {
+      display: none !important;
+    }
+
+    .notice {
+      margin-top: 24px;
+      font-size: 11.5px;
+      color: var(--sc-text-muted);
+      line-height: 1.5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .footer-text {
+      margin-top: 28px;
+      font-size: 12px;
+      color: var(--sc-text-muted);
+      font-family: var(--sc-font-display);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <img class="helmet-logo" src="/brand-assets/Skillcat-Helmet.png" alt="SkillCat" onerror="this.style.display='none'" />
+    <button class="theme-toggle" id="theme-btn" title="Toggle theme">
+      <svg id="theme-icon-sun" class="ic" style="display: none;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg id="theme-icon-moon" class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <span id="theme-btn-label">Theme</span>
+    </button>
+  </div>
+
+  <main class="login-container">
+    <img class="brand-logo" src="/brand-assets/SkillCat-Logo.png" alt="SkillCat" onerror="this.src='/brand-assets/Skillcat-Helmet.png'" />
+
+    <div class="badge">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      Review Studio
+    </div>
+
+    <h1>Mentor Sign In</h1>
+    <p class="subtitle">Authenticate with your Google account to access student submissions, review checklists, and submit grades.</p>
+
+    <div class="auth-box">
+      <!-- Image-based Google Sign In Button -->
+      <a href="/auth/login" class="google-img-link is-hidden" id="google-img-link" title="Sign in with Google">
+        <img src="/brand-assets/google-login-button.png" alt="Sign in with Google" />
+      </a>
+
+      <!-- Fallback SVG Google Sign In Button -->
+      <a href="/auth/login" class="google-fallback-btn" id="google-fallback-btn" title="Sign in with Google">
+        <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Sign in with Google
+      </a>
+    </div>
+
+    <p class="notice">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Access restricted to authorized SkillCat team members and mentors.
+    </p>
+  </main>
+
+  <footer class="footer-text">
+    &copy; SkillCat &middot; Moodle Submission Review Studio
+  </footer>
+
+  <script>
+    const savedTheme = localStorage.getItem("studio_theme") || "dark";
+    const themeBtn = document.getElementById("theme-btn");
+    const sunIcon = document.getElementById("theme-icon-sun");
+    const moonIcon = document.getElementById("theme-icon-moon");
+
+    function updateThemeUI(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      localStorage.setItem("studio_theme", theme);
+      if (sunIcon && moonIcon) {
+        if (theme === "dark") {
+          sunIcon.style.display = "block";
+          moonIcon.style.display = "none";
+        } else {
+          sunIcon.style.display = "none";
+          moonIcon.style.display = "block";
+        }
+      }
+    }
+    updateThemeUI(savedTheme);
+
+    if (themeBtn) {
+      themeBtn.addEventListener("click", () => {
+        const current = document.documentElement.getAttribute("data-theme") || "dark";
+        const next = current === "dark" ? "light" : "dark";
+        updateThemeUI(next);
+      });
+    }
+
+    (function () {
+      const imgLink = document.getElementById("google-img-link");
+      const fallbackBtn = document.getElementById("google-fallback-btn");
+      const img = new Image();
+      img.onload = function () {
+        imgLink.classList.remove("is-hidden");
+        fallbackBtn.classList.add("is-hidden");
+      };
+      img.onerror = function () {
+        imgLink.classList.add("is-hidden");
+        fallbackBtn.classList.remove("is-hidden");
+      };
+      img.src = "/brand-assets/google-login-button.png";
+    })();
+  </script>
+</body>
+</html>

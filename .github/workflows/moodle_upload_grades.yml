@@ -1,0 +1,103 @@
+name: 2. Moodle Gradebook Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      activity_name:
+        description: "Name of the activity tab in Google Sheet (e.g. 'System Identification')"
+        required: true
+        default: "System Identification"
+        type: string
+      assignment_url:
+        description: "Moodle Assignment URL (grading view)"
+        required: false
+        default: "https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading"
+        type: string
+      review_sheet_url:
+        description: "Moodle Submission Review Sheet URL"
+        required: false
+        default: "https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing"
+        type: string
+      only_reviewed:
+        description: "Upload only submissions that were approved/overridden by human mentor"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: moodle-gradebook-upload-pipeline
+  cancel-in-progress: false
+
+jobs:
+  upload_to_moodle:
+    name: Upload Grades to Moodle Gradebook
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # Moodle Credentials
+      MOODLE_USER: ${{ secrets.MOODLE_USER }}
+      MOODLE_PASS: ${{ secrets.MOODLE_PASS }}
+      MOODLE_ASSIGNMENT_URL: ${{ github.event.inputs.assignment_url || secrets.MOODLE_ASSIGNMENT_URL || 'https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading' }}
+
+      # Gmail IMAP Credentials for Adaptive MFA / OTP
+      GMAIL_USER: ${{ secrets.GMAIL_USER }}
+      GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+
+      # Google Drive User OAuth (om@skillcatapp.com)
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+      OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID || secrets.OAUTH_CLIENT_ID }}
+      OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET || secrets.OAUTH_CLIENT_SECRET }}
+      OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN || secrets.OAUTH_REFRESH_TOKEN }}
+
+      # Playwright & Execution Flags
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 📦 Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r agents/submission_reviewer/requirements-reviewer.txt
+
+      - name: 🎭 Install Playwright Chromium with system dependencies
+        run: |
+          playwright install chromium --with-deps
+
+      - name: 🚀 Publish Grades from Google Sheet to Moodle
+        shell: bash
+        run: |
+          set -e
+
+          CMD="python -m agents.submission_reviewer.moodle_upload_runner"
+
+          # Activity Name
+          ACTIVITY="${{ github.event.inputs.activity_name || 'System Identification' }}"
+          CMD="$CMD --activity-name \"$ACTIVITY\""
+
+          # Assignment URL
+          URL="${{ github.event.inputs.assignment_url || 'https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading' }}"
+          CMD="$CMD --assignment-url \"$URL\""
+
+          # Review Sheet URL
+          REVIEW_SHEET="${{ github.event.inputs.review_sheet_url || 'https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing' }}"
+          CMD="$CMD --review-sheet \"$REVIEW_SHEET\""
+
+          # Only reviewed filter
+          ONLY_REVIEWED="${{ github.event.inputs.only_reviewed }}"
+          if [ "$ONLY_REVIEWED" = "true" ]; then
+            CMD="$CMD --only-reviewed"
+          fi
+
+          echo "Executing: $CMD"
+          eval $CMD

@@ -1,4 +1,4 @@
-name: Moodle Submission Reviewer Pipeline
+name: 1. Moodle Ingest & Submission Review Pipeline
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         default: "https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading"
         type: string
       activity_name:
-        description: "Name of the activity being evaluated"
+        description: "Name of the activity being evaluated (target tab in Google Sheet)"
         required: false
         default: "System Identification"
         type: string
@@ -21,13 +21,8 @@ on:
         options:
           - "gpt-5.6-luna"
           - "gemini-3.5-flash"
-      upload_to_moodle:
-        description: "Upload graded worksheet back to Moodle"
-        required: false
-        default: true
-        type: boolean
       review_sheet_url:
-        description: "Moodle Submission Review Sheet URL (Activity Details tab)"
+        description: "Moodle Submission Review Sheet URL"
         required: false
         default: "https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing"
         type: string
@@ -52,12 +47,12 @@ on:
     - cron: "0 2 * * *"
 
 concurrency:
-  group: moodle-reviewer-pipeline
+  group: moodle-ingest-review-pipeline
   cancel-in-progress: false
 
 jobs:
-  review_and_grade:
-    name: Ingest, Review & Upload Submissions
+  ingest_and_review:
+    name: Ingest & Review Submissions
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -109,37 +104,25 @@ jobs:
         run: |
           playwright install chromium --with-deps
 
-      - name: 🚀 Run Submission Reviewer Pipeline
+      - name: 🚀 Run Ingestion & Review Pipeline (Syncs to Central Sheet)
         shell: bash
         run: |
           set -e
 
-          # Construct runner command
+          # Construct runner command: --ingest is set, but --upload-moodle is deliberately omitted
           CMD="python -m agents.submission_reviewer.moodle_review_runner --ingest"
 
-          # Upload flag (defaults to true if not specified)
-          UPLOAD="${{ github.event.inputs.upload_to_moodle }}"
-          if [ -z "$UPLOAD" ] || [ "$UPLOAD" = "true" ]; then
-            CMD="$CMD --upload-moodle"
-          fi
-
           # Activity Name
-          ACTIVITY="${{ github.event.inputs.activity_name }}"
-          if [ -n "$ACTIVITY" ]; then
-            CMD="$CMD --activity-name \"$ACTIVITY\""
-          fi
+          ACTIVITY="${{ github.event.inputs.activity_name || 'System Identification' }}"
+          CMD="$CMD --activity-name \"$ACTIVITY\""
 
           # Model choice
-          MODEL="${{ github.event.inputs.primary_model }}"
-          if [ -n "$MODEL" ]; then
-            CMD="$CMD --model \"$MODEL\""
-          fi
+          MODEL="${{ github.event.inputs.primary_model || 'gpt-5.6-luna' }}"
+          CMD="$CMD --model \"$MODEL\""
 
-          # Moodle Submission Review Sheet (Activity Details tab)
-          REVIEW_SHEET="${{ github.event.inputs.review_sheet_url }}"
-          if [ -n "$REVIEW_SHEET" ]; then
-            CMD="$CMD --review-sheet \"$REVIEW_SHEET\""
-          fi
+          # Moodle Submission Review Sheet (Activity Details tab & target activity tab)
+          REVIEW_SHEET="${{ github.event.inputs.review_sheet_url || 'https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing' }}"
+          CMD="$CMD --review-sheet \"$REVIEW_SHEET\""
 
           # Custom fallback docs
           INSTRUCTIONS="${{ github.event.inputs.instructions_doc }}"
@@ -147,15 +130,11 @@ jobs:
             CMD="$CMD --instructions-doc \"$INSTRUCTIONS\""
           fi
 
-          GUARDRAILS="${{ github.event.inputs.guardrails_doc }}"
-          if [ -n "$GUARDRAILS" ]; then
-            CMD="$CMD --guardrails-doc \"$GUARDRAILS\""
-          fi
+          GUARDRAILS="${{ github.event.inputs.guardrails_doc || '1_XTnq0HmCfLFNjJy_tUzj9a6-S5uEbaNGS0SupXDaeY' }}"
+          CMD="$CMD --guardrails-doc \"$GUARDRAILS\""
 
-          EDGE_CASES="${{ github.event.inputs.edge_cases_doc }}"
-          if [ -n "$EDGE_CASES" ]; then
-            CMD="$CMD --edge-cases-doc \"$EDGE_CASES\""
-          fi
+          EDGE_CASES="${{ github.event.inputs.edge_cases_doc || '1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U' }}"
+          CMD="$CMD --edge-cases-doc \"$EDGE_CASES\""
 
           echo "Executing: $CMD"
           eval $CMD

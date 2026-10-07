@@ -22,7 +22,6 @@ from utils.role_utils import get_user_info, get_user_pages, role_requires_oauth
 from config.logging_config import get_logger, setup_logging
 from mcp_ui_app import mcp_ui_page
 from services.activity_tracking_service import track_login, track_page_view
-from agents.submission_reviewer import render_submission_reviewer_ui
 
 # from jira import JIRA
 
@@ -378,12 +377,6 @@ PAGE_DESCRIPTIONS = {
         "description": "Generate and review assessment questions for courses with automated checklist validation.",
         "category": "agent",
     },
-    "submission_reviewer_page": {
-        "icon": ":material/fact_check:",
-        "title": "Submission Reviewer",
-        "description": "Audit user activity submissions (Drive images + User Comments) against activity instructions and checklists.",
-        "category": "agent",
-    },
     "vectorstore_page": {
         "icon": ":material/storage:",
         "title": "Image Search",
@@ -557,12 +550,6 @@ assessments_generation_page = st.Page(
     # Optional: default=(role == "Requester") or any logic
 )
 
-submission_reviewer_page = st.Page(
-    render_submission_reviewer_ui,
-    title="Submission Reviewer",
-    icon=":material/fact_check:",
-)
-
 workflow_directory_page = st.Page(
     "workflow_directory.py",
     title="Workflow Agents",
@@ -715,7 +702,6 @@ page_name_to_object = {
     #"graphics_definition_page": graphics_definition_page,
     "graphics_definition_v2_page": graphics_definition_v2_page,
     "assessments_generation_page": assessments_generation_page,
-    "submission_reviewer_page": submission_reviewer_page,
     "workflow_directory_page": workflow_directory_page,
     "graphics_search_page": graphics_search_page,
     "vectorstore_page": vectorstore_page,
@@ -748,9 +734,7 @@ agent_pages = [
     "course_content_editor_mda_page",
     #"graphics_definition_page",
     "graphics_definition_v2_page",
-    "assessments_generation_page",
-    "submission_reviewer_page",
-    ]
+    "assessments_generation_page"]
     #"get_images_page"]
 tool_pages = [
     # "graphics_search_page",

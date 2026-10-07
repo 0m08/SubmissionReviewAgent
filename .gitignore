@@ -24,9 +24,3 @@ mda-skill-script-secrets.md
 
 # Runtime telemetry log — 71MB, rewritten on every app run
 logging.csv
-
-# Moodle downloads and local sessions
-MyDrive/
-downloads/moodle_submissions/
-.moodle_session.json
-*.moodle_session.json

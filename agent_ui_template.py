@@ -72,7 +72,6 @@ AGENT_CODE_MAP = {
     "Graphics Definition V2": "graphics_definition_v2",
     "Assessment": "assessment",
     "Graphics Search": "graphics_search",
-    "Submission Reviewer": "submission_reviewer",
 }
 
 TOKEN_USAGE_LOG_FILE = "token_usage_log.csv"
