@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
+
+import requests
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -66,6 +69,29 @@ def get_optional_session(request: Request) -> Optional[MentorSession]:
     return None
 
 
+def _is_request_https(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+
+
+def _resolve_redirect_uri(request: Request) -> str:
+    """
+    Resolves OAuth redirect URI:
+    - If explicit OAUTH_REDIRECT_URI_MOODLE_REVIEW is set, honors it.
+    - If explicit OAUTH_REDIRECT_URI_MOODLE_FEEDBACK or OAUTH_REDIRECT_URI_LIGHTNING is set, honors it.
+    - Otherwise falls back to configured OAUTH_REDIRECT_URI.
+    Does not dynamically construct unwhitelisted hostnames to avoid Google redirect_uri_mismatch.
+    """
+    explicit = (
+        os.getenv("OAUTH_REDIRECT_URI_MOODLE_REVIEW", "").strip()
+        or os.getenv("OAUTH_REDIRECT_URI_MOODLE_FEEDBACK", "").strip()
+        or os.getenv("OAUTH_REDIRECT_URI_LIGHTNING", "").strip()
+    )
+    if explicit:
+        return explicit
+
+    return OAUTH_REDIRECT_URI
+
+
 @router.get("/login")
 def login(request: Request):
     """Initiates Google OAuth sign-in flow."""
@@ -73,18 +99,22 @@ def login(request: Request):
         logger.error("OAuth client credentials not configured")
         raise HTTPException(status_code=500, detail="OAuth credentials not configured in .env")
 
+    redirect_uri = _resolve_redirect_uri(request)
     auth_url, state = get_google_oauth_authorization_url(
-        OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_REDIRECT_URI
+        OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, redirect_uri
     )
     pending = session_store.create(user_email="", mentor_name="", role="")
     pending.oauth_state = state
+    pending.redirect_uri = redirect_uri
 
+    is_https = _is_request_https(request)
     response = RedirectResponse(auth_url, status_code=302)
     response.set_cookie(
         SESSION_COOKIE,
         pending.session_id,
         httponly=True,
         samesite="lax",
+        secure=is_https,
         max_age=86400 * 7,
     )
     return response
@@ -94,22 +124,49 @@ def login(request: Request):
 def callback(request: Request, code: str = "", state: str = ""):
     """Handles OAuth callback and verifies user credentials."""
     session = session_store.get(_session_id_from_request(request))
+    if session is None and state:
+        session = session_store.get_by_state(state)
     if session is None:
         raise HTTPException(status_code=400, detail="Missing login session")
     if not session.oauth_state or not state or state != session.oauth_state:
         raise HTTPException(status_code=400, detail="OAuth state mismatch or expired")
 
+    redirect_uri = getattr(session, "redirect_uri", None) or _resolve_redirect_uri(request)
+
     try:
         creds = exchange_code_for_credentials(
-            OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_REDIRECT_URI, code
+            OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, redirect_uri, code
         )
         _, drive, gc = init_clients_from_credentials(
             creds, client_id=OAUTH_CLIENT_ID, client_secret=OAUTH_CLIENT_SECRET
         )
-        about = drive.GetAbout()
-        user_obj = about.get("user") or {}
-        user_email = (user_obj.get("emailAddress") or "").strip()
-        display_name = (user_obj.get("displayName") or "").strip()
+        user_email = ""
+        display_name = ""
+
+        # 1. Primary: fetch user info directly via Google OAuth2 userinfo API
+        if hasattr(creds, "token") and creds.token:
+            try:
+                info_resp = requests.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {creds.token}"},
+                    timeout=5,
+                )
+                if info_resp.status_code == 200:
+                    uinfo = info_resp.json()
+                    user_email = (uinfo.get("email") or "").strip()
+                    display_name = (uinfo.get("name") or "").strip()
+            except Exception as token_err:
+                logger.warning(f"Could not fetch userinfo via bearer token: {token_err}")
+
+        # 2. Fallback to drive.GetAbout() if drive is available
+        if not user_email and drive is not None and hasattr(drive, "GetAbout"):
+            try:
+                about = drive.GetAbout()
+                user_obj = about.get("user") or {}
+                user_email = (user_obj.get("emailAddress") or "").strip()
+                display_name = (user_obj.get("displayName") or "").strip()
+            except Exception as drive_err:
+                logger.warning(f"Could not fetch userinfo via drive.GetAbout(): {drive_err}")
     except Exception as e:
         logger.error(f"Failed to exchange OAuth code: {e}")
         session_store.delete(session.session_id)
@@ -146,12 +203,14 @@ def callback(request: Request, code: str = "", state: str = ""):
     session.oauth_credentials = creds
     session.oauth_state = None
 
+    is_https = _is_request_https(request)
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(
         SESSION_COOKIE,
         session.session_id,
         httponly=True,
         samesite="lax",
+        secure=is_https,
         max_age=86400 * 7,
     )
     return response

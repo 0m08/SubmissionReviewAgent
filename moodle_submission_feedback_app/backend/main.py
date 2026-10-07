@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import os
+import threading
+import time
 from typing import Any, Dict, Optional
 from urllib.parse import unquote
 
@@ -217,6 +220,169 @@ def export_csv(activity_name: str):
     except Exception as e:
         logger.error(f"Failed to export CSV for '{activity_name}': {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Background Job State Tracking for Moodle Pipelines
+pipeline_jobs: Dict[str, Dict[str, Any]] = {
+    "pull": {
+        "status": "idle",
+        "message": "Ready to pull submissions.",
+        "activity_name": "",
+        "started_at": 0,
+        "finished_at": 0,
+        "error": None,
+    },
+    "push": {
+        "status": "idle",
+        "message": "Ready to push grades.",
+        "activity_name": "",
+        "started_at": 0,
+        "finished_at": 0,
+        "error": None,
+    },
+}
+
+
+def _run_pull_job(activity_name: str, mentor_email: str):
+    logger.info(f"🚀 [Action 1 Backend] Starting Moodle Ingestion & AI Review for '{activity_name}' (mentor: {mentor_email})...")
+    pipeline_jobs["pull"]["status"] = "running"
+    pipeline_jobs["pull"]["activity_name"] = activity_name
+    pipeline_jobs["pull"]["message"] = f"Pulling submissions from Moodle & evaluating with AI for '{activity_name}'..."
+    pipeline_jobs["pull"]["started_at"] = time.time()
+    pipeline_jobs["pull"]["finished_at"] = 0
+    pipeline_jobs["pull"]["error"] = None
+
+    try:
+        from agents.submission_reviewer.moodle_review_runner import run_full_ingest_and_review
+        result = run_full_ingest_and_review(
+            activity_name=activity_name,
+            upload_to_moodle=False,
+        )
+        evaluated_count = result.get("evaluated_count", 0)
+        pipeline_jobs["pull"]["status"] = "completed"
+        pipeline_jobs["pull"]["finished_at"] = time.time()
+        pipeline_jobs["pull"]["message"] = f"Done! Evaluated and synced {evaluated_count} submission(s) to Google Sheet tab '{activity_name}'."
+        logger.info(f"✅ [Action 1 Backend] Finished successfully for '{activity_name}' ({evaluated_count} evaluated).")
+    except Exception as e:
+        logger.error(f"❌ [Action 1 Backend] Failed for '{activity_name}': {e}", exc_info=True)
+        pipeline_jobs["pull"]["status"] = "failed"
+        pipeline_jobs["pull"]["finished_at"] = time.time()
+        pipeline_jobs["pull"]["error"] = str(e)
+        pipeline_jobs["pull"]["message"] = f"Ingestion error: {str(e)}"
+
+
+def _run_push_job(activity_name: str, only_reviewed: bool, mentor_email: str):
+    logger.info(f"🚀 [Action 2 Backend] Starting Moodle Gradebook Upload for '{activity_name}' (mentor: {mentor_email})...")
+    pipeline_jobs["push"]["status"] = "running"
+    pipeline_jobs["push"]["activity_name"] = activity_name
+    pipeline_jobs["push"]["message"] = f"Publishing reviewed grades from Google Sheet to Moodle for '{activity_name}'..."
+    pipeline_jobs["push"]["started_at"] = time.time()
+    pipeline_jobs["push"]["finished_at"] = 0
+    pipeline_jobs["push"]["error"] = None
+
+    try:
+        from agents.submission_reviewer.moodle_upload_runner import run_moodle_upload_pipeline
+        success = asyncio.run(run_moodle_upload_pipeline(
+            activity_name=activity_name,
+            only_mentor_reviewed=only_reviewed,
+        ))
+        if success:
+            pipeline_jobs["push"]["status"] = "completed"
+            pipeline_jobs["push"]["finished_at"] = time.time()
+            pipeline_jobs["push"]["message"] = f"Success! Approved grades and feedback for '{activity_name}' published to Moodle Gradebook!"
+            logger.info(f"✅ [Action 2 Backend] Finished successfully for '{activity_name}'.")
+        else:
+            raise RuntimeError("Moodle worksheet upload failed or confirmation could not be verified.")
+    except Exception as e:
+        logger.error(f"❌ [Action 2 Backend] Failed for '{activity_name}': {e}", exc_info=True)
+        pipeline_jobs["push"]["status"] = "failed"
+        pipeline_jobs["push"]["finished_at"] = time.time()
+        pipeline_jobs["push"]["error"] = str(e)
+        pipeline_jobs["push"]["message"] = f"Upload error: {str(e)}"
+
+
+@api_router.post("/moodle/pull")
+def pull_moodle_grades(
+    request: Optional[Dict[str, Any]] = None,
+    session: MentorSession = Depends(get_current_session),
+):
+    """
+    Action 1 Backend: Ingests from Moodle + reviews via AI agent + writes to Central Google Sheet.
+    Runs asynchronously in a background worker thread.
+    """
+    activity_name = (request or {}).get("activity_name") or "System Identification"
+    logger.info(f"Moodle pull triggered for '{activity_name}' by {session.user_email}")
+
+    if pipeline_jobs["pull"]["status"] == "running":
+        return {
+            "status": "already_running",
+            "action": "pull",
+            "message": f"Ingestion pipeline is already running for '{pipeline_jobs['pull']['activity_name']}'...",
+            "activity_name": pipeline_jobs["pull"]["activity_name"],
+            "started_at": pipeline_jobs["pull"]["started_at"],
+        }
+
+    thread = threading.Thread(
+        target=_run_pull_job,
+        args=(activity_name, session.user_email),
+        daemon=True,
+    )
+    thread.start()
+
+    return {
+        "status": "started",
+        "action": "pull",
+        "activity_name": activity_name,
+        "message": f"Moodle ingestion and AI review pipeline initiated for '{activity_name}'.",
+        "initiated_by": session.mentor_name or session.user_email,
+        "timestamp": time.time(),
+    }
+
+
+@api_router.post("/moodle/push")
+def push_moodle_grades(
+    request: Optional[Dict[str, Any]] = None,
+    session: MentorSession = Depends(get_current_session),
+):
+    """
+    Action 2 Backend: Uploads approved grades and feedback comments from Google Sheet to Moodle Gradebook.
+    Runs asynchronously in a background worker thread.
+    """
+    req = request or {}
+    activity_name = req.get("activity_name") or "System Identification"
+    only_reviewed = bool(req.get("only_reviewed", False))
+    logger.info(f"Moodle push triggered for '{activity_name}' by {session.user_email}")
+
+    if pipeline_jobs["push"]["status"] == "running":
+        return {
+            "status": "already_running",
+            "action": "push",
+            "message": f"Moodle upload is already running for '{pipeline_jobs['push']['activity_name']}'...",
+            "activity_name": pipeline_jobs["push"]["activity_name"],
+            "started_at": pipeline_jobs["push"]["started_at"],
+        }
+
+    thread = threading.Thread(
+        target=_run_push_job,
+        args=(activity_name, only_reviewed, session.user_email),
+        daemon=True,
+    )
+    thread.start()
+
+    return {
+        "status": "started",
+        "action": "push",
+        "activity_name": activity_name,
+        "message": f"Moodle gradebook upload initiated for '{activity_name}'.",
+        "initiated_by": session.mentor_name or session.user_email,
+        "timestamp": time.time(),
+    }
+
+
+@api_router.get("/moodle/status")
+def get_moodle_job_status(session: Optional[MentorSession] = Depends(get_optional_session)):
+    """Returns the current execution status of Action 1 (pull) and Action 2 (push) jobs."""
+    return pipeline_jobs
 
 
 media_router = APIRouter(prefix="/api", tags=["media"])

@@ -88,4 +88,38 @@ const API = {
     }
     return res.json();
   },
+
+  async moodlePull(payload = {}) {
+    const res = await requestWithAuth('/api/moodle/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to initiate Moodle pull');
+    }
+    return res.json();
+  },
+
+  async moodlePush(payload = {}) {
+    const res = await requestWithAuth('/api/moodle/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to initiate Moodle push');
+    }
+    return res.json();
+  },
+
+  async getMoodleJobStatus() {
+    const res = await requestWithAuth('/api/moodle/status', {
+      method: 'GET',
+    });
+    if (!res.ok) throw new Error('Failed to fetch Moodle pipeline status');
+    return res.json();
+  },
 };

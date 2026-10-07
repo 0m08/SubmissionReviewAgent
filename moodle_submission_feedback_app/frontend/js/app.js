@@ -76,6 +76,18 @@ function applyTheme(theme) {
       dashMoon.style.display = 'block';
     }
   }
+
+  const statsSun = document.querySelector('.stats-theme-icon-sun');
+  const statsMoon = document.querySelector('.stats-theme-icon-moon');
+  if (statsSun && statsMoon) {
+    if (theme === 'dark') {
+      statsSun.style.display = 'block';
+      statsMoon.style.display = 'none';
+    } else {
+      statsSun.style.display = 'none';
+      statsMoon.style.display = 'block';
+    }
+  }
 }
 
 function showToast(message, type = 'success') {
@@ -178,8 +190,10 @@ function showDashboardView() {
 
   const dashView = document.getElementById('activities-dashboard-view');
   const studioView = document.getElementById('reviewer-studio-view');
+  const statsView = document.getElementById('moodle-sync-stats-view');
   if (dashView) dashView.style.display = 'flex';
   if (studioView) studioView.style.display = 'none';
+  if (statsView) statsView.style.display = 'none';
 
   renderDashboard();
 }
@@ -298,15 +312,145 @@ async function openReviewStudioForActivity(activityName) {
 
   const dashView = document.getElementById('activities-dashboard-view');
   const studioView = document.getElementById('reviewer-studio-view');
+  const statsView = document.getElementById('moodle-sync-stats-view');
   if (dashView) dashView.style.display = 'none';
   if (studioView) studioView.style.display = 'flex';
+  if (statsView) statsView.style.display = 'none';
 
   await selectActivity(activityName);
+}
+
+function showSyncStatsView() {
+  state.currentView = 'stats';
+  window.location.hash = 'stats';
+
+  const dashView = document.getElementById('activities-dashboard-view');
+  const studioView = document.getElementById('reviewer-studio-view');
+  const statsView = document.getElementById('moodle-sync-stats-view');
+  if (dashView) dashView.style.display = 'none';
+  if (studioView) studioView.style.display = 'none';
+  if (statsView) statsView.style.display = 'flex';
+
+  renderSyncStats();
+}
+
+function renderSyncStats() {
+  const sum = state.globalSummary || {};
+  const totalSubs = sum.total_submissions || 0;
+  const totalActs = sum.total_activities || (state.activitiesOverview ? state.activitiesOverview.length : 0);
+  const approved = sum.approved_count || 0;
+  const pending = sum.pending_count || 0;
+  const overridden = sum.overridden_count || 0;
+  const pushed = sum.pushed_count || 0;
+  const passCount = sum.pass_count || 0;
+  const failCount = sum.fail_count || 0;
+  const passRate = sum.overall_pass_rate !== undefined ? sum.overall_pass_rate : (totalSubs > 0 ? ((passCount / totalSubs) * 100).toFixed(1) : 0.0);
+
+  // Ready count for Gradebook Push
+  const readyCountEl = document.getElementById('stats-push-ready-count');
+  if (readyCountEl) {
+    readyCountEl.textContent = `${approved} Approved Ready`;
+  }
+
+  // 6 KPI cards
+  const totalSubsEl = document.getElementById('stats-total-subs');
+  if (totalSubsEl) totalSubsEl.textContent = totalSubs.toLocaleString();
+
+  const totalActsEl = document.getElementById('stats-total-acts');
+  if (totalActsEl) totalActsEl.textContent = `Across ${totalActs} ${totalActs === 1 ? 'activity' : 'activities'}`;
+
+  const approvedSubsEl = document.getElementById('stats-approved-subs');
+  if (approvedSubsEl) approvedSubsEl.textContent = approved.toLocaleString();
+
+  const approvedPctEl = document.getElementById('stats-approved-pct');
+  if (approvedPctEl) {
+    const pct = totalSubs > 0 ? Math.round((approved / totalSubs) * 100) : 0;
+    approvedPctEl.textContent = `${pct}% completion`;
+  }
+
+  const pendingSubsEl = document.getElementById('stats-pending-subs');
+  if (pendingSubsEl) pendingSubsEl.textContent = pending.toLocaleString();
+
+  const pendingPctEl = document.getElementById('stats-pending-pct');
+  if (pendingPctEl) {
+    pendingPctEl.textContent = pending > 0 ? 'Waiting on mentor' : 'All caught up';
+  }
+
+  const passRateEl = document.getElementById('stats-pass-rate');
+  if (passRateEl) passRateEl.textContent = `${passRate}%`;
+
+  const passRatioEl = document.getElementById('stats-pass-ratio');
+  if (passRatioEl) passRatioEl.textContent = `${passCount} pass / ${failCount} fail`;
+
+  const overriddenSubsEl = document.getElementById('stats-overridden-subs');
+  if (overriddenSubsEl) overriddenSubsEl.textContent = overridden.toLocaleString();
+
+  const agreementRateEl = document.getElementById('stats-agreement-rate');
+  if (agreementRateEl) {
+    const totalReviewed = approved + overridden;
+    const agreePct = totalReviewed > 0 ? (100 - Math.round((overridden / totalReviewed) * 100)) : 100;
+    agreementRateEl.textContent = `AI Agreement: ${agreePct}%`;
+  }
+
+  const pushedSubsEl = document.getElementById('stats-pushed-subs');
+  if (pushedSubsEl) pushedSubsEl.textContent = pushed.toLocaleString();
+
+  // Table header count badge
+  const countBadge = document.getElementById('stats-table-count-badge');
+  if (countBadge) {
+    countBadge.textContent = `${totalActs} ${totalActs === 1 ? 'Activity' : 'Activities'}`;
+  }
+
+  // Breakdown table body
+  const tbody = document.getElementById('stats-activities-tbody');
+  if (!tbody) return;
+
+  const acts = state.activitiesOverview || [];
+  if (acts.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 32px; color: var(--sc-text-muted);">No activity records found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = acts.map(act => {
+    const actName = act.name || 'Activity';
+    const reviewed = (act.approved_count || 0) + (act.overridden_count || 0);
+    const passRt = act.pass_rate !== undefined ? `${act.pass_rate}%` : '0.0%';
+    const lastMod = act.last_modified ? escapeHtml(act.last_modified) : '—';
+
+    return `
+      <tr>
+        <td class="stats-act-name-cell">
+          <div>${escapeHtml(actName)}</div>
+        </td>
+        <td class="stats-num-mono">${act.total_submissions || 0}</td>
+        <td class="stats-num-mono" style="color: var(--sc-success); font-weight: 700;">${passRt}</td>
+        <td class="stats-num-mono">${reviewed}</td>
+        <td class="stats-num-mono" style="${(act.pending_count || 0) > 0 ? 'color: var(--sc-primary); font-weight: 700;' : 'color: var(--sc-text-muted);'}">
+          ${act.pending_count || 0}
+        </td>
+        <td>
+          <div class="stats-pills-breakdown">
+            <span class="pill-count is-pass" title="Pass count">${act.pass_count || 0} Pass</span>
+            <span class="pill-count is-fail" title="Fail count">${act.fail_count || 0} Fail</span>
+            <span class="pill-count is-unsure" title="Unsure count">${act.unsure_count || 0} Unsure</span>
+          </div>
+        </td>
+        <td style="font-size: 11.5px; color: var(--sc-text-muted); font-family: var(--sc-font-mono);">${lastMod}</td>
+        <td style="text-align: right;">
+          <button class="btn-stats-review" onclick="openReviewStudioForActivity('${escapeHtml(actName)}')" title="Open Activity in Review Studio">
+            <span>Review</span>
+            <svg class="ic" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 // Expose routing helpers globally for HTML onclick handlers
 window.showDashboardView = showDashboardView;
 window.openReviewStudioForActivity = openReviewStudioForActivity;
+window.showSyncStatsView = showSyncStatsView;
 
 async function initApp() {
   applyTheme(state.theme);
@@ -333,16 +477,26 @@ async function initApp() {
       if (dashNameDisp) dashNameDisp.textContent = mentorInfo.mentor_name;
       if (dashAvatarDisp) dashAvatarDisp.textContent = getInitials(mentorInfo.mentor_name);
       if (dashSheetBtn) dashSheetBtn.href = mentorInfo.sheet_url;
+
+      // Stats header profile
+      const statsNameDisp = document.getElementById('stats-mentor-name-display');
+      const statsAvatarDisp = document.getElementById('stats-user-avatar');
+      const statsSheetBtn = document.getElementById('stats-sheet-link-btn');
+      if (statsNameDisp) statsNameDisp.textContent = mentorInfo.mentor_name;
+      if (statsAvatarDisp) statsAvatarDisp.textContent = getInitials(mentorInfo.mentor_name);
+      if (statsSheetBtn) statsSheetBtn.href = mentorInfo.sheet_url;
     }
 
     await refreshActivitiesData(false);
 
-    // View routing: Check if a specific activity is targeted in hash or query param
+    // View routing: Check if a specific activity or stats page is targeted in hash or query param
     const hash = window.location.hash || '';
     const params = new URLSearchParams(window.location.search);
     const targetActivity = params.get('activity') || (hash.startsWith('#activity=') ? decodeURIComponent(hash.replace('#activity=', '')) : '');
 
-    if (targetActivity && state.activities.includes(targetActivity)) {
+    if (hash === '#stats' || hash === '#moodle-sync') {
+      showSyncStatsView();
+    } else if (targetActivity && state.activities.includes(targetActivity)) {
       await openReviewStudioForActivity(targetActivity);
     } else {
       // Default: Land reviewer on Activities Dashboard
@@ -690,6 +844,30 @@ function parseChecklistItem(itemOrLine) {
 // ============================================================================
 // Right Stage: Focused Review Workspace
 // ============================================================================
+function computeIsDirty(cardState, sub) {
+  if (!cardState || !sub) return false;
+
+  const currentGrade = (cardState.grade || '').trim().toLowerCase();
+  const currentFeedback = (cardState.feedback || '').trim();
+
+  const origGrade = (cardState.originalGrade || sub.grade || '').trim().toLowerCase();
+  const origFeedback = (cardState.originalFeedback || sub.feedback_comment || '').trim();
+
+  // Normalize AI grade baseline
+  const rawAiGrade = (sub.agent_grade || sub.grade || '').trim();
+  const aiGradeNorm = rawAiGrade.toLowerCase().includes('pass')
+    ? 'pass'
+    : (rawAiGrade.toLowerCase().includes('fail') ? 'fail' : '');
+
+  // Grade is clean if it matches the loaded original grade OR matches AI's baseline grade
+  const gradeIsClean = (currentGrade === origGrade) || (aiGradeNorm && currentGrade === aiGradeNorm);
+
+  // Feedback is clean if it matches original / baseline comment
+  const feedbackIsClean = (currentFeedback === origFeedback);
+
+  return !gradeIsClean || !feedbackIsClean;
+}
+
 function renderActiveStage() {
   const placeholder = document.getElementById('stage-placeholder');
   const stageContent = document.getElementById('stage-content');
@@ -705,13 +883,20 @@ function renderActiveStage() {
   stageContent.style.display = 'flex';
 
   const key = `${sub.name}_${sub.attempt_number}`;
-  const cardState = state.cardStates[key] || {
-    grade: sub.grade.toLowerCase().includes('pass') ? 'Pass' : 'Fail',
-    feedback: sub.feedback_comment || '',
-    isDirty: false,
-    originalGrade: sub.grade.toLowerCase().includes('pass') ? 'Pass' : 'Fail',
-    originalFeedback: sub.feedback_comment || '',
-  };
+  if (!state.cardStates[key]) {
+    const defaultGrade = sub.grade.toLowerCase().includes('pass') ? 'Pass' : 'Fail';
+    state.cardStates[key] = {
+      grade: defaultGrade,
+      feedback: sub.feedback_comment || '',
+      originalGrade: defaultGrade,
+      originalFeedback: sub.feedback_comment || '',
+      isDirty: false,
+    };
+  } else {
+    // Keep isDirty dynamically synchronized with baseline
+    state.cardStates[key].isDirty = computeIsDirty(state.cardStates[key], sub);
+  }
+  const cardState = state.cardStates[key];
 
   // 1. Stage Header
   const avatarEl = document.getElementById('stage-avatar');
@@ -869,7 +1054,7 @@ function renderActiveStage() {
   }
 
   if (dockUnsavedIndicator) {
-    dockUnsavedIndicator.style.display = cardState.isDirty ? 'inline' : 'none';
+    dockUnsavedIndicator.style.display = cardState.isDirty ? 'inline-flex' : 'none';
   }
 
   const feedbackInput = document.getElementById('stage-feedback-input');
@@ -1254,23 +1439,33 @@ function setStageGrade(grade) {
   const sub = state.filteredSubmissions[state.selectedIndex];
   if (!sub) return;
   const key = `${sub.name}_${sub.attempt_number}`;
-  if (!state.cardStates[key]) state.cardStates[key] = { feedback: '' };
+  if (!state.cardStates[key]) {
+    const defaultGrade = sub.grade.toLowerCase().includes('pass') ? 'Pass' : 'Fail';
+    state.cardStates[key] = {
+      grade: defaultGrade,
+      feedback: sub.feedback_comment || '',
+      originalGrade: defaultGrade,
+      originalFeedback: sub.feedback_comment || '',
+      isDirty: false,
+    };
+  }
 
   const prevGrade = state.cardStates[key].grade || (sub.grade.toLowerCase().includes('pass') ? 'Pass' : 'Fail');
   const gradeChanged = prevGrade !== grade;
 
   state.cardStates[key].grade = grade;
-  state.cardStates[key].isDirty = true;
+  const isDirty = computeIsDirty(state.cardStates[key], sub);
+  state.cardStates[key].isDirty = isDirty;
 
   const passBtn = document.getElementById('btn-grade-pass');
   const failBtn = document.getElementById('btn-grade-fail');
-  passBtn.className = `grade-toggle-btn ${grade === 'Pass' ? 'is-active-pass' : ''}`;
-  failBtn.className = `grade-toggle-btn ${grade === 'Fail' ? 'is-active-fail' : ''}`;
+  if (passBtn) passBtn.className = `grade-toggle-btn ${grade === 'Pass' ? 'is-active-pass' : ''}`;
+  if (failBtn) failBtn.className = `grade-toggle-btn ${grade === 'Fail' ? 'is-active-fail' : ''}`;
 
   const unsavedBadge = document.getElementById('stage-unsaved-badge');
-  if (unsavedBadge) unsavedBadge.style.display = 'inline-flex';
+  if (unsavedBadge) unsavedBadge.style.display = isDirty ? 'inline-flex' : 'none';
   const dockUnsaved = document.getElementById('dock-unsaved-indicator');
-  if (dockUnsaved) dockUnsaved.style.display = 'inline';
+  if (dockUnsaved) dockUnsaved.style.display = isDirty ? 'inline-flex' : 'none';
   renderRosterList();
 
   // Normalize AI grade baseline
@@ -1289,16 +1484,28 @@ function onStageFeedbackInput(val) {
   const sub = state.filteredSubmissions[state.selectedIndex];
   if (!sub) return;
   const key = `${sub.name}_${sub.attempt_number}`;
-  if (!state.cardStates[key]) state.cardStates[key] = { grade: 'Pass' };
+  if (!state.cardStates[key]) {
+    const defaultGrade = sub.grade.toLowerCase().includes('pass') ? 'Pass' : 'Fail';
+    state.cardStates[key] = {
+      grade: defaultGrade,
+      feedback: sub.feedback_comment || '',
+      originalGrade: defaultGrade,
+      originalFeedback: sub.feedback_comment || '',
+      isDirty: false,
+    };
+  }
 
   state.cardStates[key].feedback = val;
-  state.cardStates[key].isDirty = true;
+  const isDirty = computeIsDirty(state.cardStates[key], sub);
+  state.cardStates[key].isDirty = isDirty;
 
-  document.getElementById('stage-char-count').textContent = `${val.length} chars`;
+  const charCountEl = document.getElementById('stage-char-count');
+  if (charCountEl) charCountEl.textContent = `${val.length} chars`;
   const unsavedBadge = document.getElementById('stage-unsaved-badge');
-  if (unsavedBadge) unsavedBadge.style.display = 'inline-flex';
+  if (unsavedBadge) unsavedBadge.style.display = isDirty ? 'inline-flex' : 'none';
   const dockUnsaved = document.getElementById('dock-unsaved-indicator');
-  if (dockUnsaved) dockUnsaved.style.display = 'inline';
+  if (dockUnsaved) dockUnsaved.style.display = isDirty ? 'inline-flex' : 'none';
+  renderRosterList();
 }
 
 function revertStageFeedback() {
@@ -1313,6 +1520,8 @@ function revertStageFeedback() {
 
   const dockUnsaved = document.getElementById('dock-unsaved-indicator');
   if (dockUnsaved) dockUnsaved.style.display = 'none';
+  const unsavedBadge = document.getElementById('stage-unsaved-badge');
+  if (unsavedBadge) unsavedBadge.style.display = 'none';
 
   renderActiveStage();
   renderRosterList();
@@ -1415,6 +1624,20 @@ async function triggerSyncLocal() {
 // ============================================================================
 let activeModalGradeChange = null;
 
+function toggleExistingRulesBanner() {
+  const bannerContent = document.getElementById('existing-rules-banner-content');
+  const chevron = document.getElementById('existing-rules-chevron');
+  const toggleHint = document.getElementById('existing-rules-toggle-hint');
+  const bannerToggle = document.getElementById('existing-rules-banner-toggle');
+  if (!bannerContent) return;
+
+  const isOpen = bannerContent.style.display !== 'none';
+  bannerContent.style.display = isOpen ? 'none' : 'block';
+  if (chevron) chevron.classList.toggle('is-open', !isOpen);
+  if (toggleHint) toggleHint.textContent = isOpen ? 'View' : 'Hide';
+  if (bannerToggle) bannerToggle.setAttribute('aria-expanded', String(!isOpen));
+}
+
 function openRulePromptModal(fromGrade, toGrade, isManual = false) {
   const modal = document.getElementById('rule-prompt-modal');
   if (!modal) return;
@@ -1428,39 +1651,48 @@ function openRulePromptModal(fromGrade, toGrade, isManual = false) {
   const guideInput = document.getElementById('rule-guideline-input');
   const prevEdgeEl = document.getElementById('preview-existing-edge-cases');
   const prevGuideEl = document.getElementById('preview-existing-guidelines');
-  const summaryLabel = document.getElementById('existing-rules-summary-label');
+  const countText = document.getElementById('existing-rules-count-text');
+  const bannerContent = document.getElementById('existing-rules-banner-content');
+  const bannerToggle = document.getElementById('existing-rules-banner-toggle');
+  const chevron = document.getElementById('existing-rules-chevron');
+  const toggleHint = document.getElementById('existing-rules-toggle-hint');
 
   if (gradeBadge) {
     if (isManual) {
       gradeBadge.textContent = 'Rule Editor';
-      gradeBadge.className = 'badge';
+      gradeBadge.className = 'badge badge-subtle';
     } else {
-      gradeBadge.textContent = `AI: ${fromGrade} ➔ Override: ${toGrade}`;
+      gradeBadge.textContent = `${fromGrade} ➔ ${toGrade}`;
       gradeBadge.className = `badge ${toGrade === 'Pass' ? 'badge-pass' : 'badge-fail'}`;
     }
   }
 
-  if (actBadge) {
-    actBadge.textContent = state.activeActivity || 'Activity';
-  }
-
   if (titleEl) {
-    titleEl.textContent = isManual ? `Add Rule for ${state.activeActivity}` : 'Teach the AI Reviewer';
+    titleEl.textContent = `Add Rule for ${state.activeActivity || 'Activity'}`;
   }
 
   if (edgeInput) edgeInput.value = '';
   if (guideInput) guideInput.value = '';
 
-  const curEdge = state.activityEdgeCases || '';
-  const curGuide = state.activityGuidelines || '';
+  const curEdge = (state.activityEdgeCases || '').trim();
+  const curGuide = (state.activityGuidelines || '').trim();
 
-  if (prevEdgeEl) prevEdgeEl.textContent = curEdge.trim() || '(None recorded yet)';
-  if (prevGuideEl) prevGuideEl.textContent = curGuide.trim() || '(None recorded yet)';
+  if (prevEdgeEl) prevEdgeEl.textContent = curEdge || '(None recorded yet)';
+  if (prevGuideEl) prevGuideEl.textContent = curGuide || '(None recorded yet)';
 
-  if (summaryLabel) {
-    const hasRules = Boolean(curEdge.trim() || curGuide.trim());
-    summaryLabel.textContent = `View Current Activity Details & Rules (${hasRules ? 'Active Rules Available' : 'None Yet'})`;
+  const hasEdge = Boolean(curEdge);
+  const hasGuide = Boolean(curGuide);
+  const activeCount = (hasEdge ? 1 : 0) + (hasGuide ? 1 : 0);
+
+  if (countText) {
+    countText.textContent = activeCount > 0 ? `(${activeCount} saved)` : '(None yet)';
   }
+
+  // Reset dropdown banner to collapsed on modal open
+  if (bannerContent) bannerContent.style.display = 'none';
+  if (chevron) chevron.classList.remove('is-open');
+  if (toggleHint) toggleHint.textContent = 'View';
+  if (bannerToggle) bannerToggle.setAttribute('aria-expanded', 'false');
 
   setRuleTab('both');
 
@@ -1486,6 +1718,8 @@ function setRuleTab(tab) {
   const tabBoth = document.getElementById('tab-btn-both');
   const tabEdge = document.getElementById('tab-btn-edge');
   const tabGuide = document.getElementById('tab-btn-guide');
+  const edgeInput = document.getElementById('rule-edge-case-input');
+  const guideInput = document.getElementById('rule-guideline-input');
 
   if (tabBoth) tabBoth.classList.toggle('is-active', tab === 'both');
   if (tabEdge) tabEdge.classList.toggle('is-active', tab === 'edge');
@@ -1493,6 +1727,16 @@ function setRuleTab(tab) {
 
   if (groupEdge) groupEdge.style.display = (tab === 'both' || tab === 'edge') ? 'flex' : 'none';
   if (groupGuide) groupGuide.style.display = (tab === 'both' || tab === 'guide') ? 'flex' : 'none';
+
+  // Expand textarea in single mode, keep compact in both mode
+  if (edgeInput) {
+    edgeInput.classList.toggle('is-expanded', tab === 'edge');
+    edgeInput.rows = tab === 'both' ? 2 : 4;
+  }
+  if (guideInput) {
+    guideInput.classList.toggle('is-expanded', tab === 'guide');
+    guideInput.rows = tab === 'both' ? 2 : 4;
+  }
 }
 
 async function saveActivityRuleFromModal() {
@@ -1534,7 +1778,7 @@ async function saveActivityRuleFromModal() {
       saveBtn.disabled = false;
       saveBtn.innerHTML = `
         <svg class="ic-xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-        <span>Save to Activity Details Tab</span>
+        <span>Save Rule</span>
       `;
     }
   }
@@ -1560,6 +1804,117 @@ document.addEventListener('DOMContentLoaded', () => {
   const backToDashBtn = document.getElementById('back-to-activities-btn');
   if (backToDashBtn) {
     backToDashBtn.onclick = showDashboardView;
+  }
+
+  // Navigation to Statistics & Moodle Sync (Dashboard only)
+  const dashToStatsBtn = document.getElementById('dash-to-stats-btn');
+  if (dashToStatsBtn) {
+    dashToStatsBtn.onclick = showSyncStatsView;
+  }
+
+  const statsBackBtn = document.getElementById('stats-back-to-dash-btn');
+  if (statsBackBtn) {
+    statsBackBtn.onclick = showDashboardView;
+  }
+
+  const statsRefreshBtn = document.getElementById('stats-refresh-btn');
+  if (statsRefreshBtn) {
+    statsRefreshBtn.onclick = async () => {
+      await refreshActivitiesData(true);
+      renderSyncStats();
+    };
+  }
+
+  const statsThemeBtn = document.getElementById('stats-theme-toggle-btn');
+  if (statsThemeBtn) {
+    statsThemeBtn.onclick = () => applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+  }
+
+  // Moodle Action Buttons: Action 1 (Pull & Review) and Action 2 (Push to Moodle)
+  const btnMoodlePull = document.getElementById('btn-moodle-pull');
+  if (btnMoodlePull) {
+    btnMoodlePull.onclick = async () => {
+      btnMoodlePull.classList.add('is-loading');
+      const origHtml = btnMoodlePull.innerHTML;
+      btnMoodlePull.innerHTML = `
+        <svg class="ic spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+        <span>Ingesting & Reviewing...</span>
+      `;
+      try {
+        const targetActivity = state.activeActivity || (state.activitiesOverview && state.activitiesOverview.length > 0 ? state.activitiesOverview[0].name : 'System Identification');
+        const startRes = await API.moodlePull({ activity_name: targetActivity });
+        showToast(startRes.message || 'Moodle ingestion & AI review started in background...', 'info');
+
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusData = await API.getMoodleJobStatus();
+            const pullJob = statusData.pull || {};
+            if (pullJob.status === 'completed') {
+              clearInterval(pollInterval);
+              btnMoodlePull.classList.remove('is-loading');
+              btnMoodlePull.innerHTML = origHtml;
+              showToast(pullJob.message || 'Pipeline complete! Submissions synced to Google Sheet.', 'success');
+              await refreshActivitiesData(true);
+              renderSyncStats();
+            } else if (pullJob.status === 'failed') {
+              clearInterval(pollInterval);
+              btnMoodlePull.classList.remove('is-loading');
+              btnMoodlePull.innerHTML = origHtml;
+              showToast('Pull failed: ' + (pullJob.error || pullJob.message), 'error');
+            }
+          } catch (pollErr) {
+            console.warn('Poll error:', pollErr);
+          }
+        }, 3000);
+      } catch (err) {
+        btnMoodlePull.classList.remove('is-loading');
+        btnMoodlePull.innerHTML = origHtml;
+        showToast('Moodle Pull error: ' + err.message, 'error');
+      }
+    };
+  }
+
+  const btnMoodlePush = document.getElementById('btn-moodle-push');
+  if (btnMoodlePush) {
+    btnMoodlePush.onclick = async () => {
+      btnMoodlePush.classList.add('is-loading');
+      const origHtml = btnMoodlePush.innerHTML;
+      btnMoodlePush.innerHTML = `
+        <svg class="ic spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+        <span>Publishing to Moodle...</span>
+      `;
+      try {
+        const targetActivity = state.activeActivity || (state.activitiesOverview && state.activitiesOverview.length > 0 ? state.activitiesOverview[0].name : 'System Identification');
+        const startRes = await API.moodlePush({ activity_name: targetActivity, only_reviewed: false });
+        showToast(startRes.message || 'Moodle gradebook upload started in background...', 'info');
+
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusData = await API.getMoodleJobStatus();
+            const pushJob = statusData.push || {};
+            if (pushJob.status === 'completed') {
+              clearInterval(pollInterval);
+              btnMoodlePush.classList.remove('is-loading');
+              btnMoodlePush.innerHTML = origHtml;
+              showToast(pushJob.message || 'Approved grades published to Moodle Gradebook!', 'success');
+              await refreshActivitiesData(true);
+              renderSyncStats();
+            } else if (pushJob.status === 'failed') {
+              clearInterval(pollInterval);
+              btnMoodlePush.classList.remove('is-loading');
+              btnMoodlePush.innerHTML = origHtml;
+              showToast('Push failed: ' + (pushJob.error || pushJob.message), 'error');
+            }
+          } catch (pollErr) {
+            console.warn('Poll error:', pollErr);
+          }
+        }, 3000);
+      } catch (err) {
+        btnMoodlePush.classList.remove('is-loading');
+        btnMoodlePush.innerHTML = origHtml;
+        showToast('Moodle Push error: ' + err.message, 'error');
+      }
+    };
   }
 
   // Dashboard controls
@@ -1703,6 +2058,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (tabEdge) tabEdge.onclick = () => setRuleTab('edge');
   const tabGuide = document.getElementById('tab-btn-guide');
   if (tabGuide) tabGuide.onclick = () => setRuleTab('guide');
+
+  const bannerToggle = document.getElementById('existing-rules-banner-toggle');
+  if (bannerToggle) bannerToggle.onclick = toggleExistingRulesBanner;
 
   // GLOBAL KEYBOARD SHORTCUTS (The Linear / Superhuman experience)
   document.addEventListener('keydown', (e) => {

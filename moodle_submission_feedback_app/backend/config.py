@@ -21,8 +21,10 @@ REGISTRY_SHEET_ID = os.environ.get("CENTRAL_REVIEW_SHEET_ID", "1aP7Xdvoi4TTIT8K7
 OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID", "").strip()
 OAUTH_CLIENT_SECRET = os.getenv("OAUTH_CLIENT_SECRET", "").strip()
 OAUTH_REDIRECT_URI = (
-    os.getenv("OAUTH_REDIRECT_URI_MOODLE_FEEDBACK", "").strip()
-    or os.getenv("OAUTH_REDIRECT_URI_HUMAN_FEEDBACK", "").strip()
+    os.getenv("OAUTH_REDIRECT_URI_MOODLE_REVIEW", "").strip()
+    or os.getenv("OAUTH_REDIRECT_URI_MOODLE_FEEDBACK", "").strip()
+    or os.getenv("OAUTH_REDIRECT_URI_LIGHTNING", "").strip()
+    or os.getenv("OAUTH_REDIRECT_URI", "").strip()
     or "http://localhost:8000/auth/callback"
 )
 SESSION_COOKIE = "moodle_review_session_id"

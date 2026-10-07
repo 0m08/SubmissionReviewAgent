@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/styles.css?v=20261005_09" />
+  <link rel="stylesheet" href="/css/styles.css?v=20261006_04" />
 </head>
 <body>
 
@@ -28,6 +28,11 @@
       </div>
 
       <div class="header-right">
+        <button id="dash-to-stats-btn" class="btn btn-secondary btn-sm" title="View Overall Stats & Moodle Sync">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+          <span>Moodle Sync & Stats</span>
+        </button>
+
         <button id="dash-refresh-btn" class="btn btn-secondary btn-sm" title="Refresh activities from Google Sheet">
           <svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           <span>Refresh</span>
@@ -464,6 +469,166 @@
     </div>
   </div>
 
+  <!-- ====================================================================== -->
+  <!-- VIEW 3: Moodle Sync & Overall Stats View                               -->
+  <!-- ====================================================================== -->
+  <div id="moodle-sync-stats-view" class="moodle-sync-stats-view" style="display: none;">
+
+    <!-- Stats Top Header -->
+    <header class="dashboard-header">
+      <div class="header-left">
+        <button id="stats-back-to-dash-btn" class="btn back-to-dash-btn" title="Back to Activities Dashboard">
+          <svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Dashboard</span>
+        </button>
+
+        <div class="studio-logo">
+          <img src="/brand-assets/Skillcat-Helmet.png" class="sc-mark" alt="SkillCat" onerror="this.onerror=null; this.src='/brand-assets/SkillCat-Logo.png';" />
+        </div>
+        <div class="studio-title-wrap">
+          <div class="sc-eyebrow">SKILLCAT</div>
+          <div class="studio-title">Moodle Sync & Analytics</div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button id="stats-refresh-btn" class="btn btn-secondary btn-sm" title="Refresh metrics from Google Sheet">
+          <svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          <span>Refresh</span>
+        </button>
+
+        <a id="stats-sheet-link-btn" href="#" target="_blank" class="icon-btn" title="Open central Google Sheet">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+
+        <button id="stats-theme-toggle-btn" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+          <svg class="ic stats-theme-icon-sun" style="display: none;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="ic stats-theme-icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+
+        <div class="user-chip">
+          <div class="user-avatar" id="stats-user-avatar">OA</div>
+          <span class="user-name" id="stats-mentor-name-display">Om Aryan</span>
+        </div>
+
+        <a href="/auth/logout" class="icon-btn" title="Sign out" style="text-decoration: none;" aria-label="Sign out">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- Stats Main Content -->
+    <main class="dashboard-main-content">
+
+      <!-- Moodle Grade Action Center (Hero Row) -->
+      <section class="moodle-action-center">
+        <div class="moodle-action-card moodle-pull-card">
+          <div class="moodle-action-header">
+            <span class="moodle-badge badge-pull">Moodle Ingest</span>
+            <div class="moodle-status-indicator">
+              <span class="pulse-dot"></span>
+              <span>Ready</span>
+            </div>
+          </div>
+          <h3 class="moodle-action-title">Pull Submissions & Grades</h3>
+          <p class="moodle-action-desc">Download new student submission media and attempt records from the Moodle portal into your review pipeline.</p>
+          <button id="btn-moodle-pull" class="btn btn-secondary btn-moodle-action">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>Pull Grades from Moodle</span>
+          </button>
+        </div>
+
+        <div class="moodle-action-card moodle-push-card">
+          <div class="moodle-action-header">
+            <span class="moodle-badge badge-push">Gradebook Sync</span>
+            <div class="moodle-status-indicator">
+              <span class="sync-count-tag" id="stats-push-ready-count">0 Approved Ready</span>
+            </div>
+          </div>
+          <h3 class="moodle-action-title">Push Approved Grades</h3>
+          <p class="moodle-action-desc">Publish all mentor-approved scores and personalized feedback comments directly to the Moodle Gradebook.</p>
+          <button id="btn-moodle-push" class="btn btn-primary btn-moodle-action">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Push Grades to Moodle</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Overall Global KPI Cards -->
+      <section class="stats-kpi-grid">
+        <div class="stats-kpi-card">
+          <div class="stats-kpi-label">Total Submissions</div>
+          <div class="stats-kpi-val" id="stats-total-subs">0</div>
+          <div class="stats-kpi-sub" id="stats-total-acts">Across 0 activities</div>
+        </div>
+
+        <div class="stats-kpi-card">
+          <div class="stats-kpi-label">Reviewed & Approved</div>
+          <div class="stats-kpi-val text-success" id="stats-approved-subs">0</div>
+          <div class="stats-kpi-sub" id="stats-approved-pct">0% completion</div>
+        </div>
+
+        <div class="stats-kpi-card">
+          <div class="stats-kpi-label">Pending Review</div>
+          <div class="stats-kpi-val text-warning" id="stats-pending-subs">0</div>
+          <div class="stats-kpi-sub" id="stats-pending-pct">Waiting on mentor</div>
+        </div>
+
+        <div class="stats-kpi-card">
+          <div class="stats-kpi-label">Overall Pass Rate</div>
+          <div class="stats-kpi-val text-pass" id="stats-pass-rate">0.0%</div>
+          <div class="stats-kpi-sub" id="stats-pass-ratio">0 pass / 0 fail</div>
+        </div>
+
+        <div class="stats-kpi-card">
+          <div class="stats-kpi-label">Mentor Overrides</div>
+          <div class="stats-kpi-val text-info" id="stats-overridden-subs">0</div>
+          <div class="stats-kpi-sub" id="stats-agreement-rate">AI Agreement: 100%</div>
+        </div>
+
+        <div class="stats-kpi-card">
+          <div class="stats-kpi-label">Pushed to Moodle</div>
+          <div class="stats-kpi-val" id="stats-pushed-subs">0</div>
+          <div class="stats-kpi-sub">Finalized status</div>
+        </div>
+      </section>
+
+      <!-- Activity-by-Activity Breakdown Table Section -->
+      <section class="stats-table-section">
+        <div class="stats-table-header">
+          <div>
+            <h3 class="stats-section-title">All Activities Performance Breakdown</h3>
+            <p class="stats-section-desc">Detailed submission counts, pass rates, and review progress across each course module.</p>
+          </div>
+          <div class="stats-table-actions">
+            <span class="badge badge-subtle" id="stats-table-count-badge">0 Activities</span>
+          </div>
+        </div>
+
+        <div class="stats-table-wrapper">
+          <table class="stats-data-table" id="stats-activities-table">
+            <thead>
+              <tr>
+                <th>Activity Name</th>
+                <th>Total</th>
+                <th>Pass Rate</th>
+                <th>Reviewed</th>
+                <th>Pending</th>
+                <th>Pass / Fail / Unsure</th>
+                <th>Last Modified</th>
+                <th style="text-align: right;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="stats-activities-tbody">
+              <!-- Dynamically populated rows -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toast-container"></div>
 
@@ -472,18 +637,11 @@
     <div class="modal-backdrop" id="rule-modal-backdrop"></div>
     <div class="modal-container">
       <div class="modal-header">
-        <div class="modal-header-icon">
-          <svg class="ic" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-        </div>
         <div class="modal-header-text">
-          <div class="modal-badge-row">
-            <span class="badge" id="rule-modal-grade-change-badge">Grade Override</span>
-            <span class="badge badge-subtle" id="rule-modal-activity-badge">Activity</span>
+          <div class="modal-title-row">
+            <h3 class="modal-title" id="rule-modal-title">Add Rule</h3>
+            <span class="badge badge-subtle" id="rule-modal-grade-change-badge">Rule Editor</span>
           </div>
-          <h3 class="modal-title" id="rule-modal-title">Teach the AI Reviewer</h3>
-          <p class="modal-subtitle">
-            You changed this submission's grade. Add an Edge Case or Guideline to the review sheet so the AI will evaluate similar submissions correctly in the future.
-          </p>
         </div>
         <button type="button" class="modal-close-btn" id="rule-modal-close-btn" aria-label="Close modal">
           <svg class="ic-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -491,6 +649,36 @@
       </div>
 
       <div class="modal-body">
+        <!-- Common Existing Rules Dropdown Banner -->
+        <div class="existing-rules-banner" id="existing-rules-banner">
+          <button type="button" class="existing-rules-banner-header" id="existing-rules-banner-toggle" aria-expanded="false">
+            <div class="existing-rules-banner-left">
+              <span class="existing-rules-banner-title">Existing Rules</span>
+              <span class="existing-rules-count-text" id="existing-rules-count-text">(None yet)</span>
+            </div>
+            <div class="existing-rules-banner-right">
+              <span class="existing-rules-toggle-hint" id="existing-rules-toggle-hint">View</span>
+              <svg class="ic-xs chevron-icon" id="existing-rules-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+          </button>
+          <div class="existing-rules-banner-content" id="existing-rules-banner-content" style="display: none;">
+            <div class="existing-rules-grid">
+              <div class="existing-rule-card">
+                <div class="existing-rule-card-header">
+                  <span class="rule-type-tag tag-edge">Edge Cases</span>
+                </div>
+                <pre id="preview-existing-edge-cases">(None recorded yet)</pre>
+              </div>
+              <div class="existing-rule-card">
+                <div class="existing-rule-card-header">
+                  <span class="rule-type-tag tag-guide">Guidelines</span>
+                </div>
+                <pre id="preview-existing-guidelines">(None recorded yet)</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Option Tabs: Both / Edge Case / Guideline -->
         <div class="rule-tabs">
           <button type="button" class="rule-tab-btn is-active" id="tab-btn-both" data-target="both">Both</button>
@@ -503,14 +691,13 @@
           <div class="rule-field-header">
             <label class="rule-label" for="rule-edge-case-input">
               <span class="rule-type-tag tag-edge">Edge Case</span>
-              <span class="rule-label-desc">Allowed exceptions, acceptable variations, or alternative setups</span>
             </label>
           </div>
           <textarea
             id="rule-edge-case-input"
             class="rule-textarea"
-            placeholder="e.g., Allow close-up shots of nameplate if the entire outdoor condenser cannot fit into the frame..."
-            rows="3"
+            placeholder="e.g., Allow close-up shots of nameplate if the entire outdoor condenser cannot fit..."
+            rows="2"
           ></textarea>
         </div>
 
@@ -519,50 +706,31 @@
           <div class="rule-field-header">
             <label class="rule-label" for="rule-guideline-input">
               <span class="rule-type-tag tag-guide">Guideline</span>
-              <span class="rule-label-desc">Strict quality requirements, safety standards, or verification criteria</span>
             </label>
           </div>
           <textarea
             id="rule-guideline-input"
             class="rule-textarea"
-            placeholder="e.g., Require that the service disconnect switch is visible in the frame and in the OFF position..."
-            rows="3"
+            placeholder="e.g., Require service disconnect switch is visible in the frame and in OFF position..."
+            rows="2"
           ></textarea>
         </div>
-
-        <!-- Existing Rules Toggle / Preview -->
-        <details class="existing-rules-accordion" id="existing-rules-accordion">
-          <summary class="existing-rules-summary">
-            <svg class="ic-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            <span id="existing-rules-summary-label">View Current Activity Details & Rules</span>
-          </summary>
-          <div class="existing-rules-content" id="existing-rules-content">
-            <div class="existing-rule-block">
-              <strong>Current Edge Cases:</strong>
-              <pre id="preview-existing-edge-cases">(None recorded yet)</pre>
-            </div>
-            <div class="existing-rule-block">
-              <strong>Current Guidelines:</strong>
-              <pre id="preview-existing-guidelines">(None recorded yet)</pre>
-            </div>
-          </div>
-        </details>
       </div>
 
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" id="rule-modal-skip-btn">
-          Skip & Keep Grade
+          Skip
         </button>
         <button type="button" class="btn btn-primary" id="rule-modal-save-btn">
           <svg class="ic-xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          <span>Save to Activity Details Tab</span>
+          <span>Save Rule</span>
         </button>
       </div>
     </div>
   </div>
 
   <!-- Scripts -->
-  <script src="/js/api.js?v=20261005_12"></script>
-  <script src="/js/app.js?v=20261005_12"></script>
+  <script src="/js/api.js?v=20261006_06"></script>
+  <script src="/js/app.js?v=20261006_06"></script>
 </body>
 </html>

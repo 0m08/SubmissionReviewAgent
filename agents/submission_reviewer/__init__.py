@@ -23,7 +23,6 @@ from agents.submission_reviewer.central_sheet_manager import (
     update_mentor_review_in_sheet,
     batch_approve_pending_reviews,
 )
-from agents.submission_reviewer.registry_ui import render_central_registry_tab
 
 __all__ = [
     "ChecklistResultItem",
@@ -36,7 +35,6 @@ __all__ = [
     "fetch_images_from_drive_links",
     "extract_all_drive_ids",
     "render_submission_reviewer_ui",
-    "render_central_registry_tab",
     "sync_evaluations_to_registry",
     "sync_assignment_folder_to_registry",
     "fetch_all_registry_activities",
