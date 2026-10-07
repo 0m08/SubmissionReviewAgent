@@ -171,7 +171,7 @@ def callback(request: Request, code: str = "", state: str = ""):
         logger.error(f"Failed to exchange OAuth code: {e}")
         session_store.delete(session.session_id)
         return HTMLResponse(
-            f"<h2>Authentication failed</h2><p>{str(e)}</p><p><a href='/login-page'>Back to login</a></p>",
+            f"<h2>Authentication failed</h2><p>{str(e)}</p><p><a href='/'>Back to login</a></p>",
             status_code=400,
         )
 
@@ -180,7 +180,7 @@ def callback(request: Request, code: str = "", state: str = ""):
     if not is_authorized:
         session_store.delete(session.session_id)
         return HTMLResponse(
-            f"<h2>Access denied</h2><p><b>{user_email}</b> is not authorized to access Moodle Review Studio.</p><p><a href='/login-page'>Try another account</a></p>",
+            f"<h2>Access denied</h2><p><b>{user_email}</b> is not authorized to access Moodle Review Studio.</p><p><a href='/'>Try another account</a></p>",
             status_code=403,
         )
 
@@ -204,7 +204,7 @@ def callback(request: Request, code: str = "", state: str = ""):
     session.oauth_state = None
 
     is_https = _is_request_https(request)
-    response = RedirectResponse("/", status_code=302)
+    response = RedirectResponse("/review", status_code=302)
     response.set_cookie(
         SESSION_COOKIE,
         session.session_id,
@@ -231,6 +231,6 @@ def _logout_response(request: Request) -> RedirectResponse:
     if session_id:
         session_store.delete(session_id)
 
-    response = RedirectResponse("/login-page", status_code=302)
+    response = RedirectResponse("/", status_code=302)
     response.delete_cookie(SESSION_COOKIE)
     return response

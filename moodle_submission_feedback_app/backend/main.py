@@ -78,18 +78,19 @@ def health_check():
     return {"status": "ok", "app": "moodle_submission_feedback_app"}
 
 
+@app.get("/")
 @app.get("/login-page")
-def login_page():
+def default_login_page(request: Request):
+    if "code" in request.query_params and "state" in request.query_params:
+        return RedirectResponse(f"/auth/callback?{request.url.query}", status_code=307)
     return FileResponse(FRONTEND_DIR / "login.html")
 
 
-@app.get("/")
-def index_page(request: Request):
-    if "code" in request.query_params and "state" in request.query_params:
-        return RedirectResponse(f"/auth/callback?{request.url.query}", status_code=307)
+@app.get("/review")
+def review_page(request: Request):
     session = get_optional_session(request)
     if not session:
-        return RedirectResponse("/login-page", status_code=302)
+        return RedirectResponse("/", status_code=302)
     return FileResponse(FRONTEND_DIR / "index.html")
 
 

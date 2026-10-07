@@ -99,7 +99,12 @@ def fetch_activity_grades_from_sheet(
         )
 
     # Ensure required columns
-    for col in ["Name", "Grade", "Feedback comment", "Review status", "Attempt number"]:
+    if "Final Grade (Moodle)" not in df.columns and "Grade" in df.columns:
+        df["Final Grade (Moodle)"] = df["Grade"]
+    elif "Grade" not in df.columns and "Final Grade (Moodle)" in df.columns:
+        df["Grade"] = df["Final Grade (Moodle)"]
+
+    for col in ["Name", "Final Grade (Moodle)", "Grade", "Feedback comment", "Review status", "Attempt number"]:
         if col not in df.columns:
             df[col] = ""
 
@@ -115,7 +120,7 @@ def fetch_activity_grades_from_sheet(
         if not raw_name:
             continue
 
-        raw_grade = str(row.get("Grade") or "").strip()
+        raw_grade = str(row.get("Final Grade (Moodle)") or row.get("Grade") or "").strip()
         raw_feedback = str(row.get("Feedback comment") or "").strip()
         review_status = str(row.get("Review status") or "").strip()
         attempt_num = int(row.get("att_int", 1))

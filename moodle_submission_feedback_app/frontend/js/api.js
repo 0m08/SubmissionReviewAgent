@@ -2,7 +2,7 @@
 async function requestWithAuth(url, options = {}) {
   const res = await fetch(url, options);
   if (res.status === 401) {
-    window.location.href = '/login-page';
+    window.location.href = '/';
     throw new Error('Session expired. Redirecting to login...');
   }
   return res;

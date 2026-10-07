@@ -103,18 +103,36 @@ def get_activities_overview() -> Dict[str, Any]:
         if df.empty:
             continue
 
+        # Normalize and synchronize renamed columns: Grade -> Final Grade (Moodle), Agent Grade -> AI Initial Verdict
+        if "Final Grade (Moodle)" not in df.columns and "Grade" in df.columns:
+            df["Final Grade (Moodle)"] = df["Grade"]
+        elif "Grade" not in df.columns and "Final Grade (Moodle)" in df.columns:
+            df["Grade"] = df["Final Grade (Moodle)"]
+        elif "Final Grade (Moodle)" in df.columns and "Grade" in df.columns:
+            df["Final Grade (Moodle)"] = df["Final Grade (Moodle)"].replace("", pd.NA).fillna(df["Grade"]).fillna("")
+            df["Grade"] = df["Final Grade (Moodle)"]
+
+        if "AI Initial Verdict" not in df.columns and "Agent Grade" in df.columns:
+            df["AI Initial Verdict"] = df["Agent Grade"]
+        elif "Agent Grade" not in df.columns and "AI Initial Verdict" in df.columns:
+            df["Agent Grade"] = df["AI Initial Verdict"]
+        elif "AI Initial Verdict" in df.columns and "Agent Grade" in df.columns:
+            df["AI Initial Verdict"] = df["AI Initial Verdict"].replace("", pd.NA).fillna(df["Agent Grade"]).fillna("")
+            df["Agent Grade"] = df["AI Initial Verdict"]
+
         # Ensure required columns
         for col in [
-            "Name", "Status", "Grade", "Online text", "Media folder",
+            "Name", "Status", "Final Grade (Moodle)", "Grade", "Online text", "Media folder",
             "Attempt number", "Last modified", "Feedback comment",
-            "Agent's checklist", "Agent Grade", "Review status",
+            "Agent's checklist", "AI Initial Verdict", "Agent Grade", "Review status",
             "Mentor reviewer", "Mentor reviewed at"
         ]:
             if col not in df.columns:
                 df[col] = ""
 
         df["Review status"] = df["Review status"].replace("", "Pending Review")
-        df["Agent Grade"] = df["Agent Grade"].replace("", pd.NA).fillna(df["Grade"]).fillna("")
+        df["AI Initial Verdict"] = df["AI Initial Verdict"].replace("", pd.NA).fillna(df["Final Grade (Moodle)"]).fillna("")
+        df["Agent Grade"] = df["AI Initial Verdict"]
 
         total_sub = len(df)
         rev_status_lower = df["Review status"].astype(str).str.lower()
@@ -220,11 +238,28 @@ def get_activity_submissions(activity_name: str) -> Dict[str, Any]:
             ).model_dump(),
         }
 
+    # Normalize and synchronize renamed columns: Grade -> Final Grade (Moodle), Agent Grade -> AI Initial Verdict
+    if "Final Grade (Moodle)" not in df.columns and "Grade" in df.columns:
+        df["Final Grade (Moodle)"] = df["Grade"]
+    elif "Grade" not in df.columns and "Final Grade (Moodle)" in df.columns:
+        df["Grade"] = df["Final Grade (Moodle)"]
+    elif "Final Grade (Moodle)" in df.columns and "Grade" in df.columns:
+        df["Final Grade (Moodle)"] = df["Final Grade (Moodle)"].replace("", pd.NA).fillna(df["Grade"]).fillna("")
+        df["Grade"] = df["Final Grade (Moodle)"]
+
+    if "AI Initial Verdict" not in df.columns and "Agent Grade" in df.columns:
+        df["AI Initial Verdict"] = df["Agent Grade"]
+    elif "Agent Grade" not in df.columns and "AI Initial Verdict" in df.columns:
+        df["Agent Grade"] = df["AI Initial Verdict"]
+    elif "AI Initial Verdict" in df.columns and "Agent Grade" in df.columns:
+        df["AI Initial Verdict"] = df["AI Initial Verdict"].replace("", pd.NA).fillna(df["Agent Grade"]).fillna("")
+        df["Agent Grade"] = df["AI Initial Verdict"]
+
     # Ensure required columns
     for col in [
-        "Name", "Status", "Grade", "Online text", "Media folder",
+        "Name", "Status", "Final Grade (Moodle)", "Grade", "Online text", "Media folder",
         "Attempt number", "Last modified", "Feedback comment",
-        "Agent's checklist", "Agent Grade", "Review status",
+        "Agent's checklist", "AI Initial Verdict", "Agent Grade", "Review status",
         "Mentor reviewer", "Mentor reviewed at"
     ]:
         if col not in df.columns:
@@ -232,7 +267,8 @@ def get_activity_submissions(activity_name: str) -> Dict[str, Any]:
 
     df["Attempt_Num_Int"] = pd.to_numeric(df["Attempt number"], errors="coerce").fillna(1).astype(int)
     df["Review status"] = df["Review status"].replace("", "Pending Review")
-    df["Agent Grade"] = df["Agent Grade"].replace("", pd.NA).fillna(df["Grade"]).fillna("")
+    df["AI Initial Verdict"] = df["AI Initial Verdict"].replace("", pd.NA).fillna(df["Final Grade (Moodle)"]).fillna("")
+    df["Agent Grade"] = df["AI Initial Verdict"]
 
     total_submissions = len(df)
     pending_count = int(sum(df["Review status"].str.lower() == "pending review"))
@@ -402,7 +438,8 @@ def export_moodle_gradebook_csv(activity_name: str) -> str:
     if identifier_map:
         moodle_df["Identifier"] = df_latest["Name_Norm"].map(lambda n: identifier_map.get(n, ""))
     moodle_df["Full name"] = df_latest["Name"]
-    moodle_df["Grade"] = df_latest["Grade"]
+    moodle_grade_val = df_latest["Final Grade (Moodle)"] if "Final Grade (Moodle)" in df_latest.columns else df_latest["Grade"]
+    moodle_df["Grade"] = moodle_grade_val
     moodle_df["Feedback comments"] = df_latest["Feedback comment"]
 
     return moodle_df.to_csv(index=False)

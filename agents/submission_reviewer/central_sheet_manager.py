@@ -48,14 +48,14 @@ REGISTRY_SHEET_ID_KNOWN = "1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU"
 CANONICAL_COLUMNS = [
     "Name",
     "Status",
-    "Grade",
+    "Final Grade (Moodle)",
     "Online text",
     "Media folder",
     "Attempt number",
     "Last modified",
     "Feedback comment",
     "Agent's checklist",
-    "Agent Grade",
+    "AI Initial Verdict",
     "Review status",
     "Mentor reviewer",
     "Mentor reviewed at",
@@ -194,14 +194,14 @@ def format_worksheet_headers(worksheet: gspread.Worksheet) -> None:
         widths = {
             1: 180,  # Name
             2: 140,  # Status
-            3: 110,  # Grade
+            3: 160,  # Final Grade (Moodle)
             4: 250,  # Online text
             5: 220,  # Media folder
             6: 100,  # Attempt number
             7: 170,  # Last modified
             8: 300,  # Feedback comment
             9: 380,  # Agent's checklist
-            10: 130, # Agent Grade
+            10: 150, # AI Initial Verdict
             11: 170, # Review status
             12: 150, # Mentor reviewer
             13: 180, # Mentor reviewed at
@@ -327,7 +327,7 @@ def sync_evaluations_to_registry(
 
     all_values = ws.get_all_values()
     if not all_values:
-        ws.update("A1:I1", [CANONICAL_COLUMNS])
+        ws.update("A1:M1", [CANONICAL_COLUMNS])
         all_values = [CANONICAL_COLUMNS]
 
     headers = [h.strip().lower() for h in all_values[0]]
@@ -506,9 +506,14 @@ def fetch_all_registry_activities(
                 for c in CANONICAL_COLUMNS:
                     if c not in df.columns:
                         df[c] = ""
-                # Backfill defaults if empty
-                if "Agent Grade" in df.columns:
-                    df["Agent Grade"] = df["Agent Grade"].replace("", pd.NA).fillna(df["Grade"]).fillna("")
+                # Backfill backward compatibility
+                if "Final Grade (Moodle)" not in df.columns or df["Final Grade (Moodle)"].replace("", pd.NA).isna().all():
+                    if "Grade" in df.columns:
+                        df["Final Grade (Moodle)"] = df["Grade"]
+                if "AI Initial Verdict" in df.columns:
+                    df["AI Initial Verdict"] = df["AI Initial Verdict"].replace("", pd.NA).fillna(df.get("Agent Grade", pd.NA)).fillna(df["Final Grade (Moodle)"]).fillna("")
+                elif "Agent Grade" in df.columns:
+                    df["AI Initial Verdict"] = df["Agent Grade"].replace("", pd.NA).fillna(df["Final Grade (Moodle)"]).fillna("")
                 if "Review status" in df.columns:
                     df["Review status"] = df["Review status"].replace("", "Pending Review")
                 results[ws.title] = df
@@ -1014,7 +1019,7 @@ def update_mentor_review_in_sheet(
 
     name_col = col_map.get("name", 1)
     attempt_col = col_map.get("attempt number", 6)
-    grade_col = col_map.get("grade", 3)
+    grade_col = col_map.get("final grade (moodle)") or col_map.get("grade", 3)
     feedback_col = col_map.get("feedback comment", 8)
     review_status_col = col_map.get("review status", 11)
     mentor_reviewer_col = col_map.get("mentor reviewer", 12)
@@ -1124,8 +1129,8 @@ def batch_approve_pending_reviews(
     col_map = {h: idx for idx, h in enumerate(headers)}
 
     name_idx = col_map.get("name", 0)
-    grade_idx = col_map.get("grade", 2)
-    agent_grade_idx = col_map.get("agent grade", 9)
+    grade_idx = col_map.get("final grade (moodle)") if "final grade (moodle)" in col_map else col_map.get("grade", 2)
+    agent_grade_idx = col_map.get("ai initial verdict") if "ai initial verdict" in col_map else col_map.get("agent grade", 9)
     review_status_idx = col_map.get("review status", 10)
     mentor_col = col_map.get("mentor reviewer", 11) + 1  # 1-indexed
     status_col = col_map.get("review status", 10) + 1
