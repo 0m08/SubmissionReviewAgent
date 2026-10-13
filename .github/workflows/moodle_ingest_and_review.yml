@@ -9,9 +9,9 @@ on:
         default: "https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading"
         type: string
       activity_name:
-        description: "Name of the activity being evaluated (target tab in Google Sheet)"
+        description: "Activity name to evaluate, or 'all' to process all activities from Activity Details tab"
         required: false
-        default: "System Identification"
+        default: "all"
         type: string
       primary_model:
         description: "Primary LLM for evaluation"
@@ -41,10 +41,15 @@ on:
         required: false
         default: "1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U"
         type: string
+      concurrency:
+        description: "Concurrent worker threads for student AI reviews"
+        required: false
+        default: "10"
+        type: string
 
   # Scheduled automated run: Everyday at 2:00 AM UTC
-  # schedule:
-  #   - cron: "0 2 * * *"
+  schedule:
+    - cron: "0 2 * * *"
 
 concurrency:
   group: moodle-ingest-review-pipeline
@@ -112,8 +117,8 @@ jobs:
           # Construct runner command: --ingest is set, but --upload-moodle is deliberately omitted
           CMD="python -m agents.submission_reviewer.moodle_review_runner --ingest"
 
-          # Activity Name
-          ACTIVITY="${{ github.event.inputs.activity_name || 'System Identification' }}"
+          # Activity Name: defaults to 'all' to process all activities from Activity Details tab
+          ACTIVITY="${{ github.event.inputs.activity_name || 'all' }}"
           CMD="$CMD --activity-name \"$ACTIVITY\""
 
           # Model choice
@@ -135,6 +140,9 @@ jobs:
 
           EDGE_CASES="${{ github.event.inputs.edge_cases_doc || '1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U' }}"
           CMD="$CMD --edge-cases-doc \"$EDGE_CASES\""
+
+          CONCURRENCY="${{ github.event.inputs.concurrency || '10' }}"
+          CMD="$CMD --concurrency \"$CONCURRENCY\""
 
           echo "Executing: $CMD"
           eval $CMD

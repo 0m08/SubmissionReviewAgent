@@ -255,7 +255,12 @@ def _run_pull_job(activity_name: str, mentor_email: str):
 
     def on_pull_progress(event: Dict[str, Any]):
         stage = event.get("stage", "eval")
-        if stage == "eval":
+        if stage == "batch_activity":
+            curr_act = event.get("current_activity", "")
+            act_idx = event.get("activity_index", 1)
+            tot_act = event.get("total_activities", 1)
+            pipeline_jobs["pull"]["message"] = f"Activity {act_idx}/{tot_act} ({curr_act})..."
+        elif stage == "eval":
             curr = event.get("current", 0)
             tot = event.get("total", 0)
             pipeline_jobs["pull"]["message"] = f"Evaluating submissions ({curr}/{tot})..."
@@ -269,17 +274,31 @@ def _run_pull_job(activity_name: str, mentor_email: str):
             pipeline_jobs["pull"]["message"] = "Saving reviews to sheet..."
 
     try:
-        from agents.submission_reviewer.moodle_review_runner import run_full_ingest_and_review
-        result = run_full_ingest_and_review(
-            activity_name=activity_name,
-            upload_to_moodle=False,
-            progress_callback=on_pull_progress,
-        )
-        evaluated_count = result.get("evaluated_count", 0)
-        pipeline_jobs["pull"]["status"] = "completed"
-        pipeline_jobs["pull"]["finished_at"] = time.time()
-        pipeline_jobs["pull"]["message"] = f"Pull complete! {evaluated_count} submissions ready."
-        logger.info(f"✅ [Action 1 Backend] Finished successfully for '{activity_name}' ({evaluated_count} evaluated).")
+        is_all = not activity_name or activity_name.strip().lower() in ("all", "all activities", "*")
+        if is_all:
+            from agents.submission_reviewer.moodle_review_runner import run_all_activities_ingest_and_review
+            result = run_all_activities_ingest_and_review(
+                upload_to_moodle=False,
+                progress_callback=on_pull_progress,
+            )
+            evaluated_count = result.get("total_evaluated", 0)
+            tot_act = result.get("total_activities", 0)
+            pipeline_jobs["pull"]["status"] = "completed"
+            pipeline_jobs["pull"]["finished_at"] = time.time()
+            pipeline_jobs["pull"]["message"] = f"Batch pull complete! {evaluated_count} submissions ready across {tot_act} activities."
+            logger.info(f"✅ [Action 1 Backend] Finished batch pull successfully ({evaluated_count} evaluated across {tot_act} activities).")
+        else:
+            from agents.submission_reviewer.moodle_review_runner import run_full_ingest_and_review
+            result = run_full_ingest_and_review(
+                activity_name=activity_name,
+                upload_to_moodle=False,
+                progress_callback=on_pull_progress,
+            )
+            evaluated_count = result.get("evaluated_count", 0)
+            pipeline_jobs["pull"]["status"] = "completed"
+            pipeline_jobs["pull"]["finished_at"] = time.time()
+            pipeline_jobs["pull"]["message"] = f"Pull complete! {evaluated_count} submissions ready."
+            logger.info(f"✅ [Action 1 Backend] Finished successfully for '{activity_name}' ({evaluated_count} evaluated).")
     except Exception as e:
         logger.error(f"❌ [Action 1 Backend] Failed for '{activity_name}': {e}", exc_info=True)
         pipeline_jobs["pull"]["status"] = "failed"
@@ -341,7 +360,7 @@ def pull_moodle_grades(
     Action 1 Backend: Ingests from Moodle + reviews via AI agent + writes to Central Google Sheet.
     Runs asynchronously in a background worker thread.
     """
-    activity_name = (request or {}).get("activity_name") or "System Identification"
+    activity_name = (request or {}).get("activity_name") or "all"
     logger.info(f"Moodle pull triggered for '{activity_name}' by {session.user_email}")
 
     if pipeline_jobs["pull"]["status"] == "running":

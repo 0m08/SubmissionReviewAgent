@@ -725,6 +725,40 @@ def fetch_activity_details_from_sheet(
     return results
 
 
+def get_registered_activities(
+    sheet_id_or_url: Optional[str] = None,
+    drive_folder_id: Optional[str] = None,
+) -> List[Dict[str, str]]:
+    """
+    Returns an ordered list of all unique activities registered in the 'Activity Details'
+    (or 'Activity Instructions') tab of the Moodle Submission Review sheet.
+
+    Each dict contains:
+      - 'activity_name': str
+      - 'instructions': str
+      - 'edge_cases': str
+      - 'guidelines': str
+      - 'activity_link': str
+    """
+    details_map = fetch_activity_details_from_sheet(
+        sheet_id_or_url=sheet_id_or_url,
+        drive_folder_id=drive_folder_id,
+    )
+    if not details_map:
+        return []
+
+    unique_activities: List[Dict[str, str]] = []
+    seen = set()
+    for key, item in details_map.items():
+        act_name = item.get("activity_name", "").strip()
+        if not act_name or act_name.lower() in seen:
+            continue
+        seen.add(act_name.lower())
+        unique_activities.append(item)
+
+    return unique_activities
+
+
 def get_activity_instructions(
     activity_name: str,
     sheet_id_or_url: Optional[str] = None,

@@ -959,6 +959,130 @@ def run_full_ingest_and_review(
     )
 
 
+def run_all_activities_ingest_and_review(
+    instructions_doc: Optional[str] = None,
+    guardrails_doc: str = DEFAULT_GUARDRAILS_DOC_ID,
+    edge_cases_doc: str = DEFAULT_EDGE_CASES_DOC_ID,
+    review_sheet: str = DEFAULT_REVIEW_SHEET_URL,
+    primary_model: Optional[str] = None,
+    upload_to_moodle: bool = False,
+    concurrency: int = 10,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Multi-Course Batch Pipeline:
+    1. Fetches all registered activities from the 'Activity Details' sheet tab.
+    2. Sequentially ingests Moodle submissions for each activity.
+    3. Concurrently evaluates submissions for each activity using `concurrency` worker threads.
+    4. Writes reviews to each activity's respective worksheet tab.
+    5. Returns an aggregated summary dictionary of all executed activities.
+    """
+    from agents.submission_reviewer.central_sheet_manager import get_registered_activities
+
+    logger.info(f"📋 [Batch Runner] Discovering activities from 'Activity Details' in '{review_sheet}'...")
+    activities = get_registered_activities(sheet_id_or_url=review_sheet)
+
+    if not activities:
+        logger.warning(
+            "[Batch Runner] No activities found in 'Activity Details' tab. Falling back to default 'System Identification'."
+        )
+        activities = [{
+            "activity_name": "System Identification",
+            "activity_link": TARGET_URL,
+            "instructions": "",
+            "edge_cases": "",
+            "guidelines": "",
+        }]
+
+    total_activities = len(activities)
+    logger.info(f"🚀 [Batch Runner] Starting sequential processing of {total_activities} activities...")
+
+    activity_results: Dict[str, Any] = {}
+    total_evaluated = 0
+    total_passed = 0
+    total_failed = 0
+    total_flagged = 0
+
+    for idx, act in enumerate(activities, 1):
+        act_name = act.get("activity_name", "").strip()
+        if not act_name:
+            continue
+
+        act_link = act.get("activity_link", "").strip()
+        act_instructions = act.get("instructions", "").strip() or instructions_doc
+        act_edge_cases = act.get("edge_cases", "").strip() or edge_cases_doc
+        act_guidelines = act.get("guidelines", "").strip() or guardrails_doc
+
+        logger.info("=" * 70)
+        logger.info(f"🔄 [Batch Runner {idx}/{total_activities}] Ingesting & Reviewing: '{act_name}'")
+        logger.info("=" * 70)
+
+        if progress_callback:
+            try:
+                progress_callback({
+                    "stage": "batch_activity",
+                    "current_activity": act_name,
+                    "activity_index": idx,
+                    "total_activities": total_activities,
+                })
+            except Exception:
+                pass
+
+        act_moodle_config = None
+        if act_link:
+            grading_url = act_link if "action=grading" in act_link else (
+                f"{act_link}&action=grading" if "?" in act_link else f"{act_link}?action=grading"
+            )
+            act_moodle_config = MoodleConfig(target_url=grading_url)
+
+        try:
+            res = run_full_ingest_and_review(
+                moodle_config=act_moodle_config,
+                instructions_doc=act_instructions,
+                guardrails_doc=act_guidelines,
+                edge_cases_doc=act_edge_cases,
+                activity_name=act_name,
+                review_sheet=review_sheet,
+                primary_model=primary_model,
+                upload_to_moodle=upload_to_moodle,
+                concurrency=concurrency,
+                progress_callback=progress_callback,
+            )
+            activity_results[act_name] = res
+            eval_cnt = res.get("evaluated_count", 0)
+            total_evaluated += eval_cnt
+            total_passed += res.get("passed_count", 0)
+            total_failed += res.get("failed_count", 0)
+            total_flagged += res.get("flagged_count", 0)
+            logger.info(f"✅ [Batch Runner {idx}/{total_activities}] Completed '{act_name}' ({eval_cnt} evaluated).")
+        except Exception as act_err:
+            logger.error(f"❌ [Batch Runner {idx}/{total_activities}] Activity '{act_name}' failed: {act_err}", exc_info=True)
+            activity_results[act_name] = {
+                "success": False,
+                "error": str(act_err),
+                "activity_name": act_name,
+            }
+
+    completed_count = len([r for r in activity_results.values() if r.get("success", True)])
+    failed_count = len([r for r in activity_results.values() if not r.get("success", True)])
+
+    logger.info("=" * 70)
+    logger.info(f"🏁 [Batch Runner Finished] Processed {total_activities} activities: {completed_count} successful, {failed_count} failed. Total submissions evaluated: {total_evaluated}.")
+    logger.info("=" * 70)
+
+    return {
+        "batch": True,
+        "total_activities": total_activities,
+        "completed_activities": completed_count,
+        "failed_activities": failed_count,
+        "total_evaluated": total_evaluated,
+        "passed_count": total_passed,
+        "failed_count": total_failed,
+        "flagged_count": total_flagged,
+        "activity_results": activity_results,
+    }
+
+
 # ==============================================================================
 # 6. CLI
 # ==============================================================================
@@ -1010,8 +1134,13 @@ def main():
     parser.add_argument(
         "--activity-name",
         type=str,
-        default="System Identification",
-        help="Name of the activity being evaluated.",
+        default="all",
+        help="Name of the activity being evaluated, or 'all' to process all activities from 'Activity Details' tab.",
+    )
+    parser.add_argument(
+        "--all-activities",
+        action="store_true",
+        help="Process all activities found in the 'Activity Details' tab sequentially.",
     )
     parser.add_argument(
         "--model",
@@ -1034,18 +1163,31 @@ def main():
 
     args = parser.parse_args()
 
+    is_all = args.all_activities or (args.activity_name and args.activity_name.strip().lower() in ("all", "all activities", "*"))
+
     try:
         if args.ingest:
-            run_full_ingest_and_review(
-                instructions_doc=args.instructions_doc,
-                guardrails_doc=args.guardrails_doc,
-                edge_cases_doc=args.edge_cases_doc,
-                activity_name=args.activity_name,
-                review_sheet=args.review_sheet,
-                primary_model=args.model,
-                upload_to_moodle=args.upload_moodle,
-                concurrency=args.concurrency,
-            )
+            if is_all:
+                run_all_activities_ingest_and_review(
+                    instructions_doc=args.instructions_doc,
+                    guardrails_doc=args.guardrails_doc,
+                    edge_cases_doc=args.edge_cases_doc,
+                    review_sheet=args.review_sheet,
+                    primary_model=args.model,
+                    upload_to_moodle=args.upload_moodle,
+                    concurrency=args.concurrency,
+                )
+            else:
+                run_full_ingest_and_review(
+                    instructions_doc=args.instructions_doc,
+                    guardrails_doc=args.guardrails_doc,
+                    edge_cases_doc=args.edge_cases_doc,
+                    activity_name=args.activity_name,
+                    review_sheet=args.review_sheet,
+                    primary_model=args.model,
+                    upload_to_moodle=args.upload_moodle,
+                    concurrency=args.concurrency,
+                )
         else:
             run_review_pipeline(
                 assignment_folder=args.folder,
