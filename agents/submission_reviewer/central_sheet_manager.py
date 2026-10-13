@@ -698,6 +698,16 @@ def fetch_activity_details_from_sheet(
             or ""
         ).strip()
 
+        guardrails = str(
+            r.get("Guardrails")
+            or r.get("guardrails")
+            or r.get("Activity Guardrails")
+            or r.get("Activity Guardrail")
+            or r.get("guardrail")
+            or r.get("Guardrail")
+            or ""
+        ).strip()
+
         activity_link = str(
             r.get("Activity Link")
             or r.get("Activity link")
@@ -716,6 +726,7 @@ def fetch_activity_details_from_sheet(
             "instructions": instructions,
             "edge_cases": edge_cases,
             "guidelines": guidelines,
+            "guardrails": guardrails,
             "activity_link": activity_link,
         }
         results[act_name] = entry
@@ -773,6 +784,7 @@ def get_activity_instructions(
         "instructions": "",
         "edge_cases": "",
         "guidelines": "",
+        "guardrails": "",
         "activity_link": "",
     }
     if not activity_name:

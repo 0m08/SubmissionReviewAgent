@@ -103,6 +103,20 @@ def fetch_activity_instructions_from_sheet(
 # 1. KNOWLEDGE INGESTION: GOOGLE DOCS FETCHER
 # ==============================================================================
 
+def is_google_doc_id_or_url(input_str: Optional[str]) -> bool:
+    """Checks whether an input string looks like a valid Google Doc ID or URL rather than raw text."""
+    if not input_str:
+        return False
+    s = input_str.strip()
+    if "\n" in s or "\r" in s:
+        return False
+    if " " in s:
+        return False
+    if "docs.google.com" in s or "drive.google.com" in s:
+        return True
+    return bool(re.match(r'^[a-zA-Z0-9_-]{20,65}$', s))
+
+
 def extract_google_doc_id(input_str: str) -> str:
     """Extracts a Google Doc/File ID from a URL or raw ID string."""
     if not input_str:
@@ -116,16 +130,26 @@ def extract_google_doc_id(input_str: str) -> str:
     m = re.search(r'id=([a-zA-Z0-9_-]+)', input_str)
     if m:
         return m.group(1)
-    return input_str.strip()
+    s = input_str.strip()
+    if is_google_doc_id_or_url(s):
+        return s
+    return ""
 
 
 def fetch_google_doc_text(doc_id_or_url: str, drive_service=None) -> str:
     """
     Exports a Google Doc as plain text using the authenticated user Drive client.
+    If input is already plain text, returns it directly without querying Drive.
     """
+    if not doc_id_or_url:
+        return ""
+
+    if not is_google_doc_id_or_url(doc_id_or_url):
+        return doc_id_or_url.strip()
+
     doc_id = extract_google_doc_id(doc_id_or_url)
     if not doc_id:
-        return ""
+        return doc_id_or_url.strip()
 
     if drive_service is None:
         drive_service = get_user_oauth_drive_service()
@@ -750,8 +774,8 @@ def find_latest_assignment_folder(base_dir: Optional[str] = None) -> Optional[st
 def run_review_pipeline(
     assignment_folder: Optional[str] = None,
     instructions_doc: Optional[str] = None,
-    guardrails_doc: str = DEFAULT_GUARDRAILS_DOC_ID,
-    edge_cases_doc: Optional[str] = DEFAULT_EDGE_CASES_DOC_ID,
+    guardrails_doc: Optional[str] = None,
+    edge_cases_doc: Optional[str] = None,
     activity_name: str = "System Identification",
     review_sheet: str = DEFAULT_REVIEW_SHEET_URL,
     primary_model: Optional[str] = None,
@@ -759,6 +783,10 @@ def run_review_pipeline(
     upload_to_moodle: bool = False,
     concurrency: int = 10,
     progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    instructions_text: Optional[str] = None,
+    guardrails_text: Optional[str] = None,
+    edge_cases_text: Optional[str] = None,
+    guidelines_text: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Executes the review pipeline on an assignment run folder.
@@ -780,60 +808,57 @@ def run_review_pipeline(
 
     logger.info(f"🚀 Starting Review Pipeline on: {target_folder} (Concurrency: {concurrency} workers)")
 
-    # 1. Fetch Knowledge: Primary source is Moodle Submission Review Sheet ('Activity Details' tab)
-    instructions_text = ""
-    edge_cases_text = ""
-    guidelines_text = ""
-    drive_service = None
+    # 1. Fetch Knowledge: All columns in 'Activity Details' are plain text
+    instructions_text = instructions_text or ""
+    edge_cases_text = edge_cases_text or ""
+    guidelines_text = guidelines_text or ""
+    guardrails_text = guardrails_text or ""
 
     # Step 1A: Attempt to fetch Activity Instructions from Moodle Review Sheet ('Activity Details' tab)
-    if review_sheet:
+    if review_sheet and (not instructions_text or not edge_cases_text or not guidelines_text or not guardrails_text):
         try:
             logger.info(f"📊 Fetching Activity Details from Moodle Review Sheet for '{activity_name}'...")
             sheet_details = fetch_activity_instructions_from_sheet(
                 activity_name=activity_name,
                 sheet_id_or_url=review_sheet,
             )
-            if sheet_details.get("instructions"):
+            if not instructions_text and sheet_details.get("instructions"):
                 instructions_text = sheet_details["instructions"]
-                logger.info(f"   ✅ Instructions loaded from Sheet tab 'Activity Details' ({len(instructions_text)} characters)")
-            if sheet_details.get("edge_cases"):
+                logger.info(f"   ✅ Instructions loaded from Sheet ({len(instructions_text)} characters)")
+            if not edge_cases_text and sheet_details.get("edge_cases"):
                 edge_cases_text = sheet_details["edge_cases"]
                 logger.info(f"   ✅ Edge Cases loaded from Sheet ({len(edge_cases_text)} characters)")
-            if sheet_details.get("guidelines"):
+            if not guidelines_text and sheet_details.get("guidelines"):
                 guidelines_text = sheet_details["guidelines"]
                 logger.info(f"   ✅ Guidelines loaded from Sheet ({len(guidelines_text)} characters)")
+            if not guardrails_text and sheet_details.get("guardrails"):
+                guardrails_text = sheet_details["guardrails"]
+                logger.info(f"   ✅ Guardrails loaded from Sheet ({len(guardrails_text)} characters)")
         except Exception as s_err:
             logger.warning(f"⚠️ Could not fetch activity instructions from sheet '{review_sheet}': {s_err}")
 
-    # Step 1B: Fallback to Google Doc if instructions not found in sheet or if custom instructions_doc provided
+    # Step 1B: Fallback to Google Doc if instructions not in sheet
     if not instructions_text:
         target_doc = instructions_doc or DEFAULT_INSTRUCTIONS_DOC_ID
         if target_doc:
-            drive_service = get_user_oauth_drive_service()
             logger.info(f"📖 Falling back to Activity Instructions from Google Doc: {target_doc}...")
-            instructions_text = fetch_google_doc_text(target_doc, drive_service=drive_service)
+            instructions_text = fetch_google_doc_text(target_doc)
             logger.info(f"   ✅ Instructions loaded from Google Doc ({len(instructions_text)} characters)")
 
     if not instructions_text:
         raise RuntimeError(f"Could not load activity instructions for '{activity_name}' from Sheet or Google Doc.")
 
-    # Step 1C: Guardrails from Google Doc
-    if guardrails_doc:
-        if drive_service is None:
-            drive_service = get_user_oauth_drive_service()
+    # Step 1C: Fallback to Google Doc for Guardrails only if not in sheet
+    if not guardrails_text and guardrails_doc:
         logger.info(f"🛡️ Fetching Guardrails from Google Doc: {guardrails_doc}...")
-        guardrails_text = fetch_google_doc_text(guardrails_doc, drive_service=drive_service)
+        guardrails_text = fetch_google_doc_text(guardrails_doc)
         logger.info(f"   ✅ Guardrails loaded ({len(guardrails_text)} characters)")
-    else:
-        guardrails_text = ""
+    guardrails_text = guardrails_text or ""
 
-    # Step 1D: Edge Cases & Guidelines fallback from Google Doc if not in sheet
+    # Step 1D: Fallback for Edge Cases & Guidelines only if not in sheet
     if (not edge_cases_text or not guidelines_text) and edge_cases_doc:
-        if drive_service is None:
-            drive_service = get_user_oauth_drive_service()
         logger.info(f"📋 Fetching Edge Cases & Guidelines fallback from Google Doc: {edge_cases_doc}...")
-        doc_edge, doc_guide = fetch_edge_cases_and_guidelines_doc(edge_cases_doc, drive_service=drive_service)
+        doc_edge, doc_guide = fetch_edge_cases_and_guidelines_doc(edge_cases_doc)
         if not edge_cases_text:
             edge_cases_text = doc_edge
         if not guidelines_text:
@@ -901,14 +926,18 @@ def run_review_pipeline(
 def run_full_ingest_and_review(
     moodle_config: Optional[MoodleConfig] = None,
     instructions_doc: Optional[str] = None,
-    guardrails_doc: str = DEFAULT_GUARDRAILS_DOC_ID,
-    edge_cases_doc: Optional[str] = DEFAULT_EDGE_CASES_DOC_ID,
+    guardrails_doc: Optional[str] = None,
+    edge_cases_doc: Optional[str] = None,
     activity_name: str = "System Identification",
     review_sheet: str = DEFAULT_REVIEW_SHEET_URL,
     primary_model: Optional[str] = None,
     upload_to_moodle: bool = False,
     concurrency: int = 10,
     progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    instructions_text: Optional[str] = None,
+    guardrails_text: Optional[str] = None,
+    edge_cases_text: Optional[str] = None,
+    guidelines_text: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Combined end-to-end: Ingests from Moodle -> Evaluates submissions -> Updates CSV -> Syncs to Drive -> Uploads to Moodle.
@@ -969,13 +998,17 @@ def run_full_ingest_and_review(
         upload_to_moodle=upload_to_moodle,
         concurrency=concurrency,
         progress_callback=progress_callback,
+        instructions_text=instructions_text,
+        guardrails_text=guardrails_text,
+        edge_cases_text=edge_cases_text,
+        guidelines_text=guidelines_text,
     )
 
 
 def run_all_activities_ingest_and_review(
     instructions_doc: Optional[str] = None,
-    guardrails_doc: str = DEFAULT_GUARDRAILS_DOC_ID,
-    edge_cases_doc: str = DEFAULT_EDGE_CASES_DOC_ID,
+    guardrails_doc: Optional[str] = None,
+    edge_cases_doc: Optional[str] = None,
     review_sheet: str = DEFAULT_REVIEW_SHEET_URL,
     primary_model: Optional[str] = None,
     upload_to_moodle: bool = False,
@@ -1005,6 +1038,7 @@ def run_all_activities_ingest_and_review(
             "instructions": "",
             "edge_cases": "",
             "guidelines": "",
+            "guardrails": "",
         }]
 
     total_activities = len(activities)
@@ -1022,9 +1056,10 @@ def run_all_activities_ingest_and_review(
             continue
 
         act_link = act.get("activity_link", "").strip()
-        act_instructions = act.get("instructions", "").strip() or instructions_doc
-        act_edge_cases = act.get("edge_cases", "").strip() or edge_cases_doc
-        act_guidelines = act.get("guidelines", "").strip() or guardrails_doc
+        act_instructions = act.get("instructions", "").strip()
+        act_edge_cases = act.get("edge_cases", "").strip()
+        act_guidelines = act.get("guidelines", "").strip()
+        act_guardrails = act.get("guardrails", "").strip()
 
         logger.info("=" * 70)
         logger.info(f"🔄 [Batch Runner {idx}/{total_activities}] Ingesting & Reviewing: '{act_name}'")
@@ -1051,15 +1086,19 @@ def run_all_activities_ingest_and_review(
         try:
             res = run_full_ingest_and_review(
                 moodle_config=act_moodle_config,
-                instructions_doc=act_instructions,
-                guardrails_doc=act_guidelines,
-                edge_cases_doc=act_edge_cases,
+                instructions_doc=instructions_doc,
+                guardrails_doc=guardrails_doc,
+                edge_cases_doc=edge_cases_doc,
                 activity_name=act_name,
                 review_sheet=review_sheet,
                 primary_model=primary_model,
                 upload_to_moodle=upload_to_moodle,
                 concurrency=concurrency,
                 progress_callback=progress_callback,
+                instructions_text=act_instructions,
+                guardrails_text=act_guardrails,
+                edge_cases_text=act_edge_cases,
+                guidelines_text=act_guidelines,
             )
             activity_results[act_name] = res
             eval_cnt = res.get("evaluated_count", 0)
