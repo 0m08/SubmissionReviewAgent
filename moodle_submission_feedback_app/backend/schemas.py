@@ -28,6 +28,8 @@ class SubmissionItem(BaseModel):
     review_status: str = "Pending Review"
     mentor_reviewer: str = ""
     mentor_reviewed_at: str = ""
+    moodle_upload_status: str = ""
+    moodle_uploaded_at: str = ""
 
 
 class ActivitySummary(BaseModel):

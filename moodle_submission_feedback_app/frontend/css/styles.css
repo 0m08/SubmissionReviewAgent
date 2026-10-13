@@ -633,6 +633,16 @@ kbd {
   border: 1px solid rgba(105, 68, 255, 0.35);
 }
 
+.badge-uploaded {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 /* ==========================================================================
    Master-Detail Workspace Layout & Dual Collapsible Panels (Queue + Evaluation)
    ========================================================================== */
@@ -2388,6 +2398,12 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+.activity-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .back-to-dash-btn {

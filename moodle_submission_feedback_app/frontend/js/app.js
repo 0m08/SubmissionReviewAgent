@@ -126,7 +126,7 @@ function formatCleanDate(str) {
   if (!str) return 'N/A';
   // Standardize formats like "Monday, September 28, 2026, 8:23 AM" or "Monday, 28 September 2026, 8:23 AM"
   const match = str.match(/([A-Za-z]+)[,\s]+(\d{1,2})(?:st|nd|rd|th)?[,\s]+(\d{4})/i) ||
-                str.match(/(\d{1,2})[,\s]+([A-Za-z]+)[,\s]+(\d{4})/i);
+    str.match(/(\d{1,2})[,\s]+([A-Za-z]+)[,\s]+(\d{4})/i);
   if (match) {
     if (isNaN(match[1])) {
       const month = match[1].slice(0, 3);
@@ -296,10 +296,16 @@ function renderDashboard() {
             <span>${pending > 0 ? 'Review Submissions' : 'View Submissions'}</span>
             <svg class="ic" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
-          <a href="${API.getExportUrl(name)}" class="btn btn-ghost btn-sm" title="Export CSV" download>
-            <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span>CSV</span>
-          </a>
+          <div class="activity-card-actions">
+            <button class="btn btn-secondary btn-sm" title="Pull latest submissions from Moodle for ${escapeHtml(name)}" onclick="event.stopPropagation(); triggerMoodlePull('${escapeHtml(name)}', this);">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span class="btn-text">Pull</span>
+            </button>
+            <button class="btn btn-primary btn-sm" title="Push approved grades to Moodle for ${escapeHtml(name)}" onclick="event.stopPropagation(); triggerMoodlePush('${escapeHtml(name)}', this);">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span class="btn-text">Push</span>
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -758,6 +764,7 @@ function renderRosterList() {
       </div>
       <div class="roster-item-status">
         ${cardState && cardState.isDirty ? `<span class="badge badge-unsaved" title="Unsaved edits"><svg class="ic-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>` : ''}
+        ${sub.moodle_upload_status === 'Uploaded' ? `<span class="badge badge-uploaded" title="Uploaded to Moodle at ${escapeHtml(sub.moodle_uploaded_at || 'Confirmed')}"><svg class="ic-xs" viewBox="0 0 24 24" style="color: #10b981; margin-right: 2px;"><polyline points="20 6 9 17 4 12"/></svg>Uploaded</span>` : ''}
         ${gradeBadge}
         <span style="display: flex; align-items: center;" title="${escapeHtml(sub.review_status)}">${statusIcon}</span>
       </div>
@@ -1041,11 +1048,13 @@ function renderActiveStage() {
     dockReviewStatusVal.textContent = sub.review_status || 'Pending Review';
   }
   if (dockReviewedByVal) {
-    if (sub.mentor_reviewer) {
-      dockReviewedByVal.textContent = `Reviewed by ${sub.mentor_reviewer}`;
-    } else {
-      dockReviewedByVal.textContent = 'Awaiting Mentor Review';
+    let reviewerText = sub.mentor_reviewer ? `Reviewed by ${sub.mentor_reviewer}` : 'Awaiting Mentor Review';
+    if (sub.moodle_upload_status === 'Uploaded') {
+      reviewerText += ` • Uploaded to Moodle (${sub.moodle_uploaded_at || 'Confirmed'})`;
+    } else if (sub.moodle_upload_status === 'Pending Upload') {
+      reviewerText += ' • Pending Upload to Moodle';
     }
+    dockReviewedByVal.textContent = reviewerText;
   }
   if (dockStatusDot) {
     dockStatusDot.className = 'status-indicator-dot';
@@ -1830,91 +1839,126 @@ document.addEventListener('DOMContentLoaded', () => {
     statsThemeBtn.onclick = () => applyTheme(state.theme === 'dark' ? 'light' : 'dark');
   }
 
+// ============================================================================
+// Shared Moodle Job Trigger Helpers (Per-Activity & Global)
+// ============================================================================
+async function triggerMoodlePull(activityName, btnEl) {
+  if (!btnEl || btnEl.classList.contains('is-loading')) return;
+  btnEl.classList.add('is-loading');
+  const origHtml = btnEl.innerHTML;
+  btnEl.innerHTML = `
+    <svg class="ic spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+    <span class="btn-text">Connecting...</span>
+  `;
+  try {
+    const targetActivity = activityName || state.activeActivity || (state.activitiesOverview && state.activitiesOverview.length > 0 ? state.activitiesOverview[0].name : 'System Identification');
+    const startRes = await API.moodlePull({ activity_name: targetActivity });
+    showToast(startRes.message || `Moodle ingestion & review started for '${targetActivity}'...`, 'info');
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const statusData = await API.getMoodleJobStatus();
+        const pullJob = statusData.pull || {};
+        if (pullJob.status === 'running') {
+          const textSpan = btnEl.querySelector('span.btn-text') || btnEl.querySelector('span');
+          if (textSpan && pullJob.message) {
+            textSpan.textContent = pullJob.message;
+          }
+        } else if (pullJob.status === 'completed') {
+          clearInterval(pollInterval);
+          btnEl.classList.remove('is-loading');
+          btnEl.innerHTML = origHtml;
+          showToast(pullJob.message || `Pull complete for '${targetActivity}'!`, 'success');
+          await refreshActivitiesData(false);
+          if (state.currentView === 'studio' && state.activeActivity) {
+            await selectActivity(state.activeActivity);
+          }
+          renderSyncStats();
+        } else if (pullJob.status === 'failed') {
+          clearInterval(pollInterval);
+          btnEl.classList.remove('is-loading');
+          btnEl.innerHTML = origHtml;
+          showToast('Pull failed: ' + (pullJob.error || pullJob.message), 'error');
+        }
+      } catch (pollErr) {
+        console.warn('Poll error:', pollErr);
+      }
+    }, 1000);
+  } catch (err) {
+    btnEl.classList.remove('is-loading');
+    btnEl.innerHTML = origHtml;
+    showToast('Moodle Pull error: ' + err.message, 'error');
+  }
+}
+
+async function triggerMoodlePush(activityName, btnEl) {
+  if (!btnEl || btnEl.classList.contains('is-loading')) return;
+  btnEl.classList.add('is-loading');
+  const origHtml = btnEl.innerHTML;
+  btnEl.innerHTML = `
+    <svg class="ic spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+    <span class="btn-text">Fetching grades...</span>
+  `;
+  try {
+    const targetActivity = activityName || state.activeActivity || (state.activitiesOverview && state.activitiesOverview.length > 0 ? state.activitiesOverview[0].name : 'System Identification');
+    const startRes = await API.moodlePush({ activity_name: targetActivity, only_reviewed: false });
+    showToast(startRes.message || `Moodle gradebook upload started for '${targetActivity}'...`, 'info');
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const statusData = await API.getMoodleJobStatus();
+        const pushJob = statusData.push || {};
+        if (pushJob.status === 'running') {
+          const textSpan = btnEl.querySelector('span.btn-text') || btnEl.querySelector('span');
+          if (textSpan && pushJob.message) {
+            textSpan.textContent = pushJob.message;
+          }
+        } else if (pushJob.status === 'completed') {
+          clearInterval(pollInterval);
+          btnEl.classList.remove('is-loading');
+          btnEl.innerHTML = origHtml;
+          showToast(pushJob.message || `Push complete for '${targetActivity}'!`, 'success');
+          await refreshActivitiesData(false);
+          if (state.currentView === 'studio' && state.activeActivity) {
+            await selectActivity(state.activeActivity);
+          }
+          renderSyncStats();
+        } else if (pushJob.status === 'failed') {
+          clearInterval(pollInterval);
+          btnEl.classList.remove('is-loading');
+          btnEl.innerHTML = origHtml;
+          showToast('Push failed: ' + (pushJob.error || pushJob.message), 'error');
+        }
+      } catch (pollErr) {
+        console.warn('Poll error:', pollErr);
+      }
+    }, 1000);
+  } catch (err) {
+    btnEl.classList.remove('is-loading');
+    btnEl.innerHTML = origHtml;
+    showToast('Moodle Push error: ' + err.message, 'error');
+  }
+}
+
   // Moodle Action Buttons: Action 1 (Pull & Review) and Action 2 (Push to Moodle)
   const btnMoodlePull = document.getElementById('btn-moodle-pull');
   if (btnMoodlePull) {
-    btnMoodlePull.onclick = async () => {
-      btnMoodlePull.classList.add('is-loading');
-      const origHtml = btnMoodlePull.innerHTML;
-      btnMoodlePull.innerHTML = `
-        <svg class="ic spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
-        <span>Ingesting & Reviewing...</span>
-      `;
-      try {
-        const targetActivity = state.activeActivity || (state.activitiesOverview && state.activitiesOverview.length > 0 ? state.activitiesOverview[0].name : 'System Identification');
-        const startRes = await API.moodlePull({ activity_name: targetActivity });
-        showToast(startRes.message || 'Moodle ingestion & AI review started in background...', 'info');
-
-        const pollInterval = setInterval(async () => {
-          try {
-            const statusData = await API.getMoodleJobStatus();
-            const pullJob = statusData.pull || {};
-            if (pullJob.status === 'completed') {
-              clearInterval(pollInterval);
-              btnMoodlePull.classList.remove('is-loading');
-              btnMoodlePull.innerHTML = origHtml;
-              showToast(pullJob.message || 'Pipeline complete! Submissions synced to Google Sheet.', 'success');
-              await refreshActivitiesData(true);
-              renderSyncStats();
-            } else if (pullJob.status === 'failed') {
-              clearInterval(pollInterval);
-              btnMoodlePull.classList.remove('is-loading');
-              btnMoodlePull.innerHTML = origHtml;
-              showToast('Pull failed: ' + (pullJob.error || pullJob.message), 'error');
-            }
-          } catch (pollErr) {
-            console.warn('Poll error:', pollErr);
-          }
-        }, 3000);
-      } catch (err) {
-        btnMoodlePull.classList.remove('is-loading');
-        btnMoodlePull.innerHTML = origHtml;
-        showToast('Moodle Pull error: ' + err.message, 'error');
-      }
-    };
+    btnMoodlePull.onclick = () => triggerMoodlePull(state.activeActivity, btnMoodlePull);
   }
 
   const btnMoodlePush = document.getElementById('btn-moodle-push');
   if (btnMoodlePush) {
-    btnMoodlePush.onclick = async () => {
-      btnMoodlePush.classList.add('is-loading');
-      const origHtml = btnMoodlePush.innerHTML;
-      btnMoodlePush.innerHTML = `
-        <svg class="ic spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
-        <span>Publishing to Moodle...</span>
-      `;
-      try {
-        const targetActivity = state.activeActivity || (state.activitiesOverview && state.activitiesOverview.length > 0 ? state.activitiesOverview[0].name : 'System Identification');
-        const startRes = await API.moodlePush({ activity_name: targetActivity, only_reviewed: false });
-        showToast(startRes.message || 'Moodle gradebook upload started in background...', 'info');
+    btnMoodlePush.onclick = () => triggerMoodlePush(state.activeActivity, btnMoodlePush);
+  }
 
-        const pollInterval = setInterval(async () => {
-          try {
-            const statusData = await API.getMoodleJobStatus();
-            const pushJob = statusData.push || {};
-            if (pushJob.status === 'completed') {
-              clearInterval(pollInterval);
-              btnMoodlePush.classList.remove('is-loading');
-              btnMoodlePush.innerHTML = origHtml;
-              showToast(pushJob.message || 'Approved grades published to Moodle Gradebook!', 'success');
-              await refreshActivitiesData(true);
-              renderSyncStats();
-            } else if (pushJob.status === 'failed') {
-              clearInterval(pollInterval);
-              btnMoodlePush.classList.remove('is-loading');
-              btnMoodlePush.innerHTML = origHtml;
-              showToast('Push failed: ' + (pushJob.error || pushJob.message), 'error');
-            }
-          } catch (pollErr) {
-            console.warn('Poll error:', pollErr);
-          }
-        }, 3000);
-      } catch (err) {
-        btnMoodlePush.classList.remove('is-loading');
-        btnMoodlePush.innerHTML = origHtml;
-        showToast('Moodle Push error: ' + err.message, 'error');
-      }
-    };
+  const studioPullBtn = document.getElementById('studio-moodle-pull-btn');
+  if (studioPullBtn) {
+    studioPullBtn.onclick = () => triggerMoodlePull(state.activeActivity, studioPullBtn);
+  }
+
+  const studioPushBtn = document.getElementById('studio-moodle-push-btn');
+  if (studioPushBtn) {
+    studioPushBtn.onclick = () => triggerMoodlePush(state.activeActivity, studioPushBtn);
   }
 
   // Dashboard controls

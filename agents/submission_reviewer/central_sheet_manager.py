@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,6 +31,7 @@ from gspread_formatting import (
     TextFormat,
     format_cell_range,
     set_column_width,
+    set_row_heights,
 )
 
 load_dotenv()
@@ -59,6 +62,8 @@ CANONICAL_COLUMNS = [
     "Review status",
     "Mentor reviewer",
     "Mentor reviewed at",
+    "Moodle upload status",
+    "Moodle uploaded at",
 ]
 
 
@@ -178,17 +183,17 @@ def get_or_create_registry_spreadsheet(
 
 
 def format_worksheet_headers(worksheet: gspread.Worksheet) -> None:
-    """Applies professional formatting to row 1 (headers) and column widths for all 13 columns."""
+    """Applies professional formatting to row 1 (headers) and column widths for all 15 columns."""
     try:
         # Freeze row 1
         worksheet.freeze(rows=1, cols=0)
 
-        # Style header row (columns A to M)
+        # Style header row (columns A to O): Light gray background, bold black text
         header_format = CellFormat(
-            backgroundColor=Color(0.12, 0.22, 0.35),  # Deep Navy #1F3859
-            textFormat=TextFormat(bold=True, foregroundColor=Color(1.0, 1.0, 1.0), fontSize=10),
+            backgroundColor=Color(0.95, 0.95, 0.95),  # Light Gray #F2F2F2
+            textFormat=TextFormat(bold=True, foregroundColor=Color(0.0, 0.0, 0.0), fontSize=10),
         )
-        format_cell_range(worksheet, "A1:M1", header_format)
+        format_cell_range(worksheet, "A1:O1", header_format)
 
         # Set column widths
         widths = {
@@ -205,24 +210,41 @@ def format_worksheet_headers(worksheet: gspread.Worksheet) -> None:
             11: 170, # Review status
             12: 150, # Mentor reviewer
             13: 180, # Mentor reviewed at
+            14: 170, # Moodle upload status
+            15: 190, # Moodle uploaded at
         }
         for col_idx, width in widths.items():
             try:
                 set_column_width(worksheet, str(col_idx), width)
             except Exception:
                 pass
+
+        # Row 1 (header) = 20px, rows 2+ (data) = 40px
+        total_rows = max(worksheet.row_count, 100)
+        try:
+            set_row_heights(worksheet, [("1:1", 20), (f"2:{total_rows}", 40)])
+        except Exception:
+            pass
+
+        # Set font size 8 for data rows (row 2+)
+        try:
+            format_cell_range(worksheet, f"A2:O{total_rows}", CellFormat(textFormat=TextFormat(fontSize=8)))
+        except Exception:
+            pass
     except Exception as fmt_err:
         logger.warning(f"Could not apply worksheet formatting: {fmt_err}")
 
 
 def ensure_worksheet_schema(worksheet: gspread.Worksheet) -> List[str]:
     """
-    Checks worksheet headers. If columns are missing or if it has the older 9-column
-    schema, upgrades row 1 to all 13 CANONICAL_COLUMNS and applies formatting.
+    Checks worksheet headers. If columns are missing or if it has an older
+    schema (e.g. 13 or 9 columns), upgrades row 1 to all CANONICAL_COLUMNS and applies formatting.
     """
     first_row = worksheet.row_values(1)
     if not first_row:
-        worksheet.update("A1:M1", [CANONICAL_COLUMNS])
+        if worksheet.col_count < len(CANONICAL_COLUMNS):
+            worksheet.add_cols(len(CANONICAL_COLUMNS) - worksheet.col_count)
+        worksheet.update("A1:O1", [CANONICAL_COLUMNS])
         format_worksheet_headers(worksheet)
         return CANONICAL_COLUMNS
 
@@ -230,9 +252,11 @@ def ensure_worksheet_schema(worksheet: gspread.Worksheet) -> List[str]:
     canonical_lower = [h.strip().lower() for h in CANONICAL_COLUMNS]
 
     if existing_lower != canonical_lower:
-        worksheet.update("A1:M1", [CANONICAL_COLUMNS])
+        if worksheet.col_count < len(CANONICAL_COLUMNS):
+            worksheet.add_cols(len(CANONICAL_COLUMNS) - worksheet.col_count)
+        worksheet.update("A1:O1", [CANONICAL_COLUMNS])
         format_worksheet_headers(worksheet)
-        logger.info(f"Upgraded worksheet '{worksheet.title}' headers to 13 canonical columns.")
+        logger.info(f"Upgraded worksheet '{worksheet.title}' headers to {len(CANONICAL_COLUMNS)} canonical columns.")
         return CANONICAL_COLUMNS
 
     return first_row
@@ -259,9 +283,9 @@ def get_or_create_activity_worksheet(
                 existing[0].update_title(clean_title)
                 ws = existing[0]
             else:
-                ws = spreadsheet.add_worksheet(title=clean_title, rows=500, cols=15)
+                ws = spreadsheet.add_worksheet(title=clean_title, rows=500, cols=18)
         else:
-            ws = spreadsheet.add_worksheet(title=clean_title, rows=500, cols=15)
+            ws = spreadsheet.add_worksheet(title=clean_title, rows=500, cols=18)
 
     ensure_worksheet_schema(ws)
     return ws
@@ -327,7 +351,9 @@ def sync_evaluations_to_registry(
 
     all_values = ws.get_all_values()
     if not all_values:
-        ws.update("A1:M1", [CANONICAL_COLUMNS])
+        if ws.col_count < len(CANONICAL_COLUMNS):
+            ws.add_cols(len(CANONICAL_COLUMNS) - ws.col_count)
+        ws.update("A1:O1", [CANONICAL_COLUMNS])
         all_values = [CANONICAL_COLUMNS]
 
     headers = [h.strip().lower() for h in all_values[0]]
@@ -402,6 +428,8 @@ def sync_evaluations_to_registry(
         review_status = rec.get("review_status") or "Pending Review"
         mentor_reviewer = rec.get("mentor_reviewer") or ""
         mentor_reviewed_at = rec.get("mentor_reviewed_at") or ""
+        upload_status = rec.get("moodle_upload_status") or ""
+        uploaded_at = rec.get("moodle_uploaded_at") or ""
 
         # If updating an existing row that already had a mentor review, preserve mentor's verdict
         if matched_row_idx and matched_row_idx - 1 < len(all_values):
@@ -416,6 +444,11 @@ def sync_evaluations_to_registry(
                     mentor_reviewer = ex_row[11].strip()
                 if len(ex_row) >= 13:
                     mentor_reviewed_at = ex_row[12].strip()
+            # Preserve existing Moodle upload status & timestamp
+            if len(ex_row) >= 14 and ex_row[13].strip():
+                upload_status = ex_row[13].strip()
+            if len(ex_row) >= 15 and ex_row[14].strip():
+                uploaded_at = ex_row[14].strip()
 
         row_data = [
             sanitize_sheet_cell_value(name),
@@ -431,10 +464,12 @@ def sync_evaluations_to_registry(
             sanitize_sheet_cell_value(review_status),
             sanitize_sheet_cell_value(mentor_reviewer),
             sanitize_sheet_cell_value(mentor_reviewed_at),
+            sanitize_sheet_cell_value(upload_status),
+            sanitize_sheet_cell_value(uploaded_at),
         ]
 
         if matched_row_idx:
-            range_name = f"A{matched_row_idx}:M{matched_row_idx}"
+            range_name = f"A{matched_row_idx}:O{matched_row_idx}"
             updates_to_perform.append({"range": range_name, "values": [row_data]})
             updated_count += 1
             logger.info(f"   🔄 [Registry]: Updating existing attempt {current_attempt} for '{name}' at row {matched_row_idx}.")
@@ -448,23 +483,40 @@ def sync_evaluations_to_registry(
             logger.info(f"   ➕ [Registry]: Appending new attempt {current_attempt} for '{name}'.")
 
     if updates_to_perform:
-        try:
-            ws.batch_update(updates_to_perform)
-            logger.info(f"Updated {len(updates_to_perform)} existing row(s) in tab '{ws.title}'.")
-        except Exception as up_err:
-            logger.error(f"Failed to execute batch update: {up_err}")
-            for u in updates_to_perform:
-                try:
-                    ws.update(u["range"], u["values"])
-                except Exception:
-                    pass
+        for attempt in range(3):
+            try:
+                ws.batch_update(updates_to_perform)
+                logger.info(f"Updated {len(updates_to_perform)} existing row(s) in tab '{ws.title}'.")
+                break
+            except Exception as up_err:
+                err_str = str(up_err).lower()
+                if ("429" in err_str or "quota" in err_str or "resource_exhausted" in err_str) and attempt < 2:
+                    wait_s = 2 ** (attempt + 1)
+                    logger.warning(f"⚠️ Google Sheets rate limit on batch_update (attempt {attempt + 1}/3) — waiting {wait_s}s...")
+                    time.sleep(wait_s)
+                elif attempt == 2:
+                    logger.error(f"Failed to execute batch update: {up_err}")
+                    for u in updates_to_perform:
+                        try:
+                            ws.update(u["range"], u["values"])
+                        except Exception:
+                            pass
 
     if rows_to_append:
-        try:
-            ws.append_rows(rows_to_append, value_input_option="USER_ENTERED")
-            logger.info(f"Appended {len(rows_to_append)} new row(s) in tab '{ws.title}'.")
-        except Exception as ap_err:
-            logger.error(f"Failed to append rows: {ap_err}")
+        for attempt in range(3):
+            try:
+                ws.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+                logger.info(f"Appended {len(rows_to_append)} new row(s) in tab '{ws.title}'.")
+                break
+            except Exception as ap_err:
+                err_str = str(ap_err).lower()
+                if ("429" in err_str or "quota" in err_str or "resource_exhausted" in err_str) and attempt < 2:
+                    wait_s = 2 ** (attempt + 1)
+                    logger.warning(f"⚠️ Google Sheets rate limit on append_rows (attempt {attempt + 1}/3) — waiting {wait_s}s...")
+                    time.sleep(wait_s)
+                else:
+                    logger.error(f"Failed to append rows: {ap_err}")
+                    break
 
     return {
         "activity": activity_name,
@@ -646,11 +698,25 @@ def fetch_activity_details_from_sheet(
             or ""
         ).strip()
 
+        activity_link = str(
+            r.get("Activity Link")
+            or r.get("Activity link")
+            or r.get("activity link")
+            or r.get("Activity URL")
+            or r.get("activity url")
+            or r.get("Link")
+            or r.get("link")
+            or r.get("URL")
+            or r.get("url")
+            or ""
+        ).strip()
+
         entry = {
             "activity_name": act_name,
             "instructions": instructions,
             "edge_cases": edge_cases,
             "guidelines": guidelines,
+            "activity_link": activity_link,
         }
         results[act_name] = entry
         results[act_name.lower()] = entry
@@ -673,6 +739,7 @@ def get_activity_instructions(
         "instructions": "",
         "edge_cases": "",
         "guidelines": "",
+        "activity_link": "",
     }
     if not activity_name:
         return empty_result
@@ -1041,6 +1108,8 @@ def update_mentor_review_in_sheet(
     if not target_row_idx:
         raise ValueError(f"Student '{student_name}' attempt {attempt_number} not found in tab '{activity_name}'.")
 
+    upload_status_col = col_map.get("moodle upload status", 14)
+
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # Update cells in Google Sheet with formula sanitization
@@ -1050,6 +1119,7 @@ def update_mentor_review_in_sheet(
         {"range": gspread.utils.rowcol_to_a1(target_row_idx, review_status_col), "values": [[sanitize_sheet_cell_value(review_status)]]},
         {"range": gspread.utils.rowcol_to_a1(target_row_idx, mentor_reviewer_col), "values": [[sanitize_sheet_cell_value(mentor_name)]]},
         {"range": gspread.utils.rowcol_to_a1(target_row_idx, mentor_reviewed_at_col), "values": [[sanitize_sheet_cell_value(now_iso)]]},
+        {"range": gspread.utils.rowcol_to_a1(target_row_idx, upload_status_col), "values": [[sanitize_sheet_cell_value("Pending Upload")]],}
     ]
 
     ws.batch_update(cells_to_update)
@@ -1153,11 +1223,11 @@ def batch_approve_pending_reviews(
         is_confident_pass = "pass" in g.lower() and "unsure" not in ag.lower()
 
         if is_pending and is_confident_pass:
-            # Batch update contiguous columns K to M (Review status, Mentor reviewer, Mentor reviewed at)
-            range_k_to_m = f"K{r_idx}:M{r_idx}"
+            # Batch update contiguous columns K to N (Review status, Mentor reviewer, Mentor reviewed at, Moodle upload status)
+            range_k_to_n = f"K{r_idx}:N{r_idx}"
             updates.append({
-                "range": range_k_to_m,
-                "values": [["Approved by Mentor", sanitize_sheet_cell_value(mentor_name), now_iso]]
+                "range": range_k_to_n,
+                "values": [["Approved by Mentor", sanitize_sheet_cell_value(mentor_name), now_iso, "Pending Upload"]]
             })
             approved_count += 1
             if sname:
@@ -1205,5 +1275,158 @@ def batch_approve_pending_reviews(
 
     return {
         "approved_count": approved_count,
+        "sheet_url": sheet_url,
+    }
+
+
+def stamp_moodle_upload_status(
+    activity_name: str,
+    uploaded_students: List[str],
+    uploaded_at: Optional[str] = None,
+    upload_status: str = "Uploaded",
+    drive_folder_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Batch-updates 'Moodle upload status' and 'Moodle uploaded at' in the central Google Sheet
+    for students whose grades and feedback were successfully pushed to Moodle.
+
+    Args:
+        activity_name: Name of the activity tab
+        uploaded_students: List of student names or normalized keys that were uploaded
+        uploaded_at: ISO UTC timestamp (defaults to current UTC time)
+        upload_status: Status label to record (defaults to 'Uploaded')
+        drive_folder_id: Optional Drive folder ID
+
+    Returns:
+        Dict summarizing stamped_count, total_requested, activity_name, uploaded_at, and sheet_url.
+    """
+    if not uploaded_students:
+        logger.info(f"No student names provided to stamp Moodle upload status for tab '{activity_name}'.")
+        return {
+            "stamped_count": 0,
+            "total_requested": 0,
+            "activity_name": activity_name,
+            "uploaded_at": None,
+            "sheet_url": None,
+        }
+
+    now_iso = uploaded_at or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    spreadsheet, sheet_url = get_or_create_registry_spreadsheet(drive_folder_id=drive_folder_id)
+    ws = get_or_create_activity_worksheet(spreadsheet, activity_name)
+    ensure_worksheet_schema(ws)
+
+    all_values = ws.get_all_values()
+    if not all_values or len(all_values) < 2:
+        logger.warning(f"Worksheet '{activity_name}' has no student data rows to stamp.")
+        return {
+            "stamped_count": 0,
+            "total_requested": len(uploaded_students),
+            "activity_name": activity_name,
+            "uploaded_at": now_iso,
+            "sheet_url": sheet_url,
+        }
+
+    headers = [h.strip().lower() for h in all_values[0]]
+    col_map = {h: idx + 1 for idx, h in enumerate(headers)}  # 1-indexed
+
+    name_col = col_map.get("name", 1)
+    attempt_col = col_map.get("attempt number", 6)
+    upload_status_col = col_map.get("moodle upload status", 14)
+    uploaded_at_col = col_map.get("moodle uploaded at", 15)
+
+    def _norm(val: Any) -> str:
+        if not val:
+            return ""
+        decomposed = unicodedata.normalize("NFKD", str(val)).lower()
+        return re.sub(r"[^a-z0-9]", "", decomposed)
+
+    # Normalize target uploaded student names
+    norm_uploaded = set()
+    for s in uploaded_students:
+        n = _norm(s)
+        if n:
+            norm_uploaded.add(n)
+
+    # Map each uploaded student to their highest attempt row in the worksheet
+    student_rows: Dict[str, Tuple[int, int]] = {}  # norm_name -> (highest_att_int, row_index)
+
+    for r_idx, row in enumerate(all_values[1:], start=2):
+        if not row:
+            continue
+        raw_name = row[name_col - 1].strip() if len(row) >= name_col else ""
+        if not raw_name:
+            continue
+        row_norm = _norm(raw_name)
+
+        att_str = row[attempt_col - 1].strip() if len(row) >= attempt_col else "1"
+        att_match = re.search(r"\d+", att_str)
+        att_int = int(att_match.group(0)) if att_match else 1
+
+        if row_norm in norm_uploaded:
+            if row_norm not in student_rows or att_int >= student_rows[row_norm][0]:
+                student_rows[row_norm] = (att_int, r_idx)
+        else:
+            # Substring match fallback for slight variations (e.g., "Aryan, Om" vs "Om Aryan")
+            for u in norm_uploaded:
+                if (len(u) >= 4 and len(row_norm) >= 4) and (u in row_norm or row_norm in u):
+                    if u not in student_rows or att_int >= student_rows[u][0]:
+                        student_rows[u] = (att_int, r_idx)
+                    break
+
+    updates = []
+    sanitized_status = sanitize_sheet_cell_value(upload_status)
+    sanitized_timestamp = sanitize_sheet_cell_value(now_iso)
+
+    for _, (_, target_row) in student_rows.items():
+        if uploaded_at_col == upload_status_col + 1:
+            start_cell = gspread.utils.rowcol_to_a1(target_row, upload_status_col)
+            end_cell = gspread.utils.rowcol_to_a1(target_row, uploaded_at_col)
+            updates.append({
+                "range": f"{start_cell}:{end_cell}",
+                "values": [[sanitized_status, sanitized_timestamp]],
+            })
+        else:
+            updates.append({
+                "range": gspread.utils.rowcol_to_a1(target_row, upload_status_col),
+                "values": [[sanitized_status]],
+            })
+            updates.append({
+                "range": gspread.utils.rowcol_to_a1(target_row, uploaded_at_col),
+                "values": [[sanitized_timestamp]],
+            })
+
+    stamped_count = len(student_rows)
+
+    if updates:
+        for attempt in range(3):
+            try:
+                ws.batch_update(updates)
+                logger.info(
+                    f"✅ [Moodle Upload Stamp]: Successfully stamped '{upload_status}' and timestamp '{now_iso}' "
+                    f"for {stamped_count}/{len(uploaded_students)} student row(s) in tab '{activity_name}'."
+                )
+                break
+            except Exception as batch_err:
+                err_str = str(batch_err).lower()
+                if ("429" in err_str or "quota" in err_str or "resource_exhausted" in err_str) and attempt < 2:
+                    wait_s = 2 ** (attempt + 1)
+                    logger.warning(
+                        f"⚠️ Sheets rate limit on upload stamp batch_update (attempt {attempt + 1}/3) — waiting {wait_s}s..."
+                    )
+                    time.sleep(wait_s)
+                elif attempt == 2:
+                    logger.error(f"Failed to batch update upload status: {batch_err}")
+                    for u in updates:
+                        try:
+                            ws.update(u["range"], u["values"])
+                        except Exception:
+                            pass
+
+    return {
+        "stamped_count": stamped_count,
+        "total_requested": len(uploaded_students),
+        "activity_name": activity_name,
+        "uploaded_at": now_iso,
         "sheet_url": sheet_url,
     }

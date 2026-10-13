@@ -125,7 +125,7 @@ def get_activities_overview() -> Dict[str, Any]:
             "Name", "Status", "Final Grade (Moodle)", "Grade", "Online text", "Media folder",
             "Attempt number", "Last modified", "Feedback comment",
             "Agent's checklist", "AI Initial Verdict", "Agent Grade", "Review status",
-            "Mentor reviewer", "Mentor reviewed at"
+            "Mentor reviewer", "Mentor reviewed at", "Moodle upload status", "Moodle uploaded at"
         ]:
             if col not in df.columns:
                 df[col] = ""
@@ -260,7 +260,7 @@ def get_activity_submissions(activity_name: str) -> Dict[str, Any]:
         "Name", "Status", "Final Grade (Moodle)", "Grade", "Online text", "Media folder",
         "Attempt number", "Last modified", "Feedback comment",
         "Agent's checklist", "AI Initial Verdict", "Agent Grade", "Review status",
-        "Mentor reviewer", "Mentor reviewed at"
+        "Mentor reviewer", "Mentor reviewed at", "Moodle upload status", "Moodle uploaded at"
     ]:
         if col not in df.columns:
             df[col] = ""
@@ -309,6 +309,8 @@ def get_activity_submissions(activity_name: str) -> Dict[str, Any]:
             review_status=str(row["Review status"]).strip(),
             mentor_reviewer=str(row.get("Mentor reviewer", "")).strip(),
             mentor_reviewed_at=str(row.get("Mentor reviewed at", "")).strip(),
+            moodle_upload_status=str(row.get("Moodle upload status", "")).strip(),
+            moodle_uploaded_at=str(row.get("Moodle uploaded at", "")).strip(),
         )
         submissions.append(sub.model_dump())
 

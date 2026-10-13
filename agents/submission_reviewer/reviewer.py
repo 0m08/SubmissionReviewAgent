@@ -1,6 +1,7 @@
 import io
 import os
 import json
+import time
 import base64
 from typing import List, Optional
 from PIL import Image
@@ -204,7 +205,7 @@ def _call_gpt_luna(
         return None
 
     print(f"  [REVIEWER LOG] Invoking {_PRIMARY_MODEL} (reasoning_effort={_PRIMARY_REASONING_EFFORT}, images={len(images)})...")
-    client = OpenAI(api_key=key)
+    client = OpenAI(api_key=key, max_retries=3, timeout=90.0)
     messages = _build_multimodal_messages(system_prompt, prompt_text, images)
 
     completion = client.beta.chat.completions.parse(
@@ -260,19 +261,32 @@ def _call_gemini_reviewer(
                 if vid_bytes:
                     contents.append(types.Part.from_bytes(data=vid_bytes, mime_type=mime_type))
 
-            response = client.models.generate_content(
-                model=target_model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    response_mime_type="application/json",
-                    response_schema=SubmissionReviewOutput,
-                    temperature=0.2,
-                )
-            )
-            if response.parsed:
+            response = None
+            for attempt in range(3):
+                try:
+                    response = client.models.generate_content(
+                        model=target_model,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_prompt,
+                            response_mime_type="application/json",
+                            response_schema=SubmissionReviewOutput,
+                            temperature=0.2,
+                        )
+                    )
+                    break
+                except Exception as genai_err:
+                    err_str = str(genai_err).lower()
+                    if ("429" in err_str or "resource_exhausted" in err_str or "quota" in err_str) and attempt < 2:
+                        sleep_s = 2 ** (attempt + 1)
+                        print(f"  [REVIEWER LOG] ⚠️ Gemini rate limit (attempt {attempt + 1}/3) — backing off {sleep_s}s...")
+                        time.sleep(sleep_s)
+                    else:
+                        raise genai_err
+
+            if response and response.parsed:
                 return response.parsed
-            elif response.text:
+            elif response and response.text:
                 return SubmissionReviewOutput(**json.loads(response.text))
         except Exception as e:
             print(f"  [REVIEWER LOG] google.genai error: {e}. Trying LangChain...")

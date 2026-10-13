@@ -21,7 +21,7 @@ import re
 import sys
 import unicodedata
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -155,13 +155,13 @@ def populate_worksheet_from_sheet_records(
     template_csv_path: str,
     output_csv_path: str,
     student_records: Dict[str, Dict[str, str]],
-) -> Tuple[int, int]:
+) -> Tuple[int, int, List[str]]:
     """
     Populates an existing Moodle grading worksheet with grades and feedback
     from the Google Sheet records.
 
     Returns:
-        (total_students_in_worksheet, matched_and_updated_count)
+        (total_students_in_worksheet, matched_and_updated_count, matched_student_names)
     """
     if not os.path.exists(template_csv_path):
         raise FileNotFoundError(f"Template CSV not found at {template_csv_path}")
@@ -179,6 +179,7 @@ def populate_worksheet_from_sheet_records(
 
     matched_count = 0
     total_students = len(rows)
+    matched_student_names: List[str] = []
 
     for row in rows:
         student_name = row.get("Full name") or row.get("Name") or ""
@@ -186,9 +187,16 @@ def populate_worksheet_from_sheet_records(
 
         record = student_records.get(norm_name)
         if not record:
-            # Fallback substring match
+            # Fallback substring or space-agnostic alphanumeric match
+            clean_s = re.sub(r"[^a-z0-9]", "", norm_name)
             for s_key, s_data in student_records.items():
-                if s_key in norm_name or norm_name in s_key:
+                clean_key = re.sub(r"[^a-z0-9]", "", s_key)
+                if (
+                    s_key in norm_name
+                    or norm_name in s_key
+                    or (clean_key and clean_key == clean_s)
+                    or (len(clean_key) >= 4 and len(clean_s) >= 4 and (clean_key in clean_s or clean_s in clean_key))
+                ):
                     record = s_data
                     break
 
@@ -196,6 +204,7 @@ def populate_worksheet_from_sheet_records(
             row["Grade"] = record["grade"]
             row["Feedback comments"] = record["feedback"]
             matched_count += 1
+            matched_student_names.append(record.get("name") or student_name)
 
     with open(output_csv_path, mode="w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
@@ -206,7 +215,7 @@ def populate_worksheet_from_sheet_records(
         f"📝 Populated grading worksheet: {output_csv_path} "
         f"({matched_count}/{total_students} students mapped)"
     )
-    return total_students, matched_count
+    return total_students, matched_count, matched_student_names
 
 
 async def run_moodle_upload_pipeline(
@@ -216,6 +225,7 @@ async def run_moodle_upload_pipeline(
     existing_csv_path: Optional[str] = None,
     only_mentor_reviewed: bool = False,
     config: Optional[MoodleConfig] = None,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> bool:
     """
     Executes the complete Moodle Gradebook Upload flow:
@@ -224,8 +234,22 @@ async def run_moodle_upload_pipeline(
     3. Populates grades and feedback comments.
     4. Uploads to Moodle via Playwright.
     """
+    target_link = assignment_url
+    if not target_link:
+        try:
+            from agents.submission_reviewer.central_sheet_manager import get_activity_instructions
+            details = get_activity_instructions(activity_name=activity_name, sheet_id_or_url=review_sheet_url)
+            link = details.get("activity_link", "").strip()
+            if link:
+                target_link = link if "action=grading" in link else (
+                    f"{link}&action=grading" if "?" in link else f"{link}?action=grading"
+                )
+                logger.info(f"🔗 [Action 2] Using Moodle Upload URL for '{activity_name}': {target_link}")
+        except Exception as link_err:
+            logger.warning(f"Could not fetch dynamic activity link from sheet for upload: {link_err}")
+
     cfg = config or MoodleConfig(
-        target_url=assignment_url or os.getenv("MOODLE_ASSIGNMENT_URL") or TARGET_URL
+        target_url=target_link or os.getenv("MOODLE_ASSIGNMENT_URL") or TARGET_URL
     )
     cfg.validate()
 
@@ -234,6 +258,11 @@ async def run_moodle_upload_pipeline(
     logger.info(f"   Target URL: {url}")
 
     # 1. Fetch records from Google Sheet tab
+    if progress_callback:
+        try:
+            progress_callback({"stage": "fetch"})
+        except Exception:
+            pass
     student_records = fetch_activity_grades_from_sheet(
         activity_name=activity_name,
         sheet_id_or_url=review_sheet_url,
@@ -241,8 +270,9 @@ async def run_moodle_upload_pipeline(
     )
 
     if not student_records:
-        logger.warning(f"No student grades found for '{activity_name}'. Nothing to upload.")
-        return False
+        msg = f"No approved student grades found for '{activity_name}' in Google Sheet."
+        logger.warning(f"{msg} Nothing to upload.")
+        raise ValueError(f"{msg} Please review and approve submissions before pushing to Moodle.")
 
     # 2. Prepare worksheet CSV
     os.makedirs(cfg.base_dir, exist_ok=True)
@@ -265,6 +295,11 @@ async def run_moodle_upload_pipeline(
             page = await context.new_page()
 
             # Navigate to grading page to check auth / download worksheet if needed
+            if progress_callback:
+                try:
+                    progress_callback({"stage": "auth"})
+                except Exception:
+                    pass
             logger.info("🔑 Checking Moodle session & authentication...")
             await page.goto(url, wait_until="networkidle", timeout=cfg.browser_timeout_ms)
 
@@ -307,6 +342,11 @@ async def run_moodle_upload_pipeline(
                 await page.goto(url, wait_until="networkidle", timeout=cfg.browser_timeout_ms)
 
             # If template CSV not provided locally, download fresh template directly from Moodle
+            if progress_callback:
+                try:
+                    progress_callback({"stage": "prep"})
+                except Exception:
+                    pass
             if not template_csv or not os.path.exists(template_csv):
                 logger.info("📥 Downloading fresh grading worksheet template from Moodle...")
                 downloaded_template = os.path.join(temp_dir, "template_grading_worksheet.csv")
@@ -337,13 +377,18 @@ async def run_moodle_upload_pipeline(
 
             # Populate template with Google Sheet records
             final_csv_to_upload = os.path.join(temp_dir, "populated_grading_worksheet.csv")
-            populate_worksheet_from_sheet_records(
+            _, _, matched_student_names = populate_worksheet_from_sheet_records(
                 template_csv_path=template_csv,
                 output_csv_path=final_csv_to_upload,
                 student_records=student_records,
             )
 
             # Upload back to Moodle
+            if progress_callback:
+                try:
+                    progress_callback({"stage": "upload"})
+                except Exception:
+                    pass
             logger.info("📤 Uploading populated worksheet back to Moodle...")
             success = await upload_grading_worksheet_to_moodle(
                 page=page,
@@ -354,6 +399,20 @@ async def run_moodle_upload_pipeline(
 
             if success:
                 logger.info(f"🎉 SUCCESS! Approved grades for '{activity_name}' published to Moodle Gradebook!")
+                if progress_callback:
+                    try:
+                        progress_callback({"stage": "stamp"})
+                    except Exception:
+                        pass
+                try:
+                    from agents.submission_reviewer.central_sheet_manager import stamp_moodle_upload_status
+                    await asyncio.to_thread(
+                        stamp_moodle_upload_status,
+                        activity_name=activity_name,
+                        uploaded_students=matched_student_names,
+                    )
+                except Exception as stamp_err:
+                    logger.warning(f"Could not stamp Moodle upload status in central sheet: {stamp_err}")
             else:
                 logger.error("❌ Moodle worksheet upload failed or confirmation was not verified.")
 

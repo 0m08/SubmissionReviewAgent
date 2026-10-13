@@ -13,6 +13,7 @@ Connects Moodle Ingestion with the Submission Reviewer Agent:
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import json
 import logging
@@ -22,7 +23,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from PIL import Image
@@ -258,6 +259,7 @@ def load_student_submission_assets(
             if ext in IMAGE_EXTENSIONS:
                 try:
                     img = Image.open(file_path)
+                    img.load()  # Force reading pixels into memory and close underlying file descriptor
                     if img.mode not in ("RGB", "L"):
                         img = img.convert("RGB")
                     images.append(img)
@@ -328,10 +330,13 @@ def evaluate_and_update_worksheet(
     activity_name: str = "System Identification",
     primary_model: Optional[str] = None,
     only_unmarked: bool = False,
+    concurrency: int = 10,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Evaluates submissions found in the assignment run folder and updates
     grading_worksheet.csv STRICTLY in-place for Grade and Feedback comments.
+    Supports concurrent evaluation across student submissions via ThreadPoolExecutor.
     """
     csv_path = os.path.join(assignment_folder, "grading_worksheet.csv")
     submissions_dir = os.path.join(assignment_folder, "Submissions")
@@ -375,7 +380,10 @@ def evaluate_and_update_worksheet(
     evaluation_summaries = []
     registry_records = []
 
-    for row in rows:
+    tasks_to_evaluate: List[Dict[str, Any]] = []
+    seen_student_keys: set = set()
+
+    for row_idx, row in enumerate(rows):
         identifier = row.get("Identifier", "")
         full_name = row.get("Full name", "")
         status = row.get("Status", "").strip()
@@ -402,18 +410,48 @@ def evaluate_and_update_worksheet(
             logger.info(f"⏭️ Skipping {full_name} ({identifier}) — already graded ({existing_grade}).")
             continue
 
-        logger.info(f"\n========================================================")
-        logger.info(f"🧑‍🎓 Evaluating Submission: {full_name} ({identifier})")
-        logger.info(f"   Status: {status}")
-        logger.info(f"========================================================")
+        # Prevent duplicate tasks if multiple rows exist for the same student
+        student_key = (identifier.strip().lower() or full_name.strip().lower())
+        if student_key in seen_student_keys:
+            logger.warning(f"⚠️ Duplicate row detected for {full_name} ({identifier}) — skipping duplicate evaluation.")
+            continue
+        seen_student_keys.add(student_key)
 
-        # Load media & online text
-        images, videos, local_online_text = load_student_submission_assets(student_folder) if student_folder else ([], [], "")
+        media_folder = (
+            student_drive_map.get(identifier.lower())
+            or student_drive_map.get(full_name.lower())
+            or run_drive_folder
+        )
+        last_modified = (row.get("Last modified (submission)") or row.get("Last modified") or "").strip()
+
+        tasks_to_evaluate.append({
+            "row_idx": row_idx,
+            "identifier": identifier,
+            "full_name": full_name,
+            "status": status,
+            "online_text_col": online_text_col,
+            "student_folder": student_folder,
+            "media_folder": media_folder,
+            "last_modified": last_modified,
+        })
+
+    total_tasks = len(tasks_to_evaluate)
+
+    def _evaluate_single_task(task_data: Dict[str, Any]) -> Dict[str, Any]:
+        identifier = task_data["identifier"]
+        full_name = task_data["full_name"]
+        status = task_data["status"]
+        student_folder = task_data["student_folder"]
+        online_text_col = task_data["online_text_col"]
+
+        logger.info(f"🧑‍🎓 Evaluating Submission: {full_name} ({identifier}) [Status: {status}]")
+
+        images, videos, local_online_text = (
+            load_student_submission_assets(student_folder) if student_folder else ([], [], "")
+        )
         combined_text = online_text_col or local_online_text
+        logger.info(f"   [{full_name}] 🖼️ Images: {len(images)} | 🎥 Videos: {len(videos)} | 📝 Text: '{combined_text[:50]}...'")
 
-        logger.info(f"   🖼️ Images: {len(images)} | 🎥 Videos: {len(videos)} | 📝 Text: '{combined_text[:50]}...'")
-
-        # Run AI Evaluation
         review_result: SubmissionReviewOutput = review_single_submission(
             activity_name=activity_name,
             activity_instructions=instructions_text,
@@ -426,24 +464,13 @@ def evaluate_and_update_worksheet(
             primary_model_choice=primary_model,
         )
 
-        # Normalize grade for Moodle "Fail   Pass" scale
-        # ("Pass" or "Fail")
         grade_str = review_result.agent_grade
-        if "pass" in grade_str.lower():
-            final_grade = "Pass"
-        else:
-            final_grade = "Fail"
-
+        final_grade = "Pass" if "pass" in grade_str.lower() else "Fail"
         feedback_comment = review_result.agent_comment.strip()
 
-        logger.info(f"   🎯 Final Grade: {final_grade} (Model raw: {grade_str})")
-        logger.info(f"   💬 Feedback Comment: {feedback_comment}")
+        logger.info(f"   🎯 [{full_name}] Final Grade: {final_grade} (Model raw: {grade_str})")
+        logger.info(f"   💬 [{full_name}] Feedback Comment: {feedback_comment}")
 
-        # STRICT CSV COLUMN UPDATE: ONLY 'Grade' and 'Feedback comments'
-        row["Grade"] = final_grade
-        row["Feedback comments"] = feedback_comment
-
-        evaluated_count += 1
         checklist_items_data = [
             {
                 "instruction_or_condition": item.instruction_or_condition,
@@ -453,33 +480,105 @@ def evaluate_and_update_worksheet(
             for item in review_result.checklist_evaluations
         ]
 
-        evaluation_summaries.append({
+        return {
+            "row_idx": task_data["row_idx"],
             "identifier": identifier,
             "full_name": full_name,
+            "status": status,
             "final_grade": final_grade,
             "raw_agent_grade": grade_str,
             "feedback_comments": feedback_comment,
             "checklist_count": len(review_result.checklist_evaluations),
             "checklist_evaluations": checklist_items_data,
+            "raw_checklist": review_result.checklist_evaluations,
+            "combined_text": combined_text,
+            "media_folder": task_data["media_folder"],
+            "last_modified": task_data["last_modified"],
+        }
+
+    completed_results: List[Dict[str, Any]] = []
+    failed_evaluations: List[Dict[str, Any]] = []
+
+    if total_tasks == 0:
+        logger.info("ℹ️ No submissions require evaluation.")
+    else:
+        effective_workers = max(1, min(concurrency, total_tasks))
+        logger.info(f"⚡ Starting review for {total_tasks} submission(s) with {effective_workers} concurrent worker(s)...")
+
+        if effective_workers > 1:
+            with ThreadPoolExecutor(max_workers=effective_workers) as executor:
+                future_to_task = {
+                    executor.submit(_evaluate_single_task, t): t
+                    for t in tasks_to_evaluate
+                }
+                for idx, future in enumerate(as_completed(future_to_task), start=1):
+                    t = future_to_task[future]
+                    try:
+                        res = future.result()
+                        completed_results.append(res)
+                        logger.info(f"   ✅ [{idx}/{total_tasks}] Completed: {res['full_name']} -> {res['final_grade']}")
+                        if progress_callback:
+                            try:
+                                progress_callback({"stage": "eval", "current": idx, "total": total_tasks})
+                            except Exception:
+                                pass
+                    except Exception as exc:
+                        logger.error(f"   ❌ [{idx}/{total_tasks}] Failed evaluation for {t['full_name']} ({t['identifier']}): {exc}", exc_info=True)
+                        failed_evaluations.append({
+                            "identifier": t["identifier"],
+                            "full_name": t["full_name"],
+                            "error": str(exc),
+                        })
+        else:
+            for idx, t in enumerate(tasks_to_evaluate, start=1):
+                try:
+                    res = _evaluate_single_task(t)
+                    completed_results.append(res)
+                    logger.info(f"   ✅ [{idx}/{total_tasks}] Completed: {res['full_name']} -> {res['final_grade']}")
+                    if progress_callback:
+                        try:
+                            progress_callback({"stage": "eval", "current": idx, "total": total_tasks})
+                        except Exception:
+                            pass
+                except Exception as exc:
+                    logger.error(f"   ❌ [{idx}/{total_tasks}] Failed evaluation for {t['full_name']} ({t['identifier']}): {exc}", exc_info=True)
+                    failed_evaluations.append({
+                        "identifier": t["identifier"],
+                        "full_name": t["full_name"],
+                        "error": str(exc),
+                    })
+
+    if failed_evaluations:
+        logger.warning(f"⚠️ {len(failed_evaluations)} student submission(s) encountered evaluation errors and will remain pending for manual review.")
+
+    # Sort results by original row_idx to ensure deterministic ordering
+    completed_results.sort(key=lambda r: r["row_idx"])
+
+    for res in completed_results:
+        row_idx = res["row_idx"]
+        rows[row_idx]["Grade"] = res["final_grade"]
+        rows[row_idx]["Feedback comments"] = res["feedback_comments"]
+        evaluated_count += 1
+
+        evaluation_summaries.append({
+            "identifier": res["identifier"],
+            "full_name": res["full_name"],
+            "final_grade": res["final_grade"],
+            "raw_agent_grade": res["raw_agent_grade"],
+            "feedback_comments": res["feedback_comments"],
+            "checklist_count": res["checklist_count"],
+            "checklist_evaluations": res["checklist_evaluations"],
         })
 
-        # Student Drive folder link & submission timestamp for registry
-        media_folder = (
-            student_drive_map.get(identifier.lower())
-            or student_drive_map.get(full_name.lower())
-            or run_drive_folder
-        )
-        last_modified = (row.get("Last modified (submission)") or row.get("Last modified") or "").strip()
-
         registry_records.append({
-            "name": full_name,
-            "status": status,
-            "grade": grade_str,
-            "online_text": combined_text,
-            "media_folder": media_folder,
-            "last_modified": last_modified,
-            "feedback_comment": feedback_comment,
-            "checklist_evaluations": review_result.checklist_evaluations,
+            "name": res["full_name"],
+            "status": res["status"],
+            "grade": res["raw_agent_grade"],
+            "online_text": res["combined_text"],
+            "media_folder": res["media_folder"],
+            "last_modified": res["last_modified"],
+            "feedback_comment": res["feedback_comments"],
+            "checklist_evaluations": res["raw_checklist"],
         })
 
     # Write back strictly to grading_worksheet.csv preserving existing schema
@@ -509,6 +608,11 @@ def evaluate_and_update_worksheet(
     # Synchronize to Central Google Sheet Registry
     registry_sync_result = None
     if registry_records:
+        if progress_callback:
+            try:
+                progress_callback({"stage": "sync"})
+            except Exception:
+                pass
         try:
             from agents.submission_reviewer.central_sheet_manager import sync_evaluations_to_registry
             logger.info(f"📊 Syncing {len(registry_records)} evaluation(s) to Central Google Sheet Registry...")
@@ -527,6 +631,8 @@ def evaluate_and_update_worksheet(
         "assignment_folder": assignment_folder,
         "csv_path": csv_path,
         "evaluated_count": evaluated_count,
+        "failed_count": len(failed_evaluations),
+        "failed_students": failed_evaluations,
         "evaluations": evaluation_summaries,
         "registry_sync": registry_sync_result,
     }
@@ -644,11 +750,18 @@ def run_review_pipeline(
     primary_model: Optional[str] = None,
     sync_to_drive: bool = True,
     upload_to_moodle: bool = False,
+    concurrency: int = 10,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Executes the review pipeline on an assignment run folder.
     If no assignment folder exists yet, automatically runs Moodle ingestion to create one.
     """
+    if progress_callback:
+        try:
+            progress_callback({"stage": "rules"})
+        except Exception:
+            pass
     target_folder = assignment_folder or find_latest_assignment_folder()
     if not target_folder:
         logger.info("ℹ️ No assignment folder found. Automatically running Moodle ingestion to create one...")
@@ -658,7 +771,7 @@ def run_review_pipeline(
         target_folder = ingestion_result.assignment_folder
         logger.info(f"✅ Ingestion created folder: {target_folder}")
 
-    logger.info(f"🚀 Starting Review Pipeline on: {target_folder}")
+    logger.info(f"🚀 Starting Review Pipeline on: {target_folder} (Concurrency: {concurrency} workers)")
 
     # 1. Fetch Knowledge: Primary source is Moodle Submission Review Sheet ('Activity Details' tab)
     instructions_text = ""
@@ -729,6 +842,8 @@ def run_review_pipeline(
         guidelines_text=guidelines_text,
         activity_name=activity_name,
         primary_model=primary_model,
+        concurrency=concurrency,
+        progress_callback=progress_callback,
     )
 
     # 3. Synchronize updated CSV back to Google Drive
@@ -785,11 +900,42 @@ def run_full_ingest_and_review(
     review_sheet: str = DEFAULT_REVIEW_SHEET_URL,
     primary_model: Optional[str] = None,
     upload_to_moodle: bool = False,
+    concurrency: int = 10,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Combined end-to-end: Ingests from Moodle -> Evaluates submissions -> Updates CSV -> Syncs to Drive -> Uploads to Moodle.
     """
+    if progress_callback:
+        try:
+            progress_callback({"stage": "auth"})
+        except Exception:
+            pass
+
     logger.info("🚀 Step 1: Ingesting latest submissions from Moodle...")
+    if progress_callback:
+        try:
+            progress_callback({"stage": "ingest"})
+        except Exception:
+            pass
+
+    if moodle_config is None or not moodle_config.target_url or moodle_config.target_url == TARGET_URL:
+        try:
+            from agents.submission_reviewer.central_sheet_manager import get_activity_instructions
+            details = get_activity_instructions(activity_name=activity_name, sheet_id_or_url=review_sheet)
+            link = details.get("activity_link", "").strip()
+            if link:
+                grading_url = link if "action=grading" in link else (
+                    f"{link}&action=grading" if "?" in link else f"{link}?action=grading"
+                )
+                if moodle_config is None:
+                    moodle_config = MoodleConfig(target_url=grading_url)
+                else:
+                    moodle_config.target_url = grading_url
+                logger.info(f"🔗 [Action 1] Using Moodle URL for '{activity_name}': {grading_url}")
+        except Exception as link_err:
+            logger.warning(f"Could not fetch dynamic activity link from sheet: {link_err}")
+
     ingestion_result = run_moodle_ingestion_sync(moodle_config)
 
     if not ingestion_result.success:
@@ -797,7 +943,7 @@ def run_full_ingest_and_review(
 
     logger.info(f"✅ Ingestion successful! Folder: {ingestion_result.assignment_folder}")
 
-    logger.info("🚀 Step 2: Running Submission Reviewer Agent on ingested files...")
+    logger.info(f"🚀 Step 2: Running Submission Reviewer Agent on ingested files with {concurrency} workers...")
     return run_review_pipeline(
         assignment_folder=ingestion_result.assignment_folder,
         instructions_doc=instructions_doc,
@@ -808,6 +954,8 @@ def run_full_ingest_and_review(
         primary_model=primary_model,
         sync_to_drive=True,
         upload_to_moodle=upload_to_moodle,
+        concurrency=concurrency,
+        progress_callback=progress_callback,
     )
 
 
@@ -872,6 +1020,13 @@ def main():
         help="LLM to use (defaults to reviewer.py configuration: gpt-5.6-luna or gemini for video).",
     )
     parser.add_argument(
+        "--concurrency",
+        "--max-workers",
+        type=int,
+        default=10,
+        help="Number of concurrent worker threads for student evaluations (defaults to 10).",
+    )
+    parser.add_argument(
         "--no-drive-sync",
         action="store_true",
         help="Skip syncing the updated CSV back to Google Drive.",
@@ -889,6 +1044,7 @@ def main():
                 review_sheet=args.review_sheet,
                 primary_model=args.model,
                 upload_to_moodle=args.upload_moodle,
+                concurrency=args.concurrency,
             )
         else:
             run_review_pipeline(
@@ -901,6 +1057,7 @@ def main():
                 primary_model=args.model,
                 sync_to_drive=not args.no_drive_sync,
                 upload_to_moodle=args.upload_moodle,
+                concurrency=args.concurrency,
             )
     except Exception as exc:
         logger.error(f"❌ Review runner failed: {exc}", exc_info=True)
