@@ -30,6 +30,7 @@ from PIL import Image
 
 from agents.submission_reviewer.Ingestion.ingestion import (
     BASE_DIR,
+    TARGET_URL,
     get_user_oauth_drive_service,
     run_moodle_ingestion_sync,
     MoodleConfig,
@@ -38,6 +39,12 @@ from agents.submission_reviewer.reviewer import review_single_submission
 from agents.submission_reviewer.schemas import SubmissionReviewOutput
 
 load_dotenv()
+
+DEFAULT_TARGET_URL = (
+    os.getenv("MOODLE_ASSIGNMENT_URL")
+    or TARGET_URL
+    or "https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading"
+)
 
 logger = logging.getLogger("moodle_review_runner")
 if not logger.handlers:
@@ -919,7 +926,8 @@ def run_full_ingest_and_review(
         except Exception:
             pass
 
-    if moodle_config is None or not moodle_config.target_url or moodle_config.target_url == TARGET_URL:
+    known_defaults = {u for u in [TARGET_URL, DEFAULT_TARGET_URL] if u}
+    if moodle_config is None or not moodle_config.target_url or moodle_config.target_url in known_defaults:
         try:
             from agents.submission_reviewer.central_sheet_manager import get_activity_instructions
             details = get_activity_instructions(activity_name=activity_name, sheet_id_or_url=review_sheet)
@@ -935,6 +943,11 @@ def run_full_ingest_and_review(
                 logger.info(f"🔗 [Action 1] Using Moodle URL for '{activity_name}': {grading_url}")
         except Exception as link_err:
             logger.warning(f"Could not fetch dynamic activity link from sheet: {link_err}")
+
+    if moodle_config is None:
+        moodle_config = MoodleConfig(target_url=DEFAULT_TARGET_URL)
+    elif not moodle_config.target_url:
+        moodle_config.target_url = DEFAULT_TARGET_URL
 
     ingestion_result = run_moodle_ingestion_sync(moodle_config)
 
@@ -988,7 +1001,7 @@ def run_all_activities_ingest_and_review(
         )
         activities = [{
             "activity_name": "System Identification",
-            "activity_link": TARGET_URL,
+            "activity_link": DEFAULT_TARGET_URL,
             "instructions": "",
             "edge_cases": "",
             "guidelines": "",

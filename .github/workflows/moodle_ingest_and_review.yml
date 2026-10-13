@@ -3,15 +3,15 @@ name: 1. Moodle Ingest & Submission Review Pipeline
 on:
   workflow_dispatch:
     inputs:
-      assignment_url:
-        description: "Moodle Assignment URL"
-        required: false
-        default: "https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading"
-        type: string
       activity_name:
         description: "Activity name to evaluate, or 'all' to process all activities from Activity Details tab"
         required: false
         default: "all"
+        type: string
+      assignment_url:
+        description: "Moodle Assignment URL (optional; only needed when processing a single activity not in sheet)"
+        required: false
+        default: ""
         type: string
       primary_model:
         description: "Primary LLM for evaluation"
@@ -25,21 +25,6 @@ on:
         description: "Moodle Submission Review Sheet URL"
         required: false
         default: "https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing"
-        type: string
-      instructions_doc:
-        description: "Optional fallback Google Doc ID/URL for Activity Instructions"
-        required: false
-        default: ""
-        type: string
-      guardrails_doc:
-        description: "Google Doc ID/URL for Guardrails"
-        required: false
-        default: "1_XTnq0HmCfLFNjJy_tUzj9a6-S5uEbaNGS0SupXDaeY"
-        type: string
-      edge_cases_doc:
-        description: "Google Doc ID/URL for Edge Cases & Guidelines (fallback)"
-        required: false
-        default: "1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U"
         type: string
       concurrency:
         description: "Concurrent worker threads for student AI reviews"
@@ -65,7 +50,7 @@ jobs:
       # Moodle Credentials
       MOODLE_USER: ${{ secrets.MOODLE_USER }}
       MOODLE_PASS: ${{ secrets.MOODLE_PASS }}
-      MOODLE_ASSIGNMENT_URL: ${{ github.event.inputs.assignment_url || secrets.MOODLE_ASSIGNMENT_URL || 'https://planning.guroo.app/mod/assign/view.php?id=11922&action=grading' }}
+      MOODLE_ASSIGNMENT_URL: ${{ github.event.inputs.assignment_url || secrets.MOODLE_ASSIGNMENT_URL || '' }}
 
       # Gmail IMAP Credentials for Adaptive MFA / OTP
       GMAIL_USER: ${{ secrets.GMAIL_USER }}
@@ -128,18 +113,6 @@ jobs:
           # Moodle Submission Review Sheet (Activity Details tab & target activity tab)
           REVIEW_SHEET="${{ github.event.inputs.review_sheet_url || 'https://docs.google.com/spreadsheets/d/1aP7Xdvoi4TTIT8K7X9j2wD0G6-YCnA7sEn-BiLDWWQU/edit?usp=sharing' }}"
           CMD="$CMD --review-sheet \"$REVIEW_SHEET\""
-
-          # Custom fallback docs
-          INSTRUCTIONS="${{ github.event.inputs.instructions_doc }}"
-          if [ -n "$INSTRUCTIONS" ]; then
-            CMD="$CMD --instructions-doc \"$INSTRUCTIONS\""
-          fi
-
-          GUARDRAILS="${{ github.event.inputs.guardrails_doc || '1_XTnq0HmCfLFNjJy_tUzj9a6-S5uEbaNGS0SupXDaeY' }}"
-          CMD="$CMD --guardrails-doc \"$GUARDRAILS\""
-
-          EDGE_CASES="${{ github.event.inputs.edge_cases_doc || '1jy1wUvKgcHPka3wpBV_J4rWoVBm3kfwcMy17HuJan9U' }}"
-          CMD="$CMD --edge-cases-doc \"$EDGE_CASES\""
 
           CONCURRENCY="${{ github.event.inputs.concurrency || '10' }}"
           CMD="$CMD --concurrency \"$CONCURRENCY\""
