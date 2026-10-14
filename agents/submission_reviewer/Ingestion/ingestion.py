@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import email
 import imaplib
 import json
@@ -314,8 +315,6 @@ def map_worksheet_to_submissions(
     """
     Parses grading_worksheet.csv and maps each student to extracted submission files and online text.
     """
-    import csv
-
     if not os.path.exists(csv_path):
         return []
 
@@ -449,7 +448,6 @@ def organize_assignment_run(
           student files...
       ingestion_manifest.json
     """
-    import shutil
 
     assignment_id = extract_assignment_id(target_url)
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -967,7 +965,6 @@ class MoodleSubmissionDownloader:
         # Copy session state into run folder for upload reuse
         if os.path.exists(session_file):
             try:
-                import shutil
                 shutil.copy2(session_file, os.path.join(run_info["run_folder_path"], ".moodle_session.json"))
             except Exception:
                 pass
