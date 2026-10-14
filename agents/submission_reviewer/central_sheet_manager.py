@@ -195,27 +195,10 @@ def format_worksheet_headers(worksheet: gspread.Worksheet) -> None:
         )
         format_cell_range(worksheet, "A1:O1", header_format)
 
-        # Set column widths
-        widths = {
-            1: 180,  # Name
-            2: 140,  # Status
-            3: 160,  # Final Grade (Moodle)
-            4: 250,  # Online text
-            5: 220,  # Media folder
-            6: 100,  # Attempt number
-            7: 170,  # Last modified
-            8: 300,  # Feedback comment
-            9: 380,  # Agent's checklist
-            10: 150, # AI Initial Verdict
-            11: 170, # Review status
-            12: 150, # Mentor reviewer
-            13: 180, # Mentor reviewed at
-            14: 170, # Moodle upload status
-            15: 190, # Moodle uploaded at
-        }
-        for col_idx, width in widths.items():
+        # Set column widths (default 150px)
+        for col_idx in range(1, len(CANONICAL_COLUMNS) + 1):
             try:
-                set_column_width(worksheet, str(col_idx), width)
+                set_column_width(worksheet, str(col_idx), 150)
             except Exception:
                 pass
 

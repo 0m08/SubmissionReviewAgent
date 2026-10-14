@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import time
 import zipfile
@@ -62,6 +63,11 @@ GMAIL_USER = os.getenv("GMAIL_USER") or os.getenv("SMTP_USER")
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS") or os.getenv("SMTP_APP_PASSWORD")
 
 
+def extract_assignment_id(url: str) -> str:
+    m = re.search(r'[?&]id=(\d+)', url)
+    return m.group(1) if m else "unknown"
+
+
 # ==============================================================================
 # CONFIGURATION & DATA STRUCTURES
 # ==============================================================================
@@ -88,14 +94,23 @@ class MoodleConfig:
 
     @property
     def extract_dir(self) -> str:
+        aid = extract_assignment_id(self.target_url) if self.target_url else ""
+        if aid and aid != "unknown":
+            return os.path.join(self.base_dir, f"{self.extract_dirname}_{aid}")
         return os.path.join(self.base_dir, self.extract_dirname)
 
     @property
     def zip_save_path(self) -> str:
+        aid = extract_assignment_id(self.target_url) if self.target_url else ""
+        if aid and aid != "unknown":
+            return os.path.join(self.base_dir, f"all_submissions_{aid}.zip")
         return os.path.join(self.base_dir, "all_submissions.zip")
 
     @property
     def csv_save_path(self) -> str:
+        aid = extract_assignment_id(self.target_url) if self.target_url else ""
+        if aid and aid != "unknown":
+            return os.path.join(self.base_dir, f"grading_worksheet_{aid}.csv")
         return os.path.join(self.base_dir, "grading_worksheet.csv")
 
     def validate(self) -> None:
@@ -334,10 +349,16 @@ def map_worksheet_to_submissions(
                 student_files: List[str] = []
                 for fpath in all_files:
                     path_str = fpath.lower()
-                    name_match = full_name and (full_name.lower() in path_str)
-                    id_match = id_digits and (id_digits in path_str)
 
-                    if name_match or id_match:
+                    if id_digits:
+                        # Match ID as an isolated token or preceding _assignsubmission to avoid cross-matching
+                        id_pattern = rf"(?:^|[_\s/\\\\]){re.escape(id_digits)}(?:_assignsubmission|[_\s/\\\\])"
+                        matched = bool(re.search(id_pattern, fpath, re.IGNORECASE))
+                    else:
+                        # Fallback to full name only when identifier has no digits
+                        matched = bool(full_name and full_name.lower() in path_str)
+
+                    if matched:
                         # If file is onlinetext.html, extract student's online text
                         if os.path.basename(fpath).lower() == "onlinetext.html":
                             try:
@@ -408,11 +429,6 @@ def get_user_oauth_drive_service():
     )
     creds.refresh(Request())
     return build("drive", "v3", credentials=creds, cache_discovery=False)
-
-
-def extract_assignment_id(url: str) -> str:
-    m = re.search(r'[?&]id=(\d+)', url)
-    return m.group(1) if m else "unknown"
 
 
 def organize_assignment_run(
@@ -676,7 +692,21 @@ class MoodleSubmissionDownloader:
         self.config.validate()
 
         os.makedirs(self.config.base_dir, exist_ok=True)
+        # Ensure fresh working state: clean leftover extracted files or stale zip/csv
+        if os.path.exists(self.config.extract_dir):
+            shutil.rmtree(self.config.extract_dir, ignore_errors=True)
         os.makedirs(self.config.extract_dir, exist_ok=True)
+
+        if os.path.exists(self.config.zip_save_path):
+            try:
+                os.remove(self.config.zip_save_path)
+            except OSError:
+                pass
+        if os.path.exists(self.config.csv_save_path):
+            try:
+                os.remove(self.config.csv_save_path)
+            except OSError:
+                pass
 
         parsed_target = urlparse(self.config.target_url)
         base_origin = f"{parsed_target.scheme}://{parsed_target.netloc}"
@@ -843,6 +873,9 @@ class MoodleSubmissionDownloader:
 
                     # Extract the zip
                     if has_submissions and os.path.exists(self.config.zip_save_path):
+                        if os.path.exists(self.config.extract_dir):
+                            shutil.rmtree(self.config.extract_dir, ignore_errors=True)
+                        os.makedirs(self.config.extract_dir, exist_ok=True)
                         logger.info(f"   📂 Unpacking files to: {self.config.extract_dir} ...")
                         with zipfile.ZipFile(self.config.zip_save_path, 'r') as zip_ref:
                             zip_ref.extractall(self.config.extract_dir)
@@ -926,6 +959,10 @@ class MoodleSubmissionDownloader:
             raw_csv_path=self.config.csv_save_path if has_worksheet else None,
             student_records=student_records,
         )
+
+        # Clean up temporary extract_dir so extracted files don't linger on disk
+        if os.path.exists(self.config.extract_dir):
+            shutil.rmtree(self.config.extract_dir, ignore_errors=True)
 
         # Copy session state into run folder for upload reuse
         if os.path.exists(session_file):

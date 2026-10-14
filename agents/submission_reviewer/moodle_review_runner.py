@@ -346,7 +346,11 @@ def find_student_folder(submissions_dir: str, full_name: str, identifier: str) -
         item_path = os.path.join(submissions_dir, item)
         if os.path.isdir(item_path):
             item_lower = item.lower()
-            if (norm_name and norm_name in item_lower) or (id_digits and id_digits in item_lower):
+            if id_digits:
+                # Require id_digits to match to avoid student name collisions across different participants
+                if id_digits in item:
+                    return item_path
+            elif norm_name and norm_name in item_lower:
                 return item_path
 
     return None
@@ -882,7 +886,7 @@ def run_review_pipeline(
     drive_csv_url = None
     if sync_to_drive:
         try:
-            drive_csv_url = sync_worksheet_to_drive(target_folder, drive_service=drive_service)
+            drive_csv_url = sync_worksheet_to_drive(target_folder)
             review_summary["drive_csv_url"] = drive_csv_url
         except Exception as drive_err:
             logger.error(f"❌ Failed to sync updated CSV to Google Drive: {drive_err}")
