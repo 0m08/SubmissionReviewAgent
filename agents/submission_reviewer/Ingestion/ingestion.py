@@ -23,8 +23,10 @@ import os
 import re
 import shutil
 import sys
+import threading
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -92,6 +94,7 @@ class MoodleConfig:
     upload_to_drive: bool = os.getenv("MOODLE_UPLOAD_TO_DRIVE", "true").lower() not in ("false", "0", "no")
     drive_folder_id: Optional[str] = os.getenv("MOODLE_DRIVE_FOLDER_ID")
     drive_folder_name: str = "Moodle_Automated_Downloads"
+    drive_upload_workers: int = int(os.getenv("MOODLE_DRIVE_UPLOAD_WORKERS", "10"))
 
     @property
     def extract_dir(self) -> str:
@@ -539,11 +542,22 @@ def organize_assignment_run(
     }
 
 
+_drive_thread_local = threading.local()
+
+
+def _get_thread_drive_service() -> Any:
+    """Returns a thread-local authenticated Google Drive v3 client."""
+    if not hasattr(_drive_thread_local, "service"):
+        _drive_thread_local.service = get_user_oauth_drive_service()
+    return _drive_thread_local.service
+
+
 def upload_submissions_to_user_drive(
     run_info: Dict[str, Any],
     student_records: List[StudentSubmissionRecord],
     target_folder_id: Optional[str] = None,
     target_folder_name: str = "Moodle_Automated_Downloads",
+    max_workers: int = 10,
 ) -> Dict[str, Any]:
     """
     Uploads the organized assignment run to Google Drive under om@skillcatapp.com:
@@ -596,18 +610,33 @@ def upload_submissions_to_user_drive(
     logger.info(f"📁 [Drive]: Created assignment folder: {run_folder_name} (ID: {run_folder_id})")
 
     uploaded_files: Dict[str, str] = {}
+    uploaded_files_lock = threading.Lock()
 
-    def _upload_file(local_path: str, parent_id: str, mime: Optional[str] = None) -> Optional[str]:
+    def _upload_file(local_path: str, parent_id: str, mime: Optional[str] = None, service=None) -> Optional[str]:
         if not local_path or not os.path.exists(local_path):
             return None
         fname = os.path.basename(local_path)
-        media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
-        file_meta = {'name': fname, 'parents': [parent_id]}
-        up_file = drive_service.files().create(body=file_meta, media_body=media, fields='id, webViewLink', supportsAllDrives=True).execute()
-        f_id = up_file.get('id', '')
-        uploaded_files[fname] = f_id
-        logger.info(f"   ☁️ Uploaded: {fname} (ID: {f_id})")
-        return up_file.get('webViewLink') or f"https://drive.google.com/file/d/{f_id}/view"
+        svc = service or drive_service
+        for attempt in range(4):
+            try:
+                media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
+                file_meta = {'name': fname, 'parents': [parent_id]}
+                up_file = svc.files().create(body=file_meta, media_body=media, fields='id, webViewLink', supportsAllDrives=True).execute()
+                f_id = up_file.get('id', '')
+                with uploaded_files_lock:
+                    uploaded_files[fname] = f_id
+                logger.info(f"   ☁️ Uploaded: {fname} (ID: {f_id})")
+                return up_file.get('webViewLink') or f"https://drive.google.com/file/d/{f_id}/view"
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(k in err_str for k in ("429", "rate", "quota", "503", "timeout", "connection reset")) and attempt < 3:
+                    wait_s = (2 ** attempt) + 0.5
+                    logger.warning(f"⚠️ Drive rate limit / transient error on {fname} (attempt {attempt+1}/4). Retrying in {wait_s:.1f}s: {e}")
+                    time.sleep(wait_s)
+                else:
+                    logger.error(f"❌ Failed to upload {fname} to Drive: {e}")
+                    return None
+        return None
 
     # Upload all_submissions.zip
     if run_info.get("zip_path"):
@@ -626,25 +655,58 @@ def upload_submissions_to_user_drive(
     sub_f = drive_service.files().create(body=submissions_meta, fields='id, webViewLink', supportsAllDrives=True).execute()
     sub_folder_id = sub_f['id']
 
-    # For each student with submissions
-    for student in student_records:
-        if student.has_submission and student.student_folder and os.path.exists(student.student_folder):
-            sf_name = os.path.basename(student.student_folder)
-            sf_meta = {
-                'name': sf_name,
-                'parents': [sub_folder_id],
-                'mimeType': 'application/vnd.google-apps.folder'
-            }
-            sf_obj = drive_service.files().create(body=sf_meta, fields='id, webViewLink', supportsAllDrives=True).execute()
-            sf_id = sf_obj['id']
-            student.drive_folder_url = sf_obj.get('webViewLink') or f"https://drive.google.com/drive/folders/{sf_id}"
+    def _upload_student(student: StudentSubmissionRecord) -> None:
+        if not (student.has_submission and student.student_folder and os.path.exists(student.student_folder)):
+            return
 
-            for item in os.listdir(student.student_folder):
-                item_path = os.path.join(student.student_folder, item)
-                if os.path.isfile(item_path):
-                    link = _upload_file(item_path, sf_id)
-                    if link:
-                        student.drive_file_urls.append(link)
+        thread_svc = _get_thread_drive_service()
+        sf_name = os.path.basename(student.student_folder)
+        sf_meta = {
+            'name': sf_name,
+            'parents': [sub_folder_id],
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+
+        sf_id = None
+        for attempt in range(4):
+            try:
+                sf_obj = thread_svc.files().create(body=sf_meta, fields='id, webViewLink', supportsAllDrives=True).execute()
+                sf_id = sf_obj['id']
+                student.drive_folder_url = sf_obj.get('webViewLink') or f"https://drive.google.com/drive/folders/{sf_id}"
+                break
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(k in err_str for k in ("429", "rate", "quota", "503", "timeout", "connection reset")) and attempt < 3:
+                    time.sleep(2 ** attempt + 0.5)
+                else:
+                    logger.error(f"❌ Failed to create Drive folder for {sf_name}: {e}")
+                    return
+
+        if not sf_id:
+            return
+
+        for item in sorted(os.listdir(student.student_folder)):
+            item_path = os.path.join(student.student_folder, item)
+            if os.path.isfile(item_path):
+                link = _upload_file(item_path, sf_id, service=thread_svc)
+                if link:
+                    student.drive_file_urls.append(link)
+
+    # For each student with submissions, upload concurrently
+    active_students = [
+        s for s in student_records
+        if s.has_submission and s.student_folder and os.path.exists(s.student_folder)
+    ]
+    if active_students:
+        pool_size = min(max_workers, len(active_students))
+        logger.info(f"⚡ [Drive]: Uploading {len(active_students)} student submissions concurrently with {pool_size} workers...")
+        with ThreadPoolExecutor(max_workers=pool_size) as executor:
+            futures = [executor.submit(_upload_student, s) for s in active_students]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.error(f"❌ Error during student submission upload: {exc}")
 
     # Re-save manifest with drive URLs and upload
     manifest_data = run_info["manifest_data"]
@@ -980,6 +1042,7 @@ class MoodleSubmissionDownloader:
                     student_records=student_records,
                     target_folder_id=self.config.drive_folder_id,
                     target_folder_name=self.config.drive_folder_name,
+                    max_workers=self.config.drive_upload_workers,
                 )
                 drive_folder_id = drive_info.get("folder_id")
                 drive_folder_url = drive_info.get("folder_url")
